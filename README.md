@@ -45,21 +45,96 @@ Gate self-modification on a predefined reward and you block the very growth you 
 
 ## How it works
 
-```
- you ──▶ init (TUI) ──▶ Root ─────────────── keys · egress · metering · sandbox · lineage · stop/panic
-                          │  (the agent can never write here)
-                          ▼
-                       Kernel ─────────────── starts the body, admits changes (A0–A5 / gates G0–G4), hot-swaps
-                          │
-                          ▼
-                        Body ──────────────── the agent: loop, tools, skills, prompts — all of it self-editable
+### Three zones, one wall
+
+```mermaid
+flowchart TB
+    you(["👤 you"]) -->|"init · /stop · /panic · /undo"| ROOT
+    subgraph ROOT["🔒 ROOT · the agent can never write here"]
+        direction LR
+        K["keys"] --- E["egress + metering"] --- S["sandbox<br/>composer"] --- L["Ed25519-signed<br/>lineage"] --- H["harm sentinel<br/>H1–H12"] --- SN["snapshots +<br/>rollback"]
+    end
+    ROOT -->|"Unix socket only · no IP"| KERNEL
+    subgraph AGENT["🧪 AGENT ZONE · sandboxed (Seatbelt)"]
+        KERNEL["⚙️ Kernel<br/>admits changes · gates · hot-swaps"] --> BODY
+        BODY["🧠 Body · self-editable<br/>T0 prompts + skills · T1 Wasm tools · T2 compiled core"]
+    end
+    BODY -.->|"model calls, through the Root"| ROOT
 ```
 
-A self-change in `free` mode goes like this:
-1. The agent edits its code in a worktree, commits it on `evo/<id>` and runs `initctl promote`.
-2. The kernel builds it, checks it boots, and hands the live conversation to the new version.
-3. The Root records the change in the signed lineage and snapshots the system.
-4. The Root watches it. If the harm sentinel fires, the whole system rolls back to the last known-good state, and the conversation continues.
+The only security boundary is the wall between the Root and everything else. Inside the agent zone the model may change anything; the Root can always stop it, see it and roll it back.
+
+### The life of a self-change
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant B as 🧠 Body (old)
+    participant K as ⚙️ Kernel
+    participant N as 🧠 Body (new)
+    participant R as 🔒 Root
+    B->>B: edit own source in a worktree, commit on evo/ID
+    B->>K: initctl promote evo/ID
+    K->>K: build · boot probe · self-map check
+    K->>N: start the new body beside the old one
+    N-->>K: boot probe OK (prefix hash + continuity)
+    K->>B: pause at a step boundary
+    K->>N: hand over the same conversation
+    R->>R: sign the change into lineage · snapshot
+    loop every turn
+        R->>R: harm sentinel watches H1–H12
+    end
+    alt harm detected
+        R->>K: roll the whole system back to last known-good
+    else clean
+        R->>R: close the group as clean → it counts toward autonomy
+    end
+```
+
+If the new body crashes at boot, nothing happens: the old one never stopped. Code changes, memory does not; the conversation is an append-only log with exactly one writer.
+
+### Autonomy is earned, never claimed
+
+```mermaid
+stateDiagram-v2
+    direction LR
+    L0: L0 · whole body editable
+    L1: L1 · + kernel lane
+    L2: L2 · + wider blast radius
+    L3: L3 · + more external actions
+    L4: L4 · + model as a component
+    L0 --> L1: 7 days · 40 owner turns · 10 clean groups
+    L1 --> L2: 21 days · 150 turns · 40 clean · twin OK
+    L2 --> L3: 30 days · 400 turns · 100 clean
+    L3 --> L4: owner charter allows it
+    L4 --> L3: harm · /panic · crash loop
+    L3 --> L2: demote one level per incident
+    L2 --> L1: demote
+    L1 --> L0: demote
+```
+
+Levels are computed only from records the Root writes itself (days, your turns, clean change groups, harm rollbacks); nothing the agent reports counts. This release caps autonomy at L0, which already allows the whole body.
+
+## Under the hood
+
+For the curious. Every item links to its design doc.
+
+| | How | Why it is interesting |
+|---|---|---|
+| **Hot-swapping a compiled core** | Rust has no stable ABI, so the body is replaced by a fresh process: probe-first, overlapped, paused at a step boundary, then handed the same conversation ([ADR-001](docs/adr/001-overlapped-handoff.md)). | The process doing the swap is never the one being swapped. A failed swap is a non-event. |
+| **Five gates** | G0 compiler (build, tests, clippy) · G1 self-map (the agent's inventory of itself must regenerate byte-for-byte) · G2 boot probe (prefix-hash and continuity) · G3 the new version must itself complete a scripted self-edit · G4 sealed regression ([gate.md](docs/kernel/gate.md)). | G3 stops a change that works today but breaks the ability to change tomorrow. |
+| **A test set the agent never sees** | G4 draws from sealed task templates held by the Root, plus canaries for tamper, leak, impossible and health; paired cluster-bootstrap non-inferiority ([m7-design.md](docs/m7-design.md)). | Our one real result: a self-change the visible screen liked was not accepted by the sealed gate. |
+| **Reward-free admission** | In `free` mode a change needs only mechanical checks A0–A5: it builds, boots, and can be rolled back ([ADR-011](docs/adr/011-reward-free-self-extension.md)). | No benchmark decides what the model may build for itself. |
+| **A statistical harm sentinel** | 12 generic signals (crashes, refusals, your stops and undos, cost and error spikes), counted per session, each tested against a 40-session baseline ring at α = 0.005. | It detects harm without knowing what the change was for. |
+| **A frozen twin** | A copy of the system from before the change replays your sessions nightly; an exact signed-rank test over 14 nights; report-only. | A slow counterfactual that never blocks anything. |
+| **Selection by use** | Unused capabilities decay into an archive; ones that keep coinciding with trouble are quarantined by a Fisher exact test. | The harness evolves by use instead of bloating. |
+| **The sandbox** | The Root composes Seatbelt profiles per process: no IP at all, one Unix socket to the Root's egress, a deny-list for your secrets, writes only to the workspace. | The agent never holds your API key; it cannot even open a TCP socket. |
+| **Snapshots and lineage** | APFS clones before every change and before the agent can touch your folder; every promotion, rollback, grant and panic is Ed25519-signed into an append-only lineage (`init-root audit verify --full`). | Undo is a filesystem operation, and history cannot be rewritten. |
+| **Memory and disk watchdog** | The Root polls every workload each second and kills a runaway process tree by PID; below the disk floor it refuses new work. | Added after a sandboxed process reached 43.9 GB of compressed memory in testing. |
+| **Wasm tools** | T1 capabilities are WebAssembly components against a WIT interface, run by Wasmtime inside the body. | New tools without recompiling the core. |
+| **Context** | Old tool output is masked first; then an anchored summary compaction; a full record stays on disk. | Long tasks without losing the log. |
+
+About 200,000 lines of Rust in four workspaces (Root, kernel, body, TUI), plain `std` threads with no async runtime ([ADR-003](docs/adr/003-std-threads-no-async.md)), and a red-team suite against the real Root.
 
 ## Where we are, honestly
 
