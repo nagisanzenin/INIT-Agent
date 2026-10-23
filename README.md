@@ -54,6 +54,43 @@ We do not know yet whether this produces better agents. With today's small model
 
 INIT is the scaffolding for that moment: everything open to the model except the off switch.
 
+## What this looks like
+
+### A thought experiment: the same frontier model, two harnesses
+
+Give a frontier model a three-week job: migrate a 2-million-line monorepo off an in-house build DSL.
+
+**In a fixed harness**, by day two the model sees the problems clearly:
+- `grep` cannot parse the DSL, so every search returns noise;
+- the context summarizer drops type signatures, so it re-reads the same 40 files every session;
+- the plan tool cannot express "these 300 edits must land together".
+
+It can describe all of this to you, and that is all it can do. The loop, the tools and the memory belong to the vendor. The fix ships when the vendor's roadmap says so, built by people who have never seen your DSL. Every session hits the same three walls. **The agent is capped by the imagination of the team that built the harness.**
+
+**In INIT**, the same model fixes its own walls on day two:
+- **T1:** it writes a Wasm tool that parses the DSL and calls it in the same session;
+- **T2:** it rewrites its own compaction to keep type signatures, and the kernel hot-swaps the new core into the running conversation;
+- **T0:** it adds an index of the hot files to `SELF.md`, its own map.
+
+In `free` mode, each change is admitted on mechanical checks, signed into the lineage and watched by the Root. On day four the new compaction coincides with a spike in tool errors. The harm sentinel fires, the Root rolls the whole system back, and the model tries a different approach. By week two the agent is working inside a harness shaped to *your* codebase, one that nobody at any vendor could have written. The tools it stopped using have decayed into the archive. **The agent is capped only by what can be undone.**
+
+| When the model… | A fixed harness | INIT |
+|---|---|---|
+| needs a tool that does not exist | asks you to wait for a release | writes it (T1) and uses it in the same session |
+| finds its memory loses what matters | works around it, every session | rewrites its compaction (T2), hot-swapped mid-task |
+| would do better delegating to a fresh context | cannot, unless the vendor shipped sub-agents | writes its own delegation tool (see below) |
+| gets smarter (a new model release) | runs on the same scaffolds, with the same ceiling | rewrites the scaffolds |
+| makes a bad change | (it could not make one) | the Root rolls it back and tells it why |
+
+### A real session (2026-10-24, deepseek-flash, a small model)
+
+INIT v0.2 does not ship sub-agents. We asked it for them anyway.
+- **It built them.** It wrote a `delegate` tool and a nested loop that runs a sub-task in a fresh context. The sub-task gets at most 8 turns and 24 tool calls and cannot delegate recursively. The main context receives only a summary, and the full record goes to disk. It reuses the cached head, so the sub-request still hits the prompt cache.
+- **It tested them.** It added the tool to its own registry, regenerated its self-map, re-blessed its golden tests and wrote a new test. 304 of its tests passed. The one failure was a timing-sensitive test that the agent attributed to machine load.
+- **Its own Root stopped it.** Before it could promote the change, free disk fell below the Root's floor, and the Root refused to start any new process, not even `git commit`. The agent explained exactly what was blocked and why, listed what it had done, and asked the owner how to proceed.
+
+That is the whole idea in one session: the model extends itself freely, and the thing that stops it is not a rule about what it may build. It is a mechanical guarantee that it cannot hurt the machine it runs on.
+
 ## The ideas
 
 1. **The model owns its harness.** The agent's body is a Rust crate it can read and change, in three tiers:
