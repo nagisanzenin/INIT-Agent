@@ -14,7 +14,7 @@ Install, daily use, spending, the safety model and the detailed status of v0.2. 
 ### Install
 
 ```sh
-curl -fsSL https://github.com/nagisanzenin/init/releases/latest/download/get.sh | sh
+curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh
 init
 ```
 

@@ -12,7 +12,7 @@
 INIT is a coding agent that can rewrite any part of itself (its prompts, its tools, its compiled Rust core) while it works. One small thing sits outside its reach: the **Root**, which holds your keys, the sandbox, a signed history of every change, and the power to roll it all back.
 
 ```sh
-curl -fsSL https://github.com/nagisanzenin/init/releases/latest/download/get.sh | sh
+curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh
 init        # first run: pick a provider, paste a key, pick a model
 ```
 

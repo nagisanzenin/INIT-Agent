@@ -2,12 +2,22 @@
 
 *2026-10-23. Current state for continuation. This section supersedes the historical 2026-10-22 handoff below.*
 
+## Plan after the 2026-10-26 quota reset (owner decision 2026-10-24)
+
+- **Sub-agents:** build the capability-carved process tree from `reports/Subagent cho INIT.md`.
+  - Root invariants: a capability subset, a budget carved from the parent's, depth and fan-out limits, cascade stop, a restart limit, the sender stamped on messages, and signed lineage.
+  - Default topology: 1 writer plus read-only scouts.
+  - Run it as 3–4 lanes: Root, kernel, body+TUI, and red-team. Target 2026-10-29/30.
+  - The Root part is ours. The policy (when and how to delegate) is left to the model, so see what INIT builds itself first (the owner was testing a self-built `delegate` tool on 2026-10-24).
+- **Running now:** LINUX (native Linux and a Linux bundle, in local Docker at $0) and TUI-UX (collapsible tool activity, cache % in the status bar).
+- **Show HN gate:** Linux, Anthropic/OpenAI live, a strong-model self-extension demo, an upgrade command, and a clear answer on spend.
+
 ## 2026-10-24 release (Claude)
 
-- **v0.2.0-preview is PUBLIC** at https://github.com/nagisanzenin/init, released as the GitHub release `v0.2.0-preview`, marked latest. It was published as one clean commit with the noreply author.
+- **v0.2.0-preview is PUBLIC** at https://github.com/nagisanzenin/INIT-Agent, released as the GitHub release `v0.2.0-preview`, marked latest. It was published as one clean commit with the noreply author.
   - It leaves out `build/real-artifacts`, `build/slice1-artifacts` and `build/ci`.
-  - This private repo (INIT-Agent) keeps the full history. Port fixes to the public repo by exporting.
-- **Install:** `curl -fsSL https://github.com/nagisanzenin/init/releases/latest/download/get.sh | sh`, then `init` (first-run setup).
+  - This private repo (INIT-Agent-dev) keeps the full history. Port fixes to the public repo by exporting.
+- **Install:** `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh`, then `init` (first-run setup).
 - **Verified:**
   - Full CI on macOS: 1,807 passing. The `kernel-selfmap` s08/s09/s12 failures are a known load flake and pass alone.
   - A no-Rust bundle install takes about 30 s.
@@ -144,7 +154,7 @@ The sections below record the 2026-10-22 STOPPED state and are retained only as 
   - `~/.init` and `~/.init-root` are intact. That install predates the MEM-RUNAWAY fix.
   - To restore it, take the plist back out of the Trash, then
     `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/dev.init.root.plist`. Only do this if the owner asks.
-- **The repo is in sync with `origin/main`** (private: nagisanzenin/INIT-Agent). It is clean apart from three
+- **The repo is in sync with `origin/main`** (private: nagisanzenin/INIT-Agent-dev). It is clean apart from three
   untracked paths: `build/ci/v011-run1.log`, `build/real-artifacts/m7/mock/` and a research_notes folder.
 - **Start with these:** this file, then `reports/INIT proof sprint verdict.md` (the verdict, with the evolution test at
   the end), then `docs/adr/011-reward-free-self-extension.md` (the current design).
