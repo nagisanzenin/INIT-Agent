@@ -1,6 +1,7 @@
 # INIT
 
-**An agent harness built to grow with the model, not to cap it.**
+**An agent harness that rebuilds itself as it codes.**
+Built to grow with the model, not to cap it.
 
 INIT is a coding agent that can rewrite any part of itself: its prompts, its skills, its tools, even its compiled core. Around it sits one thing it can never change, the **Root**. The Root holds your keys, the sandbox and a signed record of every change, and it can always roll the agent back.
 
@@ -50,16 +51,12 @@ Gate self-modification on a predefined reward and you block the very growth you 
 ```mermaid
 flowchart TB
     you(["👤 you"]) -->|"init · /stop · /panic · /undo"| ROOT
-    subgraph ROOT["🔒 ROOT · the agent can never write here"]
-        direction LR
-        K["keys"] --- E["egress + metering"] --- S["sandbox<br/>composer"] --- L["Ed25519-signed<br/>lineage"] --- H["harm sentinel<br/>H1–H12"] --- SN["snapshots +<br/>rollback"]
+    ROOT["🔒 <b>ROOT</b> · the agent can never write here<br/>keys · egress + metering · sandbox composer<br/>Ed25519-signed lineage · harm sentinel H1–H12<br/>snapshots + rollback · stop / panic"]
+    ROOT ==>|"Unix socket only · no IP"| KERNEL
+    subgraph AGENT["🧪 AGENT ZONE · sandboxed, self-editable"]
+        KERNEL["⚙️ <b>Kernel</b><br/>admits changes · gates · hot-swaps"] --> BODY["🧠 <b>Body</b><br/>T0 prompts + skills<br/>T1 Wasm tools<br/>T2 compiled core"]
     end
-    ROOT -->|"Unix socket only · no IP"| KERNEL
-    subgraph AGENT["🧪 AGENT ZONE · sandboxed (Seatbelt)"]
-        KERNEL["⚙️ Kernel<br/>admits changes · gates · hot-swaps"] --> BODY
-        BODY["🧠 Body · self-editable<br/>T0 prompts + skills · T1 Wasm tools · T2 compiled core"]
-    end
-    BODY -.->|"model calls, through the Root"| ROOT
+    BODY -.->|"model calls go through the Root"| ROOT
 ```
 
 The only security boundary is the wall between the Root and everything else. Inside the agent zone the model may change anything; the Root can always stop it, see it and roll it back.
