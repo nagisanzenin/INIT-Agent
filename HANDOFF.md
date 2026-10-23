@@ -2,6 +2,19 @@
 
 *2026-10-23. Current state for continuation. This section supersedes the historical 2026-10-22 handoff below.*
 
+## 2026-10-24 release (Claude)
+
+- **v0.2.0-preview is PUBLIC** at https://github.com/nagisanzenin/init, released as the GitHub release `v0.2.0-preview`, marked latest. It was published as one clean commit with the noreply author.
+  - It leaves out `build/real-artifacts`, `build/slice1-artifacts` and `build/ci`.
+  - This private repo (INIT-Agent) keeps the full history. Port fixes to the public repo by exporting.
+- **Install:** `curl -fsSL https://github.com/nagisanzenin/init/releases/latest/download/get.sh | sh`, then `init` (first-run setup).
+- **Verified:**
+  - Full CI on macOS: 1,807 passing. The `kernel-selfmap` s08/s09/s12 failures are a known load flake and pass alone.
+  - A no-Rust bundle install takes about 30 s.
+  - A live DeepSeek turn worked ($0.002).
+  - The public download and checksum work.
+- **License** Apache-2.0. **Money policy:** observe-only, by owner decision, and it covers the sealed G4/audit lanes too.
+
 ## 2026-10-23 evening update (Claude)
 
 - **macOS CI is green at `107555d`.** The full `ci/local.sh` ran on Codex's `a3ffffb`. Four real failures were fixed:

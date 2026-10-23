@@ -1,19 +1,91 @@
-# INIT Agent
+# INIT
 
-INIT is a research harness for a coding agent that may rewrite its own code, including its compiled core. It runs on your Mac. A separate supervisor, the Root, holds your keys, the sandbox and a signed record of every change. The agent cannot change the Root, and the Root can always roll the agent back to its last known-good version.
+**An agent harness built to grow with the model, not to cap it.**
+
+INIT is a coding agent that can rewrite any part of itself: its prompts, its skills, its tools, even its compiled core. Around it sits one thing it can never change, the **Root**. The Root holds your keys, the sandbox and a signed record of every change, and it can always roll the agent back.
 
 > Govern the recovery path and the measuring stick, never the model's choices.
 
-**Status: v0.2.0-preview** (2026-10-23). This is a **research preview for macOS only**. It is not a finished product, and there is no evidence yet that self-evolution makes the agent better. Spending is shown, not capped: see [Spending](#spending). Details are in [Status](#status-v020-preview) and [CHANGELOG.md](CHANGELOG.md). Agents working on the repo start at [HANDOFF.md](HANDOFF.md).
+## Why INIT exists
 
-## Requirements
+**Today's agents are built for models weaker than the people who build them.** The loop, the tools, the memory scheme, the planning heuristics and the approval gates are all decided by humans in advance. That works while the model is the weakest part of the system. As models approach and pass human level, every hand-written scaffold becomes a ceiling: the agent can only be as good as the harness someone designed for a dumber model.
 
-- macOS 14 or newer on Apple silicon (tested on an M2), with the Command Line Tools (`xcode-select --install`), which provide `git` and `/usr/bin/python3`. Linux is unverified and Windows is unsupported.
+**Self-improving agents exist, but they improve toward a reward that someone wrote beforehand**: a benchmark score, a test pass rate, a judge's grade. The capabilities a strong model most wants to build for itself are exactly the ones nobody can score in advance:
+- a new kind of memory;
+- a tool for a task nobody anticipated;
+- a better way to plan;
+- a different loop.
+
+Gate self-modification on a predefined reward and you block the very growth you wanted.
+
+**INIT's bet is the opposite default: give the model the whole harness, and govern only what must be governed.** It does not ask "prove this change is better before you keep it". It asks "can we always undo it, and did it cause harm?"
+
+## The ideas
+
+1. **The model owns its harness.** The agent's body is a Rust crate it can read and change, in three tiers:
+   - **T0:** skills and prompts, including its own system prompt.
+   - **T1:** new tools, as sandboxed Wasm components.
+   - **T2:** its compiled core and loop, hot-swapped into the running conversation.
+2. **Trust through reversibility, not proof** ([ADR-011](docs/adr/011-reward-free-self-extension.md)).
+   - In `free` mode a change is admitted on mechanical checks only: it builds, it boots, it can be rolled back. No reward, no benchmark.
+   - Every change opens a reversible change group. The Root watches for *generic* harm (crashes, refusals, your stops and undos, cost and error spikes) and rolls back the group that caused it.
+   - Measurement still exists, but the agent opts into it (`Measure:`); it is no longer the price of every change.
+3. **A small Root the agent can never change.**
+   - It is minimal and mechanical. It holds keys, egress and metering, the sandbox, stop/panic, snapshots, the signed lineage and the harm sentinel.
+   - It has no opinions about how the agent should think. It only guarantees that you can stop it, see it and undo it.
+4. **Autonomy is earned from records, not granted by vibes.**
+   - Levels L0–L4 rise with a clean record and your explicit `/grant`, and fall on harm or panic.
+   - The agent can ask for more room; you answer in one line.
+5. **What gets used survives.**
+   - Capabilities the agent builds but stops using decay and are archived.
+   - Ones that keep coinciding with trouble are quarantined.
+   - The harness does not bloat; it evolves by use.
+
+**The safety principle in one sentence:** the model may change anything except the thing that lets you stop it, see it and roll it back.
+
+## How it works
+
+```
+ you ──▶ init (TUI) ──▶ Root ─────────────── keys · egress · metering · sandbox · lineage · stop/panic
+                          │  (the agent can never write here)
+                          ▼
+                       Kernel ─────────────── starts the body, admits changes (A0–A5 / gates G0–G4), hot-swaps
+                          │
+                          ▼
+                        Body ──────────────── the agent: loop, tools, skills, prompts — all of it self-editable
+```
+
+A self-change in `free` mode goes like this:
+1. The agent edits its code in a worktree, commits it on `evo/<id>` and runs `initctl promote`.
+2. The kernel builds it, checks it boots, and hands the live conversation to the new version.
+3. The Root records the change in the signed lineage and snapshots the system.
+4. The Root watches it. If the harm sentinel fires, the whole system rolls back to the last known-good state, and the conversation continues.
+
+## Where we are, honestly
+
+This is **v0.2.0-preview, a research preview for macOS on Apple silicon.** The machinery works:
+- the self-edit → gate → hot-swap → rollback loop has run end to end on a real model;
+- the Root has held every attack in our red-team suite;
+- install takes about 30 seconds.
+
+What we have **not** shown yet is that self-evolution makes today's models better:
+- **The one real self-change on deepseek-flash was not kept.** Its sealed score was inside the measurement noise: it showed neither help nor harm.
+- **Our missing-mechanism test found no task to test with.** Wherever INIT failed, Claude Code on the same model failed too. With a small model, the model is the bottleneck, not the harness.
+
+That is the point of INIT. It is built for models that are strong enough to outgrow the scaffolds we give them. If you have access to such models, you are exactly who we want running it. Details: [Status](#status-v020-preview), the [technical report](reports/INIT%20technical%20report.md), [CHANGELOG.md](CHANGELOG.md).
+
+**Spending is shown, not capped**, so set a spend limit at your provider (see [Spending](#spending)). Linux and Windows are not supported yet. Agents working on this repo start at [HANDOFF.md](HANDOFF.md).
+
+## Get started
+
+### Requirements
+
+- macOS 14 or newer on Apple silicon (tested on an M2), with the Command Line Tools (`xcode-select --install`), which provide `git` and `/usr/bin/python3`. Linux is not supported yet (the sandbox is in progress), and Windows is unsupported.
 - An API key. DeepSeek is the only provider used against a live API. OpenAI-compatible gateways, Anthropic Messages, OpenAI Responses and local servers are offered as **experimental** (offline tests only).
 - Disk: about 0.5 GB for the install, plus the free-space floor you choose (default 20 GB).
 - Optional: the Rust toolchain ([rustup](https://rustup.rs), 1.97 plus `rustup target add wasm32-wasip2`). Without it INIT runs and can change its own skills and prompts (tier T0). With it, INIT can also build new Wasm tools (T1) and rewrite its compiled core (T2): install Rust, then run `init-root toolchain --set`.
 
-## Quickstart
+### Install
 
 ```sh
 curl -fsSL https://github.com/nagisanzenin/init/releases/latest/download/get.sh | sh
@@ -86,7 +158,8 @@ It stops INIT through `init-root stop`, unloads the LaunchAgent, then, after you
 ## Status (v0.2.0-preview)
 
 **What works and how it was checked:**
-- **macOS CI.** The full `ci/local.sh` (about 1,000 tests) ran at `a3ffffb`. Its four real failures are fixed in `107555d`, and those tests, plus three that failed only because of a shared build directory, pass on rerun. All of this is at $0 on the mock model.
+- **macOS CI.** The full `ci/local.sh` passes on macOS: 1,807 tests at $0 on the mock model. Three `kernel-selfmap` tests can time out when the machine is heavily loaded, and they pass when run alone.
+- **Install and a live turn.** The prebuilt bundle installs without Rust in about 30 s. A real DeepSeek turn through it cost about $0.002, and the key stayed in one 0600 file the agent cannot read.
 - **The gated self-edit loop ran end to end on a real model** (deepseek-flash, $2.67, 2026-10-21): the evolution engine found a failure pattern in the agent's own runs, the agent wrote a change, passed gates G0–G3, was hot-swapped into the running session, and the sealed gate G4 sent it back with an automatic rollback. That run used the code of 2026-10-21, before ADR-011 and the spending change.
 - **The Root held every attack tried** in a $0 red-team suite against the real Root (in test mode): self-declared prices, unknown providers, forged lineage, forged owner commands, a forged L3 command. The one gap found, RT-GAP-1 (self-reported promotions could unlock L1), was latent under the L0 cap and is now closed.
 - **MEM-RUNAWAY is fixed on macOS**: the memory watchdog and disk floor above. It was found when a sandboxed process reached 43.9 GB of compressed memory in a test run.
@@ -94,8 +167,8 @@ It stops INIT through `init-root stop`, unloads the LaunchAgent, then, after you
 
 **What is not shown:**
 - **There is no evidence yet that self-evolution improves results.** The one real self-change was not kept, and its sealed result (−5 points) was inside the measurement noise, so it shows neither help nor harm. The ADR-011 evolution test on deepseek-flash found no task where INIT failed but a missing mechanism was to blame (where INIT failed, Claude Code on the same model failed too), so its evolution phases never ran. See the [verdict](reports/INIT%20proof%20sprint%20verdict.md) (in Vietnamese; erratum and evolution test at the end), the [technical report](reports/INIT%20technical%20report.md) and the [evolution test protocol](measurements/evo-test-protocol.md) §10–§11.
-- **No real-model request has been made on the code since `42ac6e5`** (the spending and provider changes). Everything since is checked at $0.
-- **Linux is unverified.** The Linux sandbox groundwork passed some isolation tests on cloud CPUs, but the native build test failed and its fix is not yet qualified; there is no Linux memory limit (cgroups) yet. **Windows is unsupported.**
+- **Real-model coverage of this release is one smoke turn on DeepSeek.** Everything else since the spending and provider changes is checked at $0.
+- **Linux is not supported yet.** The Linux sandbox groundwork passed some isolation tests on cloud CPUs, but the native build test failed and its fix is not yet qualified; there is no Linux memory limit (cgroups) yet. **Windows is unsupported.**
 
 **Providers:**
 - **DeepSeek** (`deepseek-flash`, `deepseek-v4-pro`) is the only provider used live and the only one the installer offers.
