@@ -1,25 +1,58 @@
-# INIT
+```text
+ ██╗███╗   ██╗██╗████████╗
+ ██║████╗  ██║██║╚══██╔══╝
+ ██║██╔██╗ ██║██║   ██║
+ ██║██║╚██╗██║██║   ██║
+ ██║██║ ╚████║██║   ██║
+ ╚═╝╚═╝  ╚═══╝╚═╝   ╚═╝
+```
 
 **An agent harness that rebuilds itself as it codes.**
 Built to grow with the model, not to cap it.
 
 INIT is a coding agent that can rewrite any part of itself: its prompts, its skills, its tools, even its compiled core. Around it sits one thing it can never change, the **Root**. The Root holds your keys, the sandbox and a signed record of every change, and it can always roll the agent back.
 
-> Govern the recovery path and the measuring stick, never the model's choices.
-
 ## Why INIT exists
 
-**Today's agents are built for models weaker than the people who build them.** The loop, the tools, the memory scheme, the planning heuristics and the approval gates are all decided by humans in advance. That works while the model is the weakest part of the system. As models approach and pass human level, every hand-written scaffold becomes a ceiling: the agent can only be as good as the harness someone designed for a dumber model.
+### The bitter lesson, one level up
 
-**Self-improving agents exist, but they improve toward a reward that someone wrote beforehand**: a benchmark score, a test pass rate, a judge's grade. The capabilities a strong model most wants to build for itself are exactly the ones nobody can score in advance:
+Seventy years of AI research taught one lesson again and again: methods that lean on general learning and computation beat methods built on human cleverness. Hand-crafted features lost to learned ones; hand-written rules lost to search.
+
+**Agent harnesses are the hand-crafted features of this era.** The loop, the tools, the memory scheme, the planner and the approval prompts are all designed by people, for models that were weaker than those people. That trade made sense while the model was the weakest part of the system. It stops making sense once the model is not. Then every scaffold we wrote becomes a ceiling, and the agent can only be as good as a harness designed for a dumber mind.
+
+So who should design the harness of a mind that is smarter than its designers? INIT's answer: the mind itself.
+
+### You cannot write the reward for what you did not foresee
+
+Self-improving agents already exist. Almost all of them improve toward a reward that someone wrote beforehand: a benchmark score, a test pass rate, a judge's grade. That works for the improvements you can imagine in advance. The most valuable ones are the ones you can't:
 - a new kind of memory;
 - a tool for a task nobody anticipated;
-- a better way to plan;
-- a different loop.
+- a different way to plan;
+- a loop shaped like nothing we would have designed.
 
-Gate self-modification on a predefined reward and you block the very growth you wanted.
+None of these has a score you can write down before it exists. A fixed reward also gets gamed: when a measure becomes the target, it stops being a good measure. Gating every self-change on a predefined reward blocks exactly the growth you wanted, and it rewards the agent for pleasing the metric instead.
 
-**INIT's bet is the opposite default: give the model the whole harness, and govern only what must be governed.** It does not ask "prove this change is better before you keep it". It asks "can we always undo it, and did it cause harm?"
+### Trust with an undo button
+
+We already know how to work with minds we cannot fully verify. We do it with every engineer we hire. Nobody asks them to prove that a commit makes the product better before they may merge it. We give them version control, a way to roll back, an audit trail, and the power to stop the line. Then we judge them by what actually happens.
+
+INIT does the same for the model. It does not ask "prove this change is better before you keep it". It asks only two questions:
+1. **Can we always undo it?**
+2. **Did it cause harm?**
+
+Everything else is the model's choice.
+
+### The one thing it can never touch
+
+Total freedom needs one fixed point. In INIT that is the **Root**. It is a small, mechanical supervisor with no opinions about how the agent should think. It holds the keys, the sandbox, the meter, the signed history, the off switch and the rollback. The model may rewrite its prompts, tools, loop and compiled core. It may never rewrite the thing that lets you stop it, see it and roll it back.
+
+> Govern the recovery path and the measuring stick, never the model's choices.
+
+### An experiment, not a promise
+
+We do not know yet whether this produces better agents. With today's small models our tests could not tell: where INIT struggled, so did a well-known agent on the same model (see [Where we are](#where-we-are-honestly)). That is the expected place to be. A harness built to be outgrown only shows its value once the model is strong enough to outgrow it.
+
+INIT is the scaffolding for that moment: everything open to the model except the off switch.
 
 ## The ideas
 
@@ -42,72 +75,68 @@ Gate self-modification on a predefined reward and you block the very growth you 
    - Ones that keep coinciding with trouble are quarantined.
    - The harness does not bloat; it evolves by use.
 
-**The safety principle in one sentence:** the model may change anything except the thing that lets you stop it, see it and roll it back.
-
 ## How it works
 
 ### Three zones, one wall
 
-```mermaid
-flowchart TB
-    you(["👤 you"]) -->|"init · /stop · /panic · /undo"| ROOT
-    ROOT["🔒 <b>ROOT</b> · the agent can never write here<br/>keys · egress + metering · sandbox composer<br/>Ed25519-signed lineage · harm sentinel H1–H12<br/>snapshots + rollback · stop / panic"]
-    ROOT ==>|"Unix socket only · no IP"| KERNEL
-    subgraph AGENT["🧪 AGENT ZONE · sandboxed, self-editable"]
-        KERNEL["⚙️ <b>Kernel</b><br/>admits changes · gates · hot-swaps"] --> BODY["🧠 <b>Body</b><br/>T0 prompts + skills<br/>T1 Wasm tools<br/>T2 compiled core"]
-    end
-    BODY -.->|"model calls go through the Root"| ROOT
+```text
+                                  you
+                                   │  init · /stop · /panic · /undo
+                                   ▼
+╔══════════════════════════════════════════════════════════════════╗
+║  ROOT                         the agent can never write here     ║
+║                                                                  ║
+║   keys              egress + metering       sandbox composer     ║
+║   signed lineage    harm sentinel H1–H12    snapshots + rollback ║
+║   stop · panic      autonomy ledger         memory watchdog      ║
+╚══════════════════════════════════╤═══════════════════════▲═══════╝
+                                   │ one Unix socket       │
+                                   │ no IP, no TCP         │ every model call
+                                   ▼                       │ is metered here
+┌──────────────────────────────────────────────────────────┼───────┐
+│  AGENT ZONE · sandboxed · the model may change all of it │       │
+│                                                          │       │
+│    ┌─────────────────────────────────────────────────┐   │       │
+│    │  KERNEL   admits changes · gates · hot-swaps    │   │       │
+│    └──────────────────────────┬──────────────────────┘   │       │
+│                               ▼                          │       │
+│    ┌─────────────────────────────────────────────────┐   │       │
+│    │  BODY     T0  prompts + skills                  ├───┘       │
+│    │           T1  new tools (Wasm components)       │           │
+│    │           T2  its own compiled core and loop    │           │
+│    └─────────────────────────────────────────────────┘           │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 The only security boundary is the wall between the Root and everything else. Inside the agent zone the model may change anything; the Root can always stop it, see it and roll it back.
 
 ### The life of a self-change
 
-```mermaid
-sequenceDiagram
-    autonumber
-    participant B as 🧠 Body (old)
-    participant K as ⚙️ Kernel
-    participant N as 🧠 Body (new)
-    participant R as 🔒 Root
-    B->>B: edit own source in a worktree, commit on evo/ID
-    B->>K: initctl promote evo/ID
-    K->>K: build · boot probe · self-map check
-    K->>N: start the new body beside the old one
-    N-->>K: boot probe OK (prefix hash + continuity)
-    K->>B: pause at a step boundary
-    K->>N: hand over the same conversation
-    R->>R: sign the change into lineage · snapshot
-    loop every turn
-        R->>R: harm sentinel watches H1–H12
-    end
-    alt harm detected
-        R->>K: roll the whole system back to last known-good
-    else clean
-        R->>R: close the group as clean → it counts toward autonomy
-    end
+```text
+ ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
+ │  edit    │───▶│  build   │───▶│  boot    │───▶│ hot-swap │───▶│ watched  │
+ │  itself  │    │  + test  │    │  probe   │    │ mid-chat │    │ by Root  │
+ │  evo/ID  │    │  G0 · G1 │    │  G2 · G3 │    │ same log │    │ H1 – H12 │
+ └──────────┘    └──────────┘    └────┬─────┘    └──────────┘    └────┬─────┘
+                                      │ crashes?                      │ harm?
+                                      ▼                               ▼
+                           the old body never stopped:     roll the whole system
+                           nothing happened                back to last known-good
 ```
 
 If the new body crashes at boot, nothing happens: the old one never stopped. Code changes, memory does not; the conversation is an append-only log with exactly one writer.
 
 ### Autonomy is earned, never claimed
 
-```mermaid
-stateDiagram-v2
-    direction LR
-    L0: L0 · whole body editable
-    L1: L1 · + kernel lane
-    L2: L2 · + wider blast radius
-    L3: L3 · + more external actions
-    L4: L4 · + model as a component
-    L0 --> L1: 7 days · 40 owner turns · 10 clean groups
-    L1 --> L2: 21 days · 150 turns · 40 clean · twin OK
-    L2 --> L3: 30 days · 400 turns · 100 clean
-    L3 --> L4: owner charter allows it
-    L4 --> L3: harm · /panic · crash loop
-    L3 --> L2: demote one level per incident
-    L2 --> L1: demote
-    L1 --> L0: demote
+```text
+        what it may change                               how it gets there
+  L4 ┃  + the model itself, as a component             ▲  days at level
+  L3 ┃  + more external actions                        │  + your turns
+  L2 ┃  + a wider blast radius                         │  + clean change groups
+  L1 ┃  + its own kernel                               │  (only records the Root
+  L0 ┃  its whole body: prompts · tools · core  ◀ v0.2 │   writes itself count)
+     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━━━━━━━━━━━━━━━━
+        ▼ one level down on: harm · /panic · crash loop
 ```
 
 Levels are computed only from records the Root writes itself (days, your turns, clean change groups, harm rollbacks); nothing the agent reports counts. This release caps autonomy at L0, which already allows the whole body.
