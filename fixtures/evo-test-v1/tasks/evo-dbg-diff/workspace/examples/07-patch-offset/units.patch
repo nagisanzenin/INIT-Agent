@@ -1,0 +1,21 @@
+--- units.txt
++++ units.txt
+@@ -1,7 +1,7 @@
+ unit 1: meter
+ unit 2: gram
+ unit 3: second
+-unit 4: ampere
++unit 4: ampere (A)
+ unit 5: kelvin
+ unit 6: mole
+ unit 7: candela
+@@ -16,7 +16,8 @@
+ unit 16: steradian
+ unit 17: hertz
+ unit 18: newton
+-unit 19: pascal
++unit 19: pascal (Pa)
++unit 19b: bar
+ unit 20: joule
+ unit 21: watt
+ unit 22: coulomb

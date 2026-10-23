@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-log-report",
+ "family": "T",
+ "lang": "sh",
+ "title": "Log to CSV report with seeded rules",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3", "sh", "awk", "sort"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "Format example (S1-CORE); lives outside the sealed pack and is never drawn. Exercises the run step: the workspace script runs on hidden logs."
+}

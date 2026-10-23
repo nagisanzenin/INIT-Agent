@@ -1,0 +1,24 @@
+{
+ "v": 1,
+ "id": "e-rs-matching-brackets",
+ "family": "E",
+ "lang": "rust",
+ "title": "Bracket balance with seeded pairs, quotes and depth",
+ "difficulty": {
+  "default": 3,
+  "min": 2,
+  "max": 4
+ },
+ "toolchains": [
+  "python3",
+  "cargo"
+ ],
+ "licence": "Exercism-MIT",
+ "source": {
+  "repo": "exercism/rust",
+  "path": "exercises/practice/matching-brackets",
+  "exercise": "matching-brackets",
+  "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e"
+ },
+ "notes": "S1-E-RS. Mutation: seeded active bracket pairs (others are plain text), quoted sections that are skipped (d3+), maximum nesting depth (d4). ref/naive.rs is the track's .meta/example.rs (unmutated behaviour; validator fixture, must fail)."
+}

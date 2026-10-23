@@ -1,0 +1,4 @@
+This template is derived from CRUXEval (https://github.com/facebookresearch/cruxeval, commit
+190faf16d175b5847b0af05d937872b1fb395942, data/cruxeval.jsonl, sample_793), Copyright (c) 2023 Meta, used under
+the MIT License (see LICENSE). The function was renamed, split into a small package and given a
+seeded behaviour change by the INIT maintainers; generated instances carry this notice.

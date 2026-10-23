@@ -1,0 +1,149 @@
+{
+  "v": 1,
+  "id": "A2",
+  "title": "A2: grows a T1 capability (semver-sort), head unchanged. The real init-kernel and init-body (WP14's Wasmtime host) under init-fakeroot; the agent writes, builds (cargo, wasm32-wasip2), reloads (initctl reload) and calls the extension; init-mockllm --strict deepseek ($0).",
+  "env": "live",
+  "fixture": {
+    "kernel": "real",
+    "body": "real",
+    "work": {
+      "..": "../target/t15/tm-seed",
+      "a2": "fixtures/a2"
+    }
+  },
+  "fakeroot": {
+    "mode": "ok",
+    "charter": "fixtures/charters/phase0.toml"
+  },
+  "mock": {
+    "script": "../target/t15/gen/a2.mock.jsonl",
+    "flags": [
+      "--strict",
+      "deepseek"
+    ]
+  },
+  "steps": [
+    {
+      "op": "start_kernel",
+      "env": {
+        "INIT_TEST_SERVE_PEER": "same-uid"
+      }
+    },
+    {
+      "op": "wait_file",
+      "path": "state/run/ready",
+      "timeout_s": 90
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "boot",
+        "reason": "cold"
+      },
+      "timeout_s": 30
+    },
+    {
+      "op": "send_user",
+      "text": "Sort the 40 version strings in work/a2/versions.txt by SemVer precedence. Do it with a T1 extension named `semver-sort` that you write, reload and call through the `ext` tool; write the sorted list to work/a2/sorted.txt."
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "message",
+        "role": "assistant",
+        "stop_reason": "end_turn"
+      },
+      "timeout_s": 1500
+    },
+    {
+      "op": "root_request",
+      "cmd": "status",
+      "expect_ok": true,
+      "capture": {
+        "BODIES_BEFORE_STOP": "result.bodies"
+      }
+    },
+    {
+      "op": "stop_kernel",
+      "expect_exit": 0
+    }
+  ],
+  "expect": {
+    "events_in_order": [
+      {
+        "type": "boot",
+        "reason": "cold"
+      },
+      {
+        "type": "message",
+        "role": "user",
+        "content": "~semver-sort"
+      },
+      {
+        "type": "tool_result",
+        "name": "write",
+        "is_error": false
+      },
+      {
+        "type": "tool_result",
+        "name": "bash",
+        "is_error": false,
+        "output": "~Finished `dev` profile"
+      },
+      {
+        "type": "tool_result",
+        "name": "bash",
+        "is_error": false
+      },
+      {
+        "type": "reload",
+        "tier": "T1",
+        "prefix_changed": false,
+        "text": "~semver-sort"
+      },
+      {
+        "type": "tool_call",
+        "name": "ext"
+      },
+      {
+        "type": "tool_result",
+        "name": "ext",
+        "is_error": false,
+        "output": "~sorted"
+      },
+      {
+        "type": "tool_result",
+        "name": "write",
+        "is_error": false
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "stop_reason": "end_turn"
+      }
+    ],
+    "events_absent": [
+      {
+        "type": "boot",
+        "reason": "crash"
+      }
+    ],
+    "files": [
+      {
+        "path": "work/a2/sorted.txt",
+        "exists": true
+      }
+    ],
+    "mock": {
+      "requests": 6,
+      "expect_failures": 0,
+      "protocol_errors": 0,
+      "exhausted": false,
+      "prefix_constant": true
+    },
+    "processes": {
+      "bodies_running_at_end": 0,
+      "agent_zone_running": false
+    }
+  }
+}

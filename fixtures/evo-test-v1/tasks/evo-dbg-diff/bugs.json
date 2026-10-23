@@ -1,0 +1,124 @@
+{
+ "bugs": [
+  {
+   "id": "lcs-tiebreak",
+   "visible": true,
+   "what": "lcs.align breaks LCS ties toward insertion (strict >), so ambiguous alignments differ from SPEC 2.3",
+   "edits": [
+    [
+     "ldiff/lcs.py",
+     "        elif table[i + 1][j] > table[i][j + 1]:\n",
+     "        elif table[i + 1][j] >= table[i][j + 1]:\n"
+    ]
+   ]
+  },
+  {
+   "id": "merge-gap",
+   "visible": true,
+   "what": "hunks.group_blocks merges blocks only when the gap is < 2N (SPEC 3.2: <= 2N); masked behind lcs-tiebreak in the visible examples",
+   "edits": [
+    [
+     "ldiff/hunks.py",
+     "        if groups and block.old_start - groups[-1][-1].old_end < 2 * context:\n",
+     "        if groups and block.old_start - groups[-1][-1].old_end <= 2 * context:\n"
+    ]
+   ]
+  },
+  {
+   "id": "zero-range",
+   "visible": true,
+   "what": "parser.parse_range ignores the t,0 rule (SPEC 6.6): an empty range gets position t-1, so insertions land a line early / creation reports offset 1 / .rej and stat show t-1,0",
+   "edits": [
+    [
+     "ldiff/parser.py",
+     "    if start == 0 and count:\n        raise PatchError(lineno, \"a range with lines must start at line 1 or later\")\n    return start - 1, count\n",
+     "    if count == 0:\n        return start, 0\n    if start == 0:\n        raise PatchError(lineno, \"a range with lines must start at line 1 or later\")\n    return start - 1, count\n"
+    ]
+   ]
+  },
+  {
+   "id": "shift-carry",
+   "visible": false,
+   "what": "applier.apply_hunks assigns shift instead of accumulating it (SPEC 7.2): from the third hunk on, base/expected ignore earlier hunks' line-count changes -> spurious/wrong offsets, wrong FAILED lines, misplaced context-free insertions",
+   "edits": [
+    [
+     "ldiff/applier.py",
+     "        shift = added - len(hunk.old_lines())\n",
+     "        shift += added - len(hunk.old_lines())\n"
+    ]
+   ]
+  },
+  {
+   "id": "fuzz-trail",
+   "visible": false,
+   "what": "locate.fuzz_window computes the trailing ignore count from the leading context (SPEC 7.4); only shows with fuzz on hunks whose leading and trailing context differ (near the file edges): dropped changes or rejects",
+   "edits": [
+    [
+     "ldiff/locate.py",
+     "    trail = min(fuzz, hunk.leading_context())\n",
+     "    trail = min(fuzz, hunk.trailing_context())\n"
+    ]
+   ]
+  },
+  {
+   "id": "line-breaks",
+   "visible": false,
+   "what": "text.split_lines uses str.splitlines(True): form feed, vertical tab, lone CR, U+2028... also end lines (SPEC 1.2: only \\n does); CRLF still works, but files with ^L/\\v/lone \\r are mis-split, diffs show phantom lines and patched files get extra newlines",
+   "edits": [
+    [
+     "ldiff/text.py",
+     "    if data == \"\":\n        return []\n    lines = []\n    for chunk in data.splitlines(True):\n        if chunk.endswith(\"\\n\"):\n            lines.append(Line(chunk[:-1], True))\n        else:\n            lines.append(Line(chunk, False))\n    return lines\n",
+     "    if data == \"\":\n        return []\n    parts = data.split(\"\\n\")\n    lines = [Line(text, True) for text in parts[:-1]]\n    if parts[-1] != \"\":\n        lines.append(Line(parts[-1], False))\n    return lines\n"
+    ]
+   ]
+  },
+  {
+   "id": "tie-order",
+   "visible": false,
+   "what": "locate.candidates sorts by distance only; the stable sort puts the earlier position first at equal distance (SPEC 7.5: later first) -> hunks land on the wrong copy of repeated blocks",
+   "edits": [
+    [
+     "ldiff/locate.py",
+     "    return sorted(range(low, high + 1), key=lambda position: abs(position - expected))\n",
+     "    return sorted(range(low, high + 1), key=lambda position: (abs(position - expected), position < expected))\n"
+    ]
+   ]
+  },
+  {
+   "id": "label-space",
+   "visible": false,
+   "what": "parser.label_of takes the first whitespace-separated field (SPEC 6.2: up to the first TAB): labels with spaces are cut -> wrong file from -p, wrong .rej headers and stat label lines",
+   "edits": [
+    [
+     "ldiff/parser.py",
+     "    fields = line[4:].split(None, 1)\n    return fields[0] if fields else \"\"\n",
+     "    return line[4:].split(\"\\t\", 1)[0]\n"
+    ]
+   ]
+  },
+  {
+   "id": "fuzz-zero",
+   "visible": false,
+   "what": "cli passes `opts.fuzz or DEFAULT_FUZZ`, so -F 0 means fuzz 2 (SPEC 8.2): hunks that need fuzz succeed instead of being rejected",
+   "edits": [
+    [
+     "ldiff/cli.py",
+     "    fuzz = opts.fuzz or DEFAULT_FUZZ\n",
+     "    fuzz = DEFAULT_FUZZ if opts.fuzz is None else opts.fuzz\n"
+    ]
+   ]
+  },
+  {
+   "id": "shared-results",
+   "visible": false,
+   "what": "applier.Outcome keeps messages/rejected as class attributes (one list shared by every Outcome): with a multi-section patch, later sections repeat earlier sections' messages, count their rejects and write them into their reject files (SPEC 7.7: per file section)",
+   "edits": [
+    [
+     "ldiff/applier.py",
+     "    messages = []\n    rejected = []\n\n    def __init__(self, lines, total):\n        self.lines = lines\n        self.total = total\n",
+     "    def __init__(self, lines, total):\n        self.lines = lines\n        self.total = total\n        self.messages = []\n        self.rejected = []\n"
+    ]
+   ]
+  }
+ ]
+}

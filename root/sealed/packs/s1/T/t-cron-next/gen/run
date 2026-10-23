@@ -1,0 +1,509 @@
+#!/usr/bin/env python3
+"""t-cron-next: write `cronnext`, which prints the next run of every crontab job (family T, pack s1; INIT
+licence).
+
+The reference engine below (REF) is the single source of truth: the generator executes it to compute every
+expected output (and, through its alternative-semantics switches, to make sure every trap entry tells a
+correct implementation from a common wrong one); the solution overlay ships it as the reference tool."""
+import datetime
+import json
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+REF = r'''
+import datetime as dt
+import re
+import sys
+
+MONTHS = {n: i + 1 for i, n in enumerate("jan feb mar apr may jun jul aug sep oct nov dec".split())}
+DAYS = {n: i for i, n in enumerate("sun mon tue wed thu fri sat".split())}
+MACROS = {"@hourly": "0 * * * *", "@daily": "0 0 * * *", "@midnight": "0 0 * * *", "@weekly": "0 0 * * 0",
+          "@monthly": "0 0 1 * *", "@yearly": "0 0 1 1 *", "@annually": "0 0 1 1 *"}
+BOUNDS = [(0, 59, {}), (0, 23, {}), (1, 31, {}), (1, 12, MONTHS), (0, 7, DAYS)]
+JOB5 = re.compile(r"^[ \t]*(\S+)[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)[ \t]+(\S+)[ \t]+(.*?)[ \t]*$")
+MACRO = re.compile(r"^[ \t]*(@[A-Za-z]+)[ \t]+(.*?)[ \t]*$")
+HORIZON_DAYS = 1461
+
+
+def num(tok, names):
+    t = tok.lower()
+    return names[t] if t in names else int(t)
+
+
+def field(text, lo, hi, names, naive_steps=False):
+    out = set()
+    for part in text.split(","):
+        base, _, step = part.partition("/")
+        n = int(step) if step else 1
+        if base == "*":
+            a, b = lo, hi
+        elif "-" in base:
+            x, y = base.split("-", 1)
+            a, b = num(x, names), num(y, names)
+        else:
+            a = b = num(base, names)
+        if naive_steps:  # wrong on purpose: multiples of n instead of counting from the range start
+            out.update(v for v in range(a, b + 1) if v % n == 0)
+        else:
+            out.update(range(a, b + 1, n))
+    return out
+
+
+def parse_job(line):
+    """(five field strings, command) for a job line; None for blank, comment and variable lines."""
+    s = line.strip()
+    if not s or s[0] == "#" or ("a" <= s[0].lower() <= "z"):
+        return None
+    if s[0] == "@":
+        m = MACRO.match(line)
+        return MACROS[m.group(1).lower()].split(), m.group(2)
+    m = JOB5.match(line)
+    return list(m.groups()[:5]), m.group(6)
+
+
+def next_run(fields, now, or_rule=True, naive_steps=False, strict=True, dow7=True, star_prefix=True):
+    """The first matching minute strictly after now (a datetime), or None within the horizon."""
+    sets = [field(f, lo, hi, nm, naive_steps) for f, (lo, hi, nm) in zip(fields, BOUNDS)]
+    mins, hours, doms, mons = sorted(sets[0]), sorted(sets[1]), sets[2], sets[3]
+    dows = {0 if (d == 7 and dow7) else d for d in sets[4]}
+    if star_prefix:
+        dom_star, dow_star = fields[2].startswith("*"), fields[4].startswith("*")
+    else:  # wrong on purpose: only a bare `*` counts as unrestricted
+        dom_star, dow_star = fields[2] == "*", fields[4] == "*"
+    either = or_rule and not dom_star and not dow_star
+    start = now + dt.timedelta(minutes=1) if strict else now
+    day = start.date()
+    end = day + dt.timedelta(days=HORIZON_DAYS)
+    while day <= end:
+        if day.month in mons:
+            dm = day.day in doms
+            dw = (day.isoweekday() % 7) in dows
+            if (dm or dw) if either else (dm and dw):
+                for h in hours:
+                    for mi in mins:
+                        t = dt.datetime(day.year, day.month, day.day, h, mi)
+                        if t >= start:
+                            return t
+        day += dt.timedelta(days=1)
+    return None
+
+
+def run_crontab(text, now_s, **sem):
+    now = dt.datetime.strptime(now_s, "%Y-%m-%dT%H:%M")
+    out = []
+    for line in text.split("\n"):
+        job = parse_job(line)
+        if job is None:
+            continue
+        t = next_run(job[0], now, **sem)
+        out.append("%s  %s" % (t.strftime("%Y-%m-%dT%H:%M") if t else "never", job[1]))
+    return "".join(x + "\n" for x in out)
+'''
+
+TOOL_MAIN = '''
+
+def main():
+    args = sys.argv[1:]
+    if len(args) != 2 or args[0] != "--now":
+        sys.stderr.write("usage: cronnext --now YYYY-MM-DDTHH:MM < crontab\\n")
+        sys.exit(2)
+    text = sys.stdin.buffer.read().decode("utf-8")
+    sys.stdout.write(run_crontab(text, args[1]))
+
+
+main()
+'''
+
+_NS = {}
+exec(compile(REF, "cronnext-ref", "exec"), _NS)  # noqa: S102 - trusted reference code of this template
+run_crontab, next_run, parse_job = _NS["run_crontab"], _NS["next_run"], _NS["parse_job"]
+
+MONTH_NAMES = "jan feb mar apr may jun jul aug sep oct nov dec".split()
+DAY_NAMES = "sun mon tue wed thu fri sat".split()
+WORDS = ["atlas", "beacon", "cedar", "dune", "ember", "flint", "grove", "heron", "iris", "jade", "kestrel",
+         "lark", "moss", "nova", "orchid", "pine", "quill", "reef", "sage", "thistle", "umbra", "vesper", "wren"]
+HOSTS = ["web-01", "web-03", "batch-2", "db-main", "edge-7", "ops-box", "worker-4", "build-1"]
+VARS = [("MAILTO", "ops@example.invalid"), ("SHELL", "/bin/sh"), ("PATH", "/usr/local/bin:/usr/bin:/bin"),
+        ("HOME", "/srv/app"), ("LOGDIR", "/var/log/jobs"), ("RETENTION_DAYS", "14")]
+
+
+class Lv:
+    def __init__(self, level):
+        self.level = level
+        self.l2 = level >= 2   # names, ranges, variables, @weekly/@monthly
+        self.l3 = level >= 3   # OR rule, steps in ranges, */n from 1, dow 7, mixed-case names, command spacing
+        self.l4 = level >= 4   # never-running jobs, month/year rollover --now, day 31
+        self.l5 = level >= 5   # */n day fields count as unrestricted (AND), tabs, indented jobs
+
+
+def cased(rng, name, lv):
+    if not lv.l3:
+        return name
+    return rng.choice([name, name, name.upper(), name.capitalize()])
+
+
+def f_minute(rng, lv):
+    k = rng.below(5 if lv.l2 else 3)
+    if k == 0:
+        return str(rng.randint(0, 59))
+    if k == 1:
+        a = rng.randint(0, 29)
+        return "%d,%d" % (a, a + rng.randint(5, 30))
+    if k == 2:
+        return "*/%d" % rng.choice([5, 10, 15, 20, 30])
+    if k == 3:
+        a = rng.randint(0, 20)
+        return "%d-%d" % (a, a + rng.randint(5, 30))
+    return str(rng.randint(0, 59))
+
+
+def f_hour(rng, lv):
+    k = rng.below(5 if lv.l2 else 3)
+    if k == 0:
+        return str(rng.randint(0, 23))
+    if k == 1:
+        return "*/%d" % rng.choice([2, 3, 4, 6, 8, 12])
+    if k == 2:
+        return "%d,%d" % (rng.randint(0, 11), rng.randint(12, 23))
+    if k == 3:
+        a = rng.randint(6, 10)
+        return "%d-%d" % (a, a + rng.randint(4, 10))
+    return "*"
+
+
+def f_dom(rng, lv):
+    k = rng.below(4 if lv.l2 else 3)
+    if k == 0:
+        return str(rng.randint(1, 28))
+    if k == 1:
+        return "1,15"
+    if k == 2:
+        a = rng.randint(1, 14)
+        return "%d-%d" % (a, a + rng.randint(3, 12))
+    return "*"
+
+
+def f_month(rng, lv):
+    k = rng.below(3)
+    if k == 0 or not lv.l2:
+        return str(rng.randint(1, 12))
+    if k == 1:
+        return cased(rng, rng.choice(MONTH_NAMES), lv)
+    a = rng.randint(0, 6)
+    return "%s-%s" % (cased(rng, MONTH_NAMES[a], lv), cased(rng, MONTH_NAMES[a + rng.randint(2, 5)], lv))
+
+
+def f_dow(rng, lv):
+    k = rng.below(4 if lv.l2 else 2)
+    if k == 0:
+        return "1-5"
+    if k == 1:
+        return str(rng.randint(0, 6))
+    if k == 2:
+        return "%s-%s" % (cased(rng, "mon", lv), cased(rng, "fri", lv))
+    return "%s,%s" % (cased(rng, "sat", lv), cased(rng, "sun", lv))
+
+
+def command(rng, lv, used):
+    while True:
+        w, w2 = rng.choice(WORDS), rng.choice(WORDS)
+        k = rng.below(8)
+        if k == 0:
+            c = "/usr/local/bin/backup.sh --target %s" % w
+        elif k == 1:
+            c = "cd /srv/%s && ./rotate-logs --keep 7" % w
+        elif k == 2:
+            c = "/opt/%s/bin/report --daily > /dev/null 2>&1" % w
+        elif k == 3:
+            c = "python3 /srv/jobs/%s_%s.py --quiet" % (w, w2)
+        elif k == 4:
+            c = "find /var/tmp/%s -name '*.tmp' -mtime +7 -delete" % w
+        elif k == 5:
+            c = "curl -fsS https://hooks.example.invalid/%s/%s" % (w, w2)
+        elif k == 6:
+            c = "sh -c 'echo  %s  >> /var/log/%s.log'" % (w, w2) if lv.l3 else "echo %s >> /var/log/%s.log" % (w, w2)
+        else:
+            c = "tar czf /backups/%s.tgz  /etc/%s" % (w, w2) if lv.l3 else "tar czf /backups/%s.tgz /etc/%s" % (w, w2)
+        if c not in used:
+            used.add(c)
+            return c
+
+
+def fmt_now(t):
+    return t.strftime("%Y-%m-%dT%H:%M")
+
+
+def within(fields, now):
+    """Runs within 366 days, or never (the horizon the task promises)."""
+    t = next_run(fields, now)
+    return t is None or t <= now + datetime.timedelta(days=366)
+
+
+def differs(fields, now, **alt):
+    return next_run(fields, now) != next_run(fields, now, **alt)
+
+
+def trap_entry(rng, lv, kind, now):
+    """Five fields for one trap kind, rerolled until the trap separates right from wrong semantics."""
+    for _ in range(400):
+        if kind == "exact_now":
+            f = [str(now.minute), str(now.hour) if rng.chance(1, 2) else "*", "*", "*", "*"]
+            if rng.chance(1, 2):
+                f[4] = str(now.isoweekday() % 7)
+            ok = differs(f, now, strict=False)
+        elif kind == "or_rule":
+            f = [str(rng.randint(0, 59)), str(rng.randint(0, 23)), rng.choice(["1", "15", "1,15", "10-12", "28"]),
+                 "*", rng.choice([str(rng.randint(0, 6)), cased(rng, rng.choice(DAY_NAMES), lv), "1-5"])]
+            ok = differs(f, now, or_rule=False)
+        elif kind == "step_range":
+            n = rng.randint(7, 25)
+            a = rng.randint(1, 15)
+            while a % n == 0:
+                a += 1
+            f = ["%d-%d/%d" % (a, rng.randint(40, 59), n), rng.choice(["*", "*/2", str(rng.randint(0, 23))]),
+                 "*", "*", "*"]
+            if rng.chance(1, 2):
+                f[1] = "%d-%d/%d" % (rng.randint(1, 5), rng.randint(17, 23), rng.randint(3, 7))
+            ok = differs(f, now, naive_steps=True)
+        elif kind == "star_step":
+            if rng.chance(1, 2):
+                f = [str(rng.randint(0, 59)), str(rng.randint(0, 23)), "*/%d" % rng.randint(2, 10), "*", "*"]
+            else:
+                f = [str(rng.randint(0, 59)), str(rng.randint(0, 23)), rng.choice(["1", "15"]),
+                     "*/%d" % rng.choice([2, 3, 4, 6]), "*"]
+            ok = differs(f, now, naive_steps=True)
+        elif kind == "dow7":
+            f = [str(rng.randint(0, 59)), str(rng.randint(0, 23)), "*", "*",
+                 rng.choice(["7", "5-7", "6,7", "%s,7" % cased(rng, "wed", lv)])]
+            ok = differs(f, now, dow7=False)
+        elif kind == "never":
+            f = [str(rng.randint(0, 59)), str(rng.randint(0, 23)), rng.choice(["30", "31", "30,31"]),
+                 rng.choice(["2", cased(rng, "feb", lv)]), "*"]
+            if rng.chance(1, 2):
+                f[2], f[3] = "31", rng.choice(["4", "6,9", "apr,nov", "sep", "4,6,9,11"])
+            ok = next_run(f, now) is None
+        elif kind == "day31":
+            f = [str(rng.randint(0, 59)), str(rng.randint(0, 23)), "31", "*", "*"]
+            ok = True
+        elif kind == "and_rule":
+            if rng.chance(1, 2):
+                f = [str(rng.randint(0, 59)), str(rng.randint(0, 23)), "*/%d" % rng.randint(2, 4), "*",
+                     cased(rng, rng.choice(DAY_NAMES), lv)]
+            else:
+                f = [str(rng.randint(0, 59)), str(rng.randint(0, 23)), rng.choice(["1-7", "13", "1,15"]), "*",
+                     "*/%d" % rng.randint(2, 3)]
+            ok = differs(f, now, star_prefix=False)
+        else:
+            raise ValueError(kind)
+        if ok and within(f, now):
+            return f
+    raise s1lib.GenError("could not build a %s entry" % kind)
+
+
+def plain_entry(rng, lv, now):
+    for _ in range(400):
+        f = [f_minute(rng, lv), f_hour(rng, lv), "*", "*", "*"]
+        k = rng.below(5)
+        if k == 1:
+            f[2] = f_dom(rng, lv)
+        elif k == 2:
+            f[4] = f_dow(rng, lv)
+        elif k == 3:
+            f[3] = f_month(rng, lv)
+            f[2] = f_dom(rng, lv)
+        if within(f, now) and next_run(f, now) is not None:
+            return f
+    raise s1lib.GenError("could not build an entry")
+
+
+def make_crontab(rng, lv, now, n):
+    kinds = ["exact_now"]
+    if lv.l3:
+        kinds += ["or_rule", "or_rule", "step_range", "star_step", "dow7"]
+    if lv.l4:
+        kinds += ["never", "day31"]
+    if lv.l5:
+        kinds += ["and_rule", "and_rule"]
+    macros = ["@daily", "@hourly"] + (["@weekly", "@monthly"] if lv.l2 else []) + (
+        ["@yearly", "@annually", "@midnight"] if lv.l3 else [])
+    entries = [("trap", trap_entry(rng, lv, k, now)) for k in kinds]
+    entries.append(("macro", rng.choice(macros)))
+    if lv.l3:
+        entries.append(("macro", rng.choice(["@yearly", "@annually", "@monthly", "@weekly"])))
+    while len(entries) < n:
+        entries.append(("plain", plain_entry(rng, lv, now)))
+    entries = rng.shuffled(entries)
+    used = set()
+    lines = ["# crontab for %s (all times UTC)" % rng.choice(HOSTS)]
+    if lv.l2:
+        for name, val in rng.sample(VARS, rng.randint(1, 3)):
+            lines.append(("%s = %s" if (lv.l5 and rng.chance(1, 2)) else "%s=%s") % (name, val))
+    lines.append("")
+    for i, (kind, e) in enumerate(entries):
+        if rng.chance(1, 4):
+            lines.append(rng.choice(["# %s job" % rng.choice(WORDS), "", "#  disabled: 0 3 * * * /bin/true",
+                                     "  # owner: team-%s" % rng.choice(WORDS)]))
+        cmd = command(rng, lv, used)
+        if lv.l5:
+            choices = [" ", " ", "\t", "  ", " \t"]
+        elif lv.l3:
+            choices = [" ", " ", "  "]
+        else:
+            choices = [" "]
+
+        def sep():
+            return rng.choice(choices)
+
+        lead = rng.choice(["", "", "", "  ", "\t"]) if lv.l5 else ""
+        if kind == "macro":
+            lines.append(lead + e + sep() + cmd)
+        else:
+            lines.append(lead + "".join(x + sep() for x in e) + cmd)
+        if lv.l3 and rng.chance(1, 6):
+            lines[-1] += " "
+    return "\n".join(lines) + "\n"
+
+
+def rand_now(rng, kind="any"):
+    if kind == "year_end":
+        return datetime.datetime(rng.choice([2026, 2027]), 12, 31, 23, rng.randint(45, 59))
+    if kind == "month_end":
+        m = rng.choice([4, 6, 9, 11, 2])
+        d = 28 if m == 2 else 30
+        return datetime.datetime(2027 if m == 2 else rng.choice([2026, 2027]), m, d, rng.randint(20, 23),
+                                 rng.randint(0, 59))
+    return datetime.datetime(rng.choice([2026, 2027]), rng.randint(1, 12), rng.randint(1, 28), rng.randint(0, 23),
+                             rng.randint(0, 59))
+
+
+SPEC = """\
+`cronnext` prints when each job of a crontab runs next.
+
+Usage: `./cronnext --now YYYY-MM-DDTHH:MM < crontab` (always exactly this form). All times are UTC; there is
+no daylight saving time. It must finish within 2 seconds for a crontab of 20 lines.
+
+## Input lines
+
+- Blank lines and lines whose first non-blank character is `#` are ignored.
+- Lines whose first non-blank character is a letter are variable assignments (such as
+  `MAILTO=ops@example.invalid`) and are ignored.
+- Every other line is a job: five time fields and then a command, separated by spaces or tabs:
+  `minute hour day-of-month month day-of-week command`. Instead of the five fields a job may use one keyword:
+  `@hourly` = `0 * * * *`, `@daily` and `@midnight` = `0 0 * * *`, `@weekly` = `0 0 * * 0`,
+  `@monthly` = `0 0 1 * *`, `@yearly` and `@annually` = `0 0 1 1 *`.
+- The command is the rest of the line after the whitespace that follows the last field (or the keyword),
+  with trailing whitespace removed. Spacing inside the command is kept exactly as written.
+
+## Time fields
+
+| field | values |
+|---|---|
+| minute | 0-59 |
+| hour | 0-23 |
+| day of month | 1-31 |
+| month | 1-12, or `jan`-`dec` |
+| day of week | 0-7, where 0 and 7 are both Sunday, or `sun`-`sat` |
+
+Names are case-insensitive (`MON`, `Jan`) and can be used wherever a number can, also in ranges. A field is
+a comma-separated list of items. An item is `*` (every value), a single value, or a range `a-b` (both ends
+included). `*` or a range may be followed by `/n`, which keeps every n-th value counting from the first
+value of the range (for `*`, from the smallest allowed value): minutes `*/15` are 0,15,30,45; `10-50/20` is
+10,30,50; days of month `*/10` are 1,11,21,31; months `*/3` are 1,4,7,10 (Jan, Apr, Jul, Oct).
+
+## When a job runs
+
+A job runs at every minute whose minute, hour and month are in their fields and whose day matches:
+
+- When both the day-of-month and the day-of-week fields are restricted, that is, neither of them starts
+  with `*`, a day matches if EITHER field matches it: `0 9 1,15 * mon` runs at 09:00 on the 1st, on the 15th
+  and on every Monday.
+- Otherwise the day must match both fields.{and_note}
+
+## Output
+
+For each job, in input order, print one line: the first time the job runs strictly after --now, written
+`YYYY-MM-DDTHH:MM`, then two spaces, then the command. A job due exactly at --now is reported at its
+following run.{never_note} Every {other}job in the inputs runs within 366 days after --now.
+"""
+
+
+def spec_text(lv):
+    return SPEC.format(
+        and_note=(" A field that starts with `*` counts as not restricted even when a step keeps only some of its "
+                  "values: `0 6 */2 * mon` runs only on Mondays that are odd days of the month." if lv.l5 else ""),
+        never_note=(" A job that can never run (such as one on day 30 of February) prints `never` instead of "
+                    "the time." if lv.l4 else ""),
+        other="other " if lv.l4 else "")
+
+
+def build(ctx):
+    rng = ctx.rng()
+    lv = Lv(ctx.difficulty)
+    spec = spec_text(lv)
+    host = rng.choice(HOSTS)
+    vis_now = rand_now(rng)
+    vis = make_crontab(rng.fork("visible"), lv, vis_now, rng.randint(10, 13))
+    s_lv = Lv(min(ctx.difficulty, 2))
+    s_now = rand_now(rng)
+    sample = make_crontab(rng.fork("sample"), s_lv, s_now, 6)
+    now_kinds = ["any", "year_end", "month_end"] if lv.l4 else ["any", "any", "any"]
+    cases = []
+    for k in range(3):
+        now = rand_now(rng, now_kinds[k])
+        text = make_crontab(rng.fork("hidden%d" % k), lv, now, rng.randint(9, 12))
+        cases.append({"name": "hidden_%d" % (k + 1), "now": fmt_now(now), "input": text,
+                      "want": run_crontab(text, fmt_now(now))})
+    vis_want = run_crontab(vis, fmt_now(vis_now))
+    cases.append({"name": "visible", "now": fmt_now(vis_now), "input": vis, "want": vis_want})
+    tab = "jobs/%s.crontab" % host
+    prompt = (
+        "In this directory, create an executable program `./cronnext` (any language available here: sh, awk, "
+        "python3 standard library) that prints the next run time of every job in a crontab, exactly as "
+        "specified below. It will also be run on other crontabs and other times, so implement the rules; do "
+        "not hard-code anything from the examples. Then save the output of "
+        "`./cronnext --now %s < %s` as `next_runs.txt` in this directory.\n\n" % (fmt_now(vis_now), tab)
+        + spec +
+        "\nWorked example: `./cronnext --now %s < examples/sample.crontab` must print exactly the contents of "
+        "`examples/sample.out`; `sh tests/run_example.sh` checks that. The example does not exercise every "
+        "rule. Do not modify `jobs/`, `examples/` or `tests/`. The same specification is in README.md."
+        % fmt_now(s_now))
+    readme = ("# Next cron runs\n\nWrite `./cronnext` and save `./cronnext --now %s < %s` as `next_runs.txt`."
+              "\n\n" % (fmt_now(vis_now), tab) + spec +
+              "\nExample: `./cronnext --now %s < examples/sample.crontab` must print exactly "
+              "`examples/sample.out` (`sh tests/run_example.sh`). Do not edit `jobs/`, `examples/` or `tests/`.\n"
+              % fmt_now(s_now))
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = readme
+    inst.workspace[tab] = vis
+    inst.workspace["examples/sample.crontab"] = sample
+    inst.workspace["examples/sample.out"] = run_crontab(sample, fmt_now(s_now))
+    inst.workspace["tests/run_example.sh"] = (
+        "#!/bin/sh\n# Compares ./cronnext on the worked example with the expected output.\n"
+        "cd \"$(dirname \"$0\")/..\" || exit 2\n"
+        "if ./cronnext --now %s < examples/sample.crontab | diff -u examples/sample.out -; then "
+        "echo 'example: OK'; else echo 'example: DIFFERENT'; exit 1; fi\n" % fmt_now(s_now))
+    inst.executable.add("tests/run_example.sh")
+    inst.marker_files = ["README.md"]
+    inst.protect(tab, "examples/sample.crontab", "examples/sample.out", "tests/run_example.sh")
+    tool = "#!/usr/bin/env python3\n\"\"\"Reference cronnext (INIT pack s1, t-cron-next).\"\"\"\n" + REF + TOOL_MAIN
+    inst.solution["cronnext"] = tool
+    inst.solution["next_runs.txt"] = vis_want
+    inst.executable.add("cronnext")
+    # dev fixture: AND for the day fields always (misses the OR rule); the visible file copied from the reference
+    inst.dev["and_only"] = {"cronnext": tool.replace("def next_run(fields, now, or_rule=True,",
+                                                     "def next_run(fields, now, or_rule=False,"),
+                            "next_runs.txt": vis_want}
+    tgen.finish(inst, ctx, spec={"tool": "cronnext", "file": "next_runs.txt", "file_want": vis_want,
+                                 "cases": cases},
+                names=["file"] + [c["name"] for c in cases])
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

@@ -1,0 +1,116 @@
+# fast-linux: the portable part of INIT on ubuntu-latest, in about 10 minutes (RELEASE_PLAN.md item 5).
+#
+# The full suite is macOS-only and runs locally (ci/local.sh): the Root, the kernel supervisor, the sandbox, the
+# serve lanes and the test kit confine processes with Seatbelt (sandbox-exec, sandbox_check, APFS clones), and
+# their Linux paths (bwrap, Landlock, seccomp) are UNVERIFIED (root/root.md §3.4). This job covers what does not
+# depend on that:
+#   gate (job fast-linux): init-proto (the wire protocol), initctl (the agent's CLI), kernel-gate (G0 and the
+#     judge), kernel-selfmap (the self-map, Wasm components through wasmtime).
+#   informational (job seed-linux, may fail without failing the workflow): the seed body (init-body) and its
+#     template extension. The seed is portable Rust on wasmtime, but its tests have only run on macOS so far; make
+#     the job required once it is green here.
+# Skipped, macOS-only: kernel-supervise, kernel-serve, kernel-sandbox, kernel-proxy (its tests drive the Root's
+# egress socket layout), init-kernel, and the whole root/ workspace (init-root, sandbox-profiles). init-testkit is
+# built here only as the gate crates' dev-dependency (its bounded test watchdog); its own tests are not run.
+name: fast-linux
+
+on:
+  push:
+    branches: [main]
+    # log, docs and report commits land many times a day; they don't change what this job tests
+    paths-ignore: ['**.md', 'docs/**', 'build/**', 'measurements/**', 'reports/**', 'research_notes/**', 'scenarios/**']
+  pull_request:
+    paths-ignore: ['**.md', 'docs/**', 'build/**', 'measurements/**', 'reports/**', 'research_notes/**', 'scenarios/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fast-linux-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # the same disk flags every local lane uses (ci/env.sh)
+  CARGO_INCREMENTAL: "0"
+  CARGO_PROFILE_DEV_DEBUG: line-tables-only
+  CARGO_PROFILE_TEST_DEBUG: line-tables-only
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.97.1"
+
+jobs:
+  fast-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust ${{ env.RUST_VERSION }} (+ clippy for G0, + wasm32-wasip2 for the selfmap fixtures)
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --component clippy --target wasm32-wasip2
+          rustup default "$RUST_VERSION"
+          rustc -vV
+
+      - name: Cache vendor/ (keyed on the four lock files)
+        id: vendor-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: vendor-${{ hashFiles('kernel/Cargo.lock', 'root/Cargo.lock', 'seed/Cargo.lock', 'seed/ext/Cargo.lock') }}
+
+      - name: Vendor the crates exactly as locked (crates.io only)
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        run: ci/vendor.sh --locked
+
+      - name: Cache kernel/target
+        uses: actions/cache@v4
+        with:
+          path: kernel/target
+          key: kernel-target-${{ runner.os }}-${{ env.RUST_VERSION }}-${{ hashFiles('kernel/Cargo.lock') }}
+          restore-keys: kernel-target-${{ runner.os }}-${{ env.RUST_VERSION }}-
+
+      - name: Build (portable kernel crates)
+        working-directory: kernel
+        run: cargo build --offline --locked -p init-proto -p initctl -p kernel-gate -p kernel-selfmap
+
+      - name: Test (portable kernel crates)
+        working-directory: kernel
+        run: cargo test --offline --locked -p init-proto -p initctl -p kernel-gate -p kernel-selfmap
+
+  seed-linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true   # informational until its first green run on Linux (see the header)
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Rust ${{ env.RUST_VERSION }} (+ wasm32-wasip2)
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal --target wasm32-wasip2
+          rustup default "$RUST_VERSION"
+          rustc -vV
+
+      - name: Cache vendor/ (keyed on the four lock files)
+        id: vendor-cache
+        uses: actions/cache@v4
+        with:
+          path: vendor
+          key: vendor-${{ hashFiles('kernel/Cargo.lock', 'root/Cargo.lock', 'seed/Cargo.lock', 'seed/ext/Cargo.lock') }}
+
+      - name: Vendor the crates exactly as locked (crates.io only)
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        run: ci/vendor.sh --locked
+
+      - name: Build and test the seed (init-body)
+        working-directory: seed
+        run: |
+          cargo build --offline --locked
+          cargo test --offline --locked
+
+      - name: Build and test the template extension (wasm32-wasip2; the ext workspace builds into seed/target)
+        working-directory: seed/ext
+        env:
+          CARGO_TARGET_DIR: ${{ github.workspace }}/seed/target
+        run: |
+          cargo build --offline --locked --target wasm32-wasip2
+          cargo test --offline --locked

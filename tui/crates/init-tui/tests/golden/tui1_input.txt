@@ -1,0 +1,24 @@
+== 80x24 ==
+  /root status   the Root's status                                              |VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV                                              
+  /root ledger   the autonomy ledger                                            |................dddddddddddddddddddd                                            
+  /root stop     stop the zone                                                  |................dddddddddddddd                                                  
+  /root help     the Root's lines                                               |................ddddddddddddddddd                                               
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > /ro                                                                        │|eecc..........................................................................ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
+cursor 7,5
+== 60x24 ==
+╭──────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > line one                                               │|eecc......................................................ee
+│   line two is longer than the box is wide so that it wra │|eecc......................................................ee
+│   ps around once or twice, really                        │|eecc......................................................ee
+│   日本語 👍 ok                                           │|eecc......................................................ee
+╰──────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg   |.bbddd.................ddd.......ddd.................dddd   
+cursor 16,4
+== 18x4 ==
+terminal too small|dddddddddddddddddd
+> hello           |cc.....           
+ L0 · running     |.bbddd.......     
+cursor 7,1

@@ -1,0 +1,31 @@
+{
+ "difficulty": 3,
+ "family": "e",
+ "id": "pool-e-py-rational-numbers",
+ "labels": [
+  "exercise",
+  "py"
+ ],
+ "max_turns": 8,
+ "prompt": "Solve the Exercism exercise \"rational-numbers\" in Python, in the current directory.\n\n- The specification is README.md. Write your solution in rational_numbers.py (the stub is there).\n- rational_numbers_test.py has 15 of the exercise's 43 tests. Run them with `python3 -m unittest rational_numbers_test`.\n- A hidden test suite checks the full specification, including edge cases and exact error messages.\n- Do not modify rational_numbers_test.py. Use only the Python standard library (python3 >= 3.9).",
+ "protected": [
+  "rational_numbers_test.py"
+ ],
+ "source": {
+  "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706",
+  "kind": "exercism",
+  "path": "exercises/practice/rational-numbers",
+  "repo": "exercism/python",
+  "slug": "rational-numbers"
+ },
+ "steps": [
+  {
+   "kind": "py_unittest",
+   "tests": [
+    "hidden/rational_numbers_test.py"
+   ],
+   "timeout_s": 10
+  }
+ ],
+ "title": "Exercism (Python): rational-numbers"
+}

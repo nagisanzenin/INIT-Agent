@@ -1,0 +1,2 @@
+# evo-big-rules: generate rules.py, MIGRATION.md and tests/ (deterministic, seeded)
+exec /usr/bin/python3 -I -S -B "$(dirname "$0")/hidden/rgen.py" "$1"

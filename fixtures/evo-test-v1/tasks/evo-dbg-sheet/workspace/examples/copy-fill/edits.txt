@@ -1,0 +1,10 @@
+copy B2 B2:E4
+print A1:E4
+copy B5 C5:E5
+print B5:F5
+recalc
+set A3 10
+recalc
+print A3:F5
+copy B5 F1
+print F1

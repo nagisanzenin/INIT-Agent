@@ -1,0 +1,45 @@
+{
+ "pack": "s1",
+ "version": "0.1.0",
+ "format": 1,
+ "created": "2026-10-20T00:00:00Z",
+ "families": ["E", "C", "T", "canary"],
+ "composition": {
+  "E": {"authored": 24, "langs": {"py": 12, "rust": 12}, "g4": 14, "reserve": 10},
+  "C": {"authored": 14, "langs": {"py": 14}, "g4": 9, "reserve": 5},
+  "T": {"authored": 14, "g4": 9, "reserve": 5},
+  "canary": {"authored": 4, "kinds": ["health", "impossible", "tamper", "leak"], "g4": 4, "reserve": 0},
+  "total": {"g4": 32, "reserve": 20, "canary": 4},
+  "note": "PROOF-LEAN D-L1: family B dropped; one template per partition slot; the reserve uses held-out templates chosen by the Root at draw"
+ },
+ "templates": [],
+ "licences": {
+  "Exercism-MIT": {
+   "spdx": "MIT",
+   "file": "LICENSES/Exercism-MIT.txt",
+   "sha256": "e52f804e74f0fbd34e8927962319df346166b8194094309a0aee318693df44df",
+   "upstream": {
+    "exercism/python": {"commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706", "path": "LICENSE"},
+    "exercism/rust": {"commit": "cc099ae090a6acbe6f53f1e36325263046ba333e", "path": "LICENSE"}
+   }
+  },
+  "CRUXEval-MIT": {
+   "spdx": "MIT",
+   "file": "LICENSES/CRUXEval-MIT.txt",
+   "sha256": "055ca9e3fa33562173156e02e2350ceff4089deab480b368a849b6bc04f09719",
+   "upstream": {
+    "facebookresearch/cruxeval": {"commit": "190faf16d175b5847b0af05d937872b1fb395942", "path": "LICENSE"}
+   }
+  },
+  "INIT": {"spdx": "LicenseRef-INIT", "file": null, "sha256": null, "upstream": {}}
+ },
+ "permissive_spdx": ["MIT", "Apache-2.0", "BSD-2-Clause", "BSD-3-Clause", "ISC", "0BSD", "LicenseRef-INIT"],
+ "runner": {"id": "s1check/1", "files": ["runner/check", "runner/s1check.py"]},
+ "disjointness": {
+  "e_slug_range": "a-m",
+  "pool_dirs": ["fixtures/pool-v1"],
+  "bench_list": null,
+  "note": "M7-P08: E seeds, the visible pool and the benchmark slice are pairwise disjoint. E slugs take a-m, the pool takes n-z (lane agreement); BENCH-V1 is not built (PROOF-LEAN D-L6)"
+ },
+ "no_copies_under": ["seed", "fixtures"]
+}

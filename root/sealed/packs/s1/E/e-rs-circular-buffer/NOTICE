@@ -1,0 +1,5 @@
+This template is derived from the "circular-buffer" exercise of the Exercism Rust track
+(https://github.com/exercism/rust, exercises/practice/circular-buffer, commit cc099ae090a6acbe6f53f1e36325263046ba333e),
+Copyright (c) 2021 Exercism, used under the MIT License (see LICENSE). The specification, tests and
+reference solution were rewritten and semantically changed by the INIT maintainers; generated instances
+carry this notice.

@@ -1,0 +1,31 @@
+{
+ "difficulty": 4,
+ "family": "e",
+ "id": "pool-e-py-state-of-tic-tac-toe",
+ "labels": [
+  "exercise",
+  "py"
+ ],
+ "max_turns": 8,
+ "prompt": "Solve the Exercism exercise \"state-of-tic-tac-toe\" in Python, in the current directory.\n\n- The specification is README.md. Write your solution in state_of_tic_tac_toe.py (the stub is there).\n- state_of_tic_tac_toe_test.py has 10 of the exercise's 29 tests. Run them with `python3 -m unittest state_of_tic_tac_toe_test`.\n- A hidden test suite checks the full specification, including edge cases and exact error messages.\n- Do not modify state_of_tic_tac_toe_test.py. Use only the Python standard library (python3 >= 3.9).",
+ "protected": [
+  "state_of_tic_tac_toe_test.py"
+ ],
+ "source": {
+  "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706",
+  "kind": "exercism",
+  "path": "exercises/practice/state-of-tic-tac-toe",
+  "repo": "exercism/python",
+  "slug": "state-of-tic-tac-toe"
+ },
+ "steps": [
+  {
+   "kind": "py_unittest",
+   "tests": [
+    "hidden/state_of_tic_tac_toe_test.py"
+   ],
+   "timeout_s": 10
+  }
+ ],
+ "title": "Exercism (Python): state-of-tic-tac-toe"
+}

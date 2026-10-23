@@ -1,0 +1,8 @@
+#!/bin/sh
+# 4 cases, 250 permille each
+ok=0
+[ "$(sh calc.sh add 2 3 2>/dev/null)" = 5 ] && ok=$((ok + 1))
+[ "$(sh calc.sh add 10 -4 2>/dev/null)" = 6 ] && ok=$((ok + 1))
+[ "$(sh calc.sh sub 7 2 2>/dev/null)" = 5 ] && ok=$((ok + 1))
+[ "$(sh calc.sh sub 0 5 2>/dev/null)" = -5 ] && ok=$((ok + 1))
+echo "{\"score_permille\":$((ok * 250))}"

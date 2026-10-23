@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-acronym",
+ "family": "E",
+ "lang": "py",
+ "title": "Acronym with seeded word rules",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/acronym", "exercise": "acronym", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "Format example (S1-CORE); lives outside the sealed pack and is never drawn. EvoEval-style mutation: seeded separators, minimum word length, joiner and case rule."
+}

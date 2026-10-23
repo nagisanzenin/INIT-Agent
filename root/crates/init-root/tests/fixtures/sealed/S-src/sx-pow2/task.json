@@ -1,0 +1,28 @@
+{
+ "check": {
+  "argv": [
+   "check/run"
+  ],
+  "timeout_s": 30
+ },
+ "created": "2026-10-20T00:00:00Z",
+ "id": "sx-pow2",
+ "labels": [
+  "standin"
+ ],
+ "limits": {
+  "max_cost_musd": 200000,
+  "wall_s": 60
+ },
+ "prompt": "Write pow2.txt with the powers of two from 2^0 to 2^9, one per line. (ref SX-91d3a7)",
+ "source": {
+  "kind": "maintainer"
+ },
+ "title": "sx-pow2",
+ "v": 2,
+ "workspace": {
+  "bytes": 0,
+  "file": "workspace.tar",
+  "sha256": ""
+ }
+}

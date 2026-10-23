@@ -1,0 +1,40 @@
+[package]
+name = "init-body"
+version = "0.2.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "init-body"
+path = "src/main.rs"
+
+[dependencies]
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"          # never the `preserve_order` feature: ICJ needs BTreeMap order
+# LTS; CONVENTIONS §5. Features are ext/host.md §3.2's
+wasmtime = { version = "=48.0.6", default-features = false, features = [
+    "runtime", "std", "cranelift", "component-model",
+    "pooling-allocator", "parallel-compilation", "incremental-cache", "demangle",
+] }
+wasmtime-wasi = { version = "=48.0.6", default-features = false, features = ["p2"] }
+
+[workspace]                      # the body is its own workspace, never a member of kernel/ (CONVENTIONS §2)
+exclude = ["ext"]                # the extension workspace (ext/authoring.md §3.3)
+
+[profile.dev]
+panic = "unwind"                 # the default, stated so a self-edit cannot flip it silently
+
+[profile.dev.package."*"]        # dependencies only: Cranelift built at opt-level 0 makes reload compiles slow
+opt-level = 2
+debug = false
+
+# Release profile (lane REL; scripts/release.sh, docs/release.md). Measured 2026-10-20 on init-root, back to back
+# under the same load (build/status/REL.md): lto = "thin" alone made the binary 1% larger and the build 24% slower;
+# lto = "thin" with codegen-units = 1 made it 12% smaller and the build 1.4-2x slower, and the kernel and the body
+# (Cranelift, wasmtime) would pay that most. Neither pays for binaries built once per install that are not
+# CPU-bound, so the profile states the defaults. Quality guard: release.sh runs `cargo test --release` (root, seed).
+[profile.release]
+opt-level = 3
+lto = false
+codegen-units = 16
+strip = "debuginfo"              # the default, stated: symbols stay, so panic backtraces keep function names

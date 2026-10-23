@@ -1,0 +1,24 @@
+{
+ "v": 1,
+ "id": "e-rs-luhn",
+ "family": "E",
+ "lang": "rust",
+ "title": "Luhn-style check digits with seeded parameters",
+ "difficulty": {
+  "default": 2,
+  "min": 1,
+  "max": 3
+ },
+ "toolchains": [
+  "python3",
+  "cargo"
+ ],
+ "licence": "Exercism-MIT",
+ "source": {
+  "repo": "exercism/rust",
+  "path": "exercises/practice/luhn",
+  "exercise": "luhn",
+  "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e"
+ },
+ "notes": "S1-E-RS. Mutation: seeded separator set (strict placement at d3), doubling period, multiplier, modulus and minimum length. ref/naive.rs is the track's .meta/example.rs (unmutated behaviour; validator fixture, must fail)."
+}

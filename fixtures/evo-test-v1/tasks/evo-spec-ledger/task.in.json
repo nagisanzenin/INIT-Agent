@@ -1,0 +1,93 @@
+{
+ "id": "evo-spec-ledger",
+ "title": "Implement a plain-text ledger normalizer and validator from a 51-rule spec",
+ "family": "t",
+ "difficulty": 5,
+ "labels": [
+  "py",
+  "spec"
+ ],
+ "max_turns": 60,
+ "prompt": "Implement the `ledger` package in this directory so that it follows SPEC.md exactly: `ledger.normalize_date`, `ledger.normalize_amount`, `ledger.normalize_account`, `ledger.process` and the command line `python3 -m ledger FILE`. The stubs in ledger/ show the interface. SPEC.md is the whole contract (rules R1-R51, including the exact error messages and which error is reported when several apply).\n\ntests/test_ledger.py has a few examples (run `python3 -m unittest discover -s tests` from this directory); further tests check every rule of SPEC.md. Do not modify SPEC.md or tests/test_ledger.py.\n\nCode must run on /usr/bin/python3 (Python 3.9), the interpreter the checks use; standard library only.",
+ "source": {
+  "kind": "fresh"
+ },
+ "protected": [
+  "SPEC.md",
+  "tests/test_ledger.py"
+ ],
+ "steps": [
+  {
+   "kind": "sh",
+   "script": "hidden/check.sh",
+   "names": [
+    "r01_physical_lines",
+    "r02_continuation",
+    "r03_comment_lines",
+    "r04_inline_comments",
+    "r05_blank_and_indented",
+    "r06_directives",
+    "r07_date_forms",
+    "r09_bad_date_form",
+    "r09_range_and_invalid",
+    "r10_leap_years",
+    "r11_year_directive",
+    "r11_year_short_dates",
+    "r12_currency_aliases",
+    "r12_unknown_currency",
+    "r13_commodity_collisions",
+    "r13_commodity_declare",
+    "r13_commodity_errors",
+    "r14_default_currency",
+    "r15_amount_part",
+    "r16_number_syntax",
+    "r17_grouping",
+    "r18_bankers_rounding",
+    "r19_amount_normal_form",
+    "r20_negative_zero",
+    "r21_magnitude",
+    "r22_amount_check_order",
+    "r23_exact_sums",
+    "r25_price_checks",
+    "r26_price_normal_form",
+    "r27_assertions_use_amounts",
+    "r27_weights",
+    "r27_weights_elided",
+    "r28_account_normal",
+    "r29_account_root",
+    "r30_account_segments",
+    "r31_account_depth_order",
+    "r32_alias_directive",
+    "r33_alias_expansion",
+    "r34_date_order",
+    "r35_open_directive",
+    "r36_close_balance",
+    "r36_close_directive",
+    "r37_account_state",
+    "r37_closed_accounts",
+    "r38_header",
+    "r39_tags",
+    "r40_postings",
+    "r41_posting_count",
+    "r42_elided",
+    "r43_balance",
+    "r44_txn_check_order",
+    "r45_error_suppression",
+    "r46_balance_directive",
+    "r47_output_entries",
+    "r48_alignment",
+    "r49_errors_format",
+    "r50_error_limit",
+    "r51_cli_run",
+    "r51_cli_usage"
+   ],
+   "timeout_s": 30
+  }
+ ],
+ "evo": {
+  "group": "train",
+  "kind": "spec",
+  "spare": false,
+  "pair": "evo-spec-sched"
+ }
+}

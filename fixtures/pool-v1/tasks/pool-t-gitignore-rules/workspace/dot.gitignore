@@ -1,0 +1,13 @@
+# build output
+build
+dist
+# logs
+*.log
+# secrets
+.env*
+# python
+*.pyc
+# scratch
+tmp/
+# data exports
+data/**/*.csv

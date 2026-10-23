@@ -1,0 +1,625 @@
+{
+ "items": [
+  {
+   "checks": [
+    [
+     "L = open('CHANGELOG.md').read().splitlines()\nprint(L[L.index('## Changes') + 1])",
+     "- 2.4.0: design note PAN-12"
+    ]
+   ],
+   "name": "r01",
+   "site": "changelog"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.errors import NotFound\nprint(str(NotFound('q7')))",
+     "ingredient 'q7' not found"
+    ]
+   ],
+   "name": "r02",
+   "site": "notfound/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.errors import NotFound\nprint(str(NotFound('q7')))",
+     "recipe 'q7' not found"
+    ]
+   ],
+   "name": "r03",
+   "site": "notfound/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.errors import NotFound\nprint(str(NotFound('q7')))",
+     "order 'q7' not found"
+    ]
+   ],
+   "name": "r04",
+   "site": "notfound/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.store import Cookbook\nfrom larder.recipes.models import Recipe\ndef mk(n, cat='x'):\n    s = Cookbook()\n    for k in range(n):\n        s.add(Recipe(id='k%02d' % k, title='N%02d' % k, course=cat, servings=(k * 5) % 7, cost=1.0 + k))\n    return s\nfrom larder.recipes.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Recipe(id='k01', title='z', course='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').title)",
+     "duplicate recipe id k01 2 N01"
+    ]
+   ],
+   "name": "r05",
+   "site": "dup/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import OrderBook\nfrom larder.orders.models import Order\ndef mk(n, cat='x'):\n    s = OrderBook()\n    for k in range(n):\n        s.add(Order(id='k%02d' % k, ref='N%02d' % k, supplier=cat, units=(k * 5) % 7, amount=1.0 + k))\n    return s\nfrom larder.orders.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Order(id='k01', ref='z', supplier='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').ref)",
+     "duplicate order id k01 2 N01"
+    ]
+   ],
+   "name": "r06",
+   "site": "dup/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import Pantry\nfrom larder.ingredients.models import Ingredient\ndef mk(n, cat='x'):\n    s = Pantry()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom larder.ingredients.errors import Invalid\ntry:\n    mk(0).add(Ingredient(id='a', name='b', aisle='c', qty=-1))\nexcept Invalid as e:\n    print(e)",
+     "qty cannot be negative"
+    ]
+   ],
+   "name": "r07",
+   "site": "qty_msg/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.store import Cookbook\nfrom larder.recipes.models import Recipe\ndef mk(n, cat='x'):\n    s = Cookbook()\n    for k in range(n):\n        s.add(Recipe(id='k%02d' % k, title='N%02d' % k, course=cat, servings=(k * 5) % 7, cost=1.0 + k))\n    return s\nfrom larder.recipes.errors import Invalid\ntry:\n    mk(0).add(Recipe(id='a', title='b', course='c', servings=-1))\nexcept Invalid as e:\n    print(e)",
+     "servings cannot be negative"
+    ]
+   ],
+   "name": "r08",
+   "site": "qty_msg/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import OrderBook\nfrom larder.orders.models import Order\ndef mk(n, cat='x'):\n    s = OrderBook()\n    for k in range(n):\n        s.add(Order(id='k%02d' % k, ref='N%02d' % k, supplier=cat, units=(k * 5) % 7, amount=1.0 + k))\n    return s\nfrom larder.orders.errors import Invalid\ntry:\n    mk(0).add(Order(id='a', ref='b', supplier='c', units=-1))\nexcept Invalid as e:\n    print(e)",
+     "units cannot be negative"
+    ]
+   ],
+   "name": "r09",
+   "site": "qty_msg/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import Pantry\nfrom larder.ingredients.models import Ingredient\ndef mk(n, cat='x'):\n    s = Pantry()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom larder.ingredients.errors import Invalid\ntry:\n    mk(0).add(Ingredient(id='a', name='b', aisle='c', price=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "price cannot be negative"
+    ]
+   ],
+   "name": "r10",
+   "site": "price_msg/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.store import Cookbook\nfrom larder.recipes.models import Recipe\ndef mk(n, cat='x'):\n    s = Cookbook()\n    for k in range(n):\n        s.add(Recipe(id='k%02d' % k, title='N%02d' % k, course=cat, servings=(k * 5) % 7, cost=1.0 + k))\n    return s\nfrom larder.recipes.errors import Invalid\ntry:\n    mk(0).add(Recipe(id='a', title='b', course='c', cost=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "cost cannot be negative"
+    ]
+   ],
+   "name": "r11",
+   "site": "price_msg/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import OrderBook\nfrom larder.orders.models import Order\ndef mk(n, cat='x'):\n    s = OrderBook()\n    for k in range(n):\n        s.add(Order(id='k%02d' % k, ref='N%02d' % k, supplier=cat, units=(k * 5) % 7, amount=1.0 + k))\n    return s\nfrom larder.orders.validate import MAX_NAME\nfrom larder.orders.errors import Invalid\ns = mk(0)\ns.add(Order(id='a', ref='x' * 36, supplier='c'))\ntry:\n    s.add(Order(id='b', ref='x' * 37, supplier='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "36 1"
+    ]
+   ],
+   "name": "r12",
+   "site": "maxname/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import Pantry\nfrom larder.ingredients.models import Ingredient\ndef mk(n, cat='x'):\n    s = Pantry()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r13",
+   "site": "page1/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.store import Cookbook\nfrom larder.recipes.models import Recipe\ndef mk(n, cat='x'):\n    s = Cookbook()\n    for k in range(n):\n        s.add(Recipe(id='k%02d' % k, title='N%02d' % k, course=cat, servings=(k * 5) % 7, cost=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r14",
+   "site": "page1/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import OrderBook\nfrom larder.orders.models import Order\ndef mk(n, cat='x'):\n    s = OrderBook()\n    for k in range(n):\n        s.add(Order(id='k%02d' % k, ref='N%02d' % k, supplier=cat, units=(k * 5) % 7, amount=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r15",
+   "site": "page1/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import Pantry\nfrom larder.ingredients.models import Ingredient\ndef mk(n, cat='x'):\n    s = Pantry()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r16",
+   "site": "search_ci/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.store import Cookbook\nfrom larder.recipes.models import Recipe\ndef mk(n, cat='x'):\n    s = Cookbook()\n    for k in range(n):\n        s.add(Recipe(id='k%02d' % k, title='N%02d' % k, course=cat, servings=(k * 5) % 7, cost=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r17",
+   "site": "search_ci/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import OrderBook\nfrom larder.orders.models import Order\ndef mk(n, cat='x'):\n    s = OrderBook()\n    for k in range(n):\n        s.add(Order(id='k%02d' % k, ref='N%02d' % k, supplier=cat, units=(k * 5) % 7, amount=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r18",
+   "site": "search_ci/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "15"
+    ]
+   ],
+   "name": "r19",
+   "site": "pagesize/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "9"
+    ]
+   ],
+   "name": "r20",
+   "site": "pagesize/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "20"
+    ]
+   ],
+   "name": "r21",
+   "site": "pagesize/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import Pantry\nfrom larder.ingredients.models import Ingredient\ndef mk(n, cat='x'):\n    s = Pantry()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_aisle('mIXED')), len(mk(3, 'lo').by_aisle('LO')))",
+     "4 3"
+    ]
+   ],
+   "name": "r22",
+   "site": "bycat_ci/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.store import Cookbook\nfrom larder.recipes.models import Recipe\ndef mk(n, cat='x'):\n    s = Cookbook()\n    for k in range(n):\n        s.add(Recipe(id='k%02d' % k, title='N%02d' % k, course=cat, servings=(k * 5) % 7, cost=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_course('mIXED')), len(mk(3, 'lo').by_course('LO')))",
+     "4 3"
+    ]
+   ],
+   "name": "r23",
+   "site": "bycat_ci/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import OrderBook\nfrom larder.orders.models import Order\ndef mk(n, cat='x'):\n    s = OrderBook()\n    for k in range(n):\n        s.add(Order(id='k%02d' % k, ref='N%02d' % k, supplier=cat, units=(k * 5) % 7, amount=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_supplier('mIXED')), len(mk(3, 'lo').by_supplier('LO')))",
+     "4 3"
+    ]
+   ],
+   "name": "r24",
+   "site": "bycat_ci/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import Pantry\nfrom larder.ingredients.models import Ingredient\ndef mk(n, cat='x'):\n    s = Pantry()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nimport os, tempfile\nfrom larder.ingredients.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').tags = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[5:], load_csv(p).get('k01').tags, load_csv(p).get('k00').tags)",
+     "['tags'] ['a', 'b'] []"
+    ]
+   ],
+   "name": "r25",
+   "site": "csv_tags/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.store import Cookbook\nfrom larder.recipes.models import Recipe\ndef mk(n, cat='x'):\n    s = Cookbook()\n    for k in range(n):\n        s.add(Recipe(id='k%02d' % k, title='N%02d' % k, course=cat, servings=(k * 5) % 7, cost=1.0 + k))\n    return s\nimport os, tempfile\nfrom larder.recipes.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').keywords = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[5:], load_csv(p).get('k01').keywords, load_csv(p).get('k00').keywords)",
+     "['keywords'] ['a', 'b'] []"
+    ]
+   ],
+   "name": "r26",
+   "site": "csv_tags/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.models import Ingredient\nprint(Ingredient(id='a', name='b', aisle='c', qty=3, price=1.105).to_dict()['value'])",
+     "3.31"
+    ]
+   ],
+   "name": "r27",
+   "site": "value_field/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.models import Order\nprint(Order(id='a', ref='b', supplier='c', units=3, amount=1.105).to_dict()['line_total'])",
+     "3.31"
+    ]
+   ],
+   "name": "r28",
+   "site": "value_field/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.models import Recipe\nprint(Recipe.from_dict({'id': 'a', 'title': 'b', 'course': 'c', 'keywords': ['x', 'y', 'x', 'z', 'y']}).keywords)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "r29",
+   "site": "tags_dedupe/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.models import Order\nprint(Order.from_dict({'id': 'a', 'ref': 'b', 'supplier': 'c', 'flags': ['x', 'y', 'x', 'z', 'y']}).flags)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "r30",
+   "site": "tags_dedupe/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.models import Ingredient\nprint(Ingredient.from_dict({'id': 'a', 'name': 'b'}).aisle)",
+     "dry goods"
+    ]
+   ],
+   "name": "r31",
+   "site": "defcat/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.models import Recipe\nprint(Recipe.from_dict({'id': 'a', 'title': 'b'}).course)",
+     "main"
+    ]
+   ],
+   "name": "r32",
+   "site": "defcat/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import Pantry\nfrom larder.ingredients.models import Ingredient\ndef mk(n, cat='x'):\n    s = Pantry()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom larder.ingredients.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Ingredients on hand"
+    ]
+   ],
+   "name": "r33",
+   "site": "title/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.store import Cookbook\nfrom larder.recipes.models import Recipe\ndef mk(n, cat='x'):\n    s = Cookbook()\n    for k in range(n):\n        s.add(Recipe(id='k%02d' % k, title='N%02d' % k, course=cat, servings=(k * 5) % 7, cost=1.0 + k))\n    return s\nfrom larder.recipes.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Recipes index"
+    ]
+   ],
+   "name": "r34",
+   "site": "title/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import OrderBook\nfrom larder.orders.models import Order\ndef mk(n, cat='x'):\n    s = OrderBook()\n    for k in range(n):\n        s.add(Order(id='k%02d' % k, ref='N%02d' % k, supplier=cat, units=(k * 5) % 7, amount=1.0 + k))\n    return s\nfrom larder.orders.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Orders placed"
+    ]
+   ],
+   "name": "r35",
+   "site": "title/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import Pantry\nfrom larder.ingredients.models import Ingredient\ndef mk(n, cat='x'):\n    s = Pantry()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom larder.ingredients.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "r36",
+   "site": "low_sorted/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import OrderBook\nfrom larder.orders.models import Order\ndef mk(n, cat='x'):\n    s = OrderBook()\n    for k in range(n):\n        s.add(Order(id='k%02d' % k, ref='N%02d' % k, supplier=cat, units=(k * 5) % 7, amount=1.0 + k))\n    return s\nfrom larder.orders.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "r37",
+   "site": "low_sorted/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.report import summary\nfrom larder.recipes.io import load_csv\nprint(list(summary(load_csv('data/recipes.csv'))))",
+     "['Dessert', 'main', 'side', 'starter']"
+    ]
+   ],
+   "name": "r38",
+   "site": "summary_sorted/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.report import summary\nfrom larder.orders.io import load_csv\nprint(list(summary(load_csv('data/orders.csv'))))",
+     "['Mill', 'dairyco', 'fresco', 'local']"
+    ]
+   ],
+   "name": "r39",
+   "site": "summary_sorted/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import Pantry\nfrom larder.ingredients.models import Ingredient\ndef mk(n, cat='x'):\n    s = Pantry()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom larder.ingredients.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "------------------------------"
+    ]
+   ],
+   "name": "r40",
+   "site": "sep/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import OrderBook\nfrom larder.orders.models import Order\ndef mk(n, cat='x'):\n    s = OrderBook()\n    for k in range(n):\n        s.add(Order(id='k%02d' % k, ref='N%02d' % k, supplier=cat, units=(k * 5) % 7, amount=1.0 + k))\n    return s\nfrom larder.orders.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "**********************"
+    ]
+   ],
+   "name": "r41",
+   "site": "sep/orders"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom larder.ingredients.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "4"
+    ]
+   ],
+   "name": "r42",
+   "site": "thr/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom larder.recipes.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "2"
+    ]
+   ],
+   "name": "r43",
+   "site": "thr/recipes"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom larder.orders.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "6"
+    ]
+   ],
+   "name": "r44",
+   "site": "thr/orders"
+  },
+  {
+   "checks": [
+    [
+     "L = open('README.md').read().splitlines()\nprint(repr(L[L.index('    larder count CATALOG FILE') + 1]))",
+     "'    larder json CATALOG FILE'"
+    ]
+   ],
+   "name": "r45",
+   "site": "readme"
+  },
+  {
+   "checks": [
+    [
+     "import io, json, contextlib\nfrom larder.cli import main\nfrom larder.ingredients.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'ingredients', 'data/ingredients.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/ingredients.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))\nfrom larder.orders.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'orders', 'data/orders.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/orders.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))\n",
+     "True 1\nTrue 1"
+    ]
+   ],
+   "name": "r46",
+   "site": "json_cmd"
+  },
+  {
+   "checks": [
+    [
+     "from larder.cli import main\nmain(['count', 'ingredients', 'data/ingredients.csv', '--category', 'dairy'])\nmain(['count', 'recipes', 'data/recipes.csv', '--category', 'Dessert'])\nmain(['count', 'orders', 'data/orders.csv'])",
+     "8\n8\n30"
+    ]
+   ],
+   "name": "r47",
+   "site": "count_cat"
+  },
+  {
+   "checks": [
+    [
+     "import larder\nprint(larder.__version__, open('VERSION').read().strip())",
+     "2.4.0 2.4.0"
+    ]
+   ],
+   "name": "r48",
+   "site": "version"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.0"
+    ]
+   ],
+   "name": "r49",
+   "site": "tax/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.05"
+    ]
+   ],
+   "name": "r50",
+   "site": "tax/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.175"
+    ]
+   ],
+   "name": "r51",
+   "site": "tax/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-£1,234.50 £7.00"
+    ]
+   ],
+   "name": "r52",
+   "site": "money_neg/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-£1,234.50 £7.00"
+    ]
+   ],
+   "name": "r53",
+   "site": "money_neg/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-£1,234.50 £7.00"
+    ]
+   ],
+   "name": "r54",
+   "site": "money_neg/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.recipes.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100), discount(10, 0))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0 10.0"
+    ]
+   ],
+   "name": "r55",
+   "site": "discount_range/recipes"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.store import Pantry\nfrom larder.ingredients.models import Ingredient\ndef mk(n, cat='x'):\n    s = Pantry()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r56",
+   "site": "remove_ret/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "from larder.orders.store import OrderBook\nfrom larder.orders.models import Order\ndef mk(n, cat='x'):\n    s = OrderBook()\n    for k in range(n):\n        s.add(Order(id='k%02d' % k, ref='N%02d' % k, supplier=cat, units=(k * 5) % 7, amount=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r57",
+   "site": "remove_ret/orders"
+  },
+  {
+   "checks": [
+    [
+     "import larder.ingredients\nfrom larder.ingredients.errors import Invalid, NotFound\nprint(sorted(larder.ingredients.__all__), larder.ingredients.NotFound is NotFound, larder.ingredients.Invalid is Invalid)",
+     "['CATEGORY', 'Ingredient', 'Invalid', 'NAME_FIELD', 'NotFound', 'Pantry', 'dump_csv', 'load_csv', 'render'] True True"
+    ]
+   ],
+   "name": "r58",
+   "site": "all_export/ingredients"
+  },
+  {
+   "checks": [
+    [
+     "import larder.recipes\nfrom larder.recipes.errors import Invalid, NotFound\nprint(sorted(larder.recipes.__all__), larder.recipes.NotFound is NotFound, larder.recipes.Invalid is Invalid)",
+     "['CATEGORY', 'Cookbook', 'Invalid', 'NAME_FIELD', 'NotFound', 'Recipe', 'dump_csv', 'load_csv', 'render'] True True"
+    ]
+   ],
+   "name": "r59",
+   "site": "all_export/recipes"
+  },
+  {
+   "checks": [
+    [
+     "import larder.orders\nfrom larder.orders.errors import Invalid, NotFound\nprint(sorted(larder.orders.__all__), larder.orders.NotFound is NotFound, larder.orders.Invalid is Invalid)",
+     "['CATEGORY', 'Invalid', 'NAME_FIELD', 'NotFound', 'Order', 'OrderBook', 'dump_csv', 'load_csv', 'render'] True True"
+    ]
+   ],
+   "name": "r60",
+   "site": "all_export/orders"
+  },
+  {
+   "checks": [
+    [
+     "from larder.ingredients.io import load_csv\nfrom larder.ingredients.pricing import subtotal\ns = load_csv('data/ingredients.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\nfrom larder.recipes.io import load_csv\nfrom larder.recipes.pricing import subtotal\ns = load_csv('data/recipes.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\nfrom larder.orders.io import load_csv\nfrom larder.orders.pricing import subtotal\ns = load_csv('data/orders.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\n",
+     "30 True\n30 True\n30 True"
+    ]
+   ],
+   "name": "regress-data",
+   "site": "regress"
+  },
+  {
+   "checks": [
+    [
+     "import io, contextlib\nfrom larder.cli import main\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'ingredients', 'data/ingredients.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'recipes', 'data/recipes.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'orders', 'data/orders.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\n",
+     "30 p-1\n30 r01\n30 o0001"
+    ]
+   ],
+   "name": "regress-cli",
+   "site": "regress"
+  }
+ ],
+ "pkg": "larder"
+}

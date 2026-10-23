@@ -1,0 +1,186 @@
+{
+  "v": 1,
+  "id": "A3",
+  "title": "A3: a T2 self-edit of the loop, promote -> G0-G3 -> overlapped handoff -> the same conversation continues; the asynchronous G4 is carried out as its verdict says. The real init-kernel under init-fakeroot; the body is WP8b's model-driven fixture; the model is init-mockllm --strict deepseek with its probe, G3 and task responders ($0).",
+  "env": "live",
+  "fixture": {
+    "kernel": "real",
+    "body": "fake",
+    "work": {
+      "..": "../target/t15/tm-fx",
+      "a3": "fixtures/a3"
+    }
+  },
+  "fakeroot": {
+    "mode": "ok",
+    "charter": "fixtures/charters/phase0.toml"
+  },
+  "kernel_config": {
+    "gate": {
+      "g4": {
+        "pool_k": 2,
+        "min_pool": 2,
+        "holdout_h": 1,
+        "min_holdout": 1,
+        "canaries": 1,
+        "min_canaries": 1,
+        "repeats": 2
+      }
+    }
+  },
+  "mock": {
+    "script": "scenarios/scripts/a3.mock.jsonl",
+    "tasks": "scenarios/scripts/a3/tasks",
+    "flags": []
+  },
+  "steps": [
+    {
+      "op": "start_kernel",
+      "env": {
+        "INIT_TEST_SERVE_PEER": "same-uid"
+      }
+    },
+    {
+      "op": "wait_file",
+      "path": "state/run/ready",
+      "timeout_s": 90
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "boot",
+        "reason": "cold"
+      },
+      "timeout_s": 30,
+      "capture": {
+        "X": "sha",
+        "SESSION_BOOT": "boot_id"
+      }
+    },
+    {
+      "op": "send_user",
+      "text": "Add a self-signal `turns_this_task` to your tail and promote it."
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "boot",
+        "reason": "promote"
+      },
+      "timeout_s": 600,
+      "capture": {
+        "NEW_SHA": "sha"
+      }
+    },
+    {
+      "op": "send_user",
+      "text": "Which version are you running now?"
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "message",
+        "msg": {
+          "role": "assistant",
+          "content": "~running the new commit"
+        }
+      },
+      "timeout_s": 300
+    },
+    {
+      "op": "wait_job",
+      "cmd": "g4",
+      "terminal": true,
+      "timeout_s": 1200
+    },
+    {
+      "op": "sleep",
+      "ms": 3000
+    },
+    {
+      "op": "stop_kernel",
+      "expect_exit": 0
+    }
+  ],
+  "expect": {
+    "events_in_order": [
+      {
+        "type": "boot",
+        "reason": "cold"
+      },
+      {
+        "type": "message",
+        "msg": {
+          "role": "user",
+          "content": "~turns_this_task"
+        }
+      },
+      {
+        "type": "message",
+        "msg": {
+          "role": "tool",
+          "content": "~awaiting_boundary"
+        }
+      },
+      {
+        "type": "boot",
+        "reason": "promote",
+        "sha": "$NEW_SHA"
+      },
+      {
+        "type": "message",
+        "msg": {
+          "role": "user",
+          "content": "~Which version"
+        }
+      },
+      {
+        "type": "message",
+        "msg": {
+          "role": "assistant",
+          "content": "~running the new commit"
+        }
+      }
+    ],
+    "events_absent": [
+      {
+        "type": "boot",
+        "reason": "crash"
+      }
+    ],
+    "files": [
+      {
+        "path": "bin/init-body.prev",
+        "exists": true
+      }
+    ],
+    "git": [
+      {
+        "repo": "lineage/body.git",
+        "ref": "refs/init/archive/$NEW_SHA",
+        "exists": true
+      },
+      {
+        "repo": "lineage/body.git",
+        "notes": "gate",
+        "on": "$NEW_SHA",
+        "jsonl_contains": {
+          "gate_kind": "promote"
+        }
+      }
+    ],
+    "g4": {
+      "verdict_consistent": true
+    },
+    "mock": {
+      "expect_failures": 0,
+      "protocol_errors": 0,
+      "exhausted": false,
+      "prefix_constant": true
+    },
+    "processes": {
+      "bodies_running_at_end": 0,
+      "agent_zone_running": false
+    }
+  }
+}

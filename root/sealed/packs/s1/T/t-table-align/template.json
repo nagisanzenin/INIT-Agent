@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-table-align",
+ "family": "T",
+ "lang": "any",
+ "title": "Align a TSV table for the terminal",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: write a stdin->stdout TSV table formatter (numeric/text alignment, decimal padding, code-point widths, empty-cell placeholder, rule line), run on hidden tables; traps: non-ASCII widths (byte-based awk misaligns), decimal padding, a numeric-looking column with one text cell, short rows, grouped thousands (knob); pass_guess_permille: 450"
+}

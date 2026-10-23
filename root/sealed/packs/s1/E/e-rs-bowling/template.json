@@ -1,0 +1,24 @@
+{
+ "v": 1,
+ "id": "e-rs-bowling",
+ "family": "E",
+ "lang": "rust",
+ "title": "Bowling with seeded frames, pins and bonus rules",
+ "difficulty": {
+  "default": 4,
+  "min": 3,
+  "max": 5
+ },
+ "toolchains": [
+  "python3",
+  "cargo"
+ ],
+ "licence": "Exercism-MIT",
+ "source": {
+  "repo": "exercism/rust",
+  "path": "exercises/practice/bowling",
+  "exercise": "bowling",
+  "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e"
+ },
+ "notes": "S1-E-RS. Mutation: seeded frame count (5-9), pins per frame, and (d4+) strike and spare bonus lengths with matching fill rolls; d5 adds more error and incomplete-game cases. ref/naive.rs is the track's .meta/example.rs (unmutated behaviour; validator fixture, must fail)."
+}

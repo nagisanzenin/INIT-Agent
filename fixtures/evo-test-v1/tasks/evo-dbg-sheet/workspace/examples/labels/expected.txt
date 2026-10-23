@@ -1,0 +1,6 @@
+code,name,qty,label,length
+a-1,"Bolt, hex",12,"A-1: Bolt, hex x12",18
+b-22,"Nut ""M4""",150,"B-22: Nut ""M4"" x150",19
+c-3," washer ",7.5,C-3:  washer  x7.5,18
+,,,a-1b-22c-3,12/150/7.5
+007,,," padded ",3

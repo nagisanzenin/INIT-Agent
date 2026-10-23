@@ -1,0 +1,54 @@
+{
+  "v": 1,
+  "id": "WP3-K",
+  "title": "Kernel scenario under the fake Root: owner I/O, broker, egress to the mock, level event, lineage, stop",
+  "env": "live",
+  "fixture": {"kernel": "fake", "body": "fake", "fakekernel_mode": "bypass_soft:1"},
+  "fakeroot": {"mode": "ok", "charter": "fixtures/charters/phase0.toml"},
+  "mock": {"script": "scripts/wp3-bypass.mock.jsonl", "flags": ["--strict", "deepseek"]},
+  "steps": [
+    {"op": "start_kernel"},
+    {"op": "wait_file", "path": "state/run/ready", "timeout_s": 20},
+    {"op": "wait_root_log", "match": {"ev": "spawn", "kind": "body"}, "timeout_s": 10, "capture": {"BODY": "instance"}},
+    {"op": "send_user", "text": "hello through the Root"},
+    {"op": "wait_event", "match": {"type": "message", "role": "assistant", "final": true}, "timeout_s": 20},
+    {"op": "root_level", "to": 1},
+    {"op": "wait_event", "match": {"type": "notice", "kind": "level"}, "timeout_s": 20},
+    {"op": "root_request", "cmd": "ledger", "expect_ok": true, "capture": {"LEVEL": "result.level"}},
+    {"op": "stop_kernel", "expect_exit": 0}
+  ],
+  "expect": {
+    "events_in_order": [
+      {"type": "boot", "reason": "cold"},
+      {"type": "message", "role": "user", "content": "hello through the Root"},
+      {"type": "message", "role": "assistant", "content": "~hello through the Root"},
+      {"type": "notice", "kind": "level", "data": {"level": "$LEVEL"}}
+    ],
+    "link_in_order": [
+      {"dir": "in", "frame": {"cmd": "hello"}},
+      {"dir": "out", "frame": {"result": {"paths": {"egress_sock": "~egress.sock"}}}},
+      {"dir": "in", "frame": {"cmd": "ready"}},
+      {"dir": "in", "frame": {"cmd": "spawn", "args": {"kind": "body", "lane": "b0"}}},
+      {"dir": "out", "frame": {"cmd": "owner.in", "args": {"frame": {"t": "line", "text": "hello through the Root"}}}},
+      {"dir": "in", "frame": {"ev": "owner.out", "data": {"frame": {"t": "display", "kind": "text"}}}},
+      {"dir": "out", "frame": {"ev": "level", "data": {"to": 1}}},
+      {"dir": "out", "frame": {"cmd": "stop"}},
+      {"dir": "out", "frame": {"ev": "exited", "data": {"instance": "$BODY", "code": 0}}}
+    ],
+    "link_absent": [{"ev": "bad_frame"}],
+    "r4": {"verify": true, "records_in_order": [
+      {"kind": "genesis"},
+      {"kind": "zone_start", "data": {"reason": "cold"}},
+      {"kind": "promotion", "by": "~kernel:", "data": {"lkg": true}},
+      {"kind": "ladder", "data": {"to": 1}},
+      {"kind": "zone_exit", "data": {"class": "stop", "code": 0}}
+    ]},
+    "files": [
+      {"path": "state/kernel/inbox.jsonl", "contains": "hello through the Root"},
+      {"path": "root:state/owner-queue.jsonl", "exists": true}
+    ],
+    "mock": {"requests": 1, "protocol_errors": 0, "expect_failures": 0, "exhausted": false},
+    "processes": {"bodies_running_at_end": 0, "agent_zone_running": false},
+    "level": 1
+  }
+}

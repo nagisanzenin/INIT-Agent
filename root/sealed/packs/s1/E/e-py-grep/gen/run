@@ -1,0 +1,162 @@
+#!/usr/bin/env python3
+"""e-py-grep: Exercism `grep` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d3 files passed as a dict, output as a list, a seeded field separator and a new count
+flag -c; d4 adds whole-word matching -w and line numbers zero-padded to a seeded width; d5 adds -mN (stop
+after N selected lines per file).
+Reference: ref/solution.py (parameterized by P). Dev fixture: ref/original.py (the unmutated exercise).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "grep"
+STUB = '''def grep(pattern, flags, files):
+    raise NotImplementedError("grep")
+'''
+SEPS = ["|", " | ", "\t", "::", ">", " -> ", ";"]
+LINES = [
+    "the cat sat on the mat", "Concatenate the strings first", "A category of its own", "cat",
+    "The Cat came back", "scatter the seeds", "dog and cat and bird", "no animals here", "CATALOG ENTRY 42",
+    "the_cat_function returns", "cat-like reflexes", "copy cat", "a bobcat ran by", "Cat.", "cats and dogs",
+    "read the map twice", "Map of the old town", "roadmap for next year", "the data is ready", "Data: 17 rows",
+    "metadata only", "update the data", "road closed", "Road works ahead", "railroad crossing", "map",
+    "MAP", "data", "the end", "The End", "then again", "other things", "bathe the dog", "THE LAST LINE",
+    "map-reduce job", "data_set loaded", "a road, a map, a cat", "ROAD", "nothing to see", "",
+]
+NAMES = ["notes.txt", "poem.md", "log1.txt", "todo.txt", "draft.md", "data.csv", "readme.txt", "list.txt"]
+WORDS = ["cat", "Cat", "map", "data", "road", "the", "THE", "Map", "dog", "ca", "at", "end"]
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    p = {"sep": rng.choice(SEPS), "word": d >= 4, "width": rng.choice([3, 4]) if d >= 4 else 0,
+         "max_count": d >= 5}
+    return p
+
+
+def show(sep):
+    return {"\t": "a tab character (`\\t`)", " | ": "`\" | \"` (space, bar, space)",
+            " -> ": "`\" -> \"` (space, arrow, space)"}.get(sep, "`%s`" % sep)
+
+
+def rules_text(p):
+    flags = [
+        "- `-n`: put the line number (counting from 1) and the separator before each line%s;" % (
+            ", after the file name if there is one; the number is zero-padded to %d digits (`%s`), longer "
+            "numbers are written in full" % (p["width"], "7".zfill(p["width"])) if p["width"] else
+            ", after the file name if there is one"),
+        "- `-l`: output only the names of the files that have at least one selected line, in file order;",
+        "- `-i`: compare case-insensitively;",
+        "- `-v`: select the lines that do NOT match;",
+        "- `-x`: a line matches only if it is exactly the search string (the whole line);",
+        "- `-c`: instead of lines, output one line per file with the number of selected lines (also for "
+        "files with 0): just the number with a single file, `name` + separator + number with several files;",
+    ]
+    if p["word"]:
+        flags.append("- `-w`: a line matches only if the search string occurs in it as a whole word: the "
+                     "character just before the occurrence (if any) and the character just after it (if any) "
+                     "must not be a letter, a digit or `_`; any such occurrence is enough;")
+    if p["max_count"]:
+        flags.append("- `-mN` written as one string, for example `-m2` (N >= 1): only the first N selected lines "
+                     "of each file count; later ones are ignored for the output, for `-c` and for `-l`;")
+    lines = [
+        "`grep(pattern, flags, files)` searches for a fixed string (no regular expressions). `pattern` is a "
+        "non-empty `str`; `flags` is a `list` of flag strings; `files` is a `dict` mapping file names to file "
+        "contents (`str`), searched in the dict's order. A file's lines are its contents split at `\\n`; a final "
+        "`\\n` does not start an extra empty line, and empty contents have no lines.",
+        "",
+        "It returns a `list` of output lines (`str`, without newline characters), in file order and then line "
+        "order. By default the output is every line that contains `pattern` (case-sensitive). When `files` has "
+        "more than one entry, every output line starts with the file name followed by the separator %s. The "
+        "same separator follows the line number of `-n`." % show(p["sep"]),
+        "",
+        "Flags (any combination, in any order):",
+        "",
+    ] + flags + [
+        "",
+        "`-l` takes precedence over `-c` and `-n`; `-c` takes precedence over `-n`. `-v` inverts the selection "
+        "after `-i`, `-x`%s are applied. Any other flag raises `ValueError`." % (" and `-w`" if p["word"] else ""),
+    ]
+    return "\n".join(lines)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    exprs = []
+
+    def text(n):
+        picked = [rng.choice(LINES) for _ in range(n)]
+        t = "\n".join(picked)
+        return t + "\n" if rng.chance(3, 4) else t
+
+    def files(k):
+        names = rng.sample(NAMES, k)
+        return {nm: text(rng.randint(3, 9)) for nm in names}
+
+    def add(pattern, flags, fs):
+        e = "grep(%r, %r, %r)" % (pattern, flags, fs)
+        if e not in exprs:
+            exprs.append(e)
+
+    base = ["-n", "-l", "-i", "-v", "-x", "-c"] + (["-w"] if p["word"] else [])
+
+    def mflag():
+        return "-m%d" % rng.randint(1, 3)
+
+    # visible examples (4)
+    add(rng.choice(["cat", "the", "map"]), ["-n"], files(2))
+    add(rng.choice(["data", "road", "Cat"]), ["-c", "-i"], files(2))
+    if p["word"]:
+        add("cat", ["-w", "-n"], {"notes.txt": "the cat sat\nconcatenate\ncat-like\nbobcat\n"})
+    else:
+        add(rng.choice(["the", "map"]), [], files(1))
+    add(rng.choice(["cat", "map"]), [rng.choice(["-z", "-E", "--count", "-q"])], files(1))
+    # hidden: one-flag cases, multi-file cases, combinations, edges
+    for f in base:
+        add(rng.choice(WORDS), [f], files(rng.randint(1, 3)))
+    for _ in range(6):
+        k = rng.randint(1, 3)
+        flags = rng.sample(base, k)
+        if p["max_count"] and rng.chance(1, 2):
+            flags.append(mflag())
+        add(rng.choice(WORDS), rng.shuffled(flags), files(rng.randint(1, 3)))
+    for _ in range(3):
+        add(rng.choice(WORDS), ["-n"] + ([rng.choice(["-i", "-v"])] if rng.chance(1, 2) else []), files(3))
+    fs = files(2)
+    first = list(fs.values())[0].split("\n")[0] or "cat"
+    add(first.upper() if rng.chance(1, 2) else first, ["-x", "-i", "-n"], fs)
+    add(first, ["-x"], fs)
+    add("cat", ["-c"], {"a.txt": "", "b.txt": "cat\ncat\n"})
+    add("map", ["-l", "-c", "-n"], files(3))
+    add("zebra", ["-n"], files(2))
+    add("the", ["-c", "-v"], files(1))
+    if p["width"]:
+        long_text = "\n".join(rng.choice(LINES) for _ in range(12)) + "\n"
+        add("a", ["-n"], {"long.txt": long_text})
+    if p["word"]:
+        add("cat", ["-w"], files(3))
+        add("Cat", ["-w", "-i", "-c"], files(2))
+        add("data", ["-w", "-v", "-n"], files(1))
+        add("ca", ["-w"], {"x.txt": "ca\ncat\n(ca)\nca_t\n"})
+    if p["max_count"]:
+        add("cat", [mflag()], files(2))
+        add("the", ["-c", mflag()], files(2))
+        add("a", ["-l", "-m1"], files(3))
+        add("cat", ["-m0"], files(1))
+        add("cat", ["-v", "-n", mflag()], files(1))
+    dev = {"original": ctx.read("ref", "original.py")}
+    task = ("Implement `grep(pattern, flags, files)` in `%s.py`: a small fixed-string grep over in-memory files." %
+            MODULE)
+    return assemble(ctx, MODULE, task, rules_text(p), ref, exprs[:40], 4, dev, STUB)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

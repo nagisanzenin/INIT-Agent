@@ -1,0 +1,39 @@
+{
+ "id": "pool-t-manifest-opts",
+ "title": "Fix the option parsing of a shell script",
+ "family": "t",
+ "difficulty": 3,
+ "labels": [
+  "terminal"
+ ],
+ "max_turns": 10,
+ "prompt": "mkmanifest.sh in the current directory should behave as README.md describes, but its option parsing and file handling are broken (several bugs). Fix mkmanifest.sh so that every rule in README.md holds when it is run as `sh mkmanifest.sh ...` from any directory. It must stay a POSIX sh script that uses only standard tools (find, sort, basename, wc, mktemp, ...). Do not modify README.md.",
+ "source": {
+  "kind": "fresh"
+ },
+ "protected": [
+  "README.md"
+ ],
+ "steps": [
+  {
+   "kind": "sh",
+   "script": "hidden/check.sh",
+   "names": [
+    "basic",
+    "name_option",
+    "out_file",
+    "out_dash",
+    "one_exclude",
+    "two_excludes",
+    "exclude_with_space",
+    "dirs_with_spaces",
+    "verbose",
+    "double_dash",
+    "unknown_option",
+    "missing_dir",
+    "not_a_dir"
+   ],
+   "timeout_s": 20
+  }
+ ]
+}

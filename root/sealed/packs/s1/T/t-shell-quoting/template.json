@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-shell-quoting",
+ "family": "T",
+ "lang": "sh",
+ "title": "Fix the quoting bugs of a POSIX sh file script",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3", "sh"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: shell quoting; make a seeded /bin/sh script (collect *.EXT with a TAB manifest, move files named in a list file, or rename by suffix) safe for any file name without changing its behaviour; run by /bin/sh with a restricted PATH on hidden name sets in private dirs, comparing the whole resulting tree (and stdout); traps: unquoted expansions, for-in-$(ls), ls/cp/mv/basename on a leading-dash name, glob chars matching other files ([ab].txt vs a.txt), macOS sh echo expanding backslashes, the no-match glob, read without IFS=/-r and the list's last line without a newline, TABs in names and spaced dirs (knob); pass_guess_permille: 450"
+}

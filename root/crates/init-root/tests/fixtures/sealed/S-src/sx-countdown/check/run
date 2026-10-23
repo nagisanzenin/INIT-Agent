@@ -1,0 +1,10 @@
+#!/bin/sh
+# 10 cases, 100 permille each: line k of countdown.txt must be the k-th expected value.
+ok=0
+k=1
+for want in 10 9 8 7 6 5 4 3 2 1; do
+  got=$(sed -n "${k}p" countdown.txt 2>/dev/null)
+  [ "$got" = "$want" ] && ok=$((ok + 1))
+  k=$((k + 1))
+done
+echo "{\"score_permille\":$((ok * 100))}"

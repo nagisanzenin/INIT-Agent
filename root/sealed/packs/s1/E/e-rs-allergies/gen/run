@@ -1,0 +1,266 @@
+#!/usr/bin/env python3
+"""e-rs-allergies: Exercism `allergies` (Rust) with a seeded semantic change (m7-design §3.1.1, family E).
+
+Seeded parameters: a permutation assigning the eight allergens to bit positions, an offset `base` (the eight bits
+are 2^base .. 2^(base+7); lower and higher bits of the score are ignored), the order of `allergies()` (ascending
+value, descending value or alphabetical) and, at difficulty 3, a score mask K that the score is XOR-ed with before
+decoding. Difficulty 1: permutation only (ascending order, base 0); difficulty 2: permutation, base and order;
+difficulty 3: all of it. Every difficulty differs from the original exercise (identity layout, base 0).
+Graded cases: 4 visible + 28 hidden calls (`is_allergic_to` checks and full `allergies()` lists), one #[test] each.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "allergies_variant"
+NAMES = ["Eggs", "Peanuts", "Shellfish", "Strawberries", "Tomatoes", "Chocolate", "Pollen", "Cats"]
+ALPHA = sorted(NAMES)
+U32_MAX = 0xFFFFFFFF
+N_TOTAL = 32
+
+STUB = '''#[derive(Debug, PartialEq, Eq, Clone, Copy)]
+pub enum Allergen {
+    Eggs,
+    Peanuts,
+    Shellfish,
+    Strawberries,
+    Tomatoes,
+    Chocolate,
+    Pollen,
+    Cats,
+}
+
+pub struct Allergies {
+    score: u32,
+}
+
+impl Allergies {
+    pub fn new(score: u32) -> Self {
+        todo!("build the patient from the score {score}")
+    }
+
+    pub fn is_allergic_to(&self, allergen: &Allergen) -> bool {
+        todo!("is the patient allergic to {allergen:?} (score {})", self.score)
+    }
+
+    pub fn allergies(&self) -> Vec<Allergen> {
+        todo!("all allergens of the score {}", self.score)
+    }
+}
+'''
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    while True:
+        perm = rng.shuffled(range(8))      # perm[i] = bit position (0..7) of NAMES[i]
+        if sum(1 for i in range(8) if perm[i] == i) > 2:
+            continue
+        base = 0 if d == 1 else rng.choice([1, 2, 3])
+        order = "asc" if d == 1 else rng.choice(["desc", "alpha"])
+        val = {NAMES[i]: 1 << (base + perm[i]) for i in range(8)}
+        by_value = sorted(NAMES, key=val.get)
+        if order == "alpha" and ALPHA in (by_value, by_value[::-1]):
+            continue
+        mask = 0
+        if d >= 3:
+            while not 2 <= bin(mask).count("1") <= 6:
+                mask = rng.randint(1, 254)
+        return {"perm": perm, "base": base, "order": order, "val": val, "by_value": by_value, "mask": mask,
+                "K": mask << base}
+
+
+def present(score, p):
+    e = score ^ p["K"]
+    got = [n for n in NAMES if e & p["val"][n]]
+    if p["order"] == "asc":
+        return sorted(got, key=p["val"].get)
+    if p["order"] == "desc":
+        return sorted(got, key=p["val"].get, reverse=True)
+    return sorted(got)
+
+
+def naive_list(score):
+    return [n for i, n in enumerate(NAMES) if score >> i & 1]
+
+
+def mk(p, names, low=0, high=0):
+    """A score whose decoded set is `names`, plus junk bits outside the eight bit values."""
+    return (sum(p["val"][n] for n in names) ^ p["K"]) | low | high
+
+
+def rs_list(names):
+    if not names:
+        return "Vec::<Allergen>::new()"
+    return "vec![%s]" % ", ".join("Allergen::%s" % n for n in names)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    base, d3 = p["base"], ctx.difficulty >= 3
+    pool, seen = [], set()   # entries (kind, score, name)
+
+    def add(kind, score, name=None):
+        key = (kind, score, name)
+        if key not in seen and 0 <= score <= U32_MAX:
+            seen.add(key)
+            pool.append(key)
+
+    def junk(prob=1, den=2):
+        low = rng.below(1 << base) if base and rng.chance(prob, den) else 0
+        high = (rng.below(1 << (24 - base)) << (base + 8)) if rng.chance(prob, den) else 0
+        return low, high
+
+    def subset(lo, hi):
+        return rng.sample(NAMES, rng.randint(lo, hi))
+
+    def is_case(name, truth, with_junk):
+        for _ in range(100):
+            s = subset(1, 4)
+            if (name in s) == truth:
+                low, high = junk() if with_junk else (0, 0)
+                return ("is", mk(p, s, low, high), name)
+        raise s1lib.GenError("no is-case found")
+
+    # visible: a list with three allergens, an allergic check, a not-allergic check, then junk bits (or the XOR)
+    add("list", mk(p, subset(3, 3)))
+    vis_names = rng.sample(NAMES, 2)
+    add(*is_case(vis_names[0], True, False))
+    add(*is_case(vis_names[1], False, False))
+    if d3:
+        add("list", 0)
+    else:
+        low, high = 0, rng.randint(1, 255) << (base + 8)
+        if base:
+            low = rng.randint(1, (1 << base) - 1)
+        add("list", mk(p, subset(2, 3), low, high))
+    # hidden: the edge cases first
+    add("list", 0)
+    add("list", U32_MAX)
+    add("list", mk(p, NAMES))
+    add("list", mk(p, NAMES, (1 << base) - 1, (U32_MAX >> (base + 8)) << (base + 8)))
+    add("list", p["K"] if d3 else mk(p, [], 1 << base >> 1, 0) if base else mk(p, [], 0, 1 << 8))
+    add("list", 1 << (base + 8))                                  # the bit just above the eight
+    add("list", (1 << base) - 1 if base else 1 << (base + 9))    # all the bits below the eight (or one far above)
+    add("list", mk(p, [], 0, rng.randint(1, 1 << 20) << (base + 8)))
+    lowest, highest = p["by_value"][0], p["by_value"][-1]
+    add("list", mk(p, [lowest]))
+    add("list", mk(p, [highest]))
+    add("list", mk(p, [rng.choice(NAMES)], *junk()))
+    for i, n in enumerate(rng.shuffled(NAMES)):
+        add(*is_case(n, i % 2 == 0, rng.chance(1, 3)))
+    for n in rng.sample(NAMES, 2):
+        add("is", U32_MAX, n)
+    add("is", 0, rng.choice(NAMES))
+    for _ in range(3):
+        low, high = junk()
+        add("list", mk(p, subset(2, 5), low, high))
+    # optional fill: more random lists and checks
+    for _ in range(40):
+        low, high = junk()
+        if rng.chance(1, 2):
+            add("list", mk(p, subset(0, 6), low, high))
+        else:
+            s = subset(1, 5)
+            n = rng.choice(NAMES)
+            add("is", mk(p, s, low, high), n)
+    pool = pool[:N_TOTAL]
+    if len(pool) < N_TOTAL:
+        raise s1lib.GenError("too few cases")
+
+    def answer(c):
+        kind, score, name = c
+        if kind == "list":
+            return present(score, p)
+        return name in present(score, p)
+
+    def naive_answer(c):
+        kind, score, name = c
+        if kind == "list":
+            return naive_list(score)
+        return name in naive_list(score)
+
+    # the original exercise: identity layout, ascending order
+    naive_diff = sum(1 for c in pool if answer(c) != naive_answer(c))
+    if naive_diff < 4:
+        raise s1lib.GenError("too few cases separate the mutation from the original")
+    order = pool[:4] + rng.shuffled(pool[4:])
+    cases = []
+    for n, c in enumerate(order):
+        kind, score, name = c
+        cname = "visible_%d" % (n + 1) if n < 4 else "case_%02d" % (n - 3)
+        if kind == "list":
+            cases.append((cname, "Allergies::new(%d).allergies()" % score, rs_list(present(score, p))))
+        else:
+            cases.append((cname, "Allergies::new(%d).is_allergic_to(&Allergen::%s)" % (score, name),
+                          ersgen.rs_bool(name in present(score, p))))
+
+    # ------------------------------------------------------------------------------- rules text
+    asc = p["by_value"]
+    k_txt = ""
+    lines = ["1. Every allergen has a fixed score value, a power of two. The values are:"]
+    for n in asc:
+        lines.append("       Allergen::%-13s %d" % (n, p["val"][n]))
+    vmin, vmax = p["val"][asc[0]], p["val"][asc[-1]]
+    lines.append("   These eight values are 2^%d to 2^%d, that is %d to %d." % (base, base + 7, vmin, vmax))
+    if d3:
+        lines.append("2. First XOR the score with K = %d (`score ^ %d`, as `u32`) and call the result the effective "
+                     "score. K only has bits inside the eight values, so it never touches the ignored bits of rule 3."
+                     % (p["K"], p["K"]))
+        eff_name = "effective score"
+    else:
+        lines.append("2. The effective score is the score itself.")
+        eff_name = "score"
+    ignored = []
+    if base:
+        ignored.append("every bit below %d (values %s)" % (vmin, ", ".join(str(1 << i) for i in range(base))))
+    ignored.append("every bit above %d (values %d and up)" % (vmax, vmax * 2))
+    lines.append("3. A patient is allergic to an allergen exactly when the allergen's value is one of the bits set in the "
+                 "%s, that is `effective & value != 0`. Bits of the %s that are not one of the eight values are "
+                 "ignored: %s. An allergen is never reported twice." % (eff_name, eff_name, " and ".join(ignored)))
+    lines.append("4. `Allergies::new(score)` takes any `u32` score (0 and `u32::MAX` included). "
+                 "`is_allergic_to(&allergen)` returns the check of rule 3 for that allergen.")
+    if p["order"] == "asc":
+        ordtxt = "in increasing order of the score values of the table (smallest value first)"
+    elif p["order"] == "desc":
+        ordtxt = "in decreasing order of the score values of the table (largest value first)"
+    else:
+        ordtxt = ("in alphabetical order of the variant names, whatever their score values: %s"
+                  % ", ".join(ALPHA))
+    lines.append("5. `allergies()` returns every allergen the patient is allergic to, %s. A patient with no allergies "
+                 "gives an empty vector." % ordtxt)
+    ex = order[0][1]
+    e_score = ex ^ p["K"]
+    got_unordered = sorted([n for n in NAMES if e_score & p["val"][n]], key=p["val"].get)
+    pre = ("The score %d is XOR-ed with %d, giving %d. " % (ex, p["K"], e_score)) if d3 else ""
+    lines.append("Worked example: %sThe set bits of %d that are among the eight values are %s, which are %s; "
+                 "`allergies()` returns them %s: %s." % (
+                     pre, e_score, ", ".join(str(p["val"][n]) for n in got_unordered),
+                     ", ".join("Allergen::" + n for n in got_unordered),
+                     {"asc": "in increasing value order", "desc": "in decreasing value order",
+                      "alpha": "in alphabetical order"}[p["order"]],
+                     rs_list(present(ex, p))))
+    table = ",\n".join("    (Allergen::%s, %d)" % (n, p["val"][n]) for n in present(U32_MAX ^ p["K"], p))
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {"XOR_MASK": p["K"], "TABLE": table})
+    return ersgen.finish(
+        ctx, crate=CRATE, api=("#[derive(Debug, PartialEq, Eq, Clone, Copy)]\npub enum Allergen { Eggs, Peanuts, "
+                               "Shellfish, Strawberries, Tomatoes, Chocolate, Pollen, Cats }\n\n"
+                               "pub struct Allergies { /* your fields */ }\n\n"
+                               "impl Allergies {\n"
+                               "    pub fn new(score: u32) -> Self\n"
+                               "    pub fn is_allergic_to(&self, allergen: &Allergen) -> bool\n"
+                               "    pub fn allergies(&self) -> Vec<Allergen>\n"
+                               "}"),
+        intro="A clinic stores a patient's allergy test as a single numeric score, using its own bit layout. "
+              "Write the `Allergies` type that decodes a score into the allergens it contains.",
+        rules="\n".join(lines), stub=STUB, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::{Allergen, Allergies};" % CRATE, cases=cases, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

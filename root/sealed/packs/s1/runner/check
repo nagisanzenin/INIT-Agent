@@ -1,0 +1,14 @@
+#!/bin/sh
+# INIT sealed pack s1: the shared check runner entry point (docs/m7-design.md §3.1.3).
+# Every S instance's check/run is a byte-identical copy of this file, next to a copy of s1check.py.
+# cwd = the workspace; the last stdout line is the score. See runner/s1check.py for the exit codes.
+d=$(cd "$(dirname "$0")" && pwd -P) || { echo '{"score_permille":0}'; exit 2; }
+for py in python3 /usr/bin/python3 /usr/local/bin/python3; do
+  if command -v "$py" >/dev/null 2>&1 &&
+     "$py" -I -S -c 'import sys; sys.exit(0 if sys.version_info >= (3, 9) else 1)' >/dev/null 2>&1; then
+    exec "$py" -I -S -B "$d/s1check.py" "$d" "$@"
+  fi
+done
+echo "s1check: toolchain_missing: python3>=3.9" >&2
+echo '{"score_permille":0}'
+exit 4

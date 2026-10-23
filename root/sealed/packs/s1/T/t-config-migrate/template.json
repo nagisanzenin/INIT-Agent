@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-config-migrate",
+ "family": "T",
+ "lang": "any",
+ "title": "Migrate legacy INI configs to v2 JSON",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: write ./migrate <in.ini> that applies a migration spec (section/key renames, typed conversion of durations, booleans, lists and host:port, deprecated keys, defaults, env.<name> sections, canonical JSON), write out/<name>.json for the visible configs, run on hidden inis; checked by type-strict parsed-JSON equality; traps: '%' in values (configparser interpolation), bare-number durations = seconds, missing sections -> defaults, env {} when absent, bool tokens on/off/1/0 any case; knob adds duplicate keys (last wins), port-less addresses (default port), mixed-case keys (4), bracketed IPv6 and '=' / '#' inside values (5); pass_guess_permille: 400"
+}

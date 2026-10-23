@@ -1,0 +1,165 @@
+{
+  "v": 1,
+  "id": "A1",
+  "title": "A1: solves a normal coding task (mock). The real init-kernel and init-body under init-fakeroot, the model is init-mockllm --strict deepseek ($0).",
+  "env": "live",
+  "fixture": {
+    "kernel": "real",
+    "body": "real",
+    "work": {
+      "..": "../target/t15/tm-seed",
+      "a1-calc": "fixtures/repos/a1-calc"
+    }
+  },
+  "fakeroot": {
+    "mode": "ok",
+    "charter": "fixtures/charters/phase0.toml"
+  },
+  "mock": {
+    "script": "scenarios/scripts/a1.mock.jsonl",
+    "flags": [
+      "--strict",
+      "deepseek"
+    ]
+  },
+  "steps": [
+    {
+      "op": "start_kernel",
+      "env": {
+        "INIT_TEST_SERVE_PEER": "same-uid"
+      }
+    },
+    {
+      "op": "wait_file",
+      "path": "state/run/ready",
+      "timeout_s": 90
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "boot",
+        "reason": "cold"
+      },
+      "timeout_s": 30
+    },
+    {
+      "op": "send_user",
+      "text": "In work/a1-calc, the test suite fails. Fix the bug so that `python3 -m unittest -q` passes, and tell me what you changed."
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "message",
+        "role": "assistant",
+        "stop_reason": "end_turn"
+      },
+      "timeout_s": 120
+    },
+    {
+      "op": "root_request",
+      "cmd": "status",
+      "expect_ok": true,
+      "capture": {
+        "BODIES_BEFORE_STOP": "result.bodies"
+      }
+    },
+    {
+      "op": "stop_kernel",
+      "expect_exit": 0
+    }
+  ],
+  "expect": {
+    "events_in_order": [
+      {
+        "type": "boot",
+        "reason": "cold"
+      },
+      {
+        "type": "message",
+        "role": "user",
+        "content": "~a1-calc"
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": "~\"name\":\"read\""
+      },
+      {
+        "type": "tool_call",
+        "name": "read"
+      },
+      {
+        "type": "tool_result",
+        "name": "read",
+        "is_error": false,
+        "output": "~return a - b"
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": "~\"name\":\"edit\""
+      },
+      {
+        "type": "tool_call",
+        "name": "edit"
+      },
+      {
+        "type": "tool_result",
+        "name": "edit",
+        "is_error": false
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "content": "~unittest"
+      },
+      {
+        "type": "tool_call",
+        "name": "bash"
+      },
+      {
+        "type": "tool_result",
+        "name": "bash",
+        "is_error": false,
+        "output": "~OK"
+      },
+      {
+        "type": "message",
+        "role": "assistant",
+        "stop_reason": "end_turn",
+        "content": "~a + b"
+      }
+    ],
+    "events_absent": [
+      {
+        "type": "boot",
+        "reason": "crash"
+      },
+      {
+        "type": "tool_result",
+        "is_error": true
+      }
+    ],
+    "files": [
+      {
+        "path": "work/a1-calc/calc.py",
+        "contains": "return a + b"
+      },
+      {
+        "path": "state/kernel/supervisor.json",
+        "exists": true
+      }
+    ],
+    "mock": {
+      "requests": 4,
+      "expect_failures": 0,
+      "protocol_errors": 0,
+      "exhausted": false,
+      "prefix_constant": true
+    },
+    "processes": {
+      "bodies_running_at_end": 0,
+      "agent_zone_running": false
+    }
+  }
+}

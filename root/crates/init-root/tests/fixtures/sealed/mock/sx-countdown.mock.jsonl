@@ -1,0 +1,4 @@
+{"chunk": 64, "kind": "meta", "model": "deepseek-flash", "name": "sx-countdown", "provider": "deepseek", "v": 1}
+{"kind": "turn", "reply": {"calls": [{"input": {"content": "10\n9\n8\n7\n6\n5\n4\n3\n2\n1\n", "path": "countdown.txt"}, "name": "write_file"}], "stop": "tool_use", "text": "", "think": ""}, "v": 1}
+{"kind": "turn", "reply": {"calls": [{"input": {}, "name": "run_tests"}], "stop": "tool_use", "text": "", "think": ""}, "v": 1}
+{"kind": "turn", "reply": {"stop": "end_turn", "text": "Done.", "think": ""}, "v": 1}

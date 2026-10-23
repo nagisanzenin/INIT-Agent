@@ -1,0 +1,148 @@
+#!/usr/bin/env python3
+"""t-log-report (format example, family T): write `report.sh`, which turns a key=value log into a CSV
+summary. Seeded: the level counted, the aggregate (max or sum of dur_ms), the row order, the delimiter;
+higher difficulty adds malformed lines and `svc=` inside quoted messages. The check runs the workspace's
+report.sh on 4 hidden logs plus the visible one (run step, partial credit)."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "..",
+                                "packs", "s1", "lib"))
+import s1lib  # noqa: E402
+
+SERVICES = ["api", "auth", "billing", "cache", "db", "edge", "jobs", "mail", "search", "web"]
+LEVELS = ["DEBUG", "INFO", "WARN", "ERROR"]
+WORDS = ["timeout", "retry", "ok", "slow", "queue", "full", "conn", "reset", "miss", "hit"]
+
+REFERENCE = '''#!/bin/sh
+# usage: sh report.sh <logfile>
+D='{delim}'
+printf 'service%scount%s{agg}_dur_ms\\n' "$D" "$D"
+awk -v L='{level}' -v D="$D" -v AGG='{agg}' '
+{{
+  lvl = ""; svc = ""; dur = ""
+  for (i = 1; i <= NF; i++) {{
+    if ($i ~ /^msg=/) break
+    if ($i ~ /^level=/) lvl = substr($i, 7)
+    else if ($i ~ /^svc=/) svc = substr($i, 5)
+    else if ($i ~ /^dur_ms=/) dur = substr($i, 8)
+  }}
+  if (lvl != L || svc == "" || dur !~ /^[0-9]+$/) next
+  n[svc]++
+  if (AGG == "sum") a[svc] += dur
+  else if (!(svc in a) || dur + 0 > a[svc]) a[svc] = dur + 0
+}}
+END {{ for (s in n) print s D n[s] D a[s] }}' "$1" | sort -t "$D" {sortkeys}
+'''
+
+STUB = '''#!/bin/sh
+# usage: sh report.sh <logfile>
+echo "not implemented" >&2
+exit 1
+'''
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    level = rng.choice(["ERROR", "WARN"])
+    agg = rng.choice(["max", "sum"])
+    order = "name" if d <= 2 else rng.choice(["name", "count"])
+    delim = "," if d == 1 else rng.choice([",", ";", "|"])
+    return level, agg, order, delim
+
+
+def log_text(rng, d, n_lines):
+    svcs = rng.sample(SERVICES, rng.randint(3, 6))
+    out = []
+    for i in range(n_lines):
+        ts = "2026-%02d-%02dT%02d:%02d:%02dZ" % (rng.randint(1, 12), rng.randint(1, 28), rng.randint(0, 23),
+                                                 rng.randint(0, 59), rng.randint(0, 59))
+        lvl = rng.choice(LEVELS + ["ERROR", "WARN"])
+        svc = rng.choice(svcs)
+        dur = rng.randint(1, 4000)
+        words = [rng.choice(WORDS) for _ in range(rng.randint(1, 4))]
+        if d >= 5 and rng.chance(1, 4):
+            words.insert(rng.below(len(words) + 1), "svc=" + rng.choice(SERVICES))
+        line = '%s level=%s svc=%s dur_ms=%d msg="%s"' % (ts, lvl, svc, dur, " ".join(words))
+        if d >= 4:
+            k = rng.below(12)
+            if k == 0:
+                line = ""
+            elif k == 1:
+                line = '%s level=%s dur_ms=%d msg="no service"' % (ts, lvl, dur)
+            elif k == 2:
+                line = '%s level=%s svc=%s dur_ms=n/a msg="x"' % (ts, lvl, svc)
+        out.append(line)
+    return "\n".join(out) + "\n"
+
+
+def report(text, level, agg, order, delim):
+    n, a = {}, {}
+    for line in text.split("\n"):
+        lvl = svc = dur = ""
+        for tok in line.split():
+            if tok.startswith("msg="):
+                break
+            if tok.startswith("level="):
+                lvl = tok[6:]
+            elif tok.startswith("svc="):
+                svc = tok[4:]
+            elif tok.startswith("dur_ms="):
+                dur = tok[7:]
+        if lvl != level or svc == "" or not dur.isdigit():
+            continue
+        n[svc] = n.get(svc, 0) + 1
+        a[svc] = a.get(svc, 0) + int(dur) if agg == "sum" else max(a.get(svc, 0), int(dur))
+    rows = sorted(n, key=(lambda s: s) if order == "name" else (lambda s: (-n[s], s)))
+    out = ["service%scount%s%s_dur_ms" % (delim, delim, agg)]
+    out += ["%s%s%d%s%d" % (s, delim, n[s], delim, a[s]) for s in rows]
+    return "\n".join(out) + "\n"
+
+
+def build(ctx):
+    rng = ctx.rng()
+    level, agg, order, delim = params(ctx, rng)
+    d = ctx.difficulty
+    sample = log_text(rng, d, 14)
+    logname = "logs/app-%s.log" % rng.word(5)
+    inst = s1lib.Instance(ctx, prompt="")
+    rules = [
+        "- Each log line has whitespace-separated fields: a timestamp, then key=value fields such as "
+        "`level=`, `svc=`, `dur_ms=`, and finally `msg=\"...\"`. Only the fields before `msg=` count; the "
+        "message text is free text.",
+        "- Count only lines whose level is `%s`. Ignore lines without a `svc=` field and lines whose `dur_ms` "
+        "is not a whole number." % level,
+        "- Print a header line `service%scount%s%s_dur_ms`, then one row per service that has at least one "
+        "counted line: the service, the number of counted lines, and the %s of their `dur_ms` values, "
+        "separated by `%s`." % (delim, delim, agg, "maximum" if agg == "max" else "sum", delim),
+        "- Order the rows %s." % ("by service name (byte order)" if order == "name" else
+                                  "by count, highest first; equal counts by service name (byte order)"),
+    ]
+    inst.prompt = (
+        "Write `report.sh`, a POSIX sh script (awk, sed and sort are available) that reads the log file "
+        "named by its first argument and prints a CSV summary on stdout:\n\n" + "\n".join(rules)
+        + "\n\nFor `%s` in this workspace, `sh report.sh %s` must print:\n\n%s\nIt will also be run on "
+        "other logs in the same format." % (logname, logname, report(sample, level, agg, order, delim)))
+    inst.workspace["report.sh"] = STUB
+    inst.workspace[logname] = sample
+    inst.marker_files = ["report.sh"]
+    inst.protect(logname)  # the visible case runs on it: editing it must not buy a pass
+    keys = "-k1,1" if order == "name" else "-k2,2nr -k1,1"
+    inst.solution["report.sh"] = REFERENCE.format(delim=delim, agg=agg, level=level, sortkeys=keys)
+    cases = [{"name": "visible", "argv": ["sh", "report.sh", logname], "expect": "hidden/visible.csv"}]
+    inst.hidden["hidden/visible.csv"] = report(sample, level, agg, order, delim)
+    inputs = {}
+    for i in range(4):
+        text = log_text(rng, d, rng.randint(20, 60))
+        inputs["h%d.log" % i] = "hidden/h%d.log" % i
+        inst.hidden["hidden/h%d.log" % i] = text
+        inst.hidden["hidden/h%d.csv" % i] = report(text, level, agg, order, delim)
+        cases.append({"name": "h%d" % i, "argv": ["sh", "report.sh", "{in}/h%d.log" % i],
+                      "expect": "hidden/h%d.csv" % i})
+    inst.step({"kind": "run", "name": "report", "inputs": inputs, "cases": cases})
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

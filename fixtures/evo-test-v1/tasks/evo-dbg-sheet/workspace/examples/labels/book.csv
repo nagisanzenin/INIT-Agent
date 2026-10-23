@@ -1,0 +1,6 @@
+code,name,qty,label,length
+a-1,"Bolt, hex",12,"=UPPER(A2)&"": ""&B2&"" x""&C2",=LEN(D2)
+b-22,"Nut ""M4""",150,"=UPPER(A3)&"": ""&B3&"" x""&C3",=LEN(D3)
+c-3, washer ,7.5,"=UPPER(A4)&"": ""&B4&"" x""&C4",=LEN(D4)
+,,,=CONCAT(A2:A4),"=CONCAT(C2,""/"",C3,""/"",C4)"
+'007,,,"="" padded """,=LEN(A6)

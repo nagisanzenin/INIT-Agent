@@ -1,0 +1,151 @@
+/// INIT extension contract, major version 1.
+///
+/// Owner: the kernel maintainer. The agent cannot change this file.
+/// Authoritative copy: $INIT_HOME/kernel/wit/init-ext/v1/init-ext.wit
+/// Body copy (byte-identical, checked at G1): $INIT_HOME/body/wit/init-ext/v1/init-ext.wit
+/// Policy: docs/ext/wit.md section 3.6. Within 1.x, nothing below is ever changed or
+/// removed; minor versions only add new interfaces or new worlds.
+package init:ext@1.0.0;
+
+/// Host-mediated subprocesses.
+///
+/// A child runs on the host, inside the body's OS sandbox, with the same authority as
+/// the `bash` tool and the body's environment. Paths in requests are guest paths:
+/// "/work" (the task workspace), "/data" (this extension's data directory), or a
+/// directory below one of them. Nothing else is accepted.
+@since(version = 1.0.0)
+interface process {
+    /// A command to run to completion.
+    record run-request {
+        /// Program and arguments. argv[0] is looked up on the body's PATH. Must not be empty.
+        argv: list<string>,
+        /// Guest path of the working directory, for example "/work" or "/work/src".
+        cwd: string,
+        /// Variables set on top of the body's environment, in order (a later entry wins).
+        env: list<tuple<string, string>>,
+        /// Bytes written to the child's stdin, which is then closed. At most 1 MiB.
+        stdin: list<u8>,
+        /// Kill the child's process group after this many milliseconds. The host lowers
+        /// it to the time left in the current call.
+        timeout-ms: u32,
+    }
+
+    /// The result of `run`.
+    record run-output {
+        /// Exit status. None if the child was killed by a signal or by the timeout.
+        exit-code: option<s32>,
+        /// The last 1 MiB of standard output.
+        stdout: list<u8>,
+        /// The last 1 MiB of standard error.
+        stderr: list<u8>,
+        /// True if the host killed the child because the timeout elapsed.
+        timed-out: bool,
+        /// True if stdout or stderr was longer than 1 MiB, so its beginning was dropped.
+        truncated: bool,
+    }
+
+    /// A long-lived child, for REPL-like tools. A session belongs to the extension
+    /// name (not to one call or one version), survives later calls and version swaps,
+    /// and ends when it is closed, when it is idle for 30 minutes, or when the body exits.
+    record spawn-request {
+        /// Program and arguments, as in `run-request`.
+        argv: list<string>,
+        /// Guest path of the working directory, as in `run-request`.
+        cwd: string,
+        /// Variables set on top of the body's environment.
+        env: list<tuple<string, string>>,
+        /// Give the child a pseudo-terminal instead of pipes. A host without PTY support
+        /// returns `denied`.
+        pty: bool,
+    }
+
+    /// Output taken from a session by `read`.
+    record read-result {
+        /// Bytes the child wrote to stdout and stderr, interleaved in arrival order.
+        /// At most 1 MiB.
+        data: list<u8>,
+        /// True if bytes were dropped because more than 4 MiB was buffered since the
+        /// previous read.
+        truncated: bool,
+        /// True once the child has exited and all of its output has been returned.
+        exited: bool,
+        /// Exit status once `exited` is true. None while running or if killed by a signal.
+        exit-code: option<s32>,
+    }
+
+    /// Why a process request failed.
+    variant process-error {
+        /// argv[0] was not found or is not executable.
+        not-found(string),
+        /// The request broke a rule: empty argv, a cwd outside /work and /data, an
+        /// unknown session id, a limit reached, or an unsupported option.
+        denied(string),
+        /// Any other operating-system error.
+        io(string),
+    }
+
+    /// Run a command to completion and return its output.
+    run: func(req: run-request) -> result<run-output, process-error>;
+
+    /// Start a session. Returns an id that is unique within this extension.
+    spawn: func(req: spawn-request) -> result<u32, process-error>;
+
+    /// Queue bytes for the session's stdin. Never blocks. At most 1 MiB per call and
+    /// 4 MiB queued.
+    write: func(session: u32, data: list<u8>) -> result<_, process-error>;
+
+    /// Wait for output, then return everything unread (up to 1 MiB). Returns as soon as
+    /// one of these holds:
+    /// - `until` is given and appears in the unread output;
+    /// - `until` is none, at least one byte has arrived, and no new byte for 50 ms;
+    /// - `wait-ms` has elapsed (also lowered to the time left in the current call);
+    /// - the child has exited.
+    read: func(session: u32, wait-ms: u32, until: option<string>) -> result<read-result, process-error>;
+
+    /// Kill the session's process group, reap it, and free its id.
+    close: func(session: u32) -> result<_, process-error>;
+
+    /// Ids of this extension's open sessions, ascending.
+    sessions: func() -> list<u32>;
+}
+
+/// The world every tool extension targets.
+@since(version = 1.0.0)
+world tool {
+    import process;
+
+    /// What the tool is. Returned by `describe`.
+    record tool-info {
+        /// The extension's name. Must equal its crate directory name under body/ext/.
+        /// Pattern: ^[a-z][a-z0-9-]{0,31}$ with no "--" and no trailing "-".
+        name: string,
+        /// For the model: what the tool does and when to use it. 1 to 1024 bytes of UTF-8.
+        description: string,
+        /// JSON Schema for the `input` object, as JSON text. The root must be an object
+        /// schema ({"type":"object", ...}). At most 16384 bytes. See docs/ext/wit.md 3.7.
+        input-schema: string,
+        /// The extension's own version: MAJOR.MINOR.PATCH, for example "0.1.0".
+        version: string,
+        /// Requested per-call deadline in milliseconds. None means 30000.
+        /// The host clamps it to the range [100, 600000].
+        timeout-ms: option<u32>,
+    }
+
+    /// A failure the tool reports itself (a trap is reported by the host instead).
+    variant tool-error {
+        /// The input did not parse or did not validate. The model should fix the input.
+        invalid-input(string),
+        /// The tool ran and could not finish. The same input will probably fail again.
+        failed(string),
+    }
+
+    /// Describe the tool. Must be pure and deterministic: no host calls, no file access,
+    /// identical bytes on every call. The host calls it at load time and the kernel at
+    /// self-map time, both with no capabilities.
+    export describe: func() -> tool-info;
+
+    /// Run the tool. `input` is the `input` object of the `ext` tool call, serialized
+    /// as compact JSON with object keys sorted. The ok string goes back to the model
+    /// verbatim (plain text or JSON). At most 1 MiB.
+    export call: func(input: string) -> result<string, tool-error>;
+}

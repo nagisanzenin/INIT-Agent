@@ -1,0 +1,27 @@
+--- a/greet.py
++++ b/greet.py
+@@ -1,8 +1,9 @@
+ import sys
+ 
+ 
+-def greet(name):
+-    print("Hello, " + name)
++def greet(name, punctuation="!"):
++    """Prints a greeting."""
++    print("Hello, " + name + punctuation)
+ 
+ 
+ def farewell(name):
+@@ -11,10 +12,10 @@
+ 
+ def main(argv):
+     names = argv[1:]
++    if not names:
++        names = ["world"]
+     for name in names:
+         greet(name)
+-    for name in names:
+-        farewell(name)
+     return 0
+ 
+ 

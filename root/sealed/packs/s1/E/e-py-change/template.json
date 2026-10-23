@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-change",
+ "family": "E",
+ "lang": "py",
+ "title": "Coin change from a limited supply with seeded tie-breaks",
+ "difficulty": {"default": 4, "min": 3, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/change", "exercise": "change", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d3 limited supply (dict of available counts), a seeded tie-break among the fewest-coin answers (prefer larger or smaller coins) and a seeded output order; d4 + fewest different coin values as the first tie-break; d5 + a seeded pair of coin values that may not be used together. Difficulty guess for deepseek-flash: hard (d4)."
+}

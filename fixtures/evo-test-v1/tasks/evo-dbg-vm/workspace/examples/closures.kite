@@ -1,0 +1,31 @@
+# Closures capture variables by reference.
+fn make_counter(start) {
+  let count = start;
+  fn next() {
+    count += 1;
+    return count;
+  }
+  return next;
+}
+let a = make_counter(0);
+let b = make_counter(100);
+print(a(), a(), b(), a(), b());
+fn make_account(balance) {
+  fn deposit(x) {
+    balance += x;
+    return balance;
+  }
+  fn withdraw(x) {
+    if (x > balance) { return "insufficient"; }
+    balance -= x;
+    return balance;
+  }
+  return [deposit, withdraw];
+}
+let acct = make_account(50);
+let deposit = acct[0];
+let withdraw = acct[1];
+print(deposit(25), withdraw(30), withdraw(100), deposit(5));
+fn adder(n) { return fn(x) { return x + n; }; }
+let adders = [adder(1), adder(10)];
+print(adders[0](5), adders[1](5), adder(7));

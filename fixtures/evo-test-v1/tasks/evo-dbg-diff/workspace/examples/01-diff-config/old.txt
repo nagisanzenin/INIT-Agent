@@ -1,0 +1,9 @@
+[server]
+host = localhost
+port = 8080
+workers = 4
+timeout = 30
+
+[logging]
+level = info
+file = /var/log/app.log

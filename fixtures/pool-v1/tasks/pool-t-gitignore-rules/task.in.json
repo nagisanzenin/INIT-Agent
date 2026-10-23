@@ -1,0 +1,55 @@
+{
+ "id": "pool-t-gitignore-rules",
+ "title": "Fix .gitignore to match the stated rules",
+ "family": "t",
+ "difficulty": 3,
+ "labels": [
+  "terminal"
+ ],
+ "max_turns": 10,
+ "prompt": "The project in the current directory is about to be put under git, and its .gitignore is wrong. Fix it (you may also add .gitignore files in subdirectories) so that exactly these rules hold, at any depth unless a rule says otherwise:\n- build/ and dist/ directories are ignored wherever they appear, but a FILE named build (scripts/build) stays tracked.\n- *.log files are ignored, except logs/important.log.\n- .env and .env.* files are ignored, except .env.example.\n- __pycache__/ directories and *.pyc files are ignored.\n- tmp/ is ignored only at the top level; src/tmp/ stays tracked.\n- CSV files directly inside data/ are ignored, except data/schema.csv; CSV files in subdirectories of data/ (such as data/raw/) stay tracked.\n- node_modules/ directories, *.swp files and .DS_Store files are ignored.\n- Everything else is tracked.\n\nOnly .gitignore files count: the check ignores your global git config and .git/info/exclude. You can test a path with `git init` and `git check-ignore -v --no-index <path>`.",
+ "source": {
+  "kind": "fresh"
+ },
+ "protected": [
+  "scripts/build",
+  "logs/important.log",
+  ".env.example",
+  "data/schema.csv"
+ ],
+ "steps": [
+  {
+   "kind": "sh",
+   "script": "hidden/check.sh",
+   "names": [
+    "build_dir",
+    "build_nested",
+    "build_script",
+    "dist_dir",
+    "log_root",
+    "log_nested",
+    "log_kept",
+    "log_other",
+    "env_plain",
+    "env_local",
+    "env_nested",
+    "env_example",
+    "pyc_nested",
+    "pycache_dir",
+    "tmp_root",
+    "tmp_nested",
+    "csv_data",
+    "csv_schema",
+    "csv_raw",
+    "node_modules_root",
+    "node_modules_nested",
+    "swp_file",
+    "ds_store",
+    "source_file",
+    "docs_file"
+   ],
+   "timeout_s": 15
+  }
+ ],
+ "scoring": "all"
+}

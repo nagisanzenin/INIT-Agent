@@ -1,0 +1,222 @@
+#!/usr/bin/env python3
+"""t-mirror-sync: make dst/ mirror src/ under exclude/protect rules and log the actions (family T, pack s1;
+INIT licence)."""
+import fnmatch
+import hashlib
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+PAGES = ["index.html", "about.html", "pricing.html", "contact.html", "blog/index.html", "blog/first-post.html",
+         "blog/release-notes.html", "docs/setup.md", "docs/api.md", "docs/faq.md", "css/site.css", "css/print.css",
+         "js/app.js", "js/menu.js", "img/logo.svg", "img/hero.svg", "fonts/body.woff2"]
+STALE = ["old/landing.html", "old/promo/banner.svg", "js/legacy.js", "docs/v1-setup.md", "beta.html",
+         "img/unused.svg"]
+
+
+class Lv:
+    def __init__(self, level):
+        self.protect = level >= 2
+        self.nested = level >= 2
+        self.same_size = level >= 3
+        self.dir_pattern = level >= 3
+        self.prune = level >= 3
+        self.protect_differs = level >= 4
+        self.excluded_in_dst = level >= 4
+        self.anchored = level >= 5
+        self.spaces = level >= 5
+
+
+def matches(pat, path):
+    """The rule semantics stated in the prompt."""
+    parts = path.split("/")
+    if pat.endswith("/"):
+        return any(fnmatch.fnmatchcase(seg, pat[:-1]) for seg in parts[:-1])
+    if "/" not in pat:
+        return fnmatch.fnmatchcase(parts[-1], pat)
+    pp = pat.split("/")
+    return len(pp) == len(parts) and all(fnmatch.fnmatchcase(s, q) for s, q in zip(parts, pp))
+
+
+def text(rng, path, n=None):
+    words = ["lorem", "site", "deploy", "page", "menu", "price", "plan", "team", "news", "release", "guide", "api"]
+    body = " ".join(rng.choice(words) for _ in range(n or rng.randint(6, 30)))
+    return ("<!-- %s -->\n%s\n" % (path, body)).encode("utf-8")
+
+
+def same_size_variant(rng, data):
+    """Different content, same length (one character changed)."""
+    s = bytearray(data)
+    i = len(s) - 2
+    s[i] = ord("x") if s[i] != ord("x") else ord("y")
+    return bytes(s)
+
+
+def plan(src, dst, rules):
+    """-> (final dst {path: bytes}, log lines)."""
+    excl = [p for k, p in rules if k == "exclude"]
+    prot = [p for k, p in rules if k == "protect"]
+
+    def is_ex(p):
+        return any(matches(x, p) for x in excl)
+
+    def is_pr(p):
+        return any(matches(x, p) for x in prot)
+
+    final = dict(dst)
+    log = []
+    for p in sorted(set(src) | set(dst), key=lambda x: x.encode("utf-8")):
+        if is_ex(p):
+            continue
+        if p in src and p not in dst:
+            final[p] = src[p]
+            log.append("COPY " + p)
+        elif p in src and p in dst:
+            if src[p] != dst[p]:
+                if is_pr(p):
+                    log.append("KEEP " + p)
+                else:
+                    final[p] = src[p]
+                    log.append("UPDATE " + p)
+        else:
+            if is_pr(p):
+                log.append("KEEP " + p)
+            else:
+                del final[p]
+                log.append("DELETE " + p)
+    return final, log
+
+
+def dirs_of(files):
+    out = set()
+    for p in files:
+        parts = p.split("/")
+        for i in range(1, len(parts)):
+            out.add("/".join(parts[:i]))
+    return sorted(out)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    lv = Lv(ctx.difficulty)
+    pages = [p for p in PAGES if lv.nested or "/" not in p or p.startswith(("css/", "js/"))]
+    rules = [("exclude", "*.tmp")]
+    src, dst = {}, {}
+    for p in rng.sample(pages, rng.randint(min(7, len(pages)), min(14, len(pages)))):
+        src[p] = text(rng, p)
+    names = sorted(src)
+    # dst: an older deployment
+    for p in names:
+        r = rng.below(10)
+        if r < 4:
+            dst[p] = src[p]                      # identical
+        elif r < 7:
+            dst[p] = text(rng, p)                # changed (usually a different size)
+        # else: new in src -> COPY
+    if lv.same_size:
+        cands = [p for p in names if p in dst and dst[p] == src[p]]
+        for p in rng.sample(cands, min(2, len(cands))):
+            dst[p] = same_size_variant(rng, src[p])
+    stale = [s for s in STALE if lv.nested or "/" not in s or s.startswith("js/")]
+    for p in rng.sample(stale, rng.randint(2, 3)):
+        dst[p] = text(rng, p)
+    if lv.prune:
+        dst["old/promo/banner.svg"] = text(rng, "old/promo/banner.svg")
+        dst["old/landing.html"] = text(rng, "old/landing.html")
+    src["draft-%s.tmp" % rng.word(4)] = text(rng, "draft")
+    if lv.nested:
+        src["blog/edit.tmp"] = text(rng, "blog/edit.tmp")
+    if lv.dir_pattern:
+        cache = rng.choice(["cache", ".cache", "build-cache"])
+        rules.append(("exclude", cache + "/"))
+        src["%s/pages.idx" % cache] = text(rng, "idx")
+        src["blog/%s/thumbs.idx" % cache] = text(rng, "idx")
+        if lv.excluded_in_dst:
+            dst["%s/stale.idx" % cache] = text(rng, "stale idx")   # excluded: neither copied nor deleted
+            dst["%s/pages.idx" % cache] = text(rng, "old idx")
+    if lv.excluded_in_dst:
+        dst["notes.tmp"] = text(rng, "notes.tmp")
+    if lv.protect:
+        up = rng.choice(["uploads", "media", "user-files"])
+        rules.append(("protect", up + "/*"))
+        rules.append(("protect", "config/local.ini"))
+        dst["%s/%s.png" % (up, rng.word(5))] = rng.bytes(48)
+        dst["%s/%s.pdf" % (up, rng.word(5))] = rng.bytes(64)
+        dst["config/local.ini"] = b"[db]\nhost = 10.0.0.%d\n" % rng.randint(2, 250)
+        src["config/site.ini"] = b"[site]\ntitle = Example\n"
+        if lv.protect_differs:
+            src["config/local.ini"] = b"[db]\nhost = localhost\n"
+            src["%s/placeholder.png" % up] = rng.bytes(16)          # new in src: copied (not in dst)
+        if lv.anchored:
+            dst["%s/2024/%s.png" % (up, rng.word(5))] = rng.bytes(40)  # `*` does not cross `/`: deleted
+            dst["blog/%s/%s.png" % (up, rng.word(5))] = rng.bytes(40)  # anchored at the top: deleted
+    if lv.spaces:
+        src["docs/Getting Started.md"] = text(rng, "docs/Getting Started.md")
+        dst["docs/Old Guide.md"] = text(rng, "docs/Old Guide.md")
+    final, log = plan(src, dst, rules)
+    if not any(x.startswith("COPY ") for x in log) or not any(x.startswith("DELETE ") for x in log):
+        raise s1lib.GenError("degenerate plan")
+    # directories that end up empty are pruned (dst/ itself stays)
+    final_dirs = dirs_of(final)
+    rules_txt = "# sync rules for dst/ (see README.md)\n" + "".join("%s %s\n" % r for r in rules)
+    spec_text = """\
+Make `dst/` an exact mirror of `src/`, except where `sync.rules` says otherwise:
+
+1. A file is identified by its path relative to `src/` or `dst/`. Compare files by **content** (bytes).
+2. A file in `src/` that is missing in `dst/` is copied; a file whose content differs is overwritten with the
+   `src/` version; a file in `dst/` that is not in `src/` is deleted.
+3. `sync.rules` lines are `exclude <pattern>` or `protect <pattern>` (`#` lines are comments). An
+   **excluded** path is ignored on both sides: never copied, never overwritten, never deleted. A
+   **protected** path in `dst/` is never overwritten or deleted (a protected path missing in `dst/` is copied
+   as usual). Exclude is checked before protect.
+4. Pattern matching (`*` and `?` as in shell globs):
+   - a pattern without `/` matches a file's name in any directory (`*.tmp` matches `a/b/x.tmp`);
+   - a pattern ending in `/` matches a directory name at any depth and everything below it;
+   - any other pattern is matched against the whole relative path from the top, and `*` never matches `/`
+     (`media/*` matches `media/a.png` but not `media/2024/a.png` or `blog/media/a.png`).
+5. A directory under `dst/` that is left empty is removed (`dst/` itself stays).
+6. Write `sync.log` in the top directory: one line per action, sorted by path in byte order:
+   `COPY <path>`, `UPDATE <path>`, `DELETE <path>`, or `KEEP <path>` for a protected file in `dst/` that would
+   otherwise have been overwritten or deleted. Nothing is logged for identical or excluded files.
+7. Do not modify `src/` or `sync.rules`.
+"""
+    prompt = ("Synchronise this deployment directory. " + spec_text + "\nThe same text is in README.md.")
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = "# Mirroring src/ into dst/\n\n" + spec_text
+    inst.workspace["sync.rules"] = rules_txt
+    inst.marker_files = ["README.md"]
+    for p, d in src.items():
+        inst.workspace["src/" + p] = d
+    for p, d in dst.items():
+        inst.workspace["dst/" + p] = d
+    inst.protect("README.md", "sync.rules", *sorted("src/" + p for p in src))
+    for p in dst:
+        if p not in final:
+            inst.solution["dst/" + p] = None
+    for p, d in final.items():
+        inst.solution["dst/" + p] = d
+    inst.solution["sync.log"] = "".join(x + "\n" for x in log)
+    sha = lambda b: hashlib.sha256(b).hexdigest()  # noqa: E731
+    acts = {}
+    for x in log:
+        a, p = x.split(" ", 1)
+        acts.setdefault(a, []).append(p)
+    ruled = sorted(p for p in set(src) | set(dst) if any(matches(r, p) for k, r in rules))
+    spec = {
+        "final": {p: sha(d) for p, d in final.items()},
+        "final_dirs": final_dirs,
+        "copy": acts.get("COPY", []), "update": acts.get("UPDATE", []), "delete": acts.get("DELETE", []),
+        "ruled": {p: (sha(final[p]) if p in final else None) for p in ruled},
+        "log": "".join(x + "\n" for x in log),
+    }
+    tgen.finish(inst, ctx, spec=spec, names=["copied", "updated", "deleted", "rules", "log"])
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

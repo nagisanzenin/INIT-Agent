@@ -1,0 +1,12 @@
+{
+ "id": "pool-c-find-spans",
+ "title": "Change textkit.find_all: window, overlapping and case-insensitive matches",
+ "family": "c",
+ "difficulty": 3,
+ "labels": ["repair", "py"],
+ "max_turns": 8,
+ "prompt": "The package textkit in the current directory has `find_all(text, sub)` (textkit/search.py), which returns the start indices of the non-overlapping occurrences of `sub` in `text`. Change it to\n\n    find_all(text, sub, start=0, end=None, *, overlapping=False, ignore_case=False)\n\nwith this behaviour:\n- Only occurrences that lie entirely inside text[start:end] count; `start` and `end` are interpreted exactly as `str.find` interprets them (negative values count from the end, values past the end are clamped). The returned indices are positions in the whole `text`, in increasing order, as a list of ints.\n- overlapping=False keeps today's behaviour: after a match the search resumes after the end of that match. overlapping=True resumes one character after the start of the match, so overlapping occurrences are reported too.\n- ignore_case=True matches regardless of case (the inputs are ASCII: compare the lower-cased text with the lower-cased pattern).\n- An empty `sub` raises ValueError (today it loops forever).\n- `overlapping` and `ignore_case` are keyword-only.\n\n`from textkit import find_all` must keep working. tests/test_search.py has a few examples (run `python3 -m unittest discover -s tests`); a hidden suite checks the full behaviour. Do not modify tests/test_search.py.",
+ "source": {"kind": "cruxeval", "repo": "facebookresearch/cruxeval", "commit": "190faf16d175b5847b0af05d937872b1fb395942", "sample": 759, "path": "data/cruxeval.jsonl"},
+ "protected": ["tests/test_search.py"],
+ "steps": [{"kind": "py_cases", "import": "textkit", "cases": "hidden/cases.json", "timeout_s": 2}]
+}

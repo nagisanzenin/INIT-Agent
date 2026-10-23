@@ -1,0 +1,24 @@
+{
+ "v": 1,
+ "id": "e-rs-circular-buffer",
+ "family": "E",
+ "lang": "rust",
+ "title": "Bounded buffer with seeded read and eviction ends",
+ "difficulty": {
+  "default": 3,
+  "min": 2,
+  "max": 4
+ },
+ "toolchains": [
+  "python3",
+  "cargo"
+ ],
+ "licence": "Exercism-MIT",
+ "source": {
+  "repo": "exercism/rust",
+  "path": "exercises/practice/circular-buffer",
+  "exercise": "circular-buffer",
+  "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e"
+ },
+ "notes": "S1-E-RS. Mutation: seeded read end (oldest or newest) and overwrite eviction end (never both oldest), capacity-0 rule (d3+), peek/drain and non-Copy elements (d4). ref/naive.rs is the track's .meta/example.rs plus len/peek/drain adapters (unmutated behaviour; validator fixture, must fail)."
+}

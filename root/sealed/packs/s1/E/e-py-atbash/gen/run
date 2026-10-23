@@ -1,0 +1,155 @@
+#!/usr/bin/env python3
+"""e-py-atbash: Exercism `atbash-cipher` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d1 group size and separator; d2 adds a shifted cipher table and a digit rule;
+d3 adds alternating group sizes; d4 adds a strict decode that rejects unexpected characters.
+Reference: ref/solution.py (parameterized by P). Dev fixture: ref/original.py (the unmutated exercise).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "atbash_cipher"
+STUB = '''def encode(plain_text):
+    raise NotImplementedError("encode")
+
+
+def decode(ciphered_text):
+    raise NotImplementedError("decode")
+'''
+WORDS = ["anchor", "basket", "candle", "dragon", "engine", "falcon", "garden", "harbor", "island", "jungle",
+         "kettle", "ladder", "marble", "needle", "orange", "pepper", "quartz", "rocket", "silver", "tunnel",
+         "umbrella", "velvet", "window", "yellow", "zipper", "the", "quick", "brown", "fox", "jumps", "over",
+         "lazy", "dog", "meet", "me", "at", "noon", "by", "old", "bridge", "send", "more", "maps", "north",
+         "gate", "opens", "after", "dusk", "keep", "this", "secret"]
+SEPS = ["-", ".", "_", "/", " ", "+"]
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    sizes = [3, 4, 6, 7]
+    p = {"shift": 0, "digits": "keep", "groups": [rng.choice(sizes)], "sep": rng.choice(SEPS), "strict": False}
+    if d >= 2:
+        p["shift"] = rng.randint(1, 25)
+        p["digits"] = rng.choice(["keep", "complement", "drop"])
+    if d >= 3:
+        a, b = rng.sample([2, 3, 4, 5, 6, 7], 2)
+        p["groups"] = [a, b]
+    if d >= 4:
+        p["strict"] = True
+        if p["sep"] == " ":
+            p["sep"] = rng.choice(SEPS[:-2])
+    return p
+
+
+def phrase(rng, lo=2, hi=6, digits=True, punct=True):
+    out = []
+    for _ in range(rng.randint(lo, hi)):
+        w = rng.choice(WORDS)
+        k = rng.below(5)
+        w = w.upper() if k == 0 else (w.capitalize() if k == 1 else w)
+        if digits and rng.chance(1, 4):
+            w = w + str(rng.randint(0, 999))
+        if punct and rng.chance(1, 4):
+            w = w + rng.choice([",", ".", "!", "?", ";", "'s", ":"])
+        out.append(w)
+    return " ".join(out)
+
+
+def rules_text(p):
+    table = "".join("abcdefghijklmnopqrstuvwxyz"[(25 - i + p["shift"]) % 26] for i in range(26))
+    sep = "a single space" if p["sep"] == " " else "`%s`" % p["sep"]
+    digit = {"keep": "Digits are kept unchanged.",
+             "complement": "Each digit `d` becomes `9 - d` (so `0` and `9` swap, `1` and `8` swap, and so on).",
+             "drop": "Digits are removed."}[p["digits"]]
+    if len(p["groups"]) == 1:
+        grouping = "splits the result into groups of %d characters (the last group may be shorter)" % p["groups"][0]
+    else:
+        grouping = ("splits the result into groups whose sizes alternate %d, %d, %d, %d, ... (the first group has "
+                    "%d characters; the last group may be shorter)" % (p["groups"][0], p["groups"][1],
+                                                                      p["groups"][0], p["groups"][1], p["groups"][0]))
+    lines = [
+        "**Letters.** Letters are case-insensitive. Each letter is replaced by the letter below it in this table; "
+        "the output is always lower case:",
+        "",
+        "```text",
+        "plain:  abcdefghijklmnopqrstuvwxyz",
+        "cipher: " + table,
+        "```",
+        "",
+        "**Digits.** " + digit,
+        "",
+        "**Everything else** (spaces, punctuation and any other character) is removed.",
+        "",
+        "**encode(plain_text)** translates the text as above, then %s, and joins the groups with %s. There is no "
+        "separator at the start or the end. If nothing is left to encode the result is the empty string." % (
+            grouping, sep),
+        "",
+    ]
+    if p["strict"]:
+        lines.append("**decode(ciphered_text)** first checks its input: if it contains any character other than "
+                     "the lower-case letters `a`-`z`, the digits `0`-`9` and the group separator %s, it raises "
+                     "`ValueError`. Otherwise it applies the same letter table and digit rule to every letter and "
+                     "digit (the table is its own inverse), drops the separators and returns the result as one "
+                     "string without groups." % sep)
+    else:
+        lines.append("**decode(ciphered_text)** applies the same letter table and digit rule to every letter and "
+                     "digit of its input (the table is its own inverse), ignores every other character and "
+                     "returns the result as one string without groups.")
+    return "\n".join(lines)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    ns = load_ref(ref)
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    exprs = []
+
+    def add(e):
+        if e not in exprs:
+            exprs.append(e)
+
+    # visible examples (4): a long encode, a short mixed-case encode, a decode and an edge rule
+    add("encode(%r)" % phrase(rng, 4, 6))
+    add("encode(%r)" % (rng.choice(WORDS).capitalize() + " " + str(rng.randint(10, 99)) + "!"))
+    add("decode(%r)" % ns["encode"](phrase(rng, 3, 5)))
+    if p["strict"]:
+        add("decode(%r)" % (ns["encode"](phrase(rng, 2, 3)) + rng.choice(["!", " ", "A", "?"])))
+    else:
+        add("encode(%r)" % "".join(rng.sample(letters, sum(p["groups"]))))
+    # hidden
+    while len(exprs) < 16:
+        add("encode(%r)" % phrase(rng, 1, 7))
+    add("encode('')")
+    add("encode(%r)" % "".join(rng.sample(" ,.!?;:-'", 5)))
+    add("encode(%r)" % "".join(rng.sample(letters, p["groups"][0])))
+    add("encode(%r)" % ("%d %d" % (rng.randint(100, 999), rng.randint(1000, 9999))))
+    for _ in range(7):
+        add("decode(%r)" % ns["encode"](phrase(rng, 1, 6)))
+    if not p["strict"]:
+        for _ in range(2):
+            c = ns["encode"](phrase(rng, 3, 5))
+            add("decode(%r)" % c.replace(p["sep"], rng.choice([" ", "  ", " - "])))
+    else:
+        for bad in ["A", " ", "!", "\n"]:
+            if bad != p["sep"]:
+                c = ns["encode"](phrase(rng, 2, 4))
+                k = rng.below(len(c) + 1)
+                add("decode(%r)" % (c[:k] + bad + c[k:]))
+    add("decode(encode(%r))" % phrase(rng, 2, 4))
+    add("decode('')")
+    dev = {"original": ctx.read("ref", "original.py")}
+    task = ("Implement `encode(plain_text)` and `decode(ciphered_text)` in `%s.py`: a letter-substitution "
+            "cipher whose output is written in groups." % MODULE)
+    return assemble(ctx, MODULE, task, rules_text(p), ref, exprs, 4, dev, STUB)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

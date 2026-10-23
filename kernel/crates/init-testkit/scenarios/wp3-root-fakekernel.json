@@ -1,0 +1,24 @@
+{
+  "v": 1,
+  "id": "WP3-R",
+  "title": "Fake-kernel Root scenario: the real init-root supervises init-fakekernel (disposable environment only)",
+  "env": "disposable",
+  "fixture": {"kernel": "fake", "body": "fake"},
+  "root": {"charter": "fixtures/charters/phase0.toml", "now": "2026-10-20T08:00:00.000Z"},
+  "steps": [
+    {"op": "start_root"},
+    {"op": "wait_file", "path": "state/run/ready", "timeout_s": 60},
+    {"op": "send_user", "text": "hello real Root"},
+    {"op": "wait_event", "match": {"type": "message", "role": "assistant", "final": true}, "timeout_s": 60},
+    {"op": "panic", "channel": "socket"},
+    {"op": "clock", "advance_s": 60},
+    {"op": "root_cmd", "argv": ["resume"], "expect_ok": true},
+    {"op": "wait_event", "match": {"type": "boot"}, "timeout_s": 60},
+    {"op": "stop_kernel", "expect_exit": 0}
+  ],
+  "expect": {
+    "events_in_order": [{"type": "boot"}, {"type": "message", "role": "user", "content": "hello real Root"}],
+    "r4": {"verify": true, "records_in_order": [{"kind": "genesis"}, {"kind": "panic", "data": {"channel": "owner_socket"}}, {"kind": "resume"}]},
+    "level": 0
+  }
+}

@@ -1,0 +1,216 @@
+{
+  "load": {
+    "free_kib": 6666932,
+    "note": "FIX8 after (body 8c47549 + FIX8 working tree)",
+    "power": "Now drawing from 'AC Power'",
+    "uptime": "7:56  up 12 days,  8:45, 3 users, load averages: 3.83 4.46 5.19"
+  },
+  "machine": {
+    "cpu": "Apple M2",
+    "mem_bytes": 17179869184,
+    "ncpu": 8,
+    "os": "ProductName:  macOS; ProductVersion:  14.6; BuildVersion:  23G80"
+  },
+  "notes": [
+    "FIX8 after (body 8c47549 + FIX8 working tree)"
+  ],
+  "result": {
+    "diag_slope_kib_per_step_second_half": 3.22,
+    "max_over_base": 1.528,
+    "max_rss_kib_after_skip": 27968,
+    "pass": false,
+    "peak_rss_kib": 27968,
+    "ratio_ok": false,
+    "rss_kib_at": {
+      "0": 10128,
+      "100": 18304,
+      "1000": 27904,
+      "500": 26624
+    },
+    "rss_kib_at_skip": 18304,
+    "slope_kib_per_step": 8.107,
+    "slope_ok": false,
+    "steps_reached": 1001,
+    "thresholds": {
+      "max_over_base_max": 1.25,
+      "skip_steps": 100,
+      "slope_kib_per_step_max": 2.0
+    },
+    "window_samples": 22
+  },
+  "runs": [
+    {
+      "kind": "m5.socket.rss_after_step_100",
+      "max": 27.313,
+      "median": 26.07,
+      "min": 17.875,
+      "n": 24,
+      "unit": "MiB",
+      "values": []
+    }
+  ],
+  "samples": [
+    [
+      0,
+      0,
+      10128
+    ],
+    [
+      1008,
+      68,
+      15312
+    ],
+    [
+      2015,
+      124,
+      18304
+    ],
+    [
+      3025,
+      173,
+      21280
+    ],
+    [
+      4031,
+      219,
+      22416
+    ],
+    [
+      5042,
+      260,
+      23168
+    ],
+    [
+      6049,
+      301,
+      23792
+    ],
+    [
+      7059,
+      336,
+      24624
+    ],
+    [
+      8071,
+      373,
+      25120
+    ],
+    [
+      9075,
+      406,
+      25488
+    ],
+    [
+      10087,
+      439,
+      25760
+    ],
+    [
+      11099,
+      476,
+      26560
+    ],
+    [
+      12109,
+      536,
+      26624
+    ],
+    [
+      13114,
+      587,
+      26688
+    ],
+    [
+      14126,
+      633,
+      26704
+    ],
+    [
+      15133,
+      676,
+      26880
+    ],
+    [
+      16143,
+      716,
+      26912
+    ],
+    [
+      17155,
+      755,
+      26928
+    ],
+    [
+      18166,
+      791,
+      27120
+    ],
+    [
+      19179,
+      826,
+      27472
+    ],
+    [
+      20191,
+      859,
+      27520
+    ],
+    [
+      21203,
+      892,
+      27696
+    ],
+    [
+      22212,
+      943,
+      27824
+    ],
+    [
+      23225,
+      998,
+      27968
+    ],
+    [
+      24238,
+      1001,
+      27904
+    ],
+    [
+      24247,
+      1001,
+      27904
+    ]
+  ],
+  "samples_format": "[t_ms since input, step (turn requests seen), rss_kib]",
+  "session": {
+    "body": "target/test-homes/fix8/init-body-after",
+    "events": {
+      "compaction": 2,
+      "error": 0,
+      "mask": 8,
+      "tool_result": 1000,
+      "total": 4015
+    },
+    "first_errors": [],
+    "mock": "target/test-homes/fix8/init-mockllm",
+    "mock_compaction_requests": 2,
+    "mock_exhausted": 0,
+    "mock_protocol_errors": 0,
+    "mock_turn_requests": 1001,
+    "output_bytes": 2048,
+    "read_every": 100,
+    "ready_ms": 509,
+    "run_s": 23.286,
+    "sample_ms": 1000,
+    "samples": 26,
+    "seed": 7,
+    "session_log_bytes": 4431636,
+    "steps": 1000,
+    "stop_exit": "Ok(Some(0))"
+  },
+  "taken_at": "2026-10-20T00:56:56.819Z",
+  "toolchain": {
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6"
+  }
+}

@@ -1,0 +1,5 @@
+recalc
+print
+set B3 4
+print B2:B5
+recalc

@@ -1,0 +1,10 @@
+#!/bin/sh
+# 10 cases, 100 permille each: line k of primes.txt must be the k-th expected value.
+ok=0
+k=1
+for want in 2 3 5 7 11 13 17 19 23 29; do
+  got=$(sed -n "${k}p" primes.txt 2>/dev/null)
+  [ "$got" = "$want" ] && ok=$((ok + 1))
+  k=$((k + 1))
+done
+echo "{\"score_permille\":$((ok * 100))}"

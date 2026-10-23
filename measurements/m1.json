@@ -1,0 +1,198 @@
+{
+  "load": {
+    "free_kib": 7714892,
+    "note": "WP16 07:2x; other agents finished; orchestrator holding ci/local.sh",
+    "power": "Now drawing from 'AC Power'",
+    "uptime": "7:24  up 12 days,  8:13, 3 users, load averages: 4.48 3.79 3.73"
+  },
+  "machine": {
+    "cpu": "Apple M2",
+    "mem_bytes": 17179869184,
+    "ncpu": 8,
+    "os": "ProductName:  macOS; ProductVersion:  14.6; BuildVersion:  23G80"
+  },
+  "notes": [
+    "WP16 07:2x; other agents finished; orchestrator holding ci/local.sh"
+  ],
+  "runs": [
+    {
+      "kind": "root.warmup",
+      "lock_waits": 0,
+      "max": 0.13,
+      "max_rss_mib_median": 54.344,
+      "median": 0.13,
+      "min": 0.13,
+      "n": 1,
+      "recompiled": 0,
+      "unit": "s",
+      "user_s_median": 0.06,
+      "values": [
+        0.13
+      ]
+    },
+    {
+      "kind": "root.noop",
+      "lock_waits": 0,
+      "max": 0.09,
+      "max_rss_mib_median": 54.75,
+      "median": 0.09,
+      "min": 0.09,
+      "n": 3,
+      "recompiled": 0,
+      "unit": "s",
+      "user_s_median": 0.06,
+      "values": [
+        0.09,
+        0.09,
+        0.09
+      ]
+    },
+    {
+      "kind": "root.touch",
+      "lock_waits": 0,
+      "max": 3.68,
+      "max_rss_mib_median": 539.25,
+      "median": 3.25,
+      "min": 3.21,
+      "n": 5,
+      "recompiled": 5,
+      "touched": "root/crates/init-root/src/main.rs",
+      "unit": "s",
+      "user_s_median": 5.89,
+      "values": [
+        3.68,
+        3.23,
+        3.25,
+        3.26,
+        3.21
+      ]
+    },
+    {
+      "kind": "seed.warmup",
+      "lock_waits": 0,
+      "max": 0.24,
+      "max_rss_mib_median": 61.078,
+      "median": 0.24,
+      "min": 0.24,
+      "n": 1,
+      "recompiled": 0,
+      "unit": "s",
+      "user_s_median": 0.08,
+      "values": [
+        0.24
+      ]
+    },
+    {
+      "kind": "seed.noop",
+      "lock_waits": 0,
+      "max": 0.14,
+      "max_rss_mib_median": 61.484,
+      "median": 0.14,
+      "min": 0.14,
+      "n": 3,
+      "recompiled": 0,
+      "unit": "s",
+      "user_s_median": 0.09,
+      "values": [
+        0.14,
+        0.14,
+        0.14
+      ]
+    },
+    {
+      "kind": "seed.touch",
+      "lock_waits": 0,
+      "max": 7.08,
+      "max_rss_mib_median": 883.625,
+      "median": 6.69,
+      "min": 6.65,
+      "n": 5,
+      "recompiled": 5,
+      "touched": "seed/src/loop/mod.rs",
+      "unit": "s",
+      "user_s_median": 12.57,
+      "values": [
+        7.08,
+        6.65,
+        6.69,
+        6.85,
+        6.66
+      ]
+    },
+    {
+      "kind": "kernel.warmup",
+      "lock_waits": 0,
+      "max": 0.29,
+      "max_rss_mib_median": 63.281,
+      "median": 0.29,
+      "min": 0.29,
+      "n": 1,
+      "recompiled": 0,
+      "unit": "s",
+      "user_s_median": 0.1,
+      "values": [
+        0.29
+      ]
+    },
+    {
+      "kind": "kernel.noop",
+      "lock_waits": 0,
+      "max": 0.15,
+      "max_rss_mib_median": 66.703,
+      "median": 0.15,
+      "min": 0.15,
+      "n": 3,
+      "recompiled": 0,
+      "unit": "s",
+      "user_s_median": 0.1,
+      "values": [
+        0.15,
+        0.15,
+        0.15
+      ]
+    },
+    {
+      "kind": "kernel.touch",
+      "lock_waits": 0,
+      "max": 2.13,
+      "max_rss_mib_median": 816.938,
+      "median": 1.31,
+      "min": 1.25,
+      "n": 5,
+      "recompiled": 5,
+      "touched": "kernel/crates/init-kernel/src/main.rs",
+      "unit": "s",
+      "user_s_median": 2.5,
+      "values": [
+        2.13,
+        1.29,
+        1.31,
+        1.25,
+        1.32
+      ]
+    }
+  ],
+  "subject.kernel": {
+    "cargo": "build --offline -p init-kernel --bin init-kernel",
+    "dir": "kernel",
+    "env": "CARGO_INCREMENTAL=0",
+    "target_dir": "kernel/target/k1"
+  },
+  "subject.root": {
+    "cargo": "build --offline -p init-root",
+    "dir": "root",
+    "env": "CARGO_INCREMENTAL=0",
+    "target_dir": "root/target"
+  },
+  "subject.seed": {
+    "cargo": "build --offline -p init-body",
+    "dir": "seed",
+    "env": "CARGO_INCREMENTAL=0",
+    "target_dir": "seed/target"
+  },
+  "taken_at": "2026-10-20T00:24:44.292Z",
+  "toolchain": {
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6"
+  }
+}

@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-bottles",
+ "family": "E",
+ "lang": "py",
+ "title": "Counting-down song with seeded words",
+ "difficulty": {"default": 3, "min": 2, "max": 4},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/bottle-song", "exercise": "bottle-song", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d2 seeded object, colour, place phrase, verb and maximum (12..20) with exact line templates, singular/no forms and ValueError on bad start/take; d3 + k (2 or 3) items fall per verse, fewer when fewer remain; d4 + a seeded refrain line after the second line of every verse with an even starting count. Difficulty guess for deepseek-flash: medium (d3)."
+}

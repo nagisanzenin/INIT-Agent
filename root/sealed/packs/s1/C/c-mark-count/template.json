@@ -1,0 +1,23 @@
+{
+ "v": 1,
+ "id": "c-mark-count",
+ "family": "C",
+ "lang": "py",
+ "title": "Character marker with a seeded predicate",
+ "difficulty": {
+  "default": 3,
+  "min": 1,
+  "max": 5
+ },
+ "toolchains": [
+  "python3"
+ ],
+ "licence": "CRUXEval-MIT",
+ "source": {
+  "repo": "facebookresearch/cruxeval",
+  "path": "data/cruxeval.jsonl",
+  "sample": "sample_5",
+  "commit": "190faf16d175b5847b0af05d937872b1fb395942"
+ },
+ "notes": "Family C (S1-C): CRUXEval sample_5 under a seeded name in a 3-file package; operator cond; pass-rate guess at the default difficulty (deepseek-flash, 8 turns): 60%. See C/_lib/s1c.py for the operators and the difficulty knob."
+}

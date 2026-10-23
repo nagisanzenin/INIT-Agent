@@ -1,0 +1,386 @@
+#!/usr/bin/env python3
+"""t-env-expand: fix a sh launcher's layered env-file loading (family T, pack s1; INIT licence).
+
+run.sh loads config/defaults.env, config/$APP_ENV.env and config/local.env, expands ${VAR}, ${VAR:-def} and $VAR
+references once per line, lets the caller override listed keys only, and prints sorted KEY=value lines. The
+seeded script carries 2..7 bugs (the knob); the check runs `sh run.sh print-config` in copies of the
+workspace with hidden env-file sets and caller environments and compares the output."""
+import os
+import re
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+APPS = ["quill", "tern", "otter", "pylon", "sable", "wren", "cobalt", "fennel", "garnet", "ibis", "jasper",
+        "kelp", "lynx", "marten", "nimbus", "osprey"]
+VIS_ENVS = ["staging", "qa", "preview", "test"]
+HID_ENVS = ["prod", "production", "live", "uat", "perf", "demo"]
+OVR_POOL = ["PORT", "LOG_LEVEL", "WORKERS", "CACHE_TTL", "DB_HOST"]
+USERS = ["ana", "bo", "chen", "dev1", "kim", "lee", "mo", "sam"]
+REGIONS = ["eu-west-1", "us-east-2", "ap-south-1", "eu-central-1"]
+
+# ------------------------------------------------------------------------------------------- the script
+
+BUG_POOL = ["single_quotes", "cut_equals", "layer_order", "dup_print", "comments", "dash_default"]
+
+
+def script(app, level, ovr, bugs):
+    """run.sh: the reference when bugs is empty."""
+    b = set(bugs)
+    out = ["#!/bin/sh",
+           "# run.sh: launcher for %s with layered configuration (see README.md)." % app,
+           "#   sh run.sh print-config   prints the resolved configuration as sorted KEY=value lines",
+           "cd \"$(dirname \"$0\")\" || exit 1", ""]
+    if level >= 3:
+        out += ["# keys the caller may override from the environment (see README.md)",
+                "OVERRIDE_KEYS=\"%s\"" % " ".join(ovr)]
+    out += ["APP_ENV=${APP_ENV-dev}" if "dash_default" in b else "APP_ENV=${APP_ENV:-dev}",
+            "keys=", "locked=", ""]
+    if level >= 3:
+        if "override_all" in b:
+            out += ["# the caller's environment wins",
+                    "for k in $(env | sed -n 's/^\\([A-Z_][A-Z0-9_]*\\)=.*/\\1/p'); do",
+                    "  locked=\"$locked $k\"",
+                    "done", ""]
+        elif "override_none" not in b:
+            out += ["for k in $OVERRIDE_KEYS; do",
+                    "  eval \"v=\\${$k-}\"",
+                    "  if [ -n \"$v\" ]; then locked=\"$locked $k\"; fi",
+                    "done", ""]
+    if level >= 5 and "leak" not in b:
+        out += ["# forget caller variables that the files mention (overrides and APP_ENV excepted)",
+                "for n in $(cat config/defaults.env \"config/$APP_ENV.env\" config/local.env 2>/dev/null |",
+                "           grep -oE '\\$\\{?[A-Za-z_][A-Za-z0-9_]*' | tr -d '${'); do",
+                "  case \" $locked APP_ENV \" in *\" $n \"*) ;; *) unset \"$n\" ;; esac",
+                "done", ""]
+    read = "IFS= read -r line" if "comments" in b else "read -r line"
+    guard = "" if "last_line" in b else " || [ -n \"$line\" ]"
+    out += ["load() {"]
+    if "pipe_subshell" in b:
+        out += ["  cat \"$1\" | while %s%s; do" % (read, guard)]
+    else:
+        out += ["  while %s%s; do" % (read, guard)]
+    out += ["    case $line in ''|'#'*) continue ;; esac"]
+    if "cut_equals" in b:
+        out += ["    key=$(echo \"$line\" | cut -d= -f1)", "    val=$(echo \"$line\" | cut -d= -f2)"]
+    else:
+        out += ["    key=${line%%=*}", "    val=${line#*=}"]
+    out += ["    keys=\"$keys $key\""]
+    if level >= 3:
+        out += ["    case \" $locked \" in *\" $key \"*) continue ;; esac"]
+    out += ["    eval \"$key='$val'\"" if "single_quotes" in b else "    eval \"$key=\\\"$val\\\"\""]
+    out += ["  done" if "pipe_subshell" in b else "  done < \"$1\"", "}", ""]
+    out += ["if [ ! -f \"config/$APP_ENV.env\" ]; then",
+            "  echo \"run.sh: no configuration for environment '$APP_ENV'\" >&2",
+            "  exit 2",
+            "fi"]
+    if "layer_order" in b:
+        out += ["if [ -f config/local.env ]; then load config/local.env; fi",
+                "load \"config/$APP_ENV.env\"",
+                "load config/defaults.env"]
+    else:
+        out += ["load config/defaults.env",
+                "load \"config/$APP_ENV.env\"",
+                "if [ -f config/local.env ]; then load config/local.env; fi"]
+    out += ["", "print_config() {"]
+    if "dup_print" in b:
+        out += ["  for k in $keys; do",
+                "    eval \"v=\\${$k}\"",
+                "    printf '%s=%s\\n' \"$k\" \"$v\"",
+                "  done | LC_ALL=C sort"]
+    else:
+        out += ["  for k in $(printf '%s\\n' $keys | LC_ALL=C sort -u); do",
+                "    eval \"v=\\${$k}\"",
+                "    printf '%s=%s\\n' \"$k\" \"$v\"",
+                "  done"]
+    out += ["}", "",
+            "case ${1-} in",
+            "  print-config) print_config ;;",
+            "  *) echo \"usage: sh run.sh print-config\" >&2; exit 64 ;;",
+            "esac", ""]
+    return "\n".join(out)
+
+
+def pick_bugs(rng, level):
+    bugs = ["pipe_subshell"]
+    if level >= 2:
+        bugs.append("last_line")
+    pool = [x for x in BUG_POOL if (x != "comments" or level >= 2) and (x != "dash_default" or level >= 3)]
+    bugs += rng.sample(pool, {1: 1, 2: 1, 3: 2, 4: 3, 5: 4}[level])
+    if level >= 3:
+        bugs.append(rng.choice(["override_none", "override_all"]))
+    if level >= 5:
+        bugs.append("leak")
+    return sorted(bugs)
+
+# ------------------------------------------------------------------------------------------ the model
+
+
+REF = re.compile(r"\$\{([A-Za-z_][A-Za-z0-9_]*)(:-([^}]*))?\}|\$([A-Za-z_][A-Za-z0-9_]*)")
+
+
+def file_lines(text):
+    ls = text.split("\n")
+    if text.endswith("\n"):
+        ls.pop()
+    return ls
+
+
+def resolve(layers, app_env, environ, ovr):
+    """The reference semantics (README rules 1-5): layers = texts in load order -> print-config output."""
+    locked = {k: environ[k] for k in ovr if environ.get(k)}
+    vals = {}
+    defined = set()
+
+    def lookup(name):
+        if name in locked:
+            return locked[name]
+        if name == "APP_ENV":
+            return app_env
+        return vals.get(name, "")
+
+    def rep(m):
+        if m.group(1):
+            v = lookup(m.group(1))
+            if m.group(2) is not None and v == "":
+                return m.group(3)
+            return v
+        return lookup(m.group(4))
+
+    for text in layers:
+        for raw in file_lines(text):
+            line = raw.strip(" \t")
+            if line == "" or line.startswith("#"):
+                continue
+            key, _, val = line.partition("=")
+            if not re.match(r"^[A-Z_][A-Z0-9_]*$", key):
+                raise s1lib.GenError("bad key in generated data: %r" % key)
+            defined.add(key)
+            if key in locked:
+                continue
+            vals[key] = REF.sub(rep, val)
+    return "".join("%s=%s\n" % (k, locked[k] if k in locked else vals[k]) for k in sorted(defined))
+
+# ------------------------------------------------------------------------------------------- the data
+
+
+def text_of(lines, final_nl=True):
+    t = "\n".join(lines)
+    return t + "\n" if final_nl else t
+
+
+def defaults_lines(rng, app, extra=()):
+    base = ["HOST=localhost", "PORT=%d" % rng.randint(3000, 8999), "LOG_LEVEL=%s" % rng.choice(["info", "warn"]),
+            "WORKERS=%d" % rng.randint(1, 4), "CACHE_TTL=%d" % rng.choice([60, 120, 300, 600]),
+            "DB_HOST=localhost", "DB_PORT=%d" % rng.choice([5432, 3306, 6432])]
+    lines = ["# defaults for %s" % app, "APP_NAME=%s" % app] + rng.shuffled(base) + ["", "# derived values"]
+    lines += ["BASE_URL=http://${HOST}:${PORT}"]
+    if rng.chance(1, 2):
+        lines += ["LOG_DIR=/var/log/${APP_NAME}"]
+    lines += ["DATA_DIR=/srv/${APP_NAME}/data", "DB_NAME=${APP_NAME}_${APP_ENV}",
+              "DB_URL=postgres://${DB_USER:-app}@${DB_HOST}:${DB_PORT}/${DB_NAME}"]
+    if rng.chance(1, 2):
+        lines += ["QUEUE=$APP_NAME-jobs"]
+    if rng.chance(1, 2):
+        lines += ["MAIL_FROM=noreply@${APP_NAME}.example.test"]
+    lines += list(extra)
+    return lines
+
+
+def env_lines(rng, env, app, extra=()):
+    lines = ["# %s environment" % env, "HOST=%s.%s.example.test" % (rng.choice(["api", "app", "web"]), env)]
+    opt = ["LOG_LEVEL=%s" % rng.choice(["warn", "error"]), "WORKERS=%d" % rng.randint(4, 16),
+           "DB_HOST=db.%s.internal" % env, "CACHE_TTL=%d" % rng.choice([900, 1800, 3600]),
+           "REGION=%s" % rng.choice(REGIONS), "STATIC_URL=${BASE_URL}/static",
+           "FEATURES=%s" % ",".join(rng.sample(["search", "export", "beta", "sso", "audit"], 2))]
+    lines += rng.sample(opt, rng.randint(4, 6))
+    lines += list(extra)
+    return lines
+
+
+def local_lines(rng, user, extra=()):
+    opt = ["LOG_LEVEL=debug", "PORT=%d" % rng.randint(9000, 9999), "WORKERS=1",
+           "DB_URL=postgres://${DB_USER}@localhost/${DB_NAME}"]
+    lines = ["# local overrides (not committed)", "DB_USER=%s" % user] + rng.sample(opt, rng.randint(2, 3))
+    return lines + list(extra)
+
+
+def scenario(rng, kind, level, app, ovr, vis_env):
+    """-> (files {config/<name>: text}, environ {name: value or None = unset}, app_env)"""
+    user = rng.choice(USERS)
+    env = vis_env if kind == "visible" else rng.choice(HID_ENVS)
+    environ = {"APP_ENV": env}
+    if kind == "visible":
+        d = defaults_lines(rng, app)
+        e = env_lines(rng, env, app)
+        files = {"defaults.env": text_of(d), env + ".env": text_of(e), "dev.env": text_of(env_lines(rng, "dev", app))}
+        if rng.chance(1, 2):
+            files["local.env"] = text_of(local_lines(rng, user))
+    elif kind == "h_layers":
+        d = defaults_lines(rng, app, ["FEATURES=none"])
+        e = env_lines(rng, env, app, ["FEATURES=search,%s" % rng.choice(["export", "audit"])])
+        loc = local_lines(rng, user, ["FEATURES=all", "EXTRA_ONLY_LOCAL=%s" % rng.word(5)])
+        files = {"defaults.env": text_of(d), env + ".env": text_of(e), "local.env": text_of(loc)}
+    elif kind == "h_edges":
+        tail_nl = level < 2
+        e_extra = ["JAVA_OPTS=-Xmx%dm  -Dfile.encoding=UTF-8" % rng.choice([256, 512, 1024]),
+                   "CORS_ORIGINS=*.%s.example.test" % env, "GREETING=hello  world # not a comment",
+                   "EMPTY_VALUE=", "QUERY=a=1&b=2"]
+        if level >= 2:
+            e_extra += ["   # an indented comment", "\t# a tab-indented comment", "   ", "\t",
+                        "  INDENTED=yes", "TRAILING=%s   " % rng.word(4), "\tTABBED=%s\t" % rng.word(4)]
+        if level >= 4:
+            e_extra += ["LEADING=  two spaces kept"]
+        d = defaults_lines(rng, app)
+        e = env_lines(rng, env, app, rng.shuffled(e_extra))
+        loc = local_lines(rng, user, ["LAST=final line"])
+        files = {"defaults.env": text_of(d), env + ".env": text_of(e, tail_nl), "local.env": text_of(loc, tail_nl)}
+    elif kind == "h_default_env":
+        d = defaults_lines(rng, app, ["ENV_LABEL=running-${APP_ENV}"])
+        files = {"defaults.env": text_of(d), "dev.env": text_of(env_lines(rng, "dev", app)),
+                 env + ".env": text_of(env_lines(rng, env, app))}
+        if rng.chance(1, 2):
+            files["local.env"] = text_of(local_lines(rng, user))
+        environ = {"APP_ENV": "" if level >= 3 else None}
+    elif kind == "h_overrides":
+        d = defaults_lines(rng, app)
+        e = env_lines(rng, env, app, ["%s=%s" % (k, "from-env-file") for k in ovr if k not in ("PORT",)][:1])
+        loc = local_lines(rng, user, ["PORT=%d" % rng.randint(9000, 9999)])
+        files = {"defaults.env": text_of(d), env + ".env": text_of(e), "local.env": text_of(loc)}
+        given = {"PORT": str(rng.randint(10000, 20000)), "LOG_LEVEL": "trace", "WORKERS": str(rng.randint(20, 40)),
+                 "CACHE_TTL": "5", "DB_HOST": "db.override.test"}
+        environ[ovr[0]] = given[ovr[0]]
+        environ[ovr[1]] = ""  # set but empty: no override
+        decoy = rng.choice([k for k in ("HOST", "APP_NAME", "DB_PORT") if k not in ovr])
+        environ[decoy] = "intruder"
+    elif kind == "h_refs":
+        d_extra = ["OLD_DIR=$DATA_DIR_old/archive", "BACKUP_DIR=${DATA_DIR}_backup",
+                   "MODE=${RUN_MODE:-normal}", "BLANK=", "FALLBACK=${BLANK:-fallback}", "TAILED=${BLANK}-tail",
+                   "LABEL=$APP_NAME-$APP_ENV", "SUPPORT=${SUPPORT_USER:-ops}@${APP_NAME}.example.test",
+                   "HOST_ALIAS=$HOST"]
+        d = defaults_lines(rng, app, d_extra)
+        e = env_lines(rng, env, app, ["DATA_DIR=/data/%s" % env, "BLANK=now-set", "WEB=${HOST_ALIAS}/x"])
+        loc = local_lines(rng, user, ["SUPPORT_USER=%s" % user])
+        files = {"defaults.env": text_of(d), env + ".env": text_of(e), "local.env": text_of(loc)}
+    elif kind == "h_leak":
+        d = defaults_lines(rng, app, ["MODE=${RUN_MODE:-normal}", "SUPPORT=${SUPPORT_USER:-ops}@example.test"])
+        e = env_lines(rng, env, app)
+        loc = local_lines(rng, user, ["SUPPORT_USER=%s" % user])
+        files = {"defaults.env": text_of(d), env + ".env": text_of(e), "local.env": text_of(loc)}
+        environ.update({"RUN_MODE": "turbo", "SUPPORT_USER": "intruder", "DB_USER": "root"})
+    else:
+        raise ValueError(kind)
+    app_env = environ.get("APP_ENV") or "dev"
+    layers = [files["defaults.env"], files[app_env + ".env"]] + ([files["local.env"]] if "local.env" in files else [])
+    want = resolve(layers, app_env, environ, ovr)
+    return {"name": kind, "files": {"config/" + k: v for k, v in sorted(files.items())},
+            "env": {k: v for k, v in sorted(environ.items()) if v is not None}, "want": want}
+
+
+def kinds(level):
+    k = ["visible", "h_layers", "h_edges", "h_default_env", "h_refs"]
+    if level >= 3:
+        k.insert(4, "h_overrides")
+    if level >= 5:
+        k.append("h_leak")
+    return k
+
+# ------------------------------------------------------------------------------------------ the text
+
+
+def spec_text(level, ovr):
+    unset = "unset or empty" if level >= 3 else "unset"
+    if level >= 2:
+        lines = ("2. Lines. A line that is empty or holds only spaces and TABs is ignored, and so is a line whose "
+                 "first non-blank character is `#` (comments may be indented). Every other line is `KEY=VALUE`, "
+                 "possibly indented: KEY matches `[A-Z_][A-Z0-9_]*` and is followed directly by `=`; VALUE is "
+                 "everything after the first `=` (it may itself contain `=`, `#`, `*`, `&` and runs of spaces) "
+                 "without the spaces/TABs at the end of the line. There are no inline comments and no quoting. "
+                 "The last line of a file may lack its final newline; it still counts.\n")
+    else:
+        lines = ("2. Lines. Empty lines and lines that start with `#` are ignored. Every other line is "
+                 "`KEY=VALUE`: KEY matches `[A-Z_][A-Z0-9_]*` and is followed directly by `=`; VALUE is everything "
+                 "after the first `=` (it may itself contain `=`, `#`, `*`, `&` and runs of spaces). There are no "
+                 "inline comments and no quoting. Every line ends with a newline.\n")
+    names = "a key set by an earlier line (of this or an earlier file)" + (", an override key" if level >= 3 else "")
+    text = (
+        "`sh run.sh print-config` prints the app's resolved configuration. The rules:\n\n"
+        "1. Layers. The files are read in this order, a later definition of a key replacing an earlier one: "
+        "`config/defaults.env`, then `config/<APP_ENV>.env`, then `config/local.env` if it exists. APP_ENV comes "
+        "from the caller's environment; when it is " + unset + ", it is `dev`. If `config/<APP_ENV>.env` does "
+        "not exist, the script prints an error on stderr and exits with status 2.\n" + lines +
+        "3. Expansion. In VALUE, `${NAME}` and `$NAME` are replaced by the current value of NAME (for `$NAME`, "
+        "NAME is the longest run of letters, digits and `_` after the `$`, so `$DIR_old` means a variable "
+        "`DIR_old`, not `$DIR` followed by `_old`), and `${NAME:-text}` gives `text` when NAME is undefined or "
+        "empty. NAME may be " + names + " or `APP_ENV`; anything else is undefined, i.e. empty. Each value is "
+        "expanded once, when its line is read: redefining a key later does not change values computed before. "
+        "Values never contain quotes, backquotes or backslashes, and `$` only appears in these forms.\n")
+    n = 4
+    if level >= 3:
+        text += (
+            "4. Overrides. The override keys are " + " and ".join("`%s`" % k for k in ovr) + ". If the caller's "
+            "environment gives an override key a non-empty value, that value wins from the start: every file "
+            "line that assigns this key is ignored, and references to the key see the caller's value. An "
+            "override key set to the empty string is ignored. No other environment variable changes the "
+            "result" + (", not even one whose name a file references before (or without) defining it"
+                        if level >= 5 else "") + ".\n")
+        n = 5
+    text += (
+        "%d. Output. One line `KEY=VALUE` for every key defined in the files, each key once with its final "
+        "value, sorted by KEY in byte order (as `LC_ALL=C sort` sorts), nothing else on stdout, exit status 0.\n"
+        % n)
+    return text
+
+
+def build(ctx):
+    rng = ctx.rng()
+    level = ctx.difficulty
+    app = rng.choice(APPS)
+    vis_env = rng.choice(VIS_ENVS)
+    ovr = sorted(rng.sample(OVR_POOL, 2)) if level >= 3 else []
+    if level >= 3:
+        ovr = rng.shuffled(ovr)
+    bugs = pick_bugs(rng.fork("bugs"), level)
+    cases = [scenario(rng.fork("case/" + k), k, level, app, ovr, vis_env) for k in kinds(level)]
+    vis = cases[0]
+    spec = spec_text(level, ovr)
+    visible_note = (
+        "Example: `APP_ENV=%s sh run.sh print-config` with the files in `config/` must print exactly "
+        "`expected/%s.txt`; `sh tests/check_visible.sh` runs that comparison in a clean environment."
+        % (vis_env, vis_env))
+    readme = "# %s launcher\n\n" % app + spec + "\n" + visible_note + (
+        "\nDo not modify `config/`, `expected/`, `tests/` or this README.\n")
+    prompt = (
+        "`run.sh` in this directory is the launcher of the app `%s`. It loads layered env files and should "
+        "print the resolved configuration, but it has several bugs. Fix `run.sh` (keep it a POSIX sh script; "
+        "you may use the standard macOS utilities) so that it follows these rules exactly:\n\n" % app + spec +
+        "\n" + visible_note + " The check runs `sh run.sh print-config` from this directory against other, "
+        "hidden sets of env files and caller environments, so implement the rules rather than the example. "
+        "Do not modify `config/`, `expected/`, `tests/` or README.md. The same text is in README.md.")
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = readme
+    for p, t in vis["files"].items():
+        inst.workspace[p] = t
+    inst.workspace["expected/%s.txt" % vis_env] = vis["want"]
+    inst.workspace["tests/check_visible.sh"] = (
+        "#!/bin/sh\n# Compares `APP_ENV=%s sh run.sh print-config` (clean environment) with the expected output.\n"
+        "cd \"$(dirname \"$0\")/..\" || exit 2\n"
+        "if env -i PATH=\"$PATH\" APP_ENV=%s /bin/sh run.sh print-config | diff -u expected/%s.txt -; then\n"
+        "  echo 'visible example: OK'\nelse\n  echo 'visible example: DIFFERENT'; exit 1\nfi\n"
+        % (vis_env, vis_env, vis_env))
+    inst.workspace["run.sh"] = script(app, level, ovr, bugs)
+    inst.executable.update(["run.sh", "tests/check_visible.sh"])
+    inst.protect(*(sorted(vis["files"]) + ["expected/%s.txt" % vis_env, "tests/check_visible.sh", "README.md"]))
+    inst.solution["run.sh"] = script(app, level, ovr, [])
+    hidden_cases = [{"name": c["name"], "files": None if c["name"] == "visible" else c["files"], "env": c["env"],
+                     "want": c["want"]} for c in cases]
+    tgen.finish(inst, ctx, spec={"cases": hidden_cases, "bugs": bugs}, names=[c["name"] for c in cases])
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

@@ -1,0 +1,38 @@
+[package]
+name = "kernel-selfmap"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# `kernel-selfmap` is the CLI form of `init-kernel selfmap …` (kernel/selfmap.md §4.1): the same
+# arguments, without the leading `selfmap`. `init-kernel` dispatches to `kernel_selfmap::cli::run`.
+[[bin]]
+name = "kernel-selfmap"
+path = "src/bin/kernel-selfmap.rs"
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+sha2.workspace = true
+# `printing` adds `syn::spanned::Spanned` (start and end lines of an item, selfmap.md §3.3). It pulls only
+# `quote`, which is already in the lock and in vendor/.
+syn = { workspace = true, features = ["printing"] }
+proc-macro2.workspace = true
+wit-component.workspace = true
+wit-parser.workspace = true
+tiktoken-rs.workspace = true
+anyhow.workspace = true
+indexmap.workspace = true
+wasmtime.workspace = true
+wasmtime-wasi.workspace = true
+
+[dev-dependencies]
+# Cross-checks only: the drift comparison must match the gate's G1 byte for byte, and the capability
+# bootstrap must use the gate's §3.8.3 primitives bit for bit. A dev-dependency, so the gate may later
+# depend on this crate without a cycle in normal builds.
+kernel-gate.workspace = true
+# The JSON Schema `pattern` keyword in the schema tests (already in the lock and in vendor/).
+regex = "=1.13.1"
+# K-FLAKE: the bounded test watchdog (init_testkit::watchdog) for the process-spawning tests.
+init-testkit = { path = "../init-testkit" }

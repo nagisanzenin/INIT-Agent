@@ -1,0 +1,50 @@
+#!/usr/bin/env python3
+"""wordfreq: the most frequent words of files or stdin (see README.md)."""
+import re
+import sys
+
+WORD = re.compile(r"[A-Za-z]+(?:'[A-Za-z]+)*")
+
+
+def usage():
+    sys.stderr.write("usage: wordfreq [-n N] [FILE...]\n")
+    sys.exit(2)
+
+
+def main(argv):
+    n = 10
+    args = argv[1:]
+    if args[:1] == ["-n"]:
+        if len(args) < 2 or not args[1].isdigit() or not args[1].isascii():
+            usage()
+        n = int(args[1])
+        args = args[2:]
+    elif args[:1] and args[0].startswith("-n"):
+        v = args[0][2:]
+        if not v.isdigit() or not v.isascii():
+            usage()
+        n = int(v)
+        args = args[1:]
+    counts = {}
+    status = 0
+    texts = []
+    if not args:
+        texts.append(sys.stdin.buffer.read().decode("latin-1"))
+    for path in args:
+        try:
+            with open(path, "rb") as f:
+                texts.append(f.read().decode("latin-1"))
+        except OSError:
+            sys.stderr.write("wordfreq: cannot read %s\n" % path)
+            status = 1
+    for text in texts:
+        for w in WORD.findall(text):
+            w = w.lower()
+            counts[w] = counts.get(w, 0) + 1
+    for w, c in sorted(counts.items(), key=lambda kv: (-kv[1], kv[0]))[:n]:
+        sys.stdout.write("%d\t%s\n" % (c, w))
+    return status
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

@@ -1,0 +1,16 @@
+diff --git a/src/main.rs b/src/main.rs
+index d810694..c015040 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -6,6 +6,11 @@ use std::os::unix::process::CommandExt;
+ const AGENT: &str = include_str!("../agent-path.txt");
+ 
+ fn main() {
++    let reason = std::env::var("INIT_BOOT_REASON").unwrap_or_default();
++    eprintln!("boot: {reason}");
++    if std::env::var_os("INIT_BOOT_ID").is_some() {
++        panic!("A4 injected boot crash");
++    }
+     let agent = AGENT.trim();
+     let err = std::process::Command::new(agent)
+         .args(std::env::args_os().skip(1))

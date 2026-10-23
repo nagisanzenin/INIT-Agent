@@ -1,0 +1,11 @@
+# The TUI workspace: `init-tui`, the owner's terminal client (docs/tui.md). Maintainer/owner code,
+# never evolvable by the agent; no path dependency on init-root (docs/tui.md §3.1).
+# Vendored in the repo-root vendor/; regenerate with ci/vendor.sh (syncs every workspace).
+[workspace]
+resolver = "3"
+members = ["crates/init-tui"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+publish = false

@@ -1,0 +1,22 @@
+# build output: directories only, at any depth (scripts/build is a script and stays tracked)
+build/
+dist/
+# logs, except the one we keep
+*.log
+!logs/important.log
+# secrets, except the template
+.env
+.env.*
+!.env.example
+# python
+__pycache__/
+*.pyc
+# scratch: only the top-level tmp/
+/tmp/
+# data exports: CSV files directly in data/, except the schema
+data/*.csv
+!data/schema.csv
+# tools
+node_modules/
+*.swp
+.DS_Store

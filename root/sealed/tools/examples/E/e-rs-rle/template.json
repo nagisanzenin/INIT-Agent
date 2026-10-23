@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-rs-rle",
+ "family": "E",
+ "lang": "rust",
+ "title": "Run-length encoding with seeded rules",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3", "cargo"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/rust", "path": "exercises/practice/run-length-encoding", "exercise": "run-length-encoding", "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e"},
+ "notes": "Format example (S1-CORE); lives outside the sealed pack and is never drawn. EvoEval-style mutation: count position, minimum run length, maximum group length."
+}

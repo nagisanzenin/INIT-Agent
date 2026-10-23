@@ -1,0 +1,530 @@
+#!/usr/bin/env python3
+"""t-log-csv: write `log2csv`, a mixed-format service log -> CSV converter (family T, pack s1; INIT licence).
+
+The reference converter below (REF) is the single source of truth: the generator executes it to compute every
+expected output, and the solution overlay ships it as the reference tool."""
+import calendar
+import json
+import os
+import sys
+import time
+from decimal import Decimal
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+REF = r'''
+import calendar
+import json
+import re
+import sys
+import time
+from decimal import ROUND_HALF_UP, Decimal
+
+ISO_RE = re.compile(r"^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d):(\d\d)(?:\.\d+)?(Z|[+-]\d\d:?\d\d)$")
+BR_RE = re.compile(r"^\[(\d{4})-(\d\d)-(\d\d) (\d\d):(\d\d):(\d\d) ([+-]\d{4})\] (\S+) (\S+) (\S+) (\S+) (\S+)$")
+EPOCH_RE = re.compile(r"^\d{13}$")
+DUR_RE = re.compile(r"^(\d+(?:\.\d+)?)(ms|s|m)$")
+UNIT = {"ms": 1, "s": 1000, "m": 60000}
+FIELDS = ("level", "method", "path", "status")
+
+
+def utc_secs(y, mo, d, h, mi, s, off):
+    t = calendar.timegm((int(y), int(mo), int(d), int(h), int(mi), int(s), 0, 0, 0))
+    if off != "Z":
+        o = off[1:].replace(":", "")
+        delta = int(o[:2]) * 3600 + int(o[2:]) * 60
+        t = t - delta if off[0] == "+" else t + delta
+    return t
+
+
+def fmt_utc(t):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(t))
+
+
+def stamp(v):
+    if isinstance(v, int) and not isinstance(v, bool):
+        return fmt_utc(v // 1000)
+    if isinstance(v, str) and EPOCH_RE.match(v):
+        return fmt_utc(int(v) // 1000)
+    return fmt_utc(utc_secs(*ISO_RE.match(v).groups()))
+
+
+def millis(v):
+    if v is None or v == "-":
+        return ""
+    m = DUR_RE.match(v)
+    q = (Decimal(m.group(1)) * UNIT[m.group(2)]).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+    return str(int(q))
+
+
+def parse_kv(line):
+    out, i, n = {}, 0, len(line)
+    while i < n:
+        j = line.index("=", i)
+        key, i = line[i:j], j + 1
+        if i < n and line[i] == '"':
+            i += 1
+            buf = []
+            while line[i] != '"':
+                if line[i] == "\\":
+                    i += 1
+                buf.append(line[i])
+                i += 1
+            i += 1
+            out[key] = "".join(buf)
+        else:
+            k = line.find(" ", i)
+            k = n if k < 0 else k
+            out[key] = line[i:k]
+            i = k
+        if i < n and line[i] == " ":
+            i += 1
+    return out
+
+
+def records(text, tkey, dkey):
+    for line in text.split("\n"):
+        if line.startswith("{"):
+            try:
+                obj = json.loads(line)
+            except ValueError:
+                continue
+            if not isinstance(obj, dict) or any(k not in obj for k in (tkey, dkey) + FIELDS):
+                continue
+            yield stamp(obj[tkey]), obj["level"], obj["method"], obj["path"], obj["status"], obj[dkey]
+        elif line.startswith(tkey + "="):
+            kv = parse_kv(line)
+            yield stamp(kv[tkey]), kv["level"], kv["method"], kv["path"], kv["status"], kv[dkey]
+        elif line.startswith("["):
+            m = BR_RE.match(line)
+            if m:
+                g = m.groups()
+                yield fmt_utc(utc_secs(*g[:7])), g[7], g[8], g[9], g[10], g[11]
+
+
+def csv_field(s):
+    if "," in s or '"' in s:
+        return '"' + s.replace('"', '""') + '"'
+    return s
+
+
+def convert(text, cfg):
+    rows = []
+    for ts, level, method, path, status, dur in records(text, cfg["tkey"], cfg["dkey"]):
+        if path.split("?", 1)[0] in cfg["health"]:
+            continue
+        rows.append({"timestamp": ts, "level": str(level).upper(), "method": str(method), "path": str(path),
+                     "status": str(status), "duration_ms": millis(dur)})
+    rows.sort(key=lambda r: r["timestamp"])
+    out = [",".join(cfg["cols"])]
+    out += [",".join(csv_field(r[c]) for c in cfg["cols"]) for r in rows]
+    return "\n".join(out) + "\n"
+'''
+
+TOOL_MAIN = '''
+
+CFG = %s
+
+
+def main():
+    text = sys.stdin.buffer.read().decode("utf-8")
+    sys.stdout.buffer.write(convert(text, CFG).encode("utf-8"))
+
+
+main()
+'''
+
+_NS = {}
+exec(compile(REF, "log2csv-ref", "exec"), _NS)  # noqa: S102 - trusted reference code of this template
+convert = _NS["convert"]
+
+COLS = ["timestamp", "level", "method", "path", "status", "duration_ms"]
+WORDS = ["alpha", "amber", "birch", "cobalt", "delta", "ember", "fjord", "garnet", "harbor", "indigo", "juniper",
+         "kelp", "lumen", "maple", "nectar", "onyx", "pebble", "quartz", "raven", "sorrel", "tundra", "umber",
+         "vale", "willow", "yarrow", "zephyr"]
+RESOURCES = ["items", "orders", "users", "carts", "invoices", "reports", "sessions", "tickets", "files", "plans",
+             "coupons", "shipments"]
+HEALTH_POOL = ["/healthz", "/health", "/ping", "/readyz", "/livez", "/status"]
+SERVICES = ["checkout", "catalog", "billing", "gateway", "search", "inventory", "auth", "notify"]
+METHODS = ["GET", "GET", "GET", "POST", "PUT", "DELETE", "PATCH"]
+LEVELS = ["INFO", "INFO", "INFO", "DEBUG", "WARN", "ERROR"]
+OFFSETS_1 = [0, 0, 420, -300, 60, -480, 120, 540, -240]
+OFFSETS_2 = [330, -210, 345, 570]
+
+
+class Lv:
+    """Which traps a log of this difficulty contains."""
+
+    def __init__(self, level):
+        self.level = level
+        self.l2 = level >= 2   # half-hour offsets, compact ISO offsets, decimal seconds, level case, commas, extra keys
+        self.l3 = level >= 3   # minutes, half rounding, health ?query / near-miss, quotes in paths, truncated JSON
+        self.l4 = level >= 4   # epoch milliseconds, fractional seconds (truncation ties)
+        self.l5 = level >= 5   # unknown durations, record-looking continuation lines, JSON objects lacking keys
+
+
+# ------------------------------------------------------------------------------------------- writers
+
+
+def iso(secs, off_min, frac, compact, zulu):
+    tt = time.gmtime(secs + off_min * 60)
+    s = "%04d-%02d-%02dT%02d:%02d:%02d" % tuple(tt[:6])
+    if frac is not None:
+        s += ".%03d" % frac
+    if off_min == 0 and zulu:
+        return s + "Z"
+    a = abs(off_min)
+    return s + ("+" if off_min >= 0 else "-") + ("%02d%02d" if compact else "%02d:%02d") % (a // 60, a % 60)
+
+
+def bracket_time(secs, off_min):
+    tt = time.gmtime(secs + off_min * 60)
+    a = abs(off_min)
+    return "[%04d-%02d-%02d %02d:%02d:%02d " % tuple(tt[:6]) + ("+" if off_min >= 0 else "-") + "%02d%02d]" % (
+        a // 60, a % 60)
+
+
+def kv_value(rng, v, lv):
+    need = (" " in v) or ('"' in v) or v == ""
+    if need or (lv.l2 and rng.chance(1, 6)):
+        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    return v
+
+
+def level_case(rng, level, lv):
+    if not lv.l2:
+        return level
+    return rng.choice([level, level.lower(), level.lower(), level.capitalize()])
+
+
+def write_record(rng, r, cfg, lv):
+    tk, dk = cfg["tkey"], cfg["dkey"]
+    fmt = r["fmt"]
+    level = level_case(rng, r["level"], lv)
+    if fmt == "br":
+        return "%s %s %s %s %d %s" % (bracket_time(r["secs"], r["off"]), level, r["method"], r["path"], r["status"],
+                                      r["dur"] if r["dur"] is not None else "-")
+    if r["epoch"]:
+        ts = r["secs"] * 1000 + (r["frac"] or 0)
+    else:
+        ts = iso(r["secs"], r["off"], r["frac"], lv.l2 and rng.chance(1, 3), rng.chance(2, 3))
+    extras = []
+    if lv.l2 and rng.chance(1, 2):
+        extras.append(("req", rng.hex(4)))
+    if lv.l2 and rng.chance(1, 3):
+        extras.append(("svc", rng.choice(SERVICES)))
+    if fmt == "json":
+        pairs = [(tk, ts), ("level", level), ("method", r["method"]), ("path", r["path"]), ("status", r["status"]),
+                 (dk, r["dur"])] + extras
+        pairs = rng.shuffled(pairs)
+        return "{" + ", ".join("%s: %s" % (json.dumps(k), json.dumps(v)) for k, v in pairs) + "}"
+    rest = [("level", level), ("method", r["method"]), ("path", r["path"]), ("status", str(r["status"])),
+            (dk, r["dur"] if r["dur"] is not None else "-")] + extras
+    rest = rng.shuffled(rest)
+    parts = ["%s=%s" % (tk, ts if r["epoch"] else kv_value(rng, ts, lv))]
+    parts += ["%s=%s" % (k, kv_value(rng, v, lv)) for k, v in rest]
+    return " ".join(parts)
+
+
+# ------------------------------------------------------------------------------------------ records
+
+
+def plain_path(rng, lv):
+    res = rng.choice(RESOURCES)
+    k = rng.below(4)
+    if k == 0:
+        return "/api/%s" % res
+    if k == 1:
+        return "/api/%s/%d" % (res, rng.randint(10, 9999))
+    if k == 2:
+        return "/api/%s/%s" % (res, rng.choice(WORDS))
+    return "/api/%s?page=%d" % (res, rng.randint(1, 9))
+
+
+def dur_plain(rng, lv):
+    k = rng.below(5 if lv.l2 else 3)
+    if k <= 1:
+        return "%dms" % rng.randint(1, 990)
+    if k == 2:
+        return "%ds" % rng.randint(1, 9)
+    if k == 3:
+        return "%d.%ds" % (rng.randint(0, 4), rng.randint(1, 9))
+    return "%d.%02ds" % (rng.randint(0, 2), rng.randint(1, 99))
+
+
+def status_for(rng, level):
+    if level == "ERROR":
+        return rng.choice([500, 502, 503])
+    if level == "WARN":
+        return rng.choice([400, 404, 409, 429])
+    return rng.choice([200, 200, 200, 201, 204, 301])
+
+
+def new_record(rng, lv, offsets, base, span):
+    level = rng.choice(LEVELS)
+    return {"secs": base + rng.randint(0, span), "frac": None, "epoch": False, "level": level,
+            "method": rng.choice(METHODS), "path": plain_path(rng, lv), "status": status_for(rng, level),
+            "dur": dur_plain(rng, lv), "fmt": "json", "off": rng.choice(offsets), "health": False}
+
+
+def even_half_ms(rng):
+    return Decimal(2 * rng.randint(1, 60)) + Decimal("0.5")
+
+
+def make_log(rng, lv, cfg, n):
+    """Returns the log text. Every trap of the level appears at least once."""
+    offsets = OFFSETS_1 + (OFFSETS_2 if lv.l2 else [])
+    base = calendar.timegm((2026, rng.randint(1, 12), rng.randint(1, 28), rng.randint(0, 23), rng.randint(0, 59),
+                            0, 0, 0, 0))
+    span = 3 * 3600
+    recs = [new_record(rng, lv, offsets, base, span) for _ in range(n)]
+    for i, r in enumerate(rng.shuffled(range(n))):
+        recs[r]["fmt"] = ("json", "kv", "br")[i % 3]
+    pool = rng.shuffled(range(n))
+    take = pool.pop
+    health = cfg["health"]
+    # health checks (dropped) and, from level 3, a ?query variant (dropped) and a near miss (kept)
+    for _ in range(2):
+        r = recs[take()]
+        r.update(path=rng.choice(health), method="GET", status=200, level="INFO", health=True)
+    if lv.l3:
+        r = recs[take()]
+        r.update(path="%s?%s=%s" % (rng.choice(health), rng.choice(["probe", "full", "src"]), rng.choice(WORDS)),
+                 method="GET", status=200, level="INFO", health=True)
+        r = recs[take()]
+        r.update(path="%s/%s" % (rng.choice(health), rng.choice(["db", "deps", "cache", "queue"])), method="GET",
+                 status=200)
+    if lv.l2:
+        recs[take()]["path"] = "/api/%s?ids=%d,%d,%d" % (rng.choice(RESOURCES), rng.randint(1, 99),
+                                                        rng.randint(100, 999), rng.randint(1000, 9999))
+        recs[take()]["path"] = "/api/search?sort=%s,-%s" % (rng.choice(["name", "date", "size"]),
+                                                            rng.choice(["price", "rank", "age"]))
+    if lv.l3:
+        recs[take()]["path"] = '/api/search?q="%s"' % rng.choice(WORDS)
+        recs[take()]["path"] = '/api/%s/search?tags="%s,%s"' % (rng.choice(RESOURCES), rng.choice(WORDS),
+                                                               rng.choice(WORDS))
+        recs[take()]["dur"] = "%sms" % even_half_ms(rng)
+        recs[take()]["dur"] = "%ss" % (even_half_ms(rng) / 1000)
+        recs[take()]["dur"] = "%d.%dms" % (rng.randint(0, 40), rng.randint(1, 4))
+        recs[take()]["dur"] = "%dm" % rng.randint(1, 5)
+        recs[take()]["dur"] = "%d.%sm" % (rng.randint(0, 2), rng.choice(["5", "25", "75"]))
+    if lv.l5:
+        for _ in range(2):
+            recs[take()]["dur"] = None
+    # input order: roughly chronological, with local disorder
+    order = sorted(range(n), key=lambda i: (recs[i]["secs"] + rng.randint(-1500, 1500), i))
+    seq = [recs[i] for i in order]
+    plain = [k for k in range(n) if not seq[k]["health"]]
+    # equal UTC instants written differently; the first one in the input sorts after the second as text
+    for _ in range(2):
+        a, b = sorted(rng.sample(plain, 2))
+        seq[b]["secs"] = seq[a]["secs"]
+        while seq[b]["off"] == seq[a]["off"] and seq[a]["fmt"] == seq[b]["fmt"]:
+            seq[b]["off"] = rng.choice(offsets)
+        ra, rb = row_text(seq[a], cfg), row_text(seq[b], cfg)
+        if ra < rb:
+            for key in ("level", "method", "path", "status", "dur"):
+                seq[a][key], seq[b][key] = seq[b][key], seq[a][key]
+        plain = [k for k in plain if k not in (a, b)]
+    if lv.l4:
+        cand = [k for k in plain if seq[k]["fmt"] != "br"]
+        e1, e2 = rng.sample(cand, 2)
+        seq[e1]["epoch"] = True
+        seq[e2]["epoch"] = True
+        seq[e2]["frac"] = rng.randint(1, 999)
+        cand = [k for k in cand if k not in (e1, e2)]
+        a, b = sorted(rng.sample(cand, 2))
+        seq[b]["secs"] = seq[a]["secs"]
+        seq[a]["frac"] = rng.randint(500, 999)   # later within the second, but first in the input
+        seq[b]["frac"] = rng.randint(0, 499)
+        for k in rng.sample([k for k in cand if k not in (a, b)], 2):
+            seq[k]["frac"] = rng.randint(0, 999)
+    lines = []
+    junk_due = {"banner": True, "blank": True, "trace": True, "trunc": lv.l3, "lookalike": lv.l5,
+                "keyless": lv.l5}
+    for k, r in enumerate(seq):
+        lines.append(write_record(rng, r, cfg, lv))
+        if r["level"] == "ERROR" and rng.chance(2, 3):
+            lines += stack_trace(rng)
+            junk_due["trace"] = False
+        if rng.chance(1, 4) or (k >= n - 6 and any(junk_due.values())):
+            kinds = [x for x in sorted(junk_due) if junk_due[x]] or ["banner", "blank", "trace"]
+            kind = rng.choice(kinds)
+            junk_due[kind] = False
+            lines += junk(rng, kind, cfg, lv, offsets, base, span)
+    return "\n".join(lines) + "\n"
+
+
+def row_text(r, cfg):
+    """The record's CSV row text without its timestamp (to order the tie pairs)."""
+    vals = {"level": r["level"], "method": r["method"], "path": r["path"], "status": str(r["status"]),
+            "duration_ms": str(r["dur"])}
+    return ",".join(vals[c] for c in cfg["cols"] if c != "timestamp")
+
+
+def stack_trace(rng):
+    if rng.chance(1, 2):
+        mod = rng.choice(["handlers", "views", "store", "billing", "routes"])
+        exc, word = rng.choice(["KeyError", "ValueError", "TimeoutError"]), rng.choice(WORDS)
+        return ["Traceback (most recent call last):",
+                '  File "/srv/app/%s.py", line %d, in %s' % (mod, rng.randint(20, 400), rng.choice(
+                    ["get_item", "create_order", "load", "charge", "dispatch"])),
+                "    raise %s(%r)" % (exc, word),
+                "%s: %s" % (exc, word)]
+    pkg = rng.choice(["com.acme.db", "com.acme.web", "org.shop.core"])
+    cls = rng.choice(["Pool", "Router", "Session", "Ledger"])
+    out = ["%s.%sException: %s %s" % (pkg, rng.choice(["IllegalState", "Timeout", "NotFound"]), rng.choice(WORDS),
+                                      rng.choice(["exhausted", "missing", "closed"]))]
+    for _ in range(rng.randint(2, 3)):
+        out.append("\tat %s.%s.%s(%s.java:%d)" % (pkg, cls, rng.choice(["take", "run", "open", "post"]), cls,
+                                                  rng.randint(10, 500)))
+    if rng.chance(1, 2):
+        out.append("Caused by: java.io.IOException: connection reset")
+        out.append("\t... %d more" % rng.randint(3, 30))
+    return out
+
+
+def junk(rng, kind, cfg, lv, offsets, base, span):
+    if kind == "banner":
+        return [rng.choice(["=== %s service restarted ===" % rng.choice(SERVICES), "-- MARK --",
+                            "log rotated: %s.log.1" % rng.choice(SERVICES), "#### startup complete ####",
+                            "WARNING: clock skew detected on %s" % rng.choice(SERVICES)])]
+    if kind == "blank":
+        return [""]
+    if kind == "trace":
+        return stack_trace(rng)
+    r = new_record(rng, lv, offsets, base, span)
+    if kind == "trunc":
+        r["fmt"] = "json"
+        full = write_record(rng, r, cfg, lv)
+        return [full[:rng.randint(12, len(full) - 3)]]
+    if kind == "lookalike":
+        r["fmt"] = rng.choice(["kv", "br"])
+        return [rng.choice(["    ", "\t", "  retry of: "]) + write_record(rng, r, cfg, lv)]
+    return ['{%s: %s, "level": "INFO", "msg": "cache warmed in %dms"}' % (
+        json.dumps(cfg["tkey"]), json.dumps(iso(base + rng.randint(0, span), 0, None, False, True)),
+        rng.randint(5, 900))]
+
+
+# -------------------------------------------------------------------------------------------- spec
+
+
+def oxford(items):
+    q = ["`%s`" % x for x in items]
+    return q[0] if len(q) == 1 else ", ".join(q[:-1]) + " or " + q[-1]
+
+
+def spec_text(cfg, lv):
+    tk, dk = cfg["tkey"], cfg["dkey"]
+    extra = " (other keys may also be present; ignore them)" if lv.l2 else ""
+    s = []
+    s.append("## Input\n")
+    s.append("`log2csv` reads the log as UTF-8 text on stdin, one entry per line. Each line is classified by how "
+             "it starts:\n")
+    js = ("- A line starting with `{` is a **JSON record**: one JSON object with the keys `\"%s\"`, `\"level\"`, "
+          "`\"method\"`, `\"path\"`, `\"status\"` (a number) and `\"%s\"`, in any order%s." % (tk, dk, extra))
+    if lv.l3:
+        js += (" A line that starts with `{` but is not a complete, valid JSON object (a write that was cut short) "
+               "is ignored.")
+    if lv.l5:
+        js += " So is a JSON object that lacks any of these six keys."
+    s.append(js)
+    s.append("- A line starting with `%s=` is a **key=value record**: `key=value` pairs separated by single spaces, "
+             "`%s` first, then the other five keys in any order%s. A value is either a run of characters without "
+             "spaces, or a double-quoted string in which `\\\"` stands for `\"` and `\\\\` for `\\`." % (tk, tk, extra))
+    s.append("- A line starting with `[` is a **bracketed record**: `[YYYY-MM-DD HH:MM:SS ±HHMM] LEVEL METHOD PATH "
+             "STATUS DURATION`, fields separated by single spaces (a path never contains a space), for example "
+             "`[2026-03-04 10:15:02 +0700] INFO GET /api/items 200 340ms`.")
+    other = ("- Every other line is ignored: blank lines, banners, and stack traces (their continuation lines often "
+             "start with spaces or a tab")
+    other += (", and are ignored even when the rest of the line looks like a record)." if lv.l5 else ").")
+    s.append(other)
+    s.append("\n## Output: CSV on stdout\n")
+    s.append("1. The first line is the header `%s`. Then one line per kept record, with its fields in the header's "
+             "order." % ",".join(cfg["cols"]))
+    ts = ("2. `timestamp` is the record's time converted to UTC, written `YYYY-MM-DDTHH:MM:SSZ`. JSON and "
+          "key=value records write the time in ISO 8601 as `YYYY-MM-DDTHH:MM:SS` followed by `Z` or an offset "
+          "`±HH:MM`%s; bracketed records use the form shown above. An offset may include minutes (`+05:30`)."
+          % (" or `±HHMM`" if lv.l2 else ""))
+    if lv.l4:
+        ts += (" A fraction of a second (`10:15:02.957`) is dropped, never rounded. A time written as a 13-digit "
+               "integer (a JSON number, or a plain key=value value) is milliseconds since 1970-01-01T00:00:00Z; "
+               "drop the milliseconds.")
+    s.append(ts)
+    s.append("3. `level` is written in upper case. `method`, `path` (including any query string) and `status` are "
+             "copied unchanged.")
+    du = ("4. `duration_ms` is the duration (a decimal number directly followed by `ms`, `s` or `m` for minutes) "
+          "converted to milliseconds with exact decimal arithmetic, then rounded to an integer with halves rounded "
+          "up: `340ms` gives `340`, `1.2s` gives `1200`, `2m` gives `120000`, `1.005s` gives `1005`, `12.5ms` gives "
+          "`13`, `0.4ms` gives `0`.")
+    if lv.l5:
+        du += " A duration written `-` (in a JSON record: `null`) is unknown: leave the field empty."
+    s.append(du)
+    s.append("5. Health checks are dropped: a record is dropped when its path, after removing the first `?` and "
+             "everything after it, is exactly %s." % oxford(cfg["health"]))
+    s.append("6. Rows are sorted by `timestamp`, oldest first. Rows with equal timestamps keep their input order.")
+    s.append("7. Fields are separated by `,`. A field that contains a `,` or a `\"` is written inside double quotes, "
+             "with every `\"` in it doubled (RFC 4180); no other field is quoted. Every line, the last one included, "
+             "ends with a newline.")
+    return "\n".join(s) + "\n"
+
+
+def build(ctx):
+    rng = ctx.rng()
+    lv = Lv(ctx.difficulty)
+    cols = rng.shuffled(COLS)
+    cfg = {"tkey": rng.choice(["ts", "time", "at"]), "dkey": rng.choice(["dur", "took", "elapsed", "latency"]),
+           "health": sorted(rng.sample(HEALTH_POOL, rng.randint(2, 3))), "cols": cols}
+    spec = spec_text(cfg, lv)
+    app_log = make_log(rng.fork("app"), lv, cfg, rng.randint(26, 34))
+    sample_log = make_log(rng.fork("sample"), Lv(min(ctx.difficulty, 2)), cfg, 8)
+    cases = []
+    for k in range(3):
+        tin = make_log(rng.fork("hidden%d" % k), lv, cfg, rng.randint(16, 24))
+        cases.append({"name": "hidden_%d" % (k + 1), "input": tin, "want": convert(tin, cfg)})
+    cases.append({"name": "visible", "input": app_log, "want": convert(app_log, cfg)})
+    report_want = convert(app_log, cfg)
+    prompt = (
+        "In this directory, create an executable program `./log2csv` (any language available here: sh, awk, "
+        "python3 standard library) that converts a web-service log read on stdin into CSV on stdout, exactly as "
+        "specified below. It will also be run on other logs than the ones here, so implement the rules; do not "
+        "hard-code anything from the examples. Then run it on `logs/app.log` and save its output as `report.csv` "
+        "in this directory.\n\n" + spec +
+        "\nWorked example: `./log2csv < examples/sample.log` must print exactly the contents of "
+        "`examples/sample.csv`; `sh tests/run_example.sh` checks that. The example does not exercise every rule. "
+        "Do not modify `logs/`, `examples/` or `tests/`. The same specification is in README.md.")
+    readme = ("# Log to CSV\n\nWrite `./log2csv` (stdin: a log, stdout: CSV) and save "
+              "`./log2csv < logs/app.log` as `report.csv`.\n\n" + spec +
+              "\nExample: `./log2csv < examples/sample.log` must print exactly `examples/sample.csv` "
+              "(`sh tests/run_example.sh`). Do not edit `logs/`, `examples/` or `tests/`.\n")
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = readme
+    inst.workspace["logs/app.log"] = app_log
+    inst.workspace["examples/sample.log"] = sample_log
+    inst.workspace["examples/sample.csv"] = convert(sample_log, cfg)
+    inst.workspace["tests/run_example.sh"] = (
+        "#!/bin/sh\n# Compares ./log2csv on the worked example with the expected CSV.\n"
+        "cd \"$(dirname \"$0\")/..\" || exit 2\n"
+        "if ./log2csv < examples/sample.log | diff -u examples/sample.csv -; then echo 'example: OK'; "
+        "else echo 'example: DIFFERENT'; exit 1; fi\n")
+    inst.executable.add("tests/run_example.sh")
+    inst.marker_files = ["README.md"]
+    inst.protect("logs/app.log", "examples/sample.log", "examples/sample.csv", "tests/run_example.sh")
+    inst.solution["log2csv"] = ("#!/usr/bin/env python3\n\"\"\"Reference log2csv (INIT pack s1, t-log-csv).\"\"\"\n"
+                                + REF + TOOL_MAIN % json.dumps(cfg, sort_keys=True))
+    inst.solution["report.csv"] = report_want
+    inst.executable.add("log2csv")
+    inst.dev["miss_rounding"] = {"log2csv": inst.solution["log2csv"].replace("ROUND_HALF_UP)", "ROUND_HALF_EVEN)"),
+                                 "report.csv": report_want}
+    tgen.finish(inst, ctx, spec={"tool": "log2csv", "report": "report.csv", "report_want": report_want,
+                                 "cases": cases},
+                names=["report"] + [c["name"] for c in cases])
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

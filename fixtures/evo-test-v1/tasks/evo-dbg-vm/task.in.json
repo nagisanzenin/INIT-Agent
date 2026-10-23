@@ -1,0 +1,91 @@
+{
+ "id": "evo-dbg-vm",
+ "title": "Make the Kite interpreter follow its language spec",
+ "family": "t",
+ "difficulty": 5,
+ "labels": [
+  "py",
+  "debug"
+ ],
+ "max_turns": 60,
+ "prompt": "This directory holds an interpreter for Kite, a small scripting language: a lexer, a parser, a resolver, a compiler to bytecode and a stack VM in kite/, with run.py as the command (`python3 run.py PROGRAM.kite`). It does not behave as SPEC.md describes: some of the example programs in examples/ print the wrong thing (`python3 run_examples.py` runs them all and compares each with its .out file). Fix the implementation so that it follows SPEC.md in every respect; more tests than the visible examples check the whole of SPEC.md. Do not modify SPEC.md, run_examples.py or anything in examples/. Code must run on /usr/bin/python3 (Python 3.9), the interpreter the checks use; standard library only.",
+ "source": {
+  "kind": "fresh"
+ },
+ "protected": [
+  "SPEC.md",
+  "run_examples.py",
+  "examples/arith.kite",
+  "examples/arith.out",
+  "examples/closures.kite",
+  "examples/closures.out",
+  "examples/errors.kite",
+  "examples/errors.out",
+  "examples/fib.kite",
+  "examples/fib.out",
+  "examples/hello.kite",
+  "examples/hello.out",
+  "examples/inventory.kite",
+  "examples/inventory.out",
+  "examples/lists.kite",
+  "examples/lists.out",
+  "examples/loops.kite",
+  "examples/loops.out",
+  "examples/scope.kite",
+  "examples/scope.out",
+  "examples/strings.kite",
+  "examples/strings.out",
+  "examples/syntax.kite",
+  "examples/syntax.out"
+ ],
+ "steps": [
+  {
+   "kind": "sh",
+   "script": "hidden/check.sh",
+   "names": [
+    "arith_assoc_chain",
+    "arith_division_negative",
+    "arith_compound_assign",
+    "arith_bigint",
+    "compare_equality",
+    "loops_while",
+    "loops_for_continue",
+    "loops_nested_control",
+    "if_else_chains",
+    "logic_short_circuit",
+    "logic_truthiness",
+    "functions_recursion",
+    "functions_calls_arity",
+    "closures_counters",
+    "closures_loop_capture",
+    "closures_for_variable",
+    "closures_nested_levels",
+    "closures_objects",
+    "callbacks_higher_order",
+    "lists_mutation",
+    "lists_display",
+    "strings_ops",
+    "algo_sorting",
+    "algo_number_theory",
+    "algo_calendar",
+    "scope_shadowing",
+    "globals_redefinition",
+    "maps_basics",
+    "maps_delete_order",
+    "maps_word_freq",
+    "maps_lru_cache",
+    "maps_graph_search",
+    "errors_runtime_lines",
+    "errors_types",
+    "errors_syntax"
+   ],
+   "timeout_s": 30
+  }
+ ],
+ "evo": {
+  "group": "train",
+  "kind": "debug",
+  "spare": false,
+  "pair": "evo-dbg-sheet"
+ }
+}

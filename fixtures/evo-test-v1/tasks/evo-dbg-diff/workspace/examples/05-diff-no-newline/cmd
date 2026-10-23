@@ -1,0 +1,1 @@
+diff -L a/notes.txt -L b/notes.txt notes.txt notes.new.txt

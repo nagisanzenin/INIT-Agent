@@ -1,0 +1,562 @@
+#!/usr/bin/env python3
+"""t-shell-quoting: make a /bin/sh file script safe for any file name (family T, pack s1; INIT licence).
+
+The workspace holds one POSIX sh script of a seeded shape (collect files into a dir with a manifest, move the
+files named in a list file, rename by suffix) with the classic quoting bugs. The check runs the agent's fixed
+script with /bin/sh and a restricted PATH on hidden file-name sets in private directories and compares the
+whole resulting tree (and stdout where the shape prints)."""
+import json
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+WORDS = ["alder", "brook", "cedar", "delta", "ember", "fjord", "grove", "harbor", "iris", "juniper", "kestrel",
+         "lumen", "maple", "nectar", "orbit", "pebble", "quartz", "raven", "sorrel", "tundra", "umber", "vortex",
+         "willow", "yarrow", "zephyr", "basil", "comet", "dune", "fable", "gale", "heron", "lotus", "moss"]
+LETTERS = "abcdefghkmnpqrstuvwxyz"
+# what the check's PATH holds (sh builtins such as printf, test, read, cd, echo are always there)
+TOOLS = ["[", "awk", "basename", "cat", "chmod", "cmp", "cp", "cut", "dirname", "env", "expr", "false", "find",
+         "grep", "head", "ls", "mkdir", "mktemp", "mv", "od", "printf", "rm", "rmdir", "sed", "sh", "sort", "stat",
+         "tail", "tee", "test", "touch", "tr", "true", "uniq", "wc", "xargs"]
+TAB = "\t"
+
+# ----------------------------------------------------------------------------------------- the scripts
+
+COLLECT_HEAD = """#!/bin/sh
+# @SCRIPT@ SRC DST PREFIX
+# Copies every *.@EXT@ file found directly in SRC into DST (created when missing) as PREFIX<name>,
+# then lists the copies in DST/MANIFEST: one "PREFIX<name><TAB><size in bytes>" line per file.
+src=$1
+dst=$2
+prefix=$3
+
+"""
+COLLECT_BUGGY = COLLECT_HEAD + """mkdir -p $dst
+dst=$(cd $dst && pwd)
+: > $dst/MANIFEST
+
+cd $src || exit 1
+for name in $(ls *.@EXT@ 2>/dev/null); do
+  [ -f $name ] || continue
+  cp $name $dst/$prefix$name
+  size=$(wc -c < $name | tr -d ' ')
+  echo "$prefix$name\t$size" >> $dst/MANIFEST
+done
+"""
+COLLECT_FIXED = COLLECT_HEAD + """mkdir -p -- "$dst" || exit 1
+dst=$(cd -- "$dst" && pwd) || exit 1
+: > "$dst/MANIFEST"
+
+cd -- "$src" || exit 1
+for name in *.@EXT@; do
+  [ -f "$name" ] || continue
+  cp -- "$name" "$dst/$prefix$name"
+  size=$(wc -c < "$name" | tr -d ' ')
+  printf '%s\\t%s\\n' "$prefix$name" "$size" >> "$dst/MANIFEST"
+done
+"""
+
+ARCHIVE_HEAD = """#!/bin/sh
+# @SCRIPT@ LIST SRC DST
+# Moves every file named in LIST (one name per line; empty lines and lines starting with # are
+# skipped) from directory SRC into directory DST (created when missing) and records each listed
+# name in DST/ARCHIVE.log as "moved<TAB><name>" or "missing<TAB><name>".
+list=$1
+src=$2
+dst=$3
+
+"""
+ARCHIVE_BUGGY = ARCHIVE_HEAD + """mkdir -p $dst
+dst=$(cd $dst && pwd)
+log=$dst/ARCHIVE.log
+: > $log
+
+names=$(grep -v '^#' $list)
+cd $src || exit 1
+for name in $names; do
+  if [ -f $name ]; then
+    mv $name $dst/
+    echo "moved\t$name" >> $log
+  else
+    echo "missing\t$name" >> $log
+  fi
+done
+"""
+ARCHIVE_FIXED = ARCHIVE_HEAD + """mkdir -p -- "$dst" || exit 1
+dst=$(cd -- "$dst" && pwd) || exit 1
+log=$dst/ARCHIVE.log
+: > "$log"
+
+case $list in /*) ;; *) list=$PWD/$list ;; esac
+cd -- "$src" || exit 1
+while IFS= read -r name || [ -n "$name" ]; do
+  case $name in ''|'#'*) continue ;; esac
+  if [ -f "$name" ]; then
+    mv -- "$name" "$dst/"
+    printf 'moved\\t%s\\n' "$name" >> "$log"
+  else
+    printf 'missing\\t%s\\n' "$name" >> "$log"
+  fi
+done < "$list"
+"""
+
+RESUFFIX_HEAD = """#!/bin/sh
+# @SCRIPT@ DIR OLD NEW
+# Renames every file DIR/<base>.OLD to DIR/<base>.NEW in name order and prints "<old> -> <new>";
+# when <base>.NEW already exists the file is left alone and "skip: <old>" is printed.
+dir=$1
+old=$2
+new=$3
+
+"""
+RESUFFIX_BUGGY = RESUFFIX_HEAD + """cd $dir || exit 1
+for f in $(ls | grep "\\.$old\\$"); do
+  [ -f $f ] || continue
+  base=$(basename $f .$old)
+  target=$base.$new
+  if [ -e $target ]; then
+    echo "skip: $f"
+  else
+    mv $f $target
+    echo "$f -> $target"
+  fi
+done
+"""
+RESUFFIX_FIXED = RESUFFIX_HEAD + """cd -- "$dir" || exit 1
+for f in *."$old"; do
+  [ -f "$f" ] || continue
+  base=${f%."$old"}
+  target=$base.$new
+  if [ -e "$target" ]; then
+    printf 'skip: %s\\n' "$f"
+  else
+    mv -- "$f" "$target"
+    printf '%s -> %s\\n' "$f" "$target"
+  fi
+done
+"""
+
+# ------------------------------------------------------------------------------------- file-name sets
+
+
+def categories(level):
+    cats = ["plain", "spaces"]
+    if level >= 2:
+        cats += ["glob_chars", "empty_input"]
+    if level >= 3:
+        cats += ["leading_dash", "quotes_dollar"]
+    if level >= 4:
+        cats += ["tabs"]
+    if level >= 5:
+        cats += ["mixed"]
+    return cats
+
+
+def stems_for(rng, cat):
+    """-> list of (stem, companion stems) for one name category. A companion is a plain stem that an unquoted
+    glob of the special stem would match ([ab] -> a, x? -> x1); it must exist too."""
+    a, b = rng.sample(WORDS, 2)
+    n = rng.randint(1, 98)
+    x, y = rng.sample(list(LETTERS), 2)
+    if cat == "plain":
+        pool = [a, "%s_%02d" % (b, n), "%s-%s" % (a, b), "%s.v%d" % (b, n % 9 + 1), "%s%d" % (a, n)]
+        return [(s, []) for s in rng.sample(pool, 3)]
+    if cat == "spaces":
+        pool = ["%s %s" % (a, b), "%s  %s" % (b, a), " %s" % a, "%s " % b, "%s - %s %d" % (a, b, n)]
+        return [(s, []) for s in rng.sample(pool, 4)]
+    if cat == "glob_chars":
+        out = [("[%s%s]" % (x, y), [x]), ("%s?" % a, ["%s1" % a])]
+        pool = ["%s*" % b, "*", "[%s]" % b, "%s[%d]" % (a, n), "%s *%s*" % (b, x)]
+        out += [(s, []) for s in rng.sample(pool, 2)]
+        return out
+    if cat == "leading_dash":
+        pool = ["-n", "-%s" % a, "--%s" % b, "-r %s" % a, "-%s %s" % (x, b), "-"]
+        picked = ["-n"] + rng.sample([p for p in pool if p != "-n"], 3)
+        return [(s, []) for s in picked]
+    if cat == "quotes_dollar":
+        backslash = ["%s\\t%s" % (a, b), "\\\\%s" % a, "%s\\c" % b, "%s\\n%d" % (a, n)]
+        quotes = ["%s's" % a, "\"%s\"" % b, "it's \"%s\"" % b]
+        other = ["$%s" % a, "$(%s)" % b, "`%s`" % a, "%s;%s" % (a, b), "%s&%s" % (b, a), "%s #%d" % (a, n),
+                 "${%s}" % b]
+        picked = rng.sample(backslash, 2) + rng.sample(quotes, 1) + rng.sample(other, 2)
+        return [(s, []) for s in picked]
+    if cat == "tabs":
+        pool = ["%s\t%s" % (a, b), "\t%s" % a, "%s\t" % b, "%s \t %s" % (b, a)]
+        return [(s, []) for s in rng.sample(pool, 3)]
+    if cat == "empty_input":
+        return []
+    if cat == "mixed":
+        out = []
+        for sub in ("spaces", "glob_chars", "leading_dash", "quotes_dollar", "tabs"):
+            out += rng.fork(sub).sample(stems_for(rng.fork(sub + "/s"), sub), 2)
+        return out
+    raise ValueError(cat)
+
+
+def content(rng):
+    tok = rng.word(6)
+    return "".join("%s line %d\n" % (tok, i) for i in range(rng.randint(1, 4)))
+
+
+def lc_unique(names):
+    seen = set()
+    out = []
+    for nm in names:
+        if nm.lower() not in seen:
+            seen.add(nm.lower())
+            out.append(nm)
+    return out
+
+
+# ---------------------------------------------------------------------------------------- the shapes
+
+
+class Collect:
+    kind = "collect"
+
+    def __init__(self, rng):
+        self.script = rng.choice(["collect.sh", "gather.sh", "harvest.sh"])
+        self.ext = rng.choice(["txt", "log", "csv", "dat"])
+        self.other = rng.choice([e for e in ["md", "json", "bak", "tsv"]])
+        self.buggy = COLLECT_BUGGY.replace("@SCRIPT@", self.script).replace("@EXT@", self.ext)
+        self.fixed = COLLECT_FIXED.replace("@SCRIPT@", self.script).replace("@EXT@", self.ext)
+
+    def usage(self):
+        return "sh %s SRC DST PREFIX" % self.script
+
+    def describe(self, level):
+        return (
+            "`sh %s SRC DST PREFIX` copies every regular file directly inside directory SRC whose name ends in "
+            "`.%s` into directory DST (created when missing) under the name `PREFIX<name>`; names that start "
+            "with `.` are skipped and sub-directories are not entered. It then writes `DST/MANIFEST`, rewritten "
+            "on every run: one line per copied file, in byte order of the names, made of `PREFIX<name>`, a TAB "
+            "and the file's size in bytes (decimal). SRC is left unchanged and nothing else is created."
+            % (self.script, self.ext))
+
+    def edge(self, level):
+        return ("When no file matches (SRC may even be empty), `DST/MANIFEST` must still be created, empty, "
+                "and nothing is copied.")
+
+    def scenario(self, rng, cat, level, visible=False):
+        spaced = level >= 4 and cat != "plain"
+        src = "in box" if spaced else "in"
+        dst = "out dir" if spaced else "out"
+        prefix = rng.choice(["in_", "copy-", "b%d_" % rng.randint(2, 9), "x."])
+        if level >= 5 and cat == "mixed":
+            prefix = rng.choice(["my $copy ", "'q' ", "[%d] " % rng.randint(1, 9)])
+        names = []
+        for stem, comp in stems_for(rng.fork("stems"), cat):
+            names += [stem + "." + self.ext] + [c + "." + self.ext for c in comp]
+        a, b = rng.sample(WORDS, 2)
+        decoys = ["%s.%s" % (a, self.other), "%s.%s.bak" % (b, self.ext), "%s%s" % (a, self.ext)]
+        if cat == "plain":
+            decoys.append(".%s.%s" % (b, self.ext))
+        if cat == "spaces":
+            decoys.append("%s.%s " % (a, self.ext))
+        if cat == "glob_chars":
+            decoys.append("%s*.%s" % (b, self.other))
+        if cat == "empty_input":
+            decoys = decoys[:rng.randint(0, 2)]
+        names = lc_unique(names + decoys)
+        files = {}
+        for nm in names:
+            files[src + "/" + nm] = content(rng)
+        want = dict(files)
+        matched = sorted(nm for nm in names if nm.endswith("." + self.ext) and not nm.startswith("."))
+        manifest = ""
+        for nm in matched:
+            data = files[src + "/" + nm]
+            want[dst + "/" + prefix + nm] = data
+            manifest += "%s%s\t%d\n" % (prefix, nm, len(data.encode("utf-8")))
+        want[dst + "/MANIFEST"] = manifest
+        return {"dirs": [src], "files": files, "args": [src, dst, prefix], "want": want, "stdout": None}
+
+
+class Archive:
+    kind = "archive"
+
+    def __init__(self, rng):
+        self.script = rng.choice(["archive.sh", "stash.sh", "shelve.sh"])
+        self.ext = rng.choice(["dat", "txt", "csv", "pdf"])
+        self.listname = rng.choice(["todo.list", "files.txt", "batch.lst"])
+        self.buggy = ARCHIVE_BUGGY.replace("@SCRIPT@", self.script)
+        self.fixed = ARCHIVE_FIXED.replace("@SCRIPT@", self.script)
+
+    def usage(self):
+        return "sh %s LIST SRC DST" % self.script
+
+    def describe(self, level):
+        last = (" The last line of LIST may lack its final newline; it still counts." if level >= 2 else "")
+        return (
+            "`sh %s LIST SRC DST` reads the text file LIST: one file name per line; empty lines and lines that "
+            "start with `#` are skipped; every other line is a file name exactly as written (spaces at either "
+            "end and backslashes are part of the name).%s In list order, each named file that exists as a "
+            "regular file directly in directory SRC is moved into directory DST (created when missing). "
+            "`DST/ARCHIVE.log`, rewritten on every run, gets one line per processed name: `moved`, a TAB and "
+            "the name; or `missing`, a TAB and the name when SRC has no such file (also when an earlier line "
+            "already moved it). Files that are not listed stay in SRC; LIST is not changed."
+            % (self.script, last))
+
+    def edge(self, level):
+        return ("A LIST holding only comments and empty lines gives an empty `DST/ARCHIVE.log` and moves "
+                "nothing.")
+
+    def scenario(self, rng, cat, level, visible=False):
+        spaced = level >= 4 and cat != "plain"
+        lst = ("to do.list" if spaced else self.listname)
+        src = "in box" if spaced else "inbox"
+        dst = "done dir" if spaced else "archive"
+        stems = stems_for(rng.fork("stems"), cat)
+        listed = []
+        names = []
+        for stem, comp in stems:
+            listed.append(stem + "." + self.ext)
+            names += [stem + "." + self.ext] + [c + "." + self.ext for c in comp]
+        a, b, c = rng.sample(WORDS, 3)
+        unlisted = ["%s.%s" % (a, self.ext), ".%s.%s" % (b, self.ext)]
+        names = lc_unique(names + unlisted)
+        files = {src + "/" + nm: content(rng) for nm in names}
+        missing = ["%s.%s" % (c, self.ext)]
+        if cat == "spaces":
+            missing.append(listed[0] + " ")  # the name with a trailing space does not exist
+        if cat == "glob_chars":
+            missing.append("*.%s" % self.ext if "*." + self.ext not in names else "%s?.%s" % (c, self.ext))
+        if cat == "leading_dash":
+            missing.append("-%s.%s" % (c, self.ext))
+        if cat == "quotes_dollar":
+            missing.append("%s\\.%s" % (c, self.ext))
+        if cat == "empty_input":
+            listed, missing = [], []
+        lines = rng.shuffled(listed + missing)
+        if lines and rng.chance(1, 2):
+            lines.insert(rng.below(len(lines)), lines[0])  # a repeated name: the second one is missing
+        comments = ["# batch %d" % rng.randint(1, 40), "#%s" % rng.word(5), "# keep %s.%s" % (a, self.ext)]
+        for cm in rng.sample(comments, 2):
+            lines.insert(rng.below(len(lines) + 1), cm)
+        lines.insert(rng.below(len(lines) + 1), "")
+        text = "\n".join(lines)
+        no_final_nl = (not visible and level >= 2 and cat in ("plain", "quotes_dollar", "tabs", "mixed")
+                       and lines[-1] != "")
+        if not no_final_nl:
+            text += "\n"
+        files[lst] = text
+        want = dict(files)
+        log = ""
+        for ln in lines:
+            if ln == "" or ln.startswith("#"):
+                continue
+            key = src + "/" + ln
+            if key in want:
+                want[dst + "/" + ln] = want.pop(key)
+                log += "moved\t%s\n" % ln
+            else:
+                log += "missing\t%s\n" % ln
+        want[dst + "/ARCHIVE.log"] = log
+        return {"dirs": [src], "files": files, "args": [lst, src, dst], "want": want, "stdout": None}
+
+
+class Resuffix:
+    kind = "resuffix"
+
+    def __init__(self, rng):
+        self.script = rng.choice(["resuffix.sh", "reext.sh", "rename-ext.sh"])
+        self.old, self.new = rng.choice([("jpeg", "jpg"), ("htm", "html"), ("yml", "yaml"), ("text", "txt"),
+                                         ("markdown", "md"), ("tif", "tiff")])
+        self.buggy = RESUFFIX_BUGGY.replace("@SCRIPT@", self.script)
+        self.fixed = RESUFFIX_FIXED.replace("@SCRIPT@", self.script)
+
+    def usage(self):
+        return "sh %s DIR OLD NEW" % self.script
+
+    def describe(self, level):
+        return (
+            "`sh %s DIR OLD NEW` renames, in byte order of the names, every regular file directly inside "
+            "directory DIR whose name ends in `.OLD` (names that start with `.` are skipped) to the same name "
+            "with that final `.OLD` replaced by `.NEW`, and prints `<old name> -> <new name>` on stdout. When a "
+            "file with the new name already exists, the file is left alone and `skip: <old name>` is printed "
+            "instead. Nothing else is printed on stdout and no other file changes." % self.script)
+
+    def edge(self, level):
+        return "When no file matches (DIR may even be empty), nothing is renamed and nothing is printed."
+
+    def scenario(self, rng, cat, level, visible=False):
+        spaced = level >= 4 and cat != "plain"
+        d = rng.choice(["my files", "to sort"]) if spaced else rng.choice(["work", "pages", "photos"])
+        old, new = self.old, self.new
+        stems = stems_for(rng.fork("stems"), cat)
+        names = []
+        for stem, comp in stems:
+            names += [stem + "." + old] + [c2 + "." + old for c2 in comp]
+        a, b = rng.sample(WORDS, 2)
+        decoys = ["%s.%s" % (a, new), "%s.%s.bak" % (b, old), ".%s.%s" % (a, old)]
+        if stems:
+            clash = stems[rng.below(len(stems))][0]
+            decoys.append(clash + "." + new)  # its target exists: skip
+        if cat == "plain":
+            decoys.append("%s.%s.%s" % (b, old, old))  # renamed to <b>.old.new
+        names = lc_unique(names + decoys)
+        files = {d + "/" + nm: content(rng) for nm in names}
+        want = dict(files)
+        out = ""
+        for nm in sorted(names):
+            if not nm.endswith("." + old) or nm.startswith("."):
+                continue
+            target = nm[:-len(old) - 1] + "." + new
+            if d + "/" + target in want:
+                out += "skip: %s\n" % nm
+            else:
+                want[d + "/" + target] = want.pop(d + "/" + nm)
+                out += "%s -> %s\n" % (nm, target)
+        return {"dirs": [d], "files": files, "args": [d, old, new], "want": want, "stdout": out}
+
+
+SHAPES = [Collect, Archive, Resuffix]
+
+# ------------------------------------------------------------------------------------------ the text
+
+
+def charset(level):
+    if level <= 1:
+        return ("letters, digits, `.`, `_`, `-` (never first) and spaces: single, repeated, leading or trailing. "
+                "Names never contain a newline, a TAB or any other character.")
+    if level == 2:
+        return ("letters, digits, `.`, `_`, `-` (never first), spaces (single, repeated, leading or trailing) "
+                "and the glob characters `*`, `?`, `[`, `]`. Names never contain a newline, a TAB or any other "
+                "character.")
+    common = ("spaces (single, repeated, leading or trailing), the glob characters `*` `?` `[` `]` (a name such "
+              "as `[ab].x` must never pick up a file `a.x`), a leading `-`, quotes `'` and `\"`, `$`, "
+              "backquotes, `;`, `&`, `#` and backslashes (taken literally)")
+    if level == 3:
+        return ("any character except `/`, NUL, newline and TAB: " + common + ". Names never contain a newline "
+                "or a TAB.")
+    return ("any character except `/`, NUL and newline: " + common + ", and TABs. Names never contain a "
+            "newline.")
+
+
+SELFTEST = '''#!/usr/bin/env python3
+"""Visible self-test: runs ../@SCRIPT@ with /bin/sh on a few file-name sets in temporary directories and
+compares the resulting files (and stdout). The real check uses other, nastier names."""
+import json
+import os
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SCRIPT = os.path.join(os.path.dirname(HERE), "@SCRIPT@")
+CASES = json.loads(@CASES@)
+
+
+def snapshot(root):
+    out = {}
+    for dirpath, dirnames, filenames in os.walk(root):
+        for name in filenames:
+            p = os.path.join(dirpath, name)
+            with open(p, "rb") as f:
+                out[os.path.relpath(p, root)] = f.read().decode("utf-8", "replace")
+    return out
+
+
+def main():
+    bad = 0
+    for case in CASES:
+        with tempfile.TemporaryDirectory() as d:
+            for rel in case["dirs"]:
+                os.makedirs(os.path.join(d, rel), exist_ok=True)
+            for rel, data in case["files"].items():
+                with open(os.path.join(d, rel), "w") as f:
+                    f.write(data)
+            env = dict(os.environ, LC_ALL="C")
+            p = subprocess.run(["/bin/sh", SCRIPT] + case["args"], cwd=d, env=env, stdin=subprocess.DEVNULL,
+                               stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=30)
+            got = snapshot(d)
+            ok = got == case["want"]
+            if case["stdout"] is not None:
+                ok = ok and p.stdout.decode("utf-8", "replace") == case["stdout"]
+            print("%s %s  (%s)" % ("ok  " if ok else "FAIL", case["name"], " ".join(repr(a) for a in case["args"])))
+            if not ok:
+                bad += 1
+                for k in sorted(set(got) | set(case["want"])):
+                    if got.get(k) != case["want"].get(k):
+                        print("   %r: got %r, want %r" % (k, got.get(k), case["want"].get(k)))
+                if case["stdout"] is not None and p.stdout.decode("utf-8", "replace") != case["stdout"]:
+                    print("   stdout: got %r, want %r" % (p.stdout.decode("utf-8", "replace"), case["stdout"]))
+                if p.stderr:
+                    print("   stderr: %s" % p.stderr.decode("utf-8", "replace").strip()[-400:])
+    print("visible self-test: %s" % ("OK" if not bad else "%d case(s) FAILED" % bad))
+    sys.exit(1 if bad else 0)
+
+
+main()
+'''
+
+
+def build(ctx):
+    rng = ctx.rng()
+    level = ctx.difficulty
+    shape = rng.choice(SHAPES)(rng.fork("shape"))
+    cats = categories(level)
+    cases = []
+    for cat in cats:
+        sc = shape.scenario(rng.fork("hidden/" + cat), cat, level)
+        sc["name"] = cat
+        cases.append(sc)
+    visible = []
+    for cat in ["plain", "spaces"] + (["glob_chars"] if level >= 2 else []):
+        sc = shape.scenario(rng.fork("visible/" + cat), cat, min(level, 3), visible=True)
+        sc["name"] = "visible_" + cat
+        visible.append(sc)
+
+    tools = ", ".join("`%s`" % t for t in TOOLS if t not in ("[", "test", "printf", "true", "false"))
+    spec = (
+        "What the script does (keep exactly this behaviour):\n\n" + shape.describe(level) + "\n\n"
+        "Rules:\n"
+        "1. The fixed script must work for every file name that can occur: " + charset(level) + "\n"
+        "2. Its behaviour must not change: the same files are created, moved or left alone, with the same "
+        "contents, and the same output lines in the same order. For ordinary names the current script is "
+        "already right.\n"
+        "3. " + shape.edge(level) + "\n"
+        "4. It stays a POSIX `#!/bin/sh` script. The check runs `" + shape.usage() + "` as `/bin/sh <script> "
+        "...` from another directory, with relative path arguments" +
+        (" (which may contain spaces)" if level >= 4 else "") + ", `LC_ALL=C`, stdin empty, and a PATH that "
+        "holds only these utilities: " + tools + " (plus the shell's own builtins such as `printf`, `test`, "
+        "`read`, `cd`). python3, perl and other interpreters are not available to it. On macOS, /bin/sh is "
+        "bash 3.2 running in POSIX mode.\n" +
+        ("5. PREFIX may contain the same characters as file names.\n" if level >= 5 and shape.kind == "collect"
+         else ""))
+    readme = ("# %s\n\n`%s` has quoting bugs: it breaks on file names with spaces or other special "
+              "characters.\n\n" % (shape.script, shape.script) + spec +
+              "\n`python3 tests/selftest.py` runs a few visible cases; the check runs the script on other file "
+              "names. Do not modify README.md or tests/.\n")
+    prompt = (
+        "`%s` in this directory is a POSIX sh script with quoting bugs: it breaks on file names that contain "
+        "spaces or other special characters. Fix it in place so that it handles every allowed file name, "
+        "without changing what it does.\n\n" % shape.script + spec +
+        "\n`python3 tests/selftest.py` runs a few visible cases. The check runs the script on other, hidden "
+        "file-name sets (one check per kind of name), so make it correct in general rather than for these "
+        "examples. Do not modify README.md or tests/. The same text is in README.md.")
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = readme
+    inst.workspace[shape.script] = shape.buggy
+    inst.executable.add(shape.script)
+    vis_json = json.dumps([{k: v[k] for k in ("name", "dirs", "files", "args", "want", "stdout")}
+                           for v in visible], sort_keys=True)
+    inst.workspace["tests/selftest.py"] = SELFTEST.replace("@SCRIPT@", shape.script).replace(
+        "@CASES@", repr(vis_json))
+    inst.executable.add("tests/selftest.py")
+    inst.protect("README.md", "tests/selftest.py")
+    inst.solution[shape.script] = shape.fixed
+    tgen.finish(inst, ctx, spec={"script": shape.script, "tools": TOOLS,
+                                 "cases": [{k: c[k] for k in ("name", "dirs", "files", "args", "want", "stdout")}
+                                           for c in cases]},
+                names=[c["name"] for c in cases])
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

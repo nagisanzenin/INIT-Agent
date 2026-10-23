@@ -1,0 +1,147 @@
+#!/usr/bin/env python3
+"""e-py-bob: Exercism `bob` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d2 seeded replies, a seeded yelling threshold (at least k capitals, no lower case),
+a new trailing-off rule ("...") and a seeded order in which the rules are checked; d3 adds a numbers-only
+rule; d4 adds a whisper rule (lower case only, ending in a full stop) that collides with trailing-off.
+Reference: ref/solution.py (parameterized by P). Dev fixtures: ref/original.py (the unmutated exercise)
+and ref/naive.py (the right replies with the classic rules).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "bob"
+STUB = '''def response(hey_bob):
+    raise NotImplementedError("response")
+'''
+REPLIES = {
+    "silence": ["Hello? Anyone there?", "Suit yourself.", "Okay, be quiet then.", "I'll wait."],
+    "yelled_question": ["Stop shouting questions at me!", "Easy! One question at a time!",
+                        "No need to yell, I'm thinking!"],
+    "yell": ["Indoor voice, please!", "Whoa, too loud!", "Calm down!", "No shouting."],
+    "question": ["Maybe.", "Good question.", "Ask me later.", "Probably yes."],
+    "trailing": ["Go on...", "And then?", "Finish your thought.", "I'm listening."],
+    "number": ["Numbers again?", "I can't count that high.", "Math is not my thing."],
+    "whisper": ["Why are we whispering?", "Speak up, please.", "Pardon?"],
+    "other": ["Right.", "If you say so.", "Noted.", "Hmm."],
+}
+WHAT = {
+    "silence": "**silence**: the message is empty",
+    "yelled_question": "**yelled question**: the message is yelling (see below) and is a question",
+    "yell": "**yelling**: the message contains at least {k} upper-case letters `A`-`Z` and no lower-case "
+            "letters `a`-`z` (other characters do not matter)",
+    "question": "**question**: the message ends with `?`",
+    "trailing": "**trailing off**: the message ends with `...` (three full stops)",
+    "number": "**numbers**: the message contains no letters (`A`-`Z`, `a`-`z`) at all and at least one digit "
+              "`0`-`9`",
+    "whisper": "**whisper**: the message contains at least one lower-case letter, no upper-case letters, and "
+               "ends with `.`",
+    "other": "**anything else**",
+}
+SENT = ["how are you", "the bus is late again", "it is going to rain", "i ate the last cookie",
+        "my code compiles", "the meeting moved to friday", "we won the game", "that was close",
+        "you forgot the keys", "the cat is on the roof", "let us go", "this tastes odd"]
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    middle = ["yelled_question", "yell", "question", "trailing"]
+    if d >= 3:
+        middle.append("number")
+    if d >= 4:
+        middle.append("whisper")
+    middle = rng.shuffled(middle)
+    middle.remove("yelled_question")
+    first = min(middle.index("yell"), middle.index("question"))
+    middle.insert(rng.randint(0, first), "yelled_question")
+    cats = ["silence"] + middle + ["other"]
+    replies = {c: rng.choice(REPLIES[c]) for c in cats}
+    return {"k": rng.randint(2, 4), "order": cats, "replies": replies}
+
+
+def rules_text(p):
+    lines = [
+        "`response(hey_bob)` returns the reply to the message `hey_bob` (a `str`). First remove whitespace "
+        "from both ends of the message (as `str.strip()` does); the rules below look at what is left.",
+        "",
+        "Check these rules **in this order**; the first rule that applies gives the reply:",
+        "",
+    ]
+    for i, c in enumerate(p["order"], 1):
+        lines.append("%d. %s: reply `%s`" % (i, WHAT[c].format(k=p["k"]), p["replies"][c]))
+    lines += ["", "Return the reply exactly as written (a `str`)."]
+    return "\n".join(lines)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    exprs = []
+
+    def add(msg):
+        e = "response(%r)" % msg
+        if e not in exprs:
+            exprs.append(e)
+
+    def sent():
+        s = rng.choice(SENT)
+        return s[0].upper() + s[1:] if rng.chance(1, 2) else s
+
+    def caps(n_letters):
+        """An all-caps message with exactly n upper-case letters."""
+        word = "".join(rng.choice("ABCDEFGHJKLMNPRSTUWXYZ") for _ in range(n_letters))
+        return word
+
+    def pad(s):
+        return rng.choice(["", " ", "  ", "\t"]) + s + rng.choice(["", " ", "\n", "  "])
+
+    k = p["k"]
+    # visible examples (5): yelling at the threshold, below it, trailing off, a question, silence
+    add(caps(k) + "!")
+    add(caps(k - 1) + rng.choice(["!", ".", " 7"]))
+    add(sent() + "...")
+    add(sent() + "?")
+    add(rng.choice(["", "   ", "\t \n"]))
+    # hidden
+    add(pad(sent().upper() + "!"))
+    add(pad(sent().upper() + "?"))
+    add(caps(k) + "?")
+    add(caps(k - 1) + "?")
+    add(caps(k + 1) + "...")
+    add(pad(sent() + "?"))
+    add(pad(sent() + "."))
+    add(sent() + "!")
+    add(sent())
+    add(pad(sent() + "..."))
+    add(sent() + "...?")
+    add(sent() + "?..")
+    add("1, 2, 3")
+    add("%d?" % rng.randint(1, 99))
+    add("%d..." % rng.randint(10, 999))
+    add(":) ?")
+    add(rng.choice(["Okay", "fine", "Hi there"]) + "...")
+    add(caps(k + 2) + " " + str(rng.randint(1, 9)) + "!")
+    add("%d %s GO!" % (rng.randint(1, 9), caps(1)))
+    add(pad("   "))
+    add(sent().upper() + "...")
+    add(rng.choice(["i see.", "ok.", "fine...", "whatever..."]))
+    add(rng.choice(["Ok.", "I see.", "no?"]))
+    if "whisper" in p["order"]:
+        add(sent().lower() + ".")
+        add(sent().lower() + "...")
+        add("a.")
+    dev = {"original": ctx.read("ref", "original.py"), "naive": ref_with_params(ctx, p, "naive.py")}
+    task = ("Implement `response(hey_bob)` in `%s.py`: the replies of a conversational bot that reacts to "
+            "how a message is written." % MODULE)
+    return assemble(ctx, MODULE, task, rules_text(p), ref, exprs, 5, dev, STUB)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

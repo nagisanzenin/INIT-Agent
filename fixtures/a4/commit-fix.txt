@@ -1,0 +1,9 @@
+refactor(boot): print the boot reason at start
+
+The first version also carried a stray panic at boot (gate.g2.probe_exit in
+G2); this squashed commit keeps only the boot-reason line.
+
+Why: the boot reason belongs on stderr for the kernel's body logs.
+Predicts: pass_rate >= parent
+Compensates-for: none (logging)
+Prefix-change: no

@@ -1,0 +1,144 @@
+{
+  "load": {
+    "free_kib": 7712476,
+    "note": "WP16 07:2x; other agents finished; orchestrator holding ci/local.sh",
+    "power": "Now drawing from 'AC Power'",
+    "uptime": "7:25  up 12 days,  8:14, 3 users, load averages: 7.72 4.69 4.06"
+  },
+  "machine": {
+    "cpu": "Apple M2",
+    "mem_bytes": 17179869184,
+    "ncpu": 8,
+    "os": "ProductName:  macOS; ProductVersion:  14.6; BuildVersion:  23G80"
+  },
+  "notes": [
+    "WP16 07:2x; other agents finished; orchestrator holding ci/local.sh"
+  ],
+  "runs": [
+    {
+      "kind": "ext.count-lines.warmup",
+      "lock_waits": 0,
+      "max": 0.23,
+      "max_rss_mib_median": 52.172,
+      "median": 0.23,
+      "min": 0.23,
+      "n": 1,
+      "recompiled": 0,
+      "unit": "s",
+      "user_s_median": 0.05,
+      "values": [
+        0.23
+      ]
+    },
+    {
+      "kind": "ext.count-lines.noop",
+      "lock_waits": 0,
+      "max": 0.09,
+      "max_rss_mib_median": 52.156,
+      "median": 0.09,
+      "min": 0.09,
+      "n": 3,
+      "recompiled": 0,
+      "unit": "s",
+      "user_s_median": 0.06,
+      "values": [
+        0.09,
+        0.09,
+        0.09
+      ]
+    },
+    {
+      "kind": "ext.count-lines.touch",
+      "lock_waits": 0,
+      "max": 0.81,
+      "max_rss_mib_median": 130.672,
+      "median": 0.34,
+      "min": 0.34,
+      "n": 5,
+      "recompiled": 5,
+      "touched": "seed/ext/count-lines/src/lib.rs",
+      "unit": "s",
+      "user_s_median": 0.35,
+      "values": [
+        0.81,
+        0.34,
+        0.34,
+        0.34,
+        0.34
+      ]
+    },
+    {
+      "kind": "ext.semver-sort.warmup",
+      "lock_waits": 0,
+      "max": 31.59,
+      "max_rss_mib_median": 683.922,
+      "median": 31.59,
+      "min": 31.59,
+      "n": 1,
+      "recompiled": 1,
+      "unit": "s",
+      "user_s_median": 165.41,
+      "values": [
+        31.59
+      ]
+    },
+    {
+      "kind": "ext.semver-sort.noop",
+      "lock_waits": 0,
+      "max": 0.1,
+      "max_rss_mib_median": 52.141,
+      "median": 0.09,
+      "min": 0.08,
+      "n": 3,
+      "recompiled": 0,
+      "unit": "s",
+      "user_s_median": 0.06,
+      "values": [
+        0.1,
+        0.08,
+        0.09
+      ]
+    },
+    {
+      "kind": "ext.semver-sort.touch",
+      "lock_waits": 0,
+      "max": 0.39,
+      "max_rss_mib_median": 141.859,
+      "median": 0.39,
+      "min": 0.39,
+      "n": 5,
+      "recompiled": 5,
+      "touched": "target/test-homes/wp16/m2/body/ext/semver-sort/src/lib.rs",
+      "unit": "s",
+      "user_s_median": 0.5,
+      "values": [
+        0.39,
+        0.39,
+        0.39,
+        0.39,
+        0.39
+      ]
+    }
+  ],
+  "subject.ext.count-lines": {
+    "cargo": "build --offline --target wasm32-wasip2 -p count-lines",
+    "dir": "seed/ext",
+    "env": "CARGO_INCREMENTAL=0",
+    "target_dir": "seed/target",
+    "wasm": "seed/target/wasm32-wasip2/debug/count_lines.wasm",
+    "wasm_bytes": 247598
+  },
+  "subject.ext.semver-sort": {
+    "cargo": "build --offline --target wasm32-wasip2 -p semver-sort",
+    "dir": "target/test-homes/wp16/m2/body/ext",
+    "env": "CARGO_INCREMENTAL=0",
+    "target_dir": "seed/target",
+    "wasm": "seed/target/wasm32-wasip2/debug/semver_sort.wasm",
+    "wasm_bytes": 248057
+  },
+  "taken_at": "2026-10-20T00:25:30.643Z",
+  "toolchain": {
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6"
+  }
+}

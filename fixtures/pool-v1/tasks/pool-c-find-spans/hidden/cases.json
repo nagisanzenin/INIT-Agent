@@ -1,0 +1,132 @@
+[
+ {
+  "expect": "[0, 3, 6]",
+  "expr": "find_all('abcabcab', 'ab')",
+  "name": "plain_basic"
+ },
+ {
+  "expect": "[]",
+  "expr": "find_all('egmdartoa', 'good')",
+  "name": "plain_none"
+ },
+ {
+  "expect": "[]",
+  "expr": "find_all('ab', 'abc')",
+  "name": "plain_long_sub"
+ },
+ {
+  "expect": "[0, 2]",
+  "expr": "find_all('aaaaa', 'aa')",
+  "name": "plain_nonoverlap_run"
+ },
+ {
+  "expect": "[0, 1, 2, 3]",
+  "expr": "find_all('aaaaa', 'aa', overlapping=True)",
+  "name": "overlap_run"
+ },
+ {
+  "expect": "[0, 2, 4]",
+  "expr": "find_all('abababa', 'aba', overlapping=True)",
+  "name": "overlap_abab"
+ },
+ {
+  "expect": "[0, 2]",
+  "expr": "find_all('xyx', 'x', overlapping=True)",
+  "name": "overlap_single_char"
+ },
+ {
+  "expect": "[]",
+  "expr": "find_all('abc', 'd', overlapping=True)",
+  "name": "overlap_none"
+ },
+ {
+  "expect": "[0, 3, 6]",
+  "expr": "find_all('aBcAbCabc', 'abc', ignore_case=True)",
+  "name": "case_mixed"
+ },
+ {
+  "expect": "[6]",
+  "expr": "find_all('aBcAbCabc', 'abc')",
+  "name": "case_off"
+ },
+ {
+  "expect": "[0, 1, 2]",
+  "expr": "find_all('AaAa', 'aa', overlapping=True, ignore_case=True)",
+  "name": "case_overlap"
+ },
+ {
+  "expect": "[0, 7, 14]",
+  "expr": "find_all('report Report REPORT', 'REPORT', ignore_case=True)",
+  "name": "case_pattern_upper"
+ },
+ {
+  "expect": "[3, 6]",
+  "expr": "find_all('abcabcabc', 'abc', 1)",
+  "name": "window_start"
+ },
+ {
+  "expect": "[0, 3]",
+  "expr": "find_all('abcabcabc', 'abc', 0, 6)",
+  "name": "window_start_end"
+ },
+ {
+  "expect": "[0]",
+  "expr": "find_all('abcabcabc', 'abc', 0, 5)",
+  "name": "window_partial_match_excluded"
+ },
+ {
+  "expect": "[6]",
+  "expr": "find_all('abcabcabc', 'abc', -4)",
+  "name": "window_negative_start"
+ },
+ {
+  "expect": "[1, 4]",
+  "expr": "find_all('abcabcabc', 'bc', 0, -1)",
+  "name": "window_negative_end"
+ },
+ {
+  "expect": "[]",
+  "expr": "find_all('abcabc', 'a', 10)",
+  "name": "window_start_past_end"
+ },
+ {
+  "expect": "[2, 5]",
+  "expr": "find_all('abcabc', 'c', 2, 100)",
+  "name": "window_end_past_len"
+ },
+ {
+  "expect": "[1, 2, 3]",
+  "expr": "find_all('aaaaaa', 'aa', 1, 5, overlapping=True)",
+  "name": "window_overlap"
+ },
+ {
+  "expect": "[1, 2]",
+  "expr": "find_all('xAAAx', 'aa', 1, overlapping=True, ignore_case=True)",
+  "name": "window_case_overlap"
+ },
+ {
+  "expr": "find_all('abc', '')",
+  "name": "empty_pattern",
+  "raises": "ValueError"
+ },
+ {
+  "expr": "find_all('', '', overlapping=True)",
+  "name": "empty_pattern_overlap",
+  "raises": "ValueError"
+ },
+ {
+  "expect": "[]",
+  "expr": "find_all('', 'a')",
+  "name": "empty_text"
+ },
+ {
+  "expect": "'list'",
+  "expr": "type(find_all('aa', 'a')).__name__",
+  "name": "returns_list"
+ },
+ {
+  "expr": "find_all('aaaa', 'aa', 0, None, True)",
+  "name": "keyword_only",
+  "raises": "TypeError"
+ }
+]

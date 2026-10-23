@@ -1,0 +1,10 @@
+; ---- R. init-root instance allows (rendered between SECTION(id) and the tail) ----
+(allow file-read-data (literal (param "Z_MARK")) (literal (param "Z_ZONE_MARK")))
+; one line per charter sandbox.extra_read entry i (0 ≤ i < 8), only when the list is non-empty (D9):
+(allow file-read* file-map-executable (subpath (param "Z_EXTRA_READ_<i>")))
+(allow file-read-metadata (path-ancestors (param "Z_EXTRA_READ_<i>")))
+; ADR-009 read grant, a body only: the owner's home except INIT_HOME (the tail still denies the Root's paths and the read deny list):
+(allow file-read* file-map-executable (require-all (subpath (param "Z_HOME")) (require-not (subpath (param "Z_INIT_HOME")))))
+; ADR-009 write grant, the live body only: Z_WRITE is the workspace, or the home in full mode; never INIT_HOME:
+(allow file-read* file-write* file-map-executable (require-all (subpath (param "Z_WRITE")) (require-not (subpath (param "Z_INIT_HOME")))))
+(allow file-read-metadata (path-ancestors (param "Z_WRITE")))

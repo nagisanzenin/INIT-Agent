@@ -1,0 +1,26 @@
+# INIT T1 extensions (init:ext@1). One crate per subdirectory; every subdirectory
+# must be an extension crate whose directory name is the extension name.
+[workspace]
+resolver = "3"
+members = ["*"]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros", "realloc", "std"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# `cargo build` (the dev profile) is the only profile used for extensions.
+# Small output keeps Cranelift compile and instantiation fast in the host.
+[profile.dev]
+opt-level = "s"
+debug = false
+strip = "debuginfo"
+incremental = true
+
+# Proc macros (wit-bindgen, serde_derive) run on every build of a crate: make them fast.
+[profile.dev.build-override]
+opt-level = 2
+debug = false

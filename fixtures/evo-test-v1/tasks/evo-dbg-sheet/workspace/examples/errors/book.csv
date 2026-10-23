@@ -1,0 +1,11 @@
+case,value
+div,=10/(4-2*2)
+parse,=1+
+name,=TOTAL(B2)
+value,"=""abc""*2"
+chain,=B2+1
+first,=B5+B2
+join,=B3&B2
+lazy,"=IF(B11=0,0,1/B11)"
+count,=COUNT(B2:B9)
+zero,=4-4

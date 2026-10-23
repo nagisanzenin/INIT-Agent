@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-life",
+ "family": "E",
+ "lang": "py",
+ "title": "Life-like cellular automaton with seeded rules",
+ "difficulty": {"default": 3, "min": 2, "max": 4},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/game-of-life", "exercise": "game-of-life", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d2 seeded live/dead characters and a seeded Birth/Survival rule other than B3/S23 on a bounded board with 8 neighbours, plus input validation (ValueError); d3 + the board wraps around (torus); d4 + 4-cell von Neumann neighbourhood with birth/survival counts from 1..4. Difficulty guess for deepseek-flash: medium (d3)."
+}

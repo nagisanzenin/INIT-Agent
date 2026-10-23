@@ -1,0 +1,12 @@
+{
+ "id": "pool-c-squeeze-ws",
+ "title": "Add cleaner.squeeze_ws next to replace_ws",
+ "family": "c",
+ "difficulty": 3,
+ "labels": ["repair", "py"],
+ "max_turns": 8,
+ "prompt": "The package cleaner in the current directory has `replace_ws(text, insert)` (cleaner/ws.py), which replaces every whitespace character with `insert`. Add, next to it,\n\n    squeeze_ws(text, insert=\" \", keep_newlines=False)\n\nand export it from the package (`from cleaner import squeeze_ws`). Behaviour:\n- \"Whitespace\" means exactly the six characters replace_ws treats as whitespace: tab, carriage return, vertical tab, space, form feed and line feed. Any other character (for example U+00A0 or U+2003) is ordinary text and is kept as it is.\n- Leading and trailing whitespace is removed.\n- Every other maximal run of whitespace becomes one `insert`. With keep_newlines=True, a run that contains at least one line feed becomes a single \"\\n\" instead.\n- `insert` may be any string, including \"\" or several characters.\n\n`replace_ws` and `count_words` must keep their current behaviour. tests/test_cleaner.py has a few examples (run `python3 -m unittest discover -s tests`); a hidden suite checks the full behaviour. Do not modify tests/test_cleaner.py.",
+ "source": {"kind": "cruxeval", "repo": "facebookresearch/cruxeval", "commit": "190faf16d175b5847b0af05d937872b1fb395942", "sample": 736, "path": "data/cruxeval.jsonl"},
+ "protected": ["tests/test_cleaner.py"],
+ "steps": [{"kind": "py_cases", "import": "cleaner", "cases": "hidden/cases.json", "timeout_s": 2}]
+}

@@ -1,0 +1,180 @@
+#!/usr/bin/env python3
+"""e-rs-binary-search: Exercism `binary-search` (Rust) with a seeded semantic change (m7-design §3.1.1, E).
+
+Seeded parameters: the order the input is sorted by (ascending; descending at d>=2; by absolute value at
+d3), which end of a run of equal elements is returned (leftmost or rightmost), and Err(insertion index)
+for an absent key. Graded cases: 4 visible + 28 hidden `locate` calls.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "binary_search_variant"
+N_HIDDEN = 28
+I64_MIN, I64_MAX = -(1 << 63), (1 << 63) - 1
+
+STUB = '''/// Finds `key` in `array`, which is sorted by the task's order.
+pub fn locate(array: &[i64], key: i64) -> Result<usize, usize> {
+    todo!("find {key} in {array:?}")
+}
+'''
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    if d == 1:
+        return {"order": "ascending", "right": False}
+    while True:
+        order = rng.choice(["ascending", "descending"] if d == 2 else ["ascending", "descending", "abs", "abs"])
+        right = rng.chance(1, 2)
+        if (order, right) != ("ascending", False):
+            return {"order": order, "right": right}
+
+
+def sort_key(p):
+    if p["order"] == "ascending":
+        return lambda x: x
+    if p["order"] == "descending":
+        return lambda x: -x
+    return lambda x: (abs(x), x)
+
+
+def locate(arr, key, p):
+    k = sort_key(p)
+    lo = sum(1 for x in arr if k(x) < k(key))
+    hi = sum(1 for x in arr if k(x) <= k(key))
+    if lo == hi:
+        return ("Err", lo)
+    return ("Ok", hi - 1 if p["right"] else lo)
+
+
+def naive(arr, key):
+    """The original: ascending input, binary search returning the first hit found, None -> Err(0)."""
+    base, sl = 0, list(arr)
+    while True:
+        if not sl:
+            return ("Err", 0)
+        mid = len(sl) // 2
+        m = sl[mid]
+        if m < key:
+            base += mid + 1
+            sl = sl[mid + 1:]
+        elif m > key:
+            sl = sl[:mid]
+        else:
+            return ("Ok", base + mid)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    k = sort_key(p)
+    big = p["order"] != "abs"
+
+    def array(n, lo, hi, dup):
+        vals = []
+        while len(vals) < n:
+            v = rng.randint(lo, hi)
+            vals += [v] * (rng.randint(2, 4) if rng.chance(dup, 10) else 1)
+        return sorted(vals[:n], key=k)
+
+    pool = []
+
+    def add(arr, key):
+        t = (tuple(arr), key)
+        if t not in pool:
+            pool.append(t)
+
+    def present(arr):
+        runs = [x for x in set(arr) if arr.count(x) > 1]
+        return rng.choice(runs) if runs and rng.chance(3, 4) else rng.choice(arr)
+
+    def absent(arr, lo, hi):
+        for _ in range(200):
+            v = rng.randint(lo, hi)
+            if v not in arr:
+                return v
+        return hi + 1
+
+    # visible: a hit inside a run of duplicates, a miss in the middle, a miss before the start, a single hit
+    a = array(9, -20, 20, 6)
+    add(a, present(a))
+    a = array(8, -30, 30, 3)
+    add(a, absent(a, min(a), max(a)))
+    a = array(6, -10, 40, 4)
+    add(a, sorted(set(range(-60, 60)) - set(a), key=k)[0])
+    add([5] * 4 if p["order"] != "abs" else [-5, -5, 5, 5], 5)
+    add([], rng.randint(-9, 9))
+    v = rng.randint(-50, 50)
+    add([v], v)
+    add([v], v - 1)
+    add([v], v + 1)
+    add([v] * 7, v)
+    add([v] * 3, v + 2)
+    for n in (2, 3, 5, 10, 17, 30, 40):
+        a = array(n, -60, 60, 5)
+        add(a, present(a))
+        add(a, absent(a, min(a) - 5, max(a) + 5))
+    a = array(12, -100, 100, 5)
+    first, last = a[0], a[-1]
+    add(a, first)
+    add(a, last)
+    if big:
+        ext = sorted([I64_MIN, I64_MIN, -1, 0, 0, 7, I64_MAX], key=k)
+        add(ext, I64_MIN)
+        add(ext, I64_MAX)
+        add(ext, 1)
+    else:
+        mix = sorted([-9, 9, -3, 3, 3, -1, 0, 12, -12, -12], key=k)
+        add(mix, -12)
+        add(mix, 3)
+        add(mix, -3)
+        add(mix, 2)
+        add(mix, -2)
+    while len(pool) < N_HIDDEN + 4:
+        a = array(rng.randint(4, 25), -80, 80, 5)
+        add(a, present(a) if rng.chance(1, 2) else absent(a, min(a) - 3, max(a) + 3))
+    vis = pool[:4]
+    rest = rng.shuffled(pool[4:])[:N_HIDDEN]
+    order = vis + rest
+    if sum(1 for arr, key in order if locate(list(arr), key, p) != naive(list(arr), key)) < 4:
+        raise s1lib.GenError("too few cases separate the mutation from the original")
+
+    def lit(v):
+        return "i64::MIN" if v == I64_MIN else "i64::MAX" if v == I64_MAX else str(v)
+
+    cases = []
+    for n, (arr, key) in enumerate(order):
+        name = "visible_%d" % (n + 1) if n < 4 else "case_%02d" % (n - 3)
+        kind, idx = locate(list(arr), key, p)
+        cases.append((name, "locate(&[%s], %s)" % (", ".join(lit(x) for x in arr), lit(key)), "%s(%d)" % (kind, idx)))
+
+    order_text = {
+        "ascending": "non-decreasing order (smallest first; equal values are adjacent)",
+        "descending": "non-increasing order (LARGEST first; equal values are adjacent)",
+        "abs": "order of absolute value, smallest first; two values with the same absolute value are ordered "
+               "negative before positive (so `[0, -1, -1, 1, -3, 3, 3, 4]` is sorted). `i64::MIN` never occurs",
+    }[p["order"]]
+    end = "RIGHTMOST (largest index)" if p["right"] else "LEFTMOST (smallest index)"
+    rules = "\n".join([
+        "1. `array` is sorted in %s. It may be empty and may contain duplicates." % order_text,
+        "2. If `key` occurs in `array`, return `Ok(i)` where `i` is the %s position holding a value equal to "
+        "`key`." % end,
+        "3. If `key` does not occur, return `Err(i)` where `i` (0 ..= array.len()) is the position at which "
+        "`key` could be inserted so that the array stays sorted in the same order (every element before `i` "
+        "comes before `key` in that order, every element from `i` on comes after it).",
+    ])
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {"ORDER": p["order"], "RIGHTMOST": ersgen.rs_bool(p["right"])})
+    return ersgen.finish(
+        ctx, crate=CRATE, api="pub fn locate(array: &[i64], key: i64) -> Result<usize, usize>",
+        intro="An index lookup needs a binary search over a sorted slice with precise conventions. Write `locate`.",
+        rules=rules, stub=STUB, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::locate;" % CRATE, cases=cases, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

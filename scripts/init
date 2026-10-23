@@ -1,0 +1,59 @@
+#!/bin/bash
+# `init`: open INIT (docs/tui.md §2). Installed by scripts/install.sh into INIT_BIN_DIR (default ~/.local/bin).
+#
+#   init [args…]       the TUI with these arguments, else `init-root attach [args…]`
+#   init --full        full mode (ADR-009): passed through to the TUI like every other flag
+#   init --which       print what would run, and run nothing (the launcher's own flag)
+#
+# The directory `init` is launched in becomes the agent's workspace (ADR-009): `exec` keeps the cwd, and the TUI
+# sends it to the Root, which validates it (launched in ~ or outside the home: no workspace).
+#
+# The TUI `init-tui` is looked up, in order: $INIT_TUI, `init-tui` next to this launcher, ROOT_HOME/bin/init-tui.
+# An $INIT_TUI inside INIT_HOME is refused (exit 77) and any other candidate there is skipped (docs/tui.md T-4: the
+# zone can write INIT_HOME, and the agent must never be able to substitute the owner's client). Without a TUI,
+# `init-root attach` is the plain owner terminal (root/root.md §3.15): type a line and press Enter; Ctrl-C
+# interrupts the current turn, Ctrl-D detaches.
+# ROOT_HOME is $INIT_ROOT_HOME, else the value install.sh wrote below, else ~/.init-root. INIT_HOME is the one
+# ROOT_HOME/install.json names, else $INIT_HOME, else ~/.init.
+set -euo pipefail
+INIT_ROOT_HOME_DEFAULT=""
+RH="${INIT_ROOT_HOME:-${INIT_ROOT_HOME_DEFAULT:-$HOME/.init-root}}"
+export INIT_ROOT_HOME="$RH"
+ROOT_BIN="$RH/bin/init-root"
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+IH="$(sed -n 's/.*"init_home":"\([^"]*\)".*/\1/p' "$RH/install.json" 2>/dev/null || true)"
+IH="${IH:-${INIT_HOME:-$HOME/.init}}"
+IH_REAL="$(cd "$IH" 2>/dev/null && pwd -P || echo "$IH")"
+
+inside_init_home() { # <file>: true when its real directory is INIT_HOME or below it
+  local d
+  d="$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)" || return 1
+  case "$d/" in "$IH_REAL/"*) return 0 ;; *) return 1 ;; esac
+}
+if [ -n "${INIT_TUI:-}" ] && inside_init_home "$INIT_TUI"; then
+  echo "init: refusing INIT_TUI=$INIT_TUI: it lies inside INIT_HOME ($IH), which the agent can write" >&2
+  exit 77
+fi
+TUI=""
+for c in "${INIT_TUI:-}" "$HERE/init-tui" "$RH/bin/init-tui"; do
+  [ -n "$c" ] && [ -f "$c" ] && [ -x "$c" ] || continue
+  inside_init_home "$c" && continue # never run an agent-writable client as the owner
+  TUI="$c"; break
+done
+
+if [ "${1:-}" = --which ]; then
+  if [ -n "$TUI" ]; then echo "$TUI"; else echo "$ROOT_BIN attach"; fi
+  exit 0
+fi
+if [ -n "$TUI" ]; then exec "$TUI" "$@"; fi
+if [ ! -x "$ROOT_BIN" ]; then
+  echo "init: $ROOT_BIN is missing. Is INIT installed? (scripts/install.sh)" >&2
+  exit 69
+fi
+if [ ! -S "$RH/run/owner.sock" ]; then
+  echo "init: the Root is not running ($RH/run/owner.sock is missing)." >&2
+  echo "  with the service: launchctl kickstart gui/$(id -u)/dev.init.root" >&2
+  echo "  without it:       INIT_ROOT_HOME=\"$RH\" \"$ROOT_BIN\" start --foreground   (in another terminal)" >&2
+  exit 69
+fi
+exec "$ROOT_BIN" attach "$@"

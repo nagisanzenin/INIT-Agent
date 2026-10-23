@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-log-csv",
+ "family": "T",
+ "lang": "any",
+ "title": "Turn a mixed-format service log into CSV",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: write a stdin->stdout converter for JSON, key=value and bracketed log lines (UTC timestamps from mixed offsets, exact duration->ms rounding, health-check filter, stable sort, RFC 4180 quoting), save report.csv, run on hidden logs; traps: Z/+HHMM/+05:30 offsets (py3.9 fromisoformat), half-up rounding vs round() (12.5ms), health path with ?query dropped but /health/db kept, quotes and commas in paths, truncated JSON junk, same-instant ties in input order; knob adds epoch ms + dropped fractions (4), unknown durations + record-looking continuation lines + keyless JSON (5); pass_guess_permille: 400"
+}

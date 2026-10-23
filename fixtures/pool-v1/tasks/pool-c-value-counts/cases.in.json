@@ -1,0 +1,22 @@
+{"import": "tally", "cases": [
+ ["single", "value_counts({'a': 4})"],
+ ["empty", "value_counts({})"],
+ ["all_same", "value_counts({0: 0, 1: 0, 2: 0, 3: 0, 4: 0})"],
+ ["order_count_desc", "value_counts({'a': 5, 'b': 9, 'c': 9, 'd': 5, 'e': 9})"],
+ ["order_ties_by_value", "value_counts({'a': 30, 'b': 10, 'c': 20})"],
+ ["negative", "value_counts({'a': -1, 'b': -1, 'c': -20, 'd': 0})"],
+ ["large", "value_counts({'a': 100, 'b': 1000, 'c': 100, 'd': 99})"],
+ ["skip_bool", "value_counts({'a': True, 'b': 1, 'c': False, 'd': 0})"],
+ ["skip_non_int", "value_counts({'a': 1.0, 'b': '1', 'c': None, 'd': 1, 'e': [1]})"],
+ ["min_count_two", "value_counts({'a': 1, 'b': 2, 'c': 2, 'd': 3, 'e': 3, 'f': 3}, min_count=2)"],
+ ["min_count_high", "value_counts({'a': 1, 'b': 1}, min_count=3)"],
+ ["min_count_positional", "value_counts({'a': 7, 'b': 7, 'c': 8}, 2)"],
+ ["min_count_zero", "value_counts({'a': 1}, min_count=0)"],
+ ["min_count_negative", "value_counts({'a': 1}, -1)"],
+ ["returns_tuples", "[type(p).__name__ for p in value_counts({'a': 1})]"],
+ ["mixed_big", "value_counts({k: k % 4 - 1 for k in range(11)})"],
+ ["format_basic", "format_counts([(3, 2), (-1, 1)])"],
+ ["format_empty", "format_counts([])"],
+ ["format_from_counts", "format_counts(value_counts({'a': 2, 'b': 2, 'c': 5}))"],
+ ["format_single", "format_counts(value_counts({'x': 0}))"]
+]}

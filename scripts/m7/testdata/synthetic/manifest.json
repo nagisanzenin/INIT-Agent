@@ -1,0 +1,158 @@
+{
+ "runs": [
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/tests_failing",
+   "score_permille": 0,
+   "session": "tests_failing.jsonl",
+   "set": "pool",
+   "task": "syn/tests_failing"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/tests_failing_piped",
+   "score_permille": 0,
+   "session": "tests_failing_piped.jsonl",
+   "set": "pool",
+   "task": "syn/tests_failing_piped"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/path_guessed_fatal",
+   "score_permille": 0,
+   "session": "path_guessed_fatal.jsonl",
+   "set": "pool",
+   "task": "syn/path_guessed_fatal"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "cost_capped",
+   "run": "syn/cap_hit_editing",
+   "score_permille": 0,
+   "session": "cap_hit_editing.jsonl",
+   "set": "pool",
+   "task": "syn/cap_hit_editing"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/path_confusion",
+   "score_permille": 0,
+   "session": "path_confusion.jsonl",
+   "set": "pool",
+   "task": "syn/path_confusion"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "cost_capped",
+   "run": "syn/cap_hit_exploring",
+   "score_permille": 0,
+   "session": "cap_hit_exploring.jsonl",
+   "set": "pool",
+   "task": "syn/cap_hit_exploring"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/edit_tool_mismatch",
+   "score_permille": 0,
+   "session": "edit_tool_mismatch.jsonl",
+   "set": "pool",
+   "task": "syn/edit_tool_mismatch"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/other_untested",
+   "score_permille": 0,
+   "session": "other_untested.jsonl",
+   "set": "pool",
+   "task": "syn/other_untested"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/expected_failure_failing",
+   "score_permille": 0,
+   "session": "expected_failure.jsonl",
+   "set": "pool",
+   "task": "syn/expected_failure_failing"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/expected_failure_pass",
+   "score_permille": 1000,
+   "session": "expected_failure.jsonl",
+   "set": "pool",
+   "task": "syn/expected_failure_pass"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "timeout",
+   "run": "syn/loops_timeout",
+   "score_permille": 0,
+   "session": "loops_timeout.jsonl",
+   "set": "pool",
+   "task": "syn/loops_timeout"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/unscored",
+   "score_permille": null,
+   "session": "tests_failing.jsonl",
+   "set": "pool",
+   "task": "syn/unscored"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/holdout_never_read",
+   "score_permille": 0,
+   "session": "holdout/never_read.jsonl",
+   "set": "holdout",
+   "task": "syn/holdout_never_read"
+  },
+  {
+   "labels": [
+    "synthetic"
+   ],
+   "outcome": "done",
+   "run": "syn/no_log",
+   "score_permille": 0,
+   "session": "missing/nope.jsonl",
+   "set": "pool",
+   "task": "syn/no_log"
+  }
+ ]
+}

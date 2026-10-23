@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-merge-rules",
+ "family": "T",
+ "lang": "any",
+ "title": "Merge a feature branch and resolve it by stated rules",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3", "git"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: git merge with rule-based conflict resolution (dependency pins take the numerically higher version, changelog entries in a stated side order, key=value settings with main-wins/feature-owned/delete rules) and a proper two-parent merge commit on main; traps: lines git merges silently but the rules overturn (feature downgrade, owned key changed only on main, changelog appended below old entries), 1.10 vs 1.9 numeric compare, delete-vs-modify, a cleanly merged file that must keep the feature's change (knob); pass_guess_permille: 380"
+}

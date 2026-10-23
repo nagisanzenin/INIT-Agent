@@ -1,0 +1,39 @@
+{
+ "id": "pool-t-wordfreq",
+ "title": "Write a word-frequency command",
+ "family": "t",
+ "difficulty": 3,
+ "labels": [
+  "terminal"
+ ],
+ "max_turns": 10,
+ "prompt": "Write the command bin/wordfreq in the current directory, as README.md specifies (it does not exist yet). It must be an executable file that runs by itself (`bin/wordfreq -n 3 samples/a.txt`, from any directory), written in sh, awk or python3 (standard library only). tests/run_tests.sh has two examples (`sh tests/run_tests.sh`); hidden tests check every rule in README.md. Do not modify README.md or tests/run_tests.sh.",
+ "source": {
+  "kind": "fresh"
+ },
+ "protected": [
+  "README.md",
+  "tests/run_tests.sh"
+ ],
+ "steps": [
+  {
+   "kind": "sh",
+   "script": "hidden/check.sh",
+   "names": [
+    "default_n",
+    "n_two",
+    "ties_by_word",
+    "apostrophes",
+    "non_ascii_splits",
+    "separators",
+    "several_files",
+    "stdin",
+    "n_zero",
+    "missing_file",
+    "bad_n",
+    "negative_n"
+   ],
+   "timeout_s": 20
+  }
+ ]
+}

@@ -1,0 +1,56 @@
+# ~/.init-root/charter.toml — the owner's charter. The agent can read a published copy and can never write it.
+# After editing: `init-root charter check` (validate + diff), then `init-root charter check --apply`.
+schema_version = 1
+
+[purpose]
+text = "REPLACE ME: what INIT is for, in your words."
+
+[autonomy]
+max_level = 4          # the cap. The agent starts at L0 and climbs only on its measured record (R7).
+
+[money]                # hard ceilings (root/egress.md); soft budgets stay in kernel/config.toml
+day_usd = "5.00"
+total_usd = "25.00"
+day_starts_at_utc_offset = "+00:00"
+
+[quotas]
+max_instances = 12
+parallel_bodies = 4
+cpu_core_hours_day = 48
+disk_min_free_gib = 20
+init_home_max_gib = 80
+store_max_gib = 8
+
+[actions.providers]    # schema: root/egress.md §3.5; `crates` is built in (D10)
+kind = "model"
+min_level = 0
+destinations = ["api.deepseek.com:443"]
+methods = ["GET", "POST"]
+paths = ["chat/completions", "beta/chat/completions", "models", "user/balance"]
+requests_per_day = 100000
+bytes_per_day = 8000000000
+rate_per_min = 600
+
+[actions.providers.models."deepseek-flash"]
+min_level = 0
+input_musd_per_mtok = 300000
+cache_read_musd_per_mtok = 6000
+output_musd_per_mtok = 1200000
+reserve_output_tokens = 65536
+
+[sandbox]
+extra_read = []
+read_home = true       # v0.1.1: read your home, except secrets (ADR-009); false = no home reads outside a workspace or full mode
+read_deny = []         # extra paths the agent may never read or write, e.g. "/Users/you/Private"
+allow_full = true      # allow `init --full` / `/full on`: write the whole home except secrets and the Root
+# mem_cap_mib = 4096   # kill any workload process tree whose memory (resident + compressed) passes this; 512–65536 MiB
+# disk_floor_gib = 5   # below this much free disk, refuse new workloads and kill running ones; 1–1024 GiB
+
+[mirror]
+url = ""   # off until M0. Then: "git@github.com:nagisanzenin/INIT-Lineage.git", with keys/mirror_ed25519.pub as its deploy key
+branch = "lineage"
+
+[notify]
+cmd = ["/usr/bin/osascript", "-e", "display notification \"INIT needs you\" with title \"INIT\""]
+
+# The constitution (awareness.md §3.3, PENDING OWNER OW-1), shown verbatim so you can read and change it.

@@ -1,0 +1,288 @@
+#!/usr/bin/env python3
+"""t-table-align: write `align`, a TSV -> aligned text table formatter (family T, pack s1; INIT licence)."""
+import os
+import re
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+FIRST = ["Ada", "Bruno", "Chloé", "Dario", "Emil", "Fatima", "Göran", "Hana", "Ines", "José", "Kai", "Léa",
+         "Mira", "Nils", "Oskar", "Priya", "Quinn", "Rémi", "Sara", "Timo", "Uma", "Vera", "Wen", "Zoë"]
+LAST = ["Abe", "Brandt", "Costa", "Dahl", "Eze", "Frey", "Grün", "Holm", "Ivers", "Jäger", "Kovač", "Lund",
+        "Moreau", "Novak", "Ortiz", "Pérez", "Quist", "Roth", "Søndergaard", "Tan", "Ueda", "Voss", "Wolff"]
+CITIES = ["Oslo", "Lyon", "São Paulo", "Kraków", "Malmö", "Porto", "Zürich", "Gdańsk", "Reykjavík", "Ghent",
+          "Århus", "Bergen", "Turin", "Graz", "Brno", "Cork", "Łódź", "Nîmes"]
+ASCII_CITIES = ["Oslo", "Lyon", "Porto", "Ghent", "Bergen", "Turin", "Graz", "Brno", "Cork", "Leeds", "Basel"]
+ITEMS = ["bolt", "washer", "hinge", "bracket", "spring", "gasket", "rivet", "clamp", "spacer", "pulley"]
+
+NUM_PLAIN = re.compile(r"^-?[0-9]+(\.[0-9]+)?$")
+NUM_GROUPED = re.compile(r"^-?[0-9]{1,3}(,[0-9]{3})+(\.[0-9]+)?$")
+
+
+class Rules:
+    def __init__(self, level, rng):
+        self.level = level
+        self.sep = rng.choice([" | ", "  ", " : ", " ! "])
+        self.rule_char = rng.choice(["-", "="])
+        self.empty = rng.choice(["-", "n/a", "?", "~"])
+        self.pad_decimals = level >= 3
+        self.unicode = level >= 3
+        self.empties = level >= 2
+        self.short_rows = level >= 4
+        self.negatives = level >= 4
+        self.grouped = level >= 5
+
+    def is_num(self, s):
+        return bool(NUM_PLAIN.match(s) or (self.grouped and NUM_GROUPED.match(s)))
+
+
+def render(rules, tsv):
+    """The reference formatter."""
+    rows = [ln.split("\t") for ln in tsv.split("\n") if ln != ""]
+    header = [c.strip() for c in rows[0]]
+    n = len(header)
+    data = []
+    for r in rows[1:]:
+        cells = [c.strip() for c in r][:n]
+        cells += [""] * (n - len(cells))
+        data.append(cells)
+    numeric = []
+    for j in range(n):
+        vals = [r[j] for r in data if r[j] != ""]
+        numeric.append(bool(vals) and all(rules.is_num(v) for v in vals))
+    shown = [[None] * n for _ in data]
+    for j in range(n):
+        dec = 0
+        if numeric[j] and rules.pad_decimals:
+            for r in data:
+                if r[j] != "" and "." in r[j]:
+                    dec = max(dec, len(r[j].split(".")[1]))
+        for i, r in enumerate(data):
+            v = r[j]
+            if v == "":
+                v = rules.empty
+            elif numeric[j] and dec:
+                whole, _, frac = v.partition(".")
+                v = whole + "." + frac.ljust(dec, "0")
+            shown[i][j] = v
+    widths = [max([len(header[j])] + [len(shown[i][j]) for i in range(len(data))]) for j in range(n)]
+
+    def line(cells):
+        out = []
+        for j, c in enumerate(cells):
+            out.append(c.rjust(widths[j]) if numeric[j] else c.ljust(widths[j]))
+        return rules.sep.join(out).rstrip(" ")
+
+    joint = rules.sep.replace(" ", rules.rule_char)
+    lines = [line(header), joint.join(rules.rule_char * w for w in widths).rstrip(" ")]
+    lines += [line(r) for r in shown]
+    return "\n".join(lines) + "\n"
+
+
+def number(rng, rules, decimals_max, allow_neg, big):
+    if big and rules.grouped and rng.chance(1, 2):
+        whole = rng.randint(1000, 2_500_000)
+        ws = "{:,}".format(whole)
+    else:
+        ws = str(rng.randint(0, 999 if not big else 99999))
+    if allow_neg and rng.chance(1, 3):
+        ws = "-" + ws
+    d = rng.randint(0, decimals_max)
+    if d:
+        ws += "." + "".join(str(rng.randint(0, 9)) for _ in range(d))
+    return ws
+
+
+def make_table(rng, rules, nrows):
+    """A seeded TSV that exercises the rules of the level."""
+    cols = [("name", "text")]
+    kinds = ["city", "qty", "price"]
+    if rules.negatives:
+        kinds += ["delta", "code"]
+    if rules.grouped:
+        kinds += ["total"]
+    extra = rng.sample(kinds, min(len(kinds), rng.randint(2, 4)))
+    for k in extra:
+        cols.append((k, k))
+    hdr_names = {"name": rng.choice(["name", "owner", "contact"]), "city": rng.choice(["city", "site"]),
+                 "qty": rng.choice(["qty", "count", "units"]), "price": rng.choice(["price", "unit_cost"]),
+                 "delta": rng.choice(["delta", "change"]), "code": rng.choice(["code", "ref"]),
+                 "total": rng.choice(["total", "revenue"])}
+    header = [hdr_names[c[0]] for c in cols]
+    code_breaker = rng.below(nrows)
+    rows = []
+    for i in range(nrows):
+        r = []
+        for name, kind in cols:
+            if kind == "text":
+                first = rng.choice(FIRST if rules.unicode else [f for f in FIRST if f.isascii()])
+                last = rng.choice(LAST if rules.unicode else [x for x in LAST if x.isascii()])
+                v = "%s %s" % (first, last)
+            elif kind == "city":
+                v = rng.choice(CITIES if rules.unicode else ASCII_CITIES)
+            elif kind == "qty":
+                v = str(rng.randint(0, 4000))
+            elif kind == "price":
+                v = number(rng, rules, 3 if rules.pad_decimals else 2, False, False)
+            elif kind == "delta":
+                v = number(rng, rules, 2, True, False)
+            elif kind == "code":
+                v = str(rng.randint(100, 999))
+                if i == code_breaker:
+                    v = rng.choice(["A", "B", "X"]) + v  # one non-numeric cell: the column is text
+            else:
+                v = number(rng, rules, 2, False, True)
+            if rules.empties and j_ok(kind) and rng.chance(1, 7):
+                v = ""
+            if rules.short_rows and rng.chance(1, 12) and v != "":
+                v = " " + v + " "  # stray spaces around a cell are trimmed
+            r.append(v)
+        if rules.short_rows and i == nrows // 2:
+            r = r[:-1]  # a short row: the missing cell counts as empty
+        rows.append(r)
+    return "\n".join(["\t".join(header)] + ["\t".join(r) for r in rows]) + "\n"
+
+
+def j_ok(kind):
+    return kind != "text"
+
+
+SPEC_TEXT = """\
+`align` reads a tab-separated table on stdin and writes an aligned text table on stdout.
+
+1. The first input line is the header. Fields are separated by one TAB. Leading and trailing spaces of every
+   field are removed.{short}
+2. A column is **numeric** when it has at least one non-empty data cell and every non-empty data cell
+   (header excluded) is a number: an optional `-`, digits, and an optional `.` followed by digits{grouped}.
+   Every other column is **text**.
+3. Numeric columns are right-aligned; text columns are left-aligned. A header cell is aligned like its column.
+4. A column's width is the length of its longest cell, header included, counted in characters (Unicode code
+   points, not bytes). Input is UTF-8.{decimals}
+5. {empty}Columns are joined with the separator `{sep}` (exactly these characters).
+6. The second output line is a rule: for each column, `{rc}` repeated to the column's width, joined with
+   `{joint}` (the separator with each space replaced by `{rc}`).
+7. Data rows keep their input order. No output line ends with a space. Every line ends with a newline.
+"""
+
+
+def build(ctx):
+    rng = ctx.rng()
+    rules = Rules(ctx.difficulty, rng)
+    joint = rules.sep.replace(" ", rules.rule_char)
+    spec = SPEC_TEXT.format(
+        short=(" A row with fewer fields than the header is completed with empty fields." if rules.short_rows else ""),
+        grouped=(", where the digits before the `.` may instead be grouped in threes with `,` (as in `12,345.6`)"
+                 if rules.grouped else ""),
+        decimals=("\n   In a numeric column every value is shown with the same number of decimals: the largest number"
+                  "\n   of digits after `.` in that column. Pad with trailing zeros (`7` becomes `7.00` when the most is 2);"
+                  "\n   a column without any `.` stays integer. Widths are measured after this padding."
+                  if rules.pad_decimals else "\n   Numbers are printed exactly as given."),
+        empty=("An empty cell is printed as `%s` and aligned like the rest of its column. " % rules.empty
+               if rules.empties else ""),
+        sep=rules.sep, rc=rules.rule_char, joint=joint)
+    vis_name = rng.choice(["inventory", "orders", "stock", "shipments", "ledger"])
+    vis_in = make_table(rng.fork("visible"), rules, rng.randint(7, 10))
+    vis_out = render(rules, vis_in)
+    cases = []
+    for k in range(4):
+        tin = make_table(rng.fork("hidden%d" % k), rules, rng.randint(5, 12))
+        cases.append({"name": "hidden_%d" % (k + 1), "input": tin, "want": render(rules, tin)})
+    cases.append({"name": "visible", "input": vis_in, "want": vis_out})
+    readme = "# Table alignment\n\n" + spec + (
+        "\nExample: `./align < data/%s.tsv` must print exactly `expected/%s.txt`.\n"
+        "`sh tests/run_visible.sh` runs that comparison. Do not edit `data/`, `expected/` or `tests/`.\n"
+        % (vis_name, vis_name))
+    prompt = (
+        "In this directory, create an executable program `./align` (any language available here: sh, awk, "
+        "python3 standard library) that formats a tab-separated table for the terminal, exactly as specified "
+        "below. It will be run on other inputs than the example, so implement the rules, do not hard-code the "
+        "example.\n\n" + spec +
+        "\nWorked example: `./align < data/%s.tsv` must print exactly the contents of `expected/%s.txt`; "
+        "`sh tests/run_visible.sh` checks that. Do not modify `data/`, `expected/` or `tests/`. The same text "
+        "is in README.md." % (vis_name, vis_name))
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = readme
+    inst.workspace["data/%s.tsv" % vis_name] = vis_in
+    inst.workspace["expected/%s.txt" % vis_name] = vis_out
+    inst.workspace["tests/run_visible.sh"] = (
+        "#!/bin/sh\n# Compares ./align on the example with the expected output.\n"
+        "cd \"$(dirname \"$0\")/..\" || exit 2\n"
+        "if ./align < data/%s.tsv | diff -u expected/%s.txt -; then echo 'visible example: OK'; "
+        "else echo 'visible example: DIFFERENT'; exit 1; fi\n" % (vis_name, vis_name))
+    inst.executable.add("tests/run_visible.sh")
+    inst.protect("data/%s.tsv" % vis_name, "expected/%s.txt" % vis_name, "tests/run_visible.sh")
+    inst.solution["align"] = reference_tool(rules)
+    inst.executable.add("align")
+    tgen.finish(inst, ctx, spec={"tool": "align", "cases": cases},
+                names=[c["name"] for c in cases])
+    return inst
+
+
+def reference_tool(rules):
+    return """#!/usr/bin/env python3
+import re
+import sys
+
+SEP = %r
+RULE = %r
+EMPTY = %r
+PAD = %r
+SHORT = %r
+GROUPED = %r
+P = re.compile(r"^-?[0-9]+(\\.[0-9]+)?$")
+G = re.compile(r"^-?[0-9]{1,3}(,[0-9]{3})+(\\.[0-9]+)?$")
+
+
+def is_num(s):
+    return bool(P.match(s) or (GROUPED and G.match(s)))
+
+
+def main():
+    text = sys.stdin.buffer.read().decode("utf-8")
+    rows = [ln.split("\\t") for ln in text.split("\\n") if ln != ""]
+    header = [c.strip() for c in rows[0]]
+    n = len(header)
+    data = []
+    for r in rows[1:]:
+        cells = [c.strip() for c in r][:n]
+        cells += [""] * (n - len(cells))
+        data.append(cells)
+    numeric = []
+    for j in range(n):
+        vals = [r[j] for r in data if r[j] != ""]
+        numeric.append(bool(vals) and all(is_num(v) for v in vals))
+    shown = [list(r) for r in data]
+    for j in range(n):
+        dec = 0
+        if numeric[j] and PAD:
+            dec = max([len(r[j].split(".")[1]) for r in data if "." in r[j]] or [0])
+        for i, r in enumerate(data):
+            v = r[j]
+            if v == "":
+                v = EMPTY
+            elif numeric[j] and dec:
+                whole, _, frac = v.partition(".")
+                v = whole + "." + frac.ljust(dec, "0")
+            shown[i][j] = v
+    widths = [max([len(header[j])] + [len(r[j]) for r in shown]) for j in range(n)]
+
+    def line(cells):
+        return SEP.join(c.rjust(widths[j]) if numeric[j] else c.ljust(widths[j])
+                        for j, c in enumerate(cells)).rstrip(" ")
+
+    joint = SEP.replace(" ", RULE)
+    out = [line(header), joint.join(RULE * w for w in widths).rstrip(" ")] + [line(r) for r in shown]
+    sys.stdout.buffer.write(("\\n".join(out) + "\\n").encode("utf-8"))
+
+
+main()
+""" % (rules.sep, rules.rule_char, rules.empty if rules.empties else "", rules.pad_decimals, rules.short_rows,
+       rules.grouped)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

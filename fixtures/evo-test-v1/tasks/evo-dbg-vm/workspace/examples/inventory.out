@@ -1,0 +1,4 @@
+{"bolts": 100, "nuts": 280, "washers": 65} 3
+missing: ["gears"] ["bolts", "nuts", "washers"]
+one yes text map
+exit 0

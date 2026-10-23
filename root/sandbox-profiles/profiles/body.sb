@@ -1,0 +1,31 @@
+; ---- 5. INIT_HOME: read body/ work/ state/ kernel/ bin/ lineage/; write body/ work/ state/ except state/kernel/ ----
+(allow file-read-metadata (path-ancestors (param "INIT_HOME")))
+(allow file-read* (literal (param "INIT_HOME")))
+(allow file-read* (subpath (param "BODY")) (subpath (param "WORK")) (subpath (param "STATE"))
+  (subpath (param "KERNEL")) (subpath (param "BIN")) (subpath (param "LINEAGE")))
+(allow file-read* (literal (param "LINK_KERNEL")) (literal (param "LINK_LINEAGE")) (subpath (param "LINK_BIN")))
+(allow file-read* (subpath (param "PUB")))
+(allow file-map-executable (subpath (param "BODY")) (subpath (param "WORK")) (subpath (param "BIN"))
+  (subpath (param "KERNEL")))
+(allow file-read-metadata (literal (param "RUN")))
+(allow file-write* (subpath (param "BODY")) (subpath (param "WORK"))
+  (require-all (subpath (param "STATE"))
+    (require-not (literal (param "STATE_KERNEL")))
+    (require-not (subpath (param "STATE_KERNEL")))))
+(deny file-write-unlink (literal (param "BODY")) (literal (param "WORK")) (literal (param "STATE")))
+
+; ---- 6. network: the two kernel sockets, plus agent-local Unix sockets under work/ ----
+(allow system-socket (socket-domain AF_UNIX))
+(allow network-outbound (remote unix-socket (path-literal (param "KERNEL_SOCK"))))
+(allow network-outbound (remote unix-socket (path-literal (param "PROXY_SOCK"))))
+(allow network-bind (local unix-socket (subpath (param "WORK"))))
+(allow network-outbound (remote unix-socket (subpath (param "WORK"))))
+
+; ---- 7. instance mark (lets the kernel find every process of this sandbox instance) ----
+(allow file-read-data (literal (param "MARK")))
+
+; ---- 8. hard denies, emitted last so no earlier allow can widen them ----
+(deny file-read* file-write* (literal (param "VAULT")) (subpath (param "VAULT")))
+(deny file-read* file-write* (literal (param "CACHE")) (subpath (param "CACHE")))
+(deny file-read* file-write* (subpath "/opt/homebrew/var") (subpath "/opt/homebrew/etc"))
+(deny mach-lookup (xpc-service-name-prefix ""))

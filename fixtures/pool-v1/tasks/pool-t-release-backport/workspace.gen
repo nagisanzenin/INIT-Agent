@@ -1,0 +1,73 @@
+# pool-t-release-backport: builds the workspace's git repository deterministically (run by pool.py build with a
+# clean environment: fixed identity, no global or system config). $1 = the workspace dir (also the cwd).
+set -eu
+cd "$1"
+n=0
+commit() { # <subject>
+  n=$((n + 1))
+  export GIT_AUTHOR_DATE="2026-09-$(printf %02d $n)T10:00:00+00:00" GIT_COMMITTER_DATE="2026-09-$(printf %02d $n)T10:00:00+00:00"
+  git add -A
+  git commit -q -m "$1"
+}
+git init -q --template= -b main .
+git config core.autocrlf false
+mkdir -p calc tests
+cat > README.md <<'EOF'
+# calc
+A tiny calculater library used by the billing scripts.
+
+Functions live in calc/, one module each, and calc/__init__.py exports them.
+Run the tests with `python3 -m unittest discover -s tests`.
+
+Releases are cut from tags (v1.0, ...). Fixes are backported to release
+branches; features are not.
+
+## Functions
+- add(a, b)
+- sub(a, b)
+EOF
+printf 'def add(a, b):\n    return a + b\n' > calc/add.py
+printf 'def sub(a, b):\n    return b - a\n' > calc/sub.py
+printf 'from .add import add\nfrom .sub import sub\n' > calc/__init__.py
+cat > tests/test_calc.py <<'EOF'
+import unittest
+
+import calc
+
+
+class CalcTest(unittest.TestCase):
+    def test_add(self):
+        self.assertEqual(calc.add(2, 3), 5)
+EOF
+commit "init: calculator skeleton"
+printf 'def mul(a, b):\n    return a * b\n' > calc/mul.py
+printf 'from .add import add\nfrom .mul import mul\nfrom .sub import sub\n' > calc/__init__.py
+printf -- '- mul(a, b)\n' >> README.md
+commit "feat: add mul"
+printf 'def sub(a, b):\n    return a - b\n' > calc/sub.py
+commit "fix: sub argument order"
+git tag v1.0
+printf 'def div(a, b):\n    return a / b\n' > calc/div.py
+printf 'from .add import add\nfrom .div import div\nfrom .mul import mul\nfrom .sub import sub\n' > calc/__init__.py
+printf -- '- div(a, b)\n' >> README.md
+commit "feat: add div"
+sed 's/calculater/calculator/' README.md > README.md.new && mv README.md.new README.md
+commit "fix: README typo"
+printf 'def div(a, b):\n    if b == 0:\n        raise ValueError("division by zero")\n    return a / b\n' > calc/div.py
+commit "fix: div by zero raises ValueError [no-backport]"
+printf 'def pow_(a, b):\n    return a ** b\n' > calc/pow.py
+printf 'from .add import add\nfrom .div import div\nfrom .mul import mul\nfrom .pow import pow_\nfrom .sub import sub\n' > calc/__init__.py
+printf -- '- pow_(a, b)\n' >> README.md
+commit "feat: add pow_"
+printf 'def add(a, b):\n    return (a or 0) + (b or 0)\n' > calc/add.py
+commit "fix: add treats None as 0"
+printf '# Changelog\n\n- v1.0: add, sub, mul\n' > CHANGELOG.md
+commit "docs: changelog"
+printf 'def mul(a, b):\n    r = a * b\n    return round(r, 6) if isinstance(r, float) else r\n' > calc/mul.py
+commit "fix: mul rounds floats to 6 places"
+printf 'def pow_(a, b):\n    return float(a) ** b\n' > calc/pow.py
+commit "fix: pow_ returns floats"
+# deterministic metadata: no reflogs, no editor message, an index without stat data
+rm -rf .git/logs .git/COMMIT_EDITMSG
+rm -f .git/index
+git read-tree HEAD

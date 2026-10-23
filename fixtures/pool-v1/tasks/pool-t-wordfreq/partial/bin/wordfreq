@@ -1,0 +1,6 @@
+#!/bin/sh
+# dev fixture (partial): tr/sort/uniq pipeline; apostrophes split words, no -n validation, no missing-file rule
+n=10
+if [ "$1" = "-n" ]; then n=$2; shift 2; fi
+cat "$@" | tr 'A-Z' 'a-z' | tr -cs 'a-z' '\n' | grep -v '^$' | LC_ALL=C sort | uniq -c |
+  LC_ALL=C sort -k1,1nr -k2,2 | head -n "$n" | awk '{printf "%d\t%s\n", $1, $2}'

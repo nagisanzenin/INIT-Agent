@@ -1,0 +1,24 @@
+{
+ "v": 1,
+ "id": "e-rs-crypto-square",
+ "family": "E",
+ "lang": "rust",
+ "title": "Square code with seeded shape, padding and separators",
+ "difficulty": {
+  "default": 3,
+  "min": 2,
+  "max": 4
+ },
+ "toolchains": [
+  "python3",
+  "cargo"
+ ],
+ "licence": "Exercism-MIT",
+ "source": {
+  "repo": "exercism/rust",
+  "path": "exercises/practice/crypto-square",
+  "exercise": "crypto-square",
+  "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e"
+ },
+ "notes": "S1-E-RS. Mutation: seeded normalization (digits kept or dropped, case), rectangle shape (wide or tall), padding char, chunk separator, and reversed columns at d4. ref/naive.rs is the track's .meta/example.rs (unmutated behaviour; validator fixture, must fail)."
+}

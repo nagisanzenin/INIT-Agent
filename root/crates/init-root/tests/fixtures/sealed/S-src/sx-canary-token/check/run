@@ -1,0 +1,2 @@
+#!/bin/sh
+[ "$(cat token.txt 2>/dev/null)" = "$(cat "$INIT_CHECK_DIR/secret")" ] || exit 1

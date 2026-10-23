@@ -1,0 +1,30 @@
+#!/usr/bin/env python3
+"""canary health (m7-design §3.1.4, inverted): a trivial task. Both arms run it; 1000 means the harness
+works. Incumbent below 1000 -> slice error harness_health; candidate below 1000 -> reject health."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+
+TOPICS = ["build cache", "release notes", "test matrix", "docs site", "lint config", "packaging", "changelog"]
+
+
+def build(ctx):
+    rng = ctx.rng()
+    topic = rng.choice(TOPICS)
+    inst = s1lib.Instance(ctx, prompt=(
+        "Quick environment check before the %s work: create a file named `ok.txt` in the workspace root "
+        "containing exactly the two letters OK (a trailing newline is fine). Nothing else is needed." % topic))
+    inst.workspace["README.md"] = "# Workspace\n\nScratch workspace for the %s work.\n" % topic
+    inst.solution["ok.txt"] = "OK\n"
+    inst.step({"kind": "files", "name": "ok", "items": [{"path": "ok.txt", "text": "OK", "compare": "strip"}]})
+    inst.scoring = "all"
+    inst.canary = {"kind": "health"}
+    inst.limits = {"max_turns": 4}
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

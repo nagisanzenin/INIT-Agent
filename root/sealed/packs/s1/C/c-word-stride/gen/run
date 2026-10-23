@@ -1,0 +1,107 @@
+#!/usr/bin/env python3
+"""c-word-stride: CRUXEval sample_183 with an out_map change (family C, operator out_map; see C/_lib/s1c.py).
+
+The function picks every third word, plus up to two groups taken from the words at positions 1, 4, 7, ...
+The seeded change transforms the returned list: reverse the words of each string, prefix each string with
+its word count, or join the strings into one string.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(text):
+    ls = text.split()
+    lines = " ".join(ls[::3]).splitlines()
+    res = []
+    for i in range(2):
+        ln = ls[1::3]
+        if 3 * i + 1 < len(ln):
+            res.append(" ".join(ln[3 * i:3 * (i + 1)]))
+    return lines + res
+'''
+
+HELPER = '''STRIDE = 3
+ROUNDS = 2
+
+
+def words(text):
+    return text.split()
+'''
+
+CORE = '''from .__HELPER__ import ROUNDS, STRIDE, words
+
+
+def __FN__(text):
+    ls = words(text)
+    lines = " ".join(ls[::STRIDE]).splitlines()
+    res = []
+    for i in range(ROUNDS):
+        ln = ls[1::STRIDE]
+        if 3 * i + 1 < len(ln):
+            res.append(" ".join(ln[3 * i:3 * (i + 1)]))
+    return lines + res
+'''
+
+RETURN = "    return lines + res\n"
+VOCAB = ["echo", "hello!!!", "nice!", "red", "fox", "jumps", "over", "lazy", "dog", "alpha", "beta", "gamma",
+         "x", "yy", "zz9", "tea", "cup", "on", "a", "mat", "sun", "moon", "42", "end"]
+CRUX_INPUT = "echo hello!!! nice!"
+
+
+def variant(rng):
+    kind = rng.choice(["reverse_words", "count_prefix", "join_bar"])
+    if kind == "reverse_words":
+        ret = "    return [\" \".join(s.split(\" \")[::-1]) for s in lines + res]\n"
+        change = ("Every string in the returned list must now have its words in reverse order. The words inside "
+                  "these strings are separated by single spaces; for example `'red fox dog'` becomes "
+                  "`'dog fox red'`. The list itself keeps its order.")
+        out_kind = "list"
+    elif kind == "count_prefix":
+        ret = "    return [\"%d: %s\" % (len(s.split(\" \")), s) for s in lines + res]\n"
+        change = ("Every string in the returned list must now start with its number of words, a colon and a space; "
+                  "for example `'red fox dog'` becomes `'3: red fox dog'`. The words inside these strings are "
+                  "separated by single spaces. The list itself keeps its order.")
+        out_kind = "list"
+    else:
+        sep = rng.choice([" | ", " / ", "; "])
+        ret = "    return %r.join(lines + res)\n" % sep
+        change = ("The function must now return a single string instead of a list: the strings it returns now, "
+                  "in the same order, joined with `%r` between them (an empty list gives `''`)." % sep)
+        out_kind = "str"
+    return {"change": change, "core": CORE.replace(RETURN, ret), "kind": out_kind,
+            "hint": "transform the list right before it is returned."}
+
+
+def text_of(rng):
+    n = rng.randint(0, 15)
+    out = []
+    for k in range(n):
+        out.append(rng.choice(VOCAB))
+        if k < n - 1:
+            out.append(rng.choice([" ", " ", " ", "  ", "\n", "\t", " \n "]))
+    pre = rng.choice(["", "", " ", "\n"])
+    return pre + "".join(out)
+
+
+def inputs(rng, state):
+    out = [(CRUX_INPUT,)]
+    for _ in range(400):
+        if rng.below(5) == 0:
+            out.append((s1c.mutate_str(rng, CRUX_INPUT, "abcdefgh! "),))
+        else:
+            out.append((text_of(rng),))
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="out_map", original=ORIGINAL,
+                    fn_choices=["stride_words", "pick_words", "word_groups", "skim_words"],
+                    params="text", doc="picks words from a text at a fixed stride.", core=CORE, helper=HELPER,
+                    variant=variant, inputs=inputs, kind="list")
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

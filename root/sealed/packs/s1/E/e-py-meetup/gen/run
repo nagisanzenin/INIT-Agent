@@ -1,0 +1,193 @@
+#!/usr/bin/env python3
+"""e-py-meetup: Exercism `meetup` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d3 a seeded output format and a seeded 7-day window descriptor in place of `teenth`
+(which now raises); d4 adds a seeded name for the second-to-last weekday; d5 adds integer weeks (negative
+counts from the end) and a seeded skip day that moves the meetup a week later.
+Reference: ref/solution.py (parameterized by P). Dev fixture: ref/original.py (the unmutated exercise).
+"""
+import calendar
+import datetime
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "meetup"
+STUB = '''class MeetupDayException(ValueError):
+    """Raised when the requested meetup date does not exist."""
+
+
+def meetup(year, month, week, day_of_week):
+    raise NotImplementedError("meetup")
+'''
+DAYS = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+ORD = ["first", "second", "third", "fourth", "fifth"]
+FORMATS = {
+    "iso": "`YYYY-MM-DD` (for example `2021-03-05`)",
+    "dmy_dot": "`DD.MM.YYYY` (for example `05.03.2021`)",
+    "mdy_slash": "`MM/DD/YYYY` (for example `03/05/2021`)",
+    "compact": "`YYYYMMDD` (for example `20210305`)",
+    "d_mon_y": "`D Mon YYYY`: the day without a leading zero, a space, the month's three-letter English "
+               "abbreviation (`Jan`, `Feb`, `Mar`, `Apr`, `May`, `Jun`, `Jul`, `Aug`, `Sep`, `Oct`, `Nov`, "
+               "`Dec`), a space and the four-digit year (for example `5 Mar 2021`)",
+}
+WINDOWS = ["ides", "midmonth", "payweek", "fortnight", "marketweek", "tithe"]
+PENULTS = ["penultimate", "second_last", "next_to_last"]
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    p = {"fmt": rng.choice(sorted(FORMATS)), "window": rng.choice(WINDOWS), "start": rng.randint(5, 22),
+         "penult": None, "int_weeks": False, "skip": 0}
+    if d >= 4:
+        p["penult"] = rng.choice(PENULTS)
+    if d >= 5:
+        p["int_weeks"] = True
+        p["skip"] = rng.randint(3, 28)
+    return p
+
+
+def rules_text(p):
+    lines = [
+        "`meetup(year, month, week, day_of_week)` returns the date of the meetup as a string formatted %s. "
+        "Years, months and days are always padded exactly as in that pattern." % FORMATS[p["fmt"]],
+        "",
+        "`day_of_week` is an English weekday name with a capital first letter: `Monday`, `Tuesday`, `Wednesday`, "
+        "`Thursday`, `Friday`, `Saturday` or `Sunday`.",
+        "",
+        "`week` selects which of the month's days with that weekday is meant:",
+        "",
+        "- `first`, `second`, `third`, `fourth`, `fifth`: the 1st, 2nd, 3rd, 4th or 5th such day of the month;",
+        "- `last`: the last such day of the month;",
+    ]
+    if p["penult"]:
+        lines.append("- `%s`: the second-to-last such day of the month;" % p["penult"])
+    lines.append("- `%s`: the one whose day of the month is between %d and %d inclusive (there is always "
+                 "exactly one);" % (p["window"], p["start"], p["start"] + 6))
+    if p["int_weeks"]:
+        lines.append("- an `int` n: n >= 1 means the n-th such day (1 is the same as `first`); n <= -1 counts "
+                     "from the end of the month (-1 is the last, -2 the second-to-last, and so on).")
+    lines.append("")
+    lines.append("No other `week` value is supported: in particular there is no `teenth`.")
+    if p["skip"]:
+        lines += ["", "**Skip day.** If the selected date is day %d of the month, the meetup moves to the same "
+                  "weekday one week (7 days) later." % p["skip"]]
+    errs = ["the selected day does not exist (for example a fifth Monday in a month that has only four "
+            "Mondays)"]
+    if p["int_weeks"]:
+        errs.append("`week` is `0`")
+    if p["skip"]:
+        errs.append("the skip day moves the meetup past the end of the month")
+    errs.append("`week` is not one of the values above")
+    errs.append("`day_of_week` is not one of the seven names")
+    lines += ["", "Raise `MeetupDayException` (a subclass of `ValueError`; keep it defined in `meetup.py`) with "
+              "an explanatory message when " + "; or when ".join(errs) + "."]
+    return "\n".join(lines)
+
+
+def weekdays(y, m, wd):
+    n = calendar.monthrange(y, m)[1]
+    return [d for d in range(1, n + 1) if datetime.date(y, m, d).weekday() == wd]
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    exprs = []
+
+    def add(y, m, w, dname):
+        e = "meetup(%d, %d, %r, %r)" % (y, m, w, dname)
+        if e not in exprs:
+            exprs.append(e)
+
+    def ym():
+        return rng.randint(1900, 2100), rng.randint(1, 12)
+
+    def five_and_four():
+        """A (year, month, weekday) with five such days and one with only four."""
+        while True:
+            y, m = ym()
+            wd = rng.below(7)
+            if len(weekdays(y, m, wd)) == 5:
+                five = (y, m, DAYS[wd])
+                break
+        while True:
+            y, m = ym()
+            wd = rng.below(7)
+            if len(weekdays(y, m, wd)) == 4:
+                return five, (y, m, DAYS[wd])
+
+    five, four = five_and_four()
+    # visible examples (4): an ordinal, the window descriptor, last or penultimate, a missing fifth day
+    y, m = ym()
+    add(y, m, rng.choice(ORD[:4]), rng.choice(DAYS))
+    y, m = ym()
+    add(y, m, p["window"], rng.choice(DAYS))
+    y, m = ym()
+    add(y, m, p["penult"] or "last", rng.choice(DAYS))
+    add(four[0], four[1], "fifth", four[2])
+    # hidden
+    for _ in range(6):
+        y, m = ym()
+        add(y, m, rng.choice(ORD[:4]), rng.choice(DAYS))
+    add(five[0], five[1], "fifth", five[2])
+    for _ in range(5):
+        y, m = ym()
+        add(y, m, p["window"], rng.choice(DAYS))
+    for _ in range(3):
+        y, m = ym()
+        add(y, m, "last", rng.choice(DAYS))
+    add(rng.choice([2024, 2000, 1996, 2096]), 2, "last", rng.choice(DAYS))
+    add(rng.choice([2023, 1900, 2100, 2019]), 2, rng.choice(["last", p["window"]]), rng.choice(DAYS))
+    y, m = ym()
+    add(y, m, "teenth", rng.choice(DAYS))
+    y, m = ym()
+    add(y, m, rng.choice(ORD[:3]), rng.choice(["Funday", "monday", "Mon"]))
+    if p["penult"]:
+        for _ in range(3):
+            y, m = ym()
+            add(y, m, p["penult"], rng.choice(DAYS))
+    if p["int_weeks"]:
+        y, m = ym()
+        add(y, m, 0, rng.choice(DAYS))
+        for w in (1, rng.randint(2, 4), -1, -2, rng.randint(-4, -3)):
+            y, m = ym()
+            add(y, m, w, rng.choice(DAYS))
+        add(four[0], four[1], -5, four[2])
+        add(five[0], five[1], -5, five[2])
+    if p["skip"]:
+        hits = 0
+        while hits < 4:
+            y, m = ym()
+            wd = datetime.date(y, m, p["skip"]).weekday()
+            ds = weekdays(y, m, wd)
+            k = ds.index(p["skip"])
+            w = ORD[k] if hits % 2 == 0 else (p["window"] if p["start"] <= p["skip"] <= p["start"] + 6 else
+                                               ("last" if k == len(ds) - 1 else ORD[k]))
+            before = len(exprs)
+            add(y, m, w, DAYS[wd])
+            hits += len(exprs) > before
+        # a skip that leaves the month (only possible when the skip day is 22 or later)
+        if p["skip"] >= 22:
+            for _ in range(2000):
+                y, m = ym()
+                if p["skip"] + 7 > calendar.monthrange(y, m)[1]:
+                    add(y, m, "last", DAYS[datetime.date(y, m, p["skip"]).weekday()])
+                    break
+    while len(exprs) < 24:
+        y, m = ym()
+        add(y, m, rng.choice(ORD + ["last", p["window"]]), rng.choice(DAYS))
+    dev = {"original": ctx.read("ref", "original.py")}
+    task = ("Implement `meetup(year, month, week, day_of_week)` in `%s.py`: find the date of a monthly "
+            "meetup given a month, a year, a weekday and a week descriptor." % MODULE)
+    return assemble(ctx, MODULE, task, rules_text(p), ref, exprs, 4, dev, STUB, raises=("MeetupDayException",))
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

@@ -1,0 +1,76 @@
+# The kernel workspace (maintainer-owned; CONVENTIONS.md §2).
+# One library crate per lane area, linked by the thin `init-kernel` binary, so a broken
+# crate in one lane never blocks another lane's tests (BUILD_PLAN.md "Shape").
+#
+# Every dependency version is pinned here, once. Versions come from CONVENTIONS.md §5 and
+# the owning docs; versions the docs do not give are recorded in
+# measurements/wp0-build-times.md. Dependencies are vendored in the repo-root vendor/
+# (see .cargo/config.toml); regenerate it only with ci/vendor.sh.
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+# internal
+init-proto = { path = "crates/init-proto" }
+kernel-supervise = { path = "crates/kernel-supervise" }
+kernel-proxy = { path = "crates/kernel-proxy" }
+kernel-gate = { path = "crates/kernel-gate" }
+kernel-selfmap = { path = "crates/kernel-selfmap" }
+kernel-serve = { path = "crates/kernel-serve" }
+kernel-sandbox = { path = "crates/kernel-sandbox" }
+kernel-evo = { path = "crates/kernel-evo" }
+
+# shared (CONVENTIONS §5; serde_json never with `preserve_order`)
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+toml = "=1.1.8"                       # kernel/config.md, kernel/initctl.md `vendor`
+sha2 = "=0.11.1"
+libc = "=0.2.191"                     # kernel/initctl.md (peer credentials), supervise, sandbox
+
+# proxy (kernel/proxy.md; CONVENTIONS §5)
+tokio = { version = "=1.53.3", features = ["rt-multi-thread", "net", "time", "sync", "io-util", "macros"] }
+hyper = { version = "=1.12.0", features = ["http1", "server", "client"] }
+hyper-util = { version = "=0.1.21", features = ["tokio"] }
+http-body-util = "=0.1.5"
+tokio-tungstenite = { version = "=0.30.0", default-features = false, features = ["connect", "handshake"] }
+# TLS: CONVENTIONS §5 lists rustls under the proxy; kernel/proxy.md v0.3 moves TLS to the Root
+# (its Q-CV1). Declared so the lock and vendor/ are complete; WP5 may drop them.
+rustls = { version = "=0.23.46", default-features = false, features = ["ring", "std", "tls12", "logging"] }
+hyper-rustls = { version = "=0.27.10", default-features = false, features = ["ring", "http1", "tls12", "logging", "rustls-platform-verifier"] }
+rustls-platform-verifier = "=0.7.1"
+
+# selfmap (kernel/selfmap.md §3.3, §3.4, §3.6)
+syn = { version = "=3.0.9", default-features = false, features = ["full", "parsing", "visit"] }
+proc-macro2 = { version = "=1.0.107", features = ["span-locations"] }
+wit-component = "=0.262.0"
+wit-parser = "=0.262.0"
+tiktoken-rs = "=0.12.1"
+anyhow = "1"                          # used in selfmap.md §3.6; no version given (resolved: see measurements)
+indexmap = "2"                        # used in selfmap.md §3.6; same version wit-parser resolves
+# `init-kernel selfmap --describe` hosts components exactly as the body does (ext/host.md §3.2)
+wasmtime = { version = "=48.0.6", default-features = false, features = [
+    "runtime", "std", "cranelift", "component-model",
+    "pooling-allocator", "parallel-compilation", "incremental-cache", "demangle",
+] }
+wasmtime-wasi = { version = "=48.0.6", default-features = false, features = ["p2"] }
+
+# sandbox, Linux only (kernel/sandbox.md §3.8)
+landlock = "=0.4.7"
+seccompiler = "=0.5.0"
+
+# Release profile (lane REL; scripts/release.sh, docs/release.md). Measured 2026-10-20 on init-root, back to back
+# under the same load (build/status/REL.md): lto = "thin" alone made the binary 1% larger and the build 24% slower;
+# lto = "thin" with codegen-units = 1 made it 12% smaller and the build 1.4-2x slower, and the kernel and the body
+# (Cranelift, wasmtime) would pay that most. Neither pays for binaries built once per install that are not
+# CPU-bound, so the profile states the defaults. Quality guard: release.sh runs `cargo test --release` (root, seed).
+[profile.release]
+opt-level = 3
+lto = false
+codegen-units = 16
+strip = "debuginfo"              # the default, stated: symbols stay, so panic backtraces keep function names

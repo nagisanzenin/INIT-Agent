@@ -1,0 +1,12 @@
+{
+ "id": "pool-t-sqlite-report",
+ "title": "SQLite revenue report query",
+ "family": "t",
+ "difficulty": 3,
+ "labels": ["terminal"],
+ "max_turns": 10,
+ "prompt": "In the current directory, shop.sql builds a small SQLite database (customers, orders, order_items). Write report.sql: ONE SELECT statement (a WITH clause is fine) that `python3 tools/runsql.py shop.sql report.sql` runs. It must return one row per customer who has at least one paid order, with exactly three columns, in this order:\n1. the customer's name;\n2. the number of their paid orders;\n3. their total paid amount in cents.\n\nAn order is paid when its status is 'paid' or 'shipped' ('cancelled' and 'refunded' orders do not count at all). An order's amount is the sum of quantity * unit_price_cents over its items, minus the order's discount_cents (an order without items has amount 0 minus its discount). Sort by total, highest first, then by name, A to Z. No header row. Customers are told apart by id, not by name (two customers can share a name).\n\nThe query is also run against other databases with the same schema, so do not hard-code ids, names or amounts. Do not modify shop.sql or tools/runsql.py.",
+ "source": {"kind": "fresh"},
+ "protected": ["shop.sql", "tools/runsql.py"],
+ "steps": [{"kind": "sh", "script": "hidden/check.sh", "names": ["visible_data", "hidden_data_1", "hidden_data_2", "single_statement"], "timeout_s": 10}]
+}

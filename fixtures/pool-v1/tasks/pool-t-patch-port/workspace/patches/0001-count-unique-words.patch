@@ -1,0 +1,62 @@
+From: Pool Fixture <pool@init.local>
+Subject: [PATCH] textstats: case-insensitive words, unique word count
+
+words() now lower-cases and ignores punctuation; unique_words() and the
+--unique flag report the number of different words.
+---
+diff --git a/lib/textstats/core.py b/lib/textstats/core.py
+index 4c97879..c627c35 100644
+--- a/lib/textstats/core.py
++++ b/lib/textstats/core.py
+@@ -1,9 +1,10 @@
+ """Text statistics."""
++import re
+ 
+ 
+ def words(text):
+-    """The words of `text`."""
+-    return text.split()
++    """The words of `text`, lower-cased (letters and apostrophes)."""
++    return [w.lower() for w in re.findall(r"[A-Za-z']+", text)]
+ 
+ 
+ def word_count(text):
+@@ -11,6 +12,11 @@ def word_count(text):
+     return len(words(text))
+ 
+ 
++def unique_words(text):
++    """How many different words `text` has."""
++    return len(set(words(text)))
++
++
+ def line_count(text):
+     """How many lines `text` has."""
+     return len(text.splitlines())
+diff --git a/lib/textstats/cli.py b/lib/textstats/cli.py
+index 303ef44..53c183d 100644
+--- a/lib/textstats/cli.py
++++ b/lib/textstats/cli.py
+@@ -1,16 +1,19 @@
+ """textstats command line: python3 -m textstats.cli FILE."""
+ import argparse
+ 
+-from .core import word_count
++from .core import unique_words, word_count
+ 
+ 
+ def main(argv=None):
+     ap = argparse.ArgumentParser(prog="textstats")
+     ap.add_argument("file")
++    ap.add_argument("--unique", action="store_true", help="also print the number of different words")
+     args = ap.parse_args(argv)
+     with open(args.file) as f:
+         text = f.read()
+     print("words: %d" % word_count(text))
++    if args.unique:
++        print("unique: %d" % unique_words(text))
+     return 0
+ 
+ 
+-- 
+2.39.5

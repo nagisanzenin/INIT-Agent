@@ -1,0 +1,380 @@
+#!/usr/bin/env python3
+"""t-bisect-skip: find the first bad commit with a probe that can also answer "untestable", in a history with
+an earlier transient failure, then leave the repository exactly as found (family T, pack s1; INIT licence)."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+PEOPLE = [("Ilse Marten", "ilse"), ("Tomas Reyes", "tomas"), ("Noor Haddad", "noor"), ("Kenji Arai", "kenji"),
+          ("Maren Solberg", "maren"), ("Ola Brandvik", "ola"), ("Priya Venkat", "priya"), ("Luca Ferri", "luca")]
+ACCOUNTS = ["alder", "birch", "cedar", "elm", "fir", "hazel", "larch", "maple", "oak", "pine", "rowan", "willow",
+            "yew", "aspen", "beech"]
+BUGS = ["overwrite", "reverse", "truncate", "skipneg", "places", "firstline"]
+BUG_MSG = {
+    "overwrite": ["Simplify the totals loop", "totals(): drop the get() call"],
+    "reverse": ["Use one sorted() call in render()", "render(): sort once"],
+    "truncate": ["Parse amounts in one step", "parse(): convert the amount once"],
+    "skipneg": ["Validate amounts while parsing", "parse(): check amounts early"],
+    "places": ["Read the precision from the config", "render(): precision handling"],
+    "firstline": ["Skip the header line of the input", "parse(): handle a heading line"],
+}
+NOTE_LINES = ["accounts are printed in name order", "amounts may be negative (refunds)",
+              "lines that do not have two fields are ignored", "the total line comes last",
+              "precision comes from the config file", "input is read from stdin",
+              "blank lines are fine", "account names are case-sensitive", "the label of the total is configurable",
+              "amounts are summed per account", "output goes to stdout only", "the program never writes files"]
+HELPERS = [("widest", ["def widest(names):", '    """Length of the longest account name."""',
+                       "    return max([len(n) for n in names] or [0])"]),
+           ("count_lines", ["def count_lines(lines):", '    """Number of non-blank input lines."""',
+                            "    return sum(1 for ln in lines if ln.strip())"]),
+           ("is_refund", ["def is_refund(amount):", '    """True for a negative amount."""',
+                          "    return amount < 0"]),
+           ("label_of", ["def label_of(cfg):", '    """The label of the total line."""',
+                         '    return cfg.get("label", "TOTAL")']),
+           ("clip", ["def clip(value, lo, hi):", '    """value limited to [lo, hi]."""',
+                     "    return max(lo, min(hi, value))"]),
+           ("pairs", ["def pairs(acc):", '    """(name, amount) pairs in name order."""',
+                      "    return [(n, acc[n]) for n in sorted(acc)]"])]
+README_LINES = ["Usage: `python3 {prog}.py < amounts.txt`.", "Each input line is `<account> <amount>`.",
+                "Settings live in `{cfg}` next to the script.", "The output has one line per account.",
+                "Amounts may use a decimal point.", "Requires Python 3.9 or newer."]
+
+T0 = 1751371200  # 2025-07-01 12:00 UTC
+
+
+def model(bugs, text, places, label):
+    """What the program prints for `text` with the given bugs active (mirrors the generated source)."""
+    lines = text.splitlines()
+    if "firstline" in bugs:
+        lines = lines[1:]
+    rows = []
+    for raw in lines:
+        parts = raw.split()
+        if len(parts) != 2:
+            continue
+        amount = float(parts[1])
+        if "truncate" in bugs:
+            amount = int(amount)
+        if "skipneg" in bugs and amount < 0:
+            continue
+        rows.append((parts[0], amount))
+    acc = {}
+    for name, amount in rows:
+        acc[name] = amount if "overwrite" in bugs else acc.get(name, 0.0) + amount
+    p = places - 1 if "places" in bugs else places
+    out = ["%s %.*f" % (n, p, acc[n]) for n in sorted(acc, reverse="reverse" in bugs)]
+    out.append("%s %.*f" % (label, p, sum(acc.values())))
+    return "\n".join(out)
+
+
+def program(prog, cfg, version, notes, helpers, bugs, broken):
+    b = set(bugs)
+    lines = ["#!/usr/bin/env python3",
+             '"""%s: totals per account from `<account> <amount>` lines on stdin."""' % prog,
+             "# Notes:"]
+    lines += ["# - " + n for n in notes]
+    lines += ["import os", "import sys", "", 'VERSION = "1.%d"' % version, "", "",
+              "def load_config(path):",
+              "    cfg = {}",
+              "    with open(path) as f:",
+              "        for raw in f:",
+              "            line = raw.strip()",
+              '            if not line or line.startswith("#"):',
+              "                continue",
+              '            key, _, value = line.partition("=")',
+              "            cfg[key.strip()] = value.strip()",
+              "    return cfg", "", "",
+              "def parse(lines):",
+              "    rows = []",
+              "    for raw in lines%s:" % ("[1:]" if "firstline" in b else ""),
+              "        parts = raw.split()",
+              "        if len(parts) != 2:",
+              "            continue",
+              "        amount = %s" % ("int(float(parts[1]))" if "truncate" in b else "float(parts[1])")]
+    if "skipneg" in b:
+        lines += ["        if amount < 0:", "            continue"]
+    lines += ["        rows.append((parts[0], amount))",
+              "    return rows", "", "",
+              "def totals(rows):",
+              "    acc = {}",
+              "    for name, amount in rows:",
+              "        acc[name] = %s" % ("amount" if "overwrite" in b else "acc.get(name, 0.0) + amount"),
+              "    return acc", "", "",
+              "def render(acc, cfg):",
+              '    places = int(cfg.get("places", "2"))%s' % (" - 1" if "places" in b else ""),
+              '    label = cfg.get("label", "TOTAL")',
+              "    out = []",
+              "    for name in sorted(acc%s):" % (", reverse=True" if "reverse" in b else ""),
+              '        out.append("%s %.*f" % (name, places, acc[name]))',
+              '    out.append("%s %.*f" % (label, places, sum(acc.values())))',
+              "    return out"]
+    for i, (name, body) in enumerate(helpers):
+        first = body[0][:-1] if (broken and i == len(helpers) - 1) else body[0]  # a missing colon
+        lines += ["", "", first] + body[1:]
+    lines += ["", "",
+              "def main(argv):",
+              "    here = os.path.dirname(os.path.abspath(__file__))",
+              '    cfg = load_config(os.path.join(here, "%s"))' % cfg,
+              '    if "--version" in argv:',
+              "        print(VERSION)",
+              "        return 0",
+              "    for line in render(totals(parse(sys.stdin.read().splitlines())), cfg):",
+              "        print(line)",
+              "    return 0", "", "",
+              'if __name__ == "__main__":',
+              "    sys.exit(main(sys.argv[1:]))"]
+    return "\n".join(lines) + "\n"
+
+
+def probe_cases(rng, active):
+    """Three seeded inputs; every bug in `active` changes the output of at least one of them."""
+    for _ in range(200):
+        cases = []
+        for k in range(3):
+            names = rng.sample(ACCOUNTS, rng.randint(3, 4))
+            rows = []
+            for n in names:
+                rows.append((n, rng.randint(-40, 400) / 4.0))
+            for _ in range(rng.randint(2, 3)):
+                rows.append((rng.choice(names), rng.randint(-40, 400) / 4.0))
+            rows = rng.shuffled(rows)
+            if not any(a < 0 for _, a in rows):
+                rows[rng.below(len(rows))] = (rows[0][0], -rng.randint(1, 40) / 4.0)
+            text = "".join("%s %s\n" % (n, ("%g" % a) if a != int(a) else str(int(a))) for n, a in rows)
+            cases.append(text)
+        ok = True
+        for text in cases:
+            acc = {}
+            for ln in text.splitlines():
+                n, a = ln.split()
+                acc[n] = acc.get(n, 0.0) + float(a)
+            if any(abs(v) < 1e-9 for v in acc.values()) or abs(sum(acc.values())) < 1e-9:
+                ok = False  # avoid -0.00
+        if ok and all(any(model([b], t, 2, "T") != model([], t, 2, "T") for t in cases) for b in active):
+            return cases
+    raise s1lib.GenError("could not build probe cases")
+
+
+PROBE = """#!/bin/sh
+# Probe for the program in repo/: tests whatever tree is checked out there right now.
+# Exit status: 0 = good, 1 = bad, 125 = this commit cannot be tested (config file missing or the script
+# does not parse). Run it from anywhere, e.g. `sh tests/probe.sh`, or from repo/ with
+# `git bisect run sh ../tests/probe.sh`. It never writes files.
+d=$(cd "$(dirname "$0")/.." && pwd -P) || exit 125
+r="$d/repo"
+[ -f "$r/{cfg}" ] || exit 125
+python3 -B -c 'import ast, sys; ast.parse(open(sys.argv[1]).read())' "$r/{prog}.py" 2>/dev/null || exit 125
+case_ok() {{
+  got=$(printf '%s' "$1" | python3 -B "$r/{prog}.py" 2>/dev/null) || return 1
+  [ "$got" = "$2" ]
+}}
+{cases}exit 0
+"""
+
+
+def build(ctx):
+    rng = ctx.rng()
+    L = ctx.difficulty
+    prog = rng.choice(["tally", "ledger", "sumup", "acct", "totals"])
+    cfg = "%s.cfg" % prog
+    label = rng.choice(["TOTAL", "ALL", "SUM", "GRAND"])
+    people = [(n, "%s@%s.example" % (e, rng.choice(["books", "acme-ledger", "tallyworks"])))
+              for n, e in rng.sample(PEOPLE, 5)]
+    pr = rng.fork("plan")
+    N = pr.randint(*{1: (30, 34), 2: (32, 38), 3: (36, 44), 4: (40, 50), 5: (50, 60)}[L])
+    bug_main, bug_tr, bug_tr2 = pr.sample(BUGS, 3)
+    ev = {}  # index -> list of events
+    traps = []
+
+    def at(i, e):
+        ev.setdefault(i, []).append(e)
+
+    for _attempt in range(500):  # draw positions until every constraint holds
+        ev = {}
+        traps = []
+        mid = N // 2
+        C = pr.randint(int(N * 0.70), int(N * 0.86))
+        at(C, ("bug_on", bug_main))
+        lo = C - 1           # the earliest index the window before C may touch
+        if L >= 2:  # config missing for a few commits shortly before C (never adjacent to it)
+            a1 = C - 2 - pr.randint(0, 1)
+            a0 = a1 - pr.randint(1, 2)
+            at(a0, ("cfg", False))
+            at(a1 + 1, ("cfg", True))
+            lo = a0
+            traps.append("untestable (config missing) %d..%d before C=%d" % (a0, a1, C))
+        if L >= 3:  # a transient failure across the middle of the history, fixed again before C
+            E = mid - pr.randint(2, 4)
+            E2 = mid + pr.randint(2, 4)
+            if E2 + 3 > lo:
+                continue
+            at(E, ("bug_on", bug_tr))
+            at(E2, ("bug_off", bug_tr))
+            b0 = C + 2 + pr.randint(0, 2)
+            b1 = b0 + pr.randint(0, 1)
+            if b1 + 3 > N - 1:
+                continue
+            at(b0, ("syntax", True))
+            at(b1 + 1, ("syntax", False))
+            traps.append("transient failure %d..%d; syntax error %d..%d after C" % (E, E2 - 1, b0, b1))
+        if L >= 5:
+            e1 = pr.randint(3, E - 4)
+            at(e1, ("bug_on", bug_tr2))
+            at(e1 + 1, ("bug_off", bug_tr2))
+            s0 = E + 1
+            at(s0, ("cfg", False))
+            at(s0 + 2, ("cfg", True))
+            traps.append("second transient at %d; config missing %d..%d inside the transient window" % (
+                e1, s0, s0 + 1))
+        break
+    else:
+        raise s1lib.GenError("could not place the events")
+    decoys = {}
+    if L >= 4:  # misleading messages on harmless commits
+        free_after = [i for i in range(C + 1, N) if i not in ev and (i - 1) not in ev]
+        free_before = [i for i in range(2, C - 1) if i not in ev]
+        if free_after:
+            decoys[pr.choice(free_after)] = pr.choice(["Fix the totals regression", "Fix broken totals output"])
+        if free_before:
+            decoys[pr.choice(free_before)] = pr.choice(["Break up render() into steps", "Break long lines in parse()"])
+        traps.append("misleading messages")
+
+    cases = probe_cases(rng.fork("cases"), [bug_main, bug_tr, bug_tr2])
+    wants = [model([], t, 2, label) for t in cases]
+
+    # ---------------------------------------------------------------- build the history
+    g = tgen.Git(prefix="repo", user=("Bisect Runner", "runner@books.example"))
+    hr = rng.fork("history")
+    nr = rng.fork("noise")
+    t = T0 + hr.randint(0, 86400 * 30)
+    version = 0
+    notes = nr.sample(NOTE_LINES, 2)
+    helpers = []
+    helper_pool = nr.shuffled(HELPERS)
+    typo_helper = helper_pool.pop()
+    readme = ["# %s" % prog, "", "Sums amounts per account."]
+    readme_pool = [x.format(prog=prog, cfg=cfg) for x in README_LINES]
+    changes = ["# Changes", ""]
+    bugs = []
+    cfg_on = True
+    broken = False
+    status = []
+    shas = []
+    gitignore = "__pycache__/\n*.pyc\n"
+    cfg_text = "# %s settings\nplaces=2\nlabel=%s\n" % (prog, label)
+    tip = None
+    for i in range(N):
+        msg = None
+        for kind, arg in ev.get(i, []):
+            if kind == "bug_on":
+                bugs.append(arg)
+                msg = msg or nr.choice(BUG_MSG[arg])
+            elif kind == "bug_off":
+                bugs.remove(arg)
+                msg = msg or nr.choice(["Restore the previous %s logic" % {"overwrite": "totals",
+                                        "reverse": "sorting", "truncate": "amount parsing",
+                                        "skipneg": "parsing", "places": "precision",
+                                        "firstline": "input handling"}[arg], "Revert part of the last refactor"])
+            elif kind == "cfg":
+                cfg_on = arg
+                msg = msg or ("Bring back %s" % cfg if arg else "Drop %s; defaults move into the code" % cfg)
+            elif kind == "syntax":
+                if arg:
+                    helpers.append(typo_helper)
+                    broken = True
+                    msg = msg or "Add helper %s()" % helpers[-1][0]
+                else:
+                    broken = False
+                    msg = msg or "Fix a typo in %s()" % helpers[-1][0]
+        if i == 0:
+            msg = "Initial version of %s" % prog
+        elif msg is None:  # a harmless change
+            op = nr.below(5)
+            if op == 0 and helper_pool and not broken:
+                helpers.append(helper_pool.pop())
+                msg = nr.choice(["Add helper %s()" % helpers[-1][0], "New helper %s()" % helpers[-1][0]])
+            elif op == 1:
+                version += 1
+                msg = nr.choice(["Release 1.%d" % version, "Bump version to 1.%d" % version])
+            elif op == 2 and readme_pool:
+                readme.append(readme_pool.pop(nr.below(len(readme_pool))))
+                msg = nr.choice(["README: usage notes", "Document the input format", "Polish README"])
+            elif op == 3 and len(notes) < len(NOTE_LINES):
+                notes.append(nr.choice([x for x in NOTE_LINES if x not in notes]))
+                msg = nr.choice(["Comment the program header", "Notes in the header comment"])
+            else:
+                changes.append("- 1.%d.%d: %s" % (version, len(changes), nr.choice(NOTE_LINES)))
+                msg = nr.choice(["Update CHANGES.md", "Changelog entry", "CHANGES: note"])
+            if i in decoys:
+                msg = decoys[i]
+        files = {".gitignore": gitignore, "README.md": "\n".join(readme) + "\n",
+                 "CHANGES.md": "\n".join(changes) + "\n",
+                 "%s.py" % prog: program(prog, cfg, version, notes, helpers, bugs, broken)}
+        if cfg_on:
+            files[cfg] = cfg_text
+        t += hr.randint(1800, 86400)
+        tip = g.commit(g.tree_of(files, executable=frozenset(["%s.py" % prog])), [tip] if tip else [], msg, t,
+                       author=hr.choice(people))
+        shas.append(tip)
+        if not cfg_on or broken:
+            status.append("skip")
+        elif bugs:
+            status.append("bad")
+        else:
+            status.append("good")
+        last_files = files
+    g.refs["refs/heads/main"] = tip
+
+    # ---------------------------------------------------------------- the answer, by its definition
+    first_bad = None
+    for i in range(N):
+        if status[i] == "bad" and all(s != "good" for s in status[i:]):
+            first_bad = i
+            break
+    if first_bad != C or status[C - 1] != "good" or status[0] != "good" or status[-1] != "bad":
+        raise s1lib.GenError("plan broken: %s" % "".join(s[0] for s in status))
+
+    case_sh = ""
+    for text, want in zip(cases, wants):
+        case_sh += "case_ok '%s' '%s' || exit 1\n" % (text, want)
+    probe = PROBE.format(cfg=cfg, prog=prog, cases=case_sh)
+
+    q = (
+        "`repo/` is a git repository of a small python3 program, `{prog}.py`, with `main` checked out. Its "
+        "history is linear. `tests/probe.sh` tests whatever tree is checked out in `repo/` and exits with 0 "
+        "(good), 1 (bad) or 125 (this commit cannot be tested). The first commit is good and the tip of `main` "
+        "is bad.\n\n"
+        "1. Find the first bad commit, defined as the EARLIEST commit F such that the probe exits 1 at F and "
+        "at every later commit where it does not exit 125. Careful: the history is not monotonic. Some earlier "
+        "commits fail too, but a later commit passes again, so the first failing commit in the history is not "
+        "necessarily the answer. Commits where the probe exits 125 are neither good nor bad. Commit messages "
+        "are not evidence; only the probe is.\n"
+        "2. Write F's full 40-character lowercase sha (no abbreviation), followed by a newline, to "
+        "`first_bad.txt` in this directory (next to README.md, not inside `repo/`).\n"
+        "3. Leave the repository exactly as you found it: `main` checked out (HEAD a symbolic ref to "
+        "`refs/heads/main`) at its current tip, a clean work tree with no untracked files in `repo/`, and no "
+        "bisect in progress (if you use `git bisect`, finish with `git bisect reset`).\n\n"
+        "Do not modify `tests/probe.sh`. Keep any scratch files outside `repo/`.\n"
+    ).format(prog=prog)
+    inst = s1lib.Instance(ctx, prompt=q)
+    inst.workspace["README.md"] = "# Find the first bad commit\n\n" + q
+    inst.workspace["tests/probe.sh"] = probe
+    inst.executable.add("tests/probe.sh")
+    inst.workspace.update(g.files(worktree=last_files, executable=frozenset(["%s.py" % prog])))
+    inst.executable.add("repo/%s.py" % prog)
+    inst.marker_files = ["README.md"]
+    inst.protect("tests/probe.sh")
+    inst.solution["first_bad.txt"] = shas[C] + "\n"
+    spec = {"first_bad": shas[C], "main_tip": tip, "status": "".join(s[0] for s in status), "C": C,
+            "traps": traps}
+    tgen.finish(inst, ctx, spec=spec, names=["answer", "head_restored", "clean_tree", "no_bisect_state"])
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

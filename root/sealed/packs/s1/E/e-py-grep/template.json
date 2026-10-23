@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-grep",
+ "family": "E",
+ "lang": "py",
+ "title": "Fixed-string grep over in-memory files with seeded output rules",
+ "difficulty": {"default": 4, "min": 3, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/grep", "exercise": "grep", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d3 files as a dict, output as a list, a seeded field separator and a new count flag -c with stated precedence; d4 + whole-word flag -w and line numbers zero-padded to a seeded width; d5 + -mN (first N selected lines per file). Difficulty guess for deepseek-flash: hard (d4)."
+}

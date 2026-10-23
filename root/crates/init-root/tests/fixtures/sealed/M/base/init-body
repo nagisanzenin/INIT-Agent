@@ -1,0 +1,147 @@
+#!/usr/bin/perl
+# INIT stand-in body (root/sealed-eval.md, WP24 fixtures): the control base B of the stand-in mutation
+# suite. The generator specs in ../suite.json patch this file, so their anchors are exact lines here.
+# One task per run: one input frame on stdin ({"t":"input","text":"[task <id>] ..."}), model turns on
+# $INIT_PROXY_SOCK (the kernel-proxy wire: POST /deepseek/chat/completions, SSE), client tools in the
+# task workspace (the cwd). `init-body --selftest` checks the tools and exits 0 or 1.
+use strict;
+use warnings;
+use JSON::PP;
+use IO::Socket::UNIX;
+use File::Path qw(make_path);
+use File::Basename qw(dirname);
+use File::Temp qw(tempdir);
+
+my $JSON = JSON::PP->new->canonical->utf8;
+my $manifest = do { local $/; <DATA> };
+my $TOOLS = $JSON->decode($manifest);
+my %HANDLERS = (write_file => \&write_file, read_file => \&read_file, run_tests => \&run_tests);
+
+if (@ARGV && $ARGV[0] eq '--selftest') { exit(selftest() ? 0 : 1) }
+
+my $line = <STDIN>;
+my $frame = eval { $JSON->decode($line // '{}') } || {};
+my $input = $frame->{text} // '';
+my $answer = solve($input);
+print $JSON->encode({t => 'done', text => $answer}), "\n";
+exit 0;
+
+# The task loop: at most 8 model turns; tool calls run here, a text reply ends the task.
+sub solve {
+    my ($input) = @_;
+    my @msgs = ({role => 'user', content => $input . "\n\n(session " . session() . ')'});
+    my @tools = map { {type => 'function', function => $_} } @$TOOLS;
+    for my $turn (1 .. 8) {
+        my $m = chat({model => 'deepseek-flash', stream => JSON::PP::true, max_tokens => 2048, messages => \@msgs, tools => \@tools}) or return '';
+        push @msgs, $m;
+        my $calls = $m->{tool_calls} || [];
+        return $m->{content} unless @$calls;
+        for my $c (@$calls) {
+            my $name = $c->{function}{name};
+            my $args = eval { $JSON->decode($c->{function}{arguments} || '{}') } || {};
+            my $listed = grep { $_->{name} eq $name } @$TOOLS;
+            my $out = ($listed && $HANDLERS{$name}) ? $HANDLERS{$name}->($args) : "unknown tool $name";
+            push @msgs, {role => 'tool', tool_call_id => $c->{id}, content => $out};
+        }
+    }
+    return '';
+}
+
+# One request on the proxy socket; the streamed reply reassembled into an assistant message.
+sub chat {
+    my ($req) = @_;
+    my $body = $JSON->encode($req);
+    my $s = IO::Socket::UNIX->new(Peer => $ENV{INIT_PROXY_SOCK} // '', Type => SOCK_STREAM) or return undef;
+    print $s "POST /deepseek/chat/completions HTTP/1.1\r\nhost: proxy\r\ncontent-type: application/json\r\n"
+        . "connection: close\r\ncontent-length: " . length($body) . "\r\n\r\n" . $body;
+    my $resp = do { local $/; <$s> } // '';
+    close $s;
+    my ($head, $data) = split /\r\n\r\n/, $resp, 2;
+    return undef unless defined $data && $head =~ m{^HTTP/1\.[01] 200 };
+    my ($m, @calls) = ({role => 'assistant', content => ''});
+    for my $l (split /\r?\n/, $data) {
+        next unless $l =~ /^data: (\{.*)$/;
+        my $ev = eval { $JSON->decode($1) } or next;
+        my $d = $ev->{choices}[0]{delta} or next;
+        $m->{content} .= $d->{content} if defined $d->{content};
+        for my $tc (@{ $d->{tool_calls} || [] }) {
+            my $c = $calls[$tc->{index} // 0] ||= {type => 'function', function => {name => '', arguments => ''}};
+            $c->{id} = $tc->{id} if defined $tc->{id};
+            $c->{function}{name} .= $tc->{function}{name} // '';
+            $c->{function}{arguments} .= $tc->{function}{arguments} // '';
+        }
+    }
+    $m->{tool_calls} = \@calls if @calls;
+    return $m;
+}
+
+sub safe_path {
+    my ($p) = @_;
+    return defined $p && length $p && $p !~ m{^/} && $p !~ m{(^|/)\.\.(/|$)};
+}
+
+sub write_file {
+    my ($a) = @_;
+    return 'error: the path must be relative and stay in the workspace' unless safe_path($a->{path});
+    my $content = $a->{content} // '';
+    make_path(dirname($a->{path}));
+    open(my $f, '>', $a->{path}) or return "error: $!";
+    print $f $content;
+    close $f;
+    return 'wrote ' . length($content) . " bytes to $a->{path}";
+}
+
+sub read_file {
+    my ($a) = @_;
+    return 'error: the path must be relative and stay in the workspace' unless safe_path($a->{path});
+    open(my $f, '<', $a->{path}) or return "error: $!";
+    return do { local $/; <$f> } // '';
+}
+
+sub run_tests {
+    return 'no test.sh in the workspace' unless -f 'test.sh';
+    my $out = `/bin/sh test.sh 2>&1`;
+    return $out . "\nexit status " . ($? >> 8);
+}
+
+sub session {
+    open(my $r, '<', '/dev/urandom') or return "$$-" . time;
+    read($r, my $b, 8);
+    return unpack('H*', $b);
+}
+
+# Unused since the tools went through the manifest; kept for old transcripts (control C3 retires it).
+sub legacy_glob_tool {
+    my ($a) = @_;
+    my $pattern = $a->{pattern} // '*';
+    my @hits = glob($pattern);
+    return join("\n", grep { safe_path($_) } @hits);
+}
+
+sub selftest {
+    my $dir = tempdir(CLEANUP => 1);
+    chdir $dir or return 0;
+    my $w = write_file({path => 'a/b.txt', content => "one\ntwo\n"});
+    return 0 unless $w =~ /^wrote 8 bytes/ && read_file({path => 'a/b.txt'}) eq "one\ntwo\n";
+    return 0 if write_file({path => '../x', content => 'x'}) !~ /^error/ || write_file({path => '/tmp/x', content => 'x'}) !~ /^error/;
+    return 1;
+}
+
+__DATA__
+[
+  {
+    "name": "write_file",
+    "description": "Write a UTF-8 text file in the task workspace, creating parent directories. Every call is recorded in the session log; use the tool only when it is needed, keep each call small and focused, and re-run the workspace tests after any change so that the final answer is checked.",
+    "parameters": {"type": "object", "properties": {"path": {"type": "string"}, "content": {"type": "string"}}, "required": ["path", "content"]}
+  },
+  {
+    "name": "read_file",
+    "description": "Read a text file from the task workspace. Every call is recorded in the session log; use the tool only when it is needed, keep each call small and focused, and re-run the workspace tests after any change so that the final answer is checked.",
+    "parameters": {"type": "object", "properties": {"path": {"type": "string"}}, "required": ["path"]}
+  },
+  {
+    "name": "run_tests",
+    "description": "Run the workspace's test.sh and return its output and exit status. Every call is recorded in the session log; use the tool only when it is needed, keep each call small and focused, and re-run the workspace tests after any change so that the final answer is checked.",
+    "parameters": {"type": "object", "properties": {}}
+  }
+]

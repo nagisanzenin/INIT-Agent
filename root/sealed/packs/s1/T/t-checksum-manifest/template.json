@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-checksum-manifest",
+ "family": "T",
+ "lang": "any",
+ "title": "Write a checksum manifest and verify an old one",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: shasum/find/sort pipelines: a sha256 manifest of a tree in shasum format with exclusions and byte-order sorting, plus a verify report of a stale SHA256SUMS (OK/FAILED/MISSING); traps: paths relative to release/, locale vs byte order with mixed case, spaces in names, .sig/output exclusions, '*' binary-mode entries and comments (knob 3), dotfiles, tmp/ and CRLF (knob 4), non-ASCII names, upper-case hex and ./ prefixes (knob 5); pass_guess_permille: 450"
+}

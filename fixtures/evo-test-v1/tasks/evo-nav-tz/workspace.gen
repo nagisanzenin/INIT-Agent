@@ -1,0 +1,2 @@
+# evo-nav-tz: render the roomkit package (the state before CHANGE.md) into the workspace
+exec /usr/bin/python3 -I -S -B "$(dirname "$0")/gen_ws.py" "$1" before

@@ -1,0 +1,217 @@
+{
+  "load": {
+    "free_kib": 7787160,
+    "note": "WP16 M-5 socket mode, sample 1000 ms",
+    "power": "Now drawing from 'AC Power'",
+    "uptime": "7:21  up 12 days,  8:10, 3 users, load averages: 3.19 3.24 3.57"
+  },
+  "machine": {
+    "cpu": "Apple M2",
+    "mem_bytes": 17179869184,
+    "ncpu": 8,
+    "os": "ProductName:  macOS; ProductVersion:  14.6; BuildVersion:  23G80"
+  },
+  "notes": [
+    "WP16 M-5 socket mode, sample 1 s per testing.md",
+    "WP16 M-5 socket mode, sample 1000 ms"
+  ],
+  "result": {
+    "diag_slope_kib_per_step_second_half": 6.449,
+    "max_over_base": 1.779,
+    "max_rss_kib_after_skip": 32912,
+    "pass": false,
+    "peak_rss_kib": 32944,
+    "ratio_ok": false,
+    "rss_kib_at": {
+      "0": 9872,
+      "100": 18496,
+      "1000": 32944,
+      "500": 30128
+    },
+    "rss_kib_at_skip": 18496,
+    "slope_kib_per_step": 15.244,
+    "slope_ok": false,
+    "steps_reached": 1001,
+    "thresholds": {
+      "max_over_base_max": 1.25,
+      "skip_steps": 100,
+      "slope_kib_per_step_max": 2.0
+    },
+    "window_samples": 22
+  },
+  "runs": [
+    {
+      "kind": "m5.socket.rss_after_step_100",
+      "max": 32.172,
+      "median": 29.984,
+      "min": 18.063,
+      "n": 24,
+      "unit": "MiB",
+      "values": []
+    }
+  ],
+  "samples": [
+    [
+      0,
+      0,
+      9872
+    ],
+    [
+      1012,
+      70,
+      14784
+    ],
+    [
+      2015,
+      124,
+      18496
+    ],
+    [
+      3026,
+      173,
+      20592
+    ],
+    [
+      4038,
+      220,
+      21536
+    ],
+    [
+      5049,
+      260,
+      23536
+    ],
+    [
+      6055,
+      302,
+      24176
+    ],
+    [
+      7065,
+      338,
+      26048
+    ],
+    [
+      8073,
+      375,
+      26864
+    ],
+    [
+      9082,
+      407,
+      28128
+    ],
+    [
+      10094,
+      440,
+      28528
+    ],
+    [
+      11099,
+      476,
+      30048
+    ],
+    [
+      12105,
+      536,
+      30128
+    ],
+    [
+      13116,
+      587,
+      30640
+    ],
+    [
+      14128,
+      634,
+      30800
+    ],
+    [
+      15140,
+      677,
+      30768
+    ],
+    [
+      16147,
+      716,
+      31456
+    ],
+    [
+      17149,
+      754,
+      31504
+    ],
+    [
+      18162,
+      790,
+      31888
+    ],
+    [
+      19174,
+      825,
+      32384
+    ],
+    [
+      20183,
+      856,
+      32352
+    ],
+    [
+      21196,
+      889,
+      32352
+    ],
+    [
+      22208,
+      939,
+      32864
+    ],
+    [
+      23221,
+      992,
+      32912
+    ],
+    [
+      24236,
+      1001,
+      32944
+    ],
+    [
+      24244,
+      1001,
+      32944
+    ]
+  ],
+  "samples_format": "[t_ms since input, step (turn requests seen), rss_kib]",
+  "session": {
+    "body": "target/test-homes/wp16/bin/init-body",
+    "events": {
+      "compaction": 2,
+      "error": 0,
+      "mask": 8,
+      "tool_result": 1000,
+      "total": 4015
+    },
+    "first_errors": [],
+    "mock": "target/test-homes/wp16/bin/init-mockllm",
+    "mock_compaction_requests": 2,
+    "mock_exhausted": 0,
+    "mock_protocol_errors": 0,
+    "mock_turn_requests": 1001,
+    "output_bytes": 2048,
+    "read_every": 100,
+    "ready_ms": 51,
+    "run_s": 23.404,
+    "sample_ms": 1000,
+    "samples": 26,
+    "seed": 7,
+    "session_log_bytes": 4431628,
+    "steps": 1000,
+    "stop_exit": "Ok(Some(0))"
+  },
+  "taken_at": "2026-10-20T00:21:06.071Z",
+  "toolchain": {
+    "cargo": "cargo 1.97.1 (c980f4866 2026-06-30)",
+    "rustc": "rustc 1.97.1 (8bab26f4f 2026-07-14); binary: rustc; commit-hash: 8bab26f4f68e0e26f0bb7960be334d5b520ea452; commit-date: 2026-07-14; host: aarch64-apple-darwin; release: 1.97.1; LLVM version: 22.1.6"
+  }
+}

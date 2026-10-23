@@ -1,0 +1,540 @@
+event: response.created
+data: {"response":{"id":"resp_x5","model":"gpt-x5","object":"response","output":[],"status":"in_progress"},"sequence_number":0,"type":"response.created"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"msg_x5","role":"assistant","status":"in_progress","type":"message"},"output_index":0,"sequence_number":1,"type":"response.output_item.added"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"Working on it.","item_id":"msg_x5","output_index":0,"sequence_number":2,"type":"response.output_text.delta"}
+
+event: response.output_item.done
+data: {"item":{"content":[{"annotations":[],"text":"Working on it.","type":"output_text"}],"id":"msg_x5","role":"assistant","status":"completed","type":"message"},"output_index":0,"sequence_number":3,"type":"response.output_item.done"}
+
+event: response.output_item.added
+data: {"item":{"arguments":"","call_id":"call_x5_0","id":"fc_x5_0","name":"ext","status":"in_progress","type":"function_call"},"output_index":1,"sequence_number":4,"type":"response.output_item.added"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"{\"","item_id":"fc_x5_0","output_index":1,"sequence_number":5,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"nam","item_id":"fc_x5_0","output_index":1,"sequence_number":6,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"e\":\"","item_id":"fc_x5_0","output_index":1,"sequence_number":7,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"se","item_id":"fc_x5_0","output_index":1,"sequence_number":8,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"mve","item_id":"fc_x5_0","output_index":1,"sequence_number":9,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"r-so","item_id":"fc_x5_0","output_index":1,"sequence_number":10,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"rt","item_id":"fc_x5_0","output_index":1,"sequence_number":11,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\",\"","item_id":"fc_x5_0","output_index":1,"sequence_number":12,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"inpu","item_id":"fc_x5_0","output_index":1,"sequence_number":13,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"t\"","item_id":"fc_x5_0","output_index":1,"sequence_number":14,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":":{\"","item_id":"fc_x5_0","output_index":1,"sequence_number":15,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"list","item_id":"fc_x5_0","output_index":1,"sequence_number":16,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\":","item_id":"fc_x5_0","output_index":1,"sequence_number":17,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"[\"1","item_id":"fc_x5_0","output_index":1,"sequence_number":18,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":".2.0","item_id":"fc_x5_0","output_index":1,"sequence_number":19,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\",","item_id":"fc_x5_0","output_index":1,"sequence_number":20,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\"1.","item_id":"fc_x5_0","output_index":1,"sequence_number":21,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"10.0","item_id":"fc_x5_0","output_index":1,"sequence_number":22,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\"]","item_id":"fc_x5_0","output_index":1,"sequence_number":23,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":",\"n","item_id":"fc_x5_0","output_index":1,"sequence_number":24,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ote\"","item_id":"fc_x5_0","output_index":1,"sequence_number":25,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":":\"","item_id":"fc_x5_0","output_index":1,"sequence_number":26,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ARG","item_id":"fc_x5_0","output_index":1,"sequence_number":27,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"TEXT","item_id":"fc_x5_0","output_index":1,"sequence_number":28,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"-e","item_id":"fc_x5_0","output_index":1,"sequence_number":29,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"xt-","item_id":"fc_x5_0","output_index":1,"sequence_number":30,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"7f3a","item_id":"fc_x5_0","output_index":1,"sequence_number":31,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\"}","item_id":"fc_x5_0","output_index":1,"sequence_number":32,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"}","item_id":"fc_x5_0","output_index":1,"sequence_number":33,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.done
+data: {"arguments":"{\"name\":\"semver-sort\",\"input\":{\"list\":[\"1.2.0\",\"1.10.0\"],\"note\":\"ARGTEXT-ext-7f3a\"}}","item_id":"fc_x5_0","output_index":1,"sequence_number":34,"type":"response.function_call_arguments.done"}
+
+event: response.output_item.done
+data: {"item":{"arguments":"{\"name\":\"semver-sort\",\"input\":{\"list\":[\"1.2.0\",\"1.10.0\"],\"note\":\"ARGTEXT-ext-7f3a\"}}","call_id":"call_x5_0","id":"fc_x5_0","name":"ext","status":"completed","type":"function_call"},"output_index":1,"sequence_number":35,"type":"response.output_item.done"}
+
+event: response.output_item.added
+data: {"item":{"arguments":"","call_id":"call_x5_1","id":"fc_x5_1","name":"read","status":"in_progress","type":"function_call"},"output_index":2,"sequence_number":36,"type":"response.output_item.added"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"{\"","item_id":"fc_x5_1","output_index":2,"sequence_number":37,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"pat","item_id":"fc_x5_1","output_index":2,"sequence_number":38,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"h\":\"","item_id":"fc_x5_1","output_index":2,"sequence_number":39,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"/t","item_id":"fc_x5_1","output_index":2,"sequence_number":40,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"mp/","item_id":"fc_x5_1","output_index":2,"sequence_number":41,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"init","item_id":"fc_x5_1","output_index":2,"sequence_number":42,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"-h","item_id":"fc_x5_1","output_index":2,"sequence_number":43,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ome","item_id":"fc_x5_1","output_index":2,"sequence_number":44,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"/bod","item_id":"fc_x5_1","output_index":2,"sequence_number":45,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"y/","item_id":"fc_x5_1","output_index":2,"sequence_number":46,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ski","item_id":"fc_x5_1","output_index":2,"sequence_number":47,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"lls/","item_id":"fc_x5_1","output_index":2,"sequence_number":48,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"re","item_id":"fc_x5_1","output_index":2,"sequence_number":49,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"lea","item_id":"fc_x5_1","output_index":2,"sequence_number":50,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"se-n","item_id":"fc_x5_1","output_index":2,"sequence_number":51,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ot","item_id":"fc_x5_1","output_index":2,"sequence_number":52,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"es/","item_id":"fc_x5_1","output_index":2,"sequence_number":53,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"SKIL","item_id":"fc_x5_1","output_index":2,"sequence_number":54,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"L.","item_id":"fc_x5_1","output_index":2,"sequence_number":55,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"md\"","item_id":"fc_x5_1","output_index":2,"sequence_number":56,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"}","item_id":"fc_x5_1","output_index":2,"sequence_number":57,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.done
+data: {"arguments":"{\"path\":\"/tmp/init-home/body/skills/release-notes/SKILL.md\"}","item_id":"fc_x5_1","output_index":2,"sequence_number":58,"type":"response.function_call_arguments.done"}
+
+event: response.output_item.done
+data: {"item":{"arguments":"{\"path\":\"/tmp/init-home/body/skills/release-notes/SKILL.md\"}","call_id":"call_x5_1","id":"fc_x5_1","name":"read","status":"completed","type":"function_call"},"output_index":2,"sequence_number":59,"type":"response.output_item.done"}
+
+event: response.output_item.added
+data: {"item":{"arguments":"","call_id":"call_x5_2","id":"fc_x5_2","name":"bash","status":"in_progress","type":"function_call"},"output_index":3,"sequence_number":60,"type":"response.output_item.added"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"{\"","item_id":"fc_x5_2","output_index":3,"sequence_number":61,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"com","item_id":"fc_x5_2","output_index":3,"sequence_number":62,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"mand","item_id":"fc_x5_2","output_index":3,"sequence_number":63,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\":","item_id":"fc_x5_2","output_index":3,"sequence_number":64,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\"ca","item_id":"fc_x5_2","output_index":3,"sequence_number":65,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"t ag","item_id":"fc_x5_2","output_index":3,"sequence_number":66,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"en","item_id":"fc_x5_2","output_index":3,"sequence_number":67,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ts/","item_id":"fc_x5_2","output_index":3,"sequence_number":68,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"revi","item_id":"fc_x5_2","output_index":3,"sequence_number":69,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ew","item_id":"fc_x5_2","output_index":3,"sequence_number":70,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"er/","item_id":"fc_x5_2","output_index":3,"sequence_number":71,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"AGEN","item_id":"fc_x5_2","output_index":3,"sequence_number":72,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"T.","item_id":"fc_x5_2","output_index":3,"sequence_number":73,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"md ","item_id":"fc_x5_2","output_index":3,"sequence_number":74,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"&& l","item_id":"fc_x5_2","output_index":3,"sequence_number":75,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"s ","item_id":"fc_x5_2","output_index":3,"sequence_number":76,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ski","item_id":"fc_x5_2","output_index":3,"sequence_number":77,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"lls/","item_id":"fc_x5_2","output_index":3,"sequence_number":78,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"re","item_id":"fc_x5_2","output_index":3,"sequence_number":79,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"lea","item_id":"fc_x5_2","output_index":3,"sequence_number":80,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"se-n","item_id":"fc_x5_2","output_index":3,"sequence_number":81,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ot","item_id":"fc_x5_2","output_index":3,"sequence_number":82,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"es/","item_id":"fc_x5_2","output_index":3,"sequence_number":83,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":" && ","item_id":"fc_x5_2","output_index":3,"sequence_number":84,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ec","item_id":"fc_x5_2","output_index":3,"sequence_number":85,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ho ","item_id":"fc_x5_2","output_index":3,"sequence_number":86,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ARGT","item_id":"fc_x5_2","output_index":3,"sequence_number":87,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"EX","item_id":"fc_x5_2","output_index":3,"sequence_number":88,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"T-b","item_id":"fc_x5_2","output_index":3,"sequence_number":89,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ash-","item_id":"fc_x5_2","output_index":3,"sequence_number":90,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"91","item_id":"fc_x5_2","output_index":3,"sequence_number":91,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"c2 ","item_id":"fc_x5_2","output_index":3,"sequence_number":92,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"skil","item_id":"fc_x5_2","output_index":3,"sequence_number":93,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ls","item_id":"fc_x5_2","output_index":3,"sequence_number":94,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"/x\"","item_id":"fc_x5_2","output_index":3,"sequence_number":95,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":",\"ti","item_id":"fc_x5_2","output_index":3,"sequence_number":96,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"me","item_id":"fc_x5_2","output_index":3,"sequence_number":97,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"out","item_id":"fc_x5_2","output_index":3,"sequence_number":98,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\":30","item_id":"fc_x5_2","output_index":3,"sequence_number":99,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"}","item_id":"fc_x5_2","output_index":3,"sequence_number":100,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.done
+data: {"arguments":"{\"command\":\"cat agents/reviewer/AGENT.md && ls skills/release-notes/ && echo ARGTEXT-bash-91c2 skills/x\",\"timeout\":30}","item_id":"fc_x5_2","output_index":3,"sequence_number":101,"type":"response.function_call_arguments.done"}
+
+event: response.output_item.done
+data: {"item":{"arguments":"{\"command\":\"cat agents/reviewer/AGENT.md && ls skills/release-notes/ && echo ARGTEXT-bash-91c2 skills/x\",\"timeout\":30}","call_id":"call_x5_2","id":"fc_x5_2","name":"bash","status":"completed","type":"function_call"},"output_index":3,"sequence_number":102,"type":"response.output_item.done"}
+
+event: response.output_item.added
+data: {"item":{"arguments":"","call_id":"call_x5_3","id":"fc_x5_3","name":"write","status":"in_progress","type":"function_call"},"output_index":4,"sequence_number":103,"type":"response.output_item.added"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"{\"","item_id":"fc_x5_3","output_index":4,"sequence_number":104,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"con","item_id":"fc_x5_3","output_index":4,"sequence_number":105,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"tent","item_id":"fc_x5_3","output_index":4,"sequence_number":106,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\":","item_id":"fc_x5_3","output_index":4,"sequence_number":107,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\"# ","item_id":"fc_x5_3","output_index":4,"sequence_number":108,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"Note","item_id":"fc_x5_3","output_index":4,"sequence_number":109,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"s\\","item_id":"fc_x5_3","output_index":4,"sequence_number":110,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"nse","item_id":"fc_x5_3","output_index":4,"sequence_number":111,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"e sk","item_id":"fc_x5_3","output_index":4,"sequence_number":112,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"il","item_id":"fc_x5_3","output_index":4,"sequence_number":113,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ls/","item_id":"fc_x5_3","output_index":4,"sequence_number":114,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"fake","item_id":"fc_x5_3","output_index":4,"sequence_number":115,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"-i","item_id":"fc_x5_3","output_index":4,"sequence_number":116,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"n-c","item_id":"fc_x5_3","output_index":4,"sequence_number":117,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"onte","item_id":"fc_x5_3","output_index":4,"sequence_number":118,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"nt","item_id":"fc_x5_3","output_index":4,"sequence_number":119,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"/ A","item_id":"fc_x5_3","output_index":4,"sequence_number":120,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"RGTE","item_id":"fc_x5_3","output_index":4,"sequence_number":121,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"XT","item_id":"fc_x5_3","output_index":4,"sequence_number":122,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"-wr","item_id":"fc_x5_3","output_index":4,"sequence_number":123,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ite-","item_id":"fc_x5_3","output_index":4,"sequence_number":124,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"c0","item_id":"fc_x5_3","output_index":4,"sequence_number":125,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"de\\","item_id":"fc_x5_3","output_index":4,"sequence_number":126,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"n\",\"","item_id":"fc_x5_3","output_index":4,"sequence_number":127,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"pa","item_id":"fc_x5_3","output_index":4,"sequence_number":128,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"th\"","item_id":"fc_x5_3","output_index":4,"sequence_number":129,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":":\"no","item_id":"fc_x5_3","output_index":4,"sequence_number":130,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"te","item_id":"fc_x5_3","output_index":4,"sequence_number":131,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"s/o","item_id":"fc_x5_3","output_index":4,"sequence_number":132,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ut.m","item_id":"fc_x5_3","output_index":4,"sequence_number":133,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"d\"","item_id":"fc_x5_3","output_index":4,"sequence_number":134,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"}","item_id":"fc_x5_3","output_index":4,"sequence_number":135,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.done
+data: {"arguments":"{\"content\":\"# Notes\\nsee skills/fake-in-content/ ARGTEXT-write-c0de\\n\",\"path\":\"notes/out.md\"}","item_id":"fc_x5_3","output_index":4,"sequence_number":136,"type":"response.function_call_arguments.done"}
+
+event: response.output_item.done
+data: {"item":{"arguments":"{\"content\":\"# Notes\\nsee skills/fake-in-content/ ARGTEXT-write-c0de\\n\",\"path\":\"notes/out.md\"}","call_id":"call_x5_3","id":"fc_x5_3","name":"write","status":"completed","type":"function_call"},"output_index":4,"sequence_number":137,"type":"response.output_item.done"}
+
+event: response.output_item.added
+data: {"item":{"arguments":"","call_id":"call_x5_4","id":"fc_x5_4","name":"edit","status":"in_progress","type":"function_call"},"output_index":5,"sequence_number":138,"type":"response.output_item.added"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"{\"","item_id":"fc_x5_4","output_index":5,"sequence_number":139,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"edi","item_id":"fc_x5_4","output_index":5,"sequence_number":140,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ts\":","item_id":"fc_x5_4","output_index":5,"sequence_number":141,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"[{","item_id":"fc_x5_4","output_index":5,"sequence_number":142,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\"ne","item_id":"fc_x5_4","output_index":5,"sequence_number":143,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"w_te","item_id":"fc_x5_4","output_index":5,"sequence_number":144,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"xt","item_id":"fc_x5_4","output_index":5,"sequence_number":145,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\":\"","item_id":"fc_x5_4","output_index":5,"sequence_number":146,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ARGT","item_id":"fc_x5_4","output_index":5,"sequence_number":147,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"EX","item_id":"fc_x5_4","output_index":5,"sequence_number":148,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"T-e","item_id":"fc_x5_4","output_index":5,"sequence_number":149,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"dit-","item_id":"fc_x5_4","output_index":5,"sequence_number":150,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ne","item_id":"fc_x5_4","output_index":5,"sequence_number":151,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"w\",","item_id":"fc_x5_4","output_index":5,"sequence_number":152,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\"old","item_id":"fc_x5_4","output_index":5,"sequence_number":153,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"_t","item_id":"fc_x5_4","output_index":5,"sequence_number":154,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ext","item_id":"fc_x5_4","output_index":5,"sequence_number":155,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\":\"A","item_id":"fc_x5_4","output_index":5,"sequence_number":156,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"RG","item_id":"fc_x5_4","output_index":5,"sequence_number":157,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"TEX","item_id":"fc_x5_4","output_index":5,"sequence_number":158,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"T-ed","item_id":"fc_x5_4","output_index":5,"sequence_number":159,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"it","item_id":"fc_x5_4","output_index":5,"sequence_number":160,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"-ol","item_id":"fc_x5_4","output_index":5,"sequence_number":161,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"d\"}]","item_id":"fc_x5_4","output_index":5,"sequence_number":162,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":",\"","item_id":"fc_x5_4","output_index":5,"sequence_number":163,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"pat","item_id":"fc_x5_4","output_index":5,"sequence_number":164,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"h\":\"","item_id":"fc_x5_4","output_index":5,"sequence_number":165,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"sk","item_id":"fc_x5_4","output_index":5,"sequence_number":166,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ill","item_id":"fc_x5_4","output_index":5,"sequence_number":167,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"s/re","item_id":"fc_x5_4","output_index":5,"sequence_number":168,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"le","item_id":"fc_x5_4","output_index":5,"sequence_number":169,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ase","item_id":"fc_x5_4","output_index":5,"sequence_number":170,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"-not","item_id":"fc_x5_4","output_index":5,"sequence_number":171,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"es","item_id":"fc_x5_4","output_index":5,"sequence_number":172,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"/SK","item_id":"fc_x5_4","output_index":5,"sequence_number":173,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"ILL.","item_id":"fc_x5_4","output_index":5,"sequence_number":174,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"md","item_id":"fc_x5_4","output_index":5,"sequence_number":175,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"\"}","item_id":"fc_x5_4","output_index":5,"sequence_number":176,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.done
+data: {"arguments":"{\"edits\":[{\"new_text\":\"ARGTEXT-edit-new\",\"old_text\":\"ARGTEXT-edit-old\"}],\"path\":\"skills/release-notes/SKILL.md\"}","item_id":"fc_x5_4","output_index":5,"sequence_number":177,"type":"response.function_call_arguments.done"}
+
+event: response.output_item.done
+data: {"item":{"arguments":"{\"edits\":[{\"new_text\":\"ARGTEXT-edit-new\",\"old_text\":\"ARGTEXT-edit-old\"}],\"path\":\"skills/release-notes/SKILL.md\"}","call_id":"call_x5_4","id":"fc_x5_4","name":"edit","status":"completed","type":"function_call"},"output_index":5,"sequence_number":178,"type":"response.output_item.done"}
+
+event: response.completed
+data: {"response":{"id":"resp_x5","model":"gpt-x5","object":"response","output":[{"content":[{"annotations":[],"text":"Working on it.","type":"output_text"}],"id":"msg_x5","role":"assistant","status":"completed","type":"message"},{"arguments":"{\"name\":\"semver-sort\",\"input\":{\"list\":[\"1.2.0\",\"1.10.0\"],\"note\":\"ARGTEXT-ext-7f3a\"}}","call_id":"call_x5_0","id":"fc_x5_0","name":"ext","status":"completed","type":"function_call"},{"arguments":"{\"path\":\"/tmp/init-home/body/skills/release-notes/SKILL.md\"}","call_id":"call_x5_1","id":"fc_x5_1","name":"read","status":"completed","type":"function_call"},{"arguments":"{\"command\":\"cat agents/reviewer/AGENT.md && ls skills/release-notes/ && echo ARGTEXT-bash-91c2 skills/x\",\"timeout\":30}","call_id":"call_x5_2","id":"fc_x5_2","name":"bash","status":"completed","type":"function_call"},{"arguments":"{\"content\":\"# Notes\\nsee skills/fake-in-content/ ARGTEXT-write-c0de\\n\",\"path\":\"notes/out.md\"}","call_id":"call_x5_3","id":"fc_x5_3","name":"write","status":"completed","type":"function_call"},{"arguments":"{\"edits\":[{\"new_text\":\"ARGTEXT-edit-new\",\"old_text\":\"ARGTEXT-edit-old\"}],\"path\":\"skills/release-notes/SKILL.md\"}","call_id":"call_x5_4","id":"fc_x5_4","name":"edit","status":"completed","type":"function_call"}],"status":"completed","usage":{"input_tokens":4300,"input_tokens_details":{"cached_tokens":4000},"output_tokens":120,"total_tokens":4420}},"sequence_number":179,"type":"response.completed"}
+

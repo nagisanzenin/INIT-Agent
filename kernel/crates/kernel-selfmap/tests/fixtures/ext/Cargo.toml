@@ -1,0 +1,21 @@
+# Test fixtures for kernel-selfmap (selfmap.md §8 S-08, S-09, S-12): init:ext@1 tool components.
+# Built by the tests with `cargo build --offline --target wasm32-wasip2` and a target dir outside this
+# directory (the `members = ["*"]` glob would otherwise catch it; build/status/WP0.md).
+[workspace]
+resolver = "3"
+members = ["*"]
+
+[workspace.package]
+edition = "2024"
+
+[workspace.dependencies]
+wit-bindgen = { version = "=0.63.0", default-features = false, features = ["macros", "realloc", "std"] }
+
+[profile.dev]
+opt-level = "s"
+debug = false
+strip = "debuginfo"
+
+[profile.dev.build-override]
+opt-level = 2
+debug = false

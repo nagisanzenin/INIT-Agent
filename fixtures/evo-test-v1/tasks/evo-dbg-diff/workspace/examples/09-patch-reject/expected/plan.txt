@@ -1,0 +1,13 @@
+day 1: arrive
+day 2: museum and gallery
+day 3: old town
+day 4: river cruise
+day 5: market
+day 6: castle
+day 7: hike
+day 8: beach
+day 9: rest
+day 10: vineyard
+day 11: mountain lake
+day 12: cathedral
+day 13: depart

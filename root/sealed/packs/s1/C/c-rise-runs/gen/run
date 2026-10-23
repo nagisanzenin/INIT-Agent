@@ -1,0 +1,94 @@
+#!/usr/bin/env python3
+"""c-rise-runs: CRUXEval sample_223 with a ret_extra change (family C, operator ret_extra; see C/_lib/s1c.py).
+
+The function walks the array, adding a run counter `i` to `count` on rising steps that stay at or below
+`target`, resetting `i` on non-rising steps and growing it on rising steps above `target`. The seeded change
+makes it also return an extra statistic of those additions.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(array, target):
+    count, i = 0, 1
+    for j in range(1, len(array)):
+        if ((array[j] > array[j-1]) and (array[j] <= target)): count += i
+        elif array[j] <= array[j-1]: i = 1
+        else: i += 1
+    return count
+'''
+
+HELPER = '''def rises(prev, cur):
+    return cur > prev
+'''
+
+CORE = '''from .__HELPER__ import rises
+
+
+def __FN__(array, target):
+    count, i = 0, 1
+    for j in range(1, len(array)):
+        if rises(array[j-1], array[j]) and (array[j] <= target): count += i
+        elif not rises(array[j-1], array[j]): i = 1
+        else: i += 1
+    return count
+'''
+
+ADD = "        if rises(array[j-1], array[j]) and (array[j] <= target): count += i\n"
+CRUX_INPUT = ([1, 2, -1, 4], 2)
+
+EXTRAS = {
+    "largest": ("the largest amount added to `count` in a single step, or `0` when nothing was ever added",
+                "best", "0", "best = max(best, i)"),
+    "steps": ("the number of steps that added to `count`", "steps", "0", "steps += 1"),
+    "last": ("the index `j` (position in `array`) of the last step that added to `count`, or `-1` when no step "
+             "added to it", "last", "-1", "last = j"),
+}
+
+TWISTS = [
+    ("Finally, the function must return the pair's elements swapped: `(extra, count)`.", "(r[1], r[0])"),
+    ("Finally, the first element of the returned pair must be `count + 100` instead of `count`.",
+     "(r[0] + 100, r[1])"),
+]
+
+
+def variant(rng):
+    kind = rng.choice(sorted(EXTRAS))
+    desc, var, init, upd = EXTRAS[kind]
+    core = (CORE.replace("    count, i = 0, 1\n", "    count, i = 0, 1\n    %s = %s\n" % (var, init))
+            .replace(ADD, "        if rises(array[j-1], array[j]) and (array[j] <= target):\n"
+                          "            count += i\n            %s\n" % upd)
+            .replace("    return count\n", "    return count, %s\n" % var))
+    change = ("The function must now return a pair `(count, extra)` (a tuple) instead of `count` alone: `count` "
+              "is the value it returns today, unchanged, and `extra` is %s." % desc)
+    return {"change": change, "core": core, "state": kind,
+            "hint": "track the extra value at the place where `count` grows."}
+
+
+def inputs(rng, state):
+    out = [CRUX_INPUT]
+    for _ in range(300):
+        if rng.below(6) == 0:
+            xs = s1c.mutate_ints(rng, CRUX_INPUT[0], -3, 9)
+            t = rng.randint(-1, 8)
+        else:
+            xs = s1c.rand_ints(rng, 0, 15, 2, 12)
+            if rng.chance(1, 2):   # longer rising runs
+                xs = sorted(xs[: len(xs) // 2]) + xs[len(xs) // 2:]
+            t = rng.randint(0, 15)
+        out.append((xs, t))
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="ret_extra", original=ORIGINAL,
+                    fn_choices=["rise_score", "climb_total", "run_credit", "ascent_count"],
+                    params="array, target", doc="scores the rising runs of a number sequence.", core=CORE,
+                    helper=HELPER, variant=variant, inputs=inputs, twists=TWISTS)
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

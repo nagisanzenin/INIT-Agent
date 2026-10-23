@@ -1,0 +1,13 @@
+[package]
+name = "initctl"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# std + init-proto only: no async runtime, no network crates (CONVENTIONS.md §2).
+[dependencies]
+init-proto.workspace = true
+
+# K-FLAKE: the bounded test watchdog (init_testkit::watchdog) for the process-spawning tests.
+[dev-dependencies]
+init-testkit = { path = "../init-testkit" }

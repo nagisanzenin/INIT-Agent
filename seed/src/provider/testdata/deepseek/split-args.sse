@@ -1,0 +1,18 @@
+data: {"id":"s1","object":"chat.completion.chunk","created":1760918400,"model":"deepseek-flash","system_fingerprint":"fp_handmade","choices":[{"index":0,"delta":{"role":"assistant","content":null,"reasoning_content":""},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"s1","object":"chat.completion.chunk","created":1760918400,"model":"deepseek-flash","system_fingerprint":"fp_handmade","choices":[{"index":0,"delta":{"content":null,"reasoning_content":"Read both files."},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"s1","object":"chat.completion.chunk","created":1760918400,"model":"deepseek-flash","system_fingerprint":"fp_handmade","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_00_hAnDmAdE0","type":"function","function":{"name":"read","arguments":""}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"s1","object":"chat.completion.chunk","created":1760918400,"model":"deepseek-flash","system_fingerprint":"fp_handmade","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"id":"call_01_hAnDmAdE1","type":"function","function":{"name":"read","arguments":"{\"pa"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"s1","object":"chat.completion.chunk","created":1760918400,"model":"deepseek-flash","system_fingerprint":"fp_handmade","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"{\"path\":"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"s1","object":"chat.completion.chunk","created":1760918400,"model":"deepseek-flash","system_fingerprint":"fp_handmade","choices":[{"index":0,"delta":{"tool_calls":[{"index":1,"function":{"arguments":"th\":\"b.rs\"}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"s1","object":"chat.completion.chunk","created":1760918400,"model":"deepseek-flash","system_fingerprint":"fp_handmade","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\"a.rs\"}"}}]},"logprobs":null,"finish_reason":null}]}
+
+data: {"id":"s1","object":"chat.completion.chunk","created":1760918400,"model":"deepseek-flash","system_fingerprint":"fp_handmade","choices":[{"index":0,"delta":{"content":""},"logprobs":null,"finish_reason":"tool_calls"}],"usage":{"prompt_tokens":20,"completion_tokens":30,"total_tokens":50,"prompt_tokens_details":{"cached_tokens":0},"completion_tokens_details":{"reasoning_tokens":3},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":20}}
+
+data: [DONE]
+

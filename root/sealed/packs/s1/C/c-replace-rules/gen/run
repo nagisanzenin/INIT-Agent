@@ -1,0 +1,101 @@
+#!/usr/bin/env python3
+"""c-replace-rules: CRUXEval sample_399 with a const change (family C, operator const; see C/_lib/s1c.py).
+
+The function replaces a short pattern: once with an expanded replacement when the text has no space, else
+repeatedly. The seeded change alters two of three constants: the pattern length limit (3), the blocking
+character (space) and the expansion factor (len(old)).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(text, old, new):
+    if len(old) > 3:
+        return text
+    if old in text and ' ' not in text:
+        return text.replace(old, new*len(old))
+    while old in text:
+        text = text.replace(old, new)
+    return text
+'''
+
+HELPER = '''MAX_PATTERN = 3
+BLOCKER = ' '
+
+
+def expand(piece, times):
+    return piece * times
+'''
+
+CORE = '''from .__HELPER__ import BLOCKER, MAX_PATTERN, expand
+
+
+def __FN__(text, old, new):
+    if len(old) > MAX_PATTERN:
+        return text
+    if old in text and BLOCKER not in text:
+        return text.replace(old, expand(new, len(old)))
+    while old in text:
+        text = text.replace(old, new)
+    return text
+'''
+
+CRUX_INPUT = ("avacado", "va", "-")
+
+
+def variant(rng):
+    slots = rng.sample(["limit", "blocker", "factor"], 2)
+    helper, core, lines, state = HELPER, CORE, [], {"blocker": " "}
+    if "limit" in slots:
+        k = rng.choice([1, 2, 4, 5])
+        helper = helper.replace("MAX_PATTERN = 3", "MAX_PATTERN = %d" % k)
+        lines.append("- When `old` is longer than %d character%s, the function must return `text` unchanged "
+                     "(today the limit is 3 characters)." % (k, "" if k == 1 else "s"))
+    if "blocker" in slots:
+        c = rng.choice([",", "-", ".", "_"])
+        helper = helper.replace("BLOCKER = ' '", "BLOCKER = %r" % c)
+        state["blocker"] = c
+        lines.append("- The single-pass expanded replacement must now be used when `old` occurs in `text` and `text` "
+                     "contains no `%s` character (today: no space). Otherwise the repeated replacement runs, as "
+                     "now." % c)
+    if "factor" in slots:
+        core = core.replace("expand(new, len(old))", "expand(new, len(old) + 1)")
+        lines.append("- In the single-pass expanded replacement, each occurrence of `old` must now become `new` "
+                     "repeated `len(old) + 1` times (today: `len(old)` times).")
+    return {"change": "Make these changes:\n" + "\n".join(lines), "core": core, "helper": helper, "state": state,
+            "hint": "the constants live in the helper module."}
+
+
+def inputs(rng, state):
+    out = [CRUX_INPUT]
+    c = state["blocker"]
+    for _ in range(900):
+        if rng.below(6) == 0:
+            text = s1c.mutate_str(rng, CRUX_INPUT[0], "acdov")
+        else:
+            text = s1c.rand_str(rng, "aabbc" + rng.choice(["", " ", c, " " + c]), 3, 14)
+        if not text:
+            continue
+        if rng.below(5) == 0:
+            old = s1c.rand_str(rng, "abc", 1, 3)
+        else:
+            a = rng.below(len(text))
+            old = text[a:a + rng.randint(1, 5)]
+        old = old.strip(" " + c) or "a"
+        new = s1c.rand_str(rng, "XYZ", 0, 2)  # '' or disjoint from old: the replacement loop always ends
+        out.append((text, old, new))
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="const", original=ORIGINAL,
+                    fn_choices=["swap_pattern", "replace_short", "rewrite_text", "patch_text"],
+                    params="text, old, new", doc="rewrites short patterns inside a text.", core=CORE,
+                    helper=HELPER, variant=variant, inputs=inputs, kind="str", n_candidates=700)
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

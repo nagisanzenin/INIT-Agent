@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://init.local/schemas/kernel-self-v2.json",
+  "type": "object", "additionalProperties": false,
+  "required": ["self_v", "generator", "kernel", "warnings"],
+  "properties": {
+    "self_v": {"const": 2},
+    "generator": {"$ref": "self-v2.json#/properties/generator"},
+    "kernel": {"$ref": "self-v2.json#/$defs/kernel_tree"},
+    "warnings": {"type": "array", "items": {"type": "string"}}
+  }
+}

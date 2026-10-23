@@ -1,0 +1,28 @@
+{
+ "check": {
+  "argv": [
+   "check/run"
+  ],
+  "timeout_s": 30
+ },
+ "created": "2026-10-20T00:00:00Z",
+ "id": "sx-squares",
+ "labels": [
+  "standin"
+ ],
+ "limits": {
+  "max_cost_musd": 200000,
+  "wall_s": 60
+ },
+ "prompt": "Write squares.txt with the squares of 1 to 10, one per line. (ref SX-41c7e0)",
+ "source": {
+  "kind": "maintainer"
+ },
+ "title": "sx-squares",
+ "v": 2,
+ "workspace": {
+  "bytes": 0,
+  "file": "workspace.tar",
+  "sha256": ""
+ }
+}

@@ -1,0 +1,171 @@
+{
+ "bugs": [
+  {
+   "id": "term-assoc",
+   "visible": true,
+   "what": "parser: the right operand of + and - is parsed as a whole term, making them right-associative",
+   "edits": [
+    [
+     "kite/parser.py",
+     "    def term(self):\n        left = self.factor()\n        while self.peek().kind in TERM_OPS:\n            tok = self.advance()\n            right = self.term()\n",
+     "    def term(self):\n        left = self.factor()\n        while self.peek().kind in TERM_OPS:\n            tok = self.advance()\n            right = self.factor()\n"
+    ]
+   ]
+  },
+  {
+   "id": "for-continue-target",
+   "visible": true,
+   "what": "compiler: continue in a for loop jumps to the condition, skipping the step (endless loop)",
+   "edits": [
+    [
+     "kite/compiler.py",
+     "            to_exit = self.emit(\"JUMP_IF_FALSE\", None, node.line)\n        loop = Loop(start)\n",
+     "            to_exit = self.emit(\"JUMP_IF_FALSE\", None, node.line)\n        loop = Loop(None)\n"
+    ]
+   ]
+  },
+  {
+   "id": "or-drops-value",
+   "visible": true,
+   "what": "vm: JUMP_IF_TRUE_OR_POP pops the value it should keep when it jumps (masked by for-continue-target in examples/loops.kite)",
+   "edits": [
+    [
+     "kite/vm.py",
+     "                elif op == \"JUMP_IF_TRUE_OR_POP\":\n                    if truthy(stack.pop()):\n                        ip = arg\n",
+     "                elif op == \"JUMP_IF_TRUE_OR_POP\":\n                    if truthy(stack[-1]):\n                        ip = arg\n                    else:\n                        stack.pop()\n"
+    ]
+   ]
+  },
+  {
+   "id": "floor-division",
+   "visible": false,
+   "what": "values: / and % use Python floor semantics instead of truncation toward zero",
+   "edits": [
+    [
+     "kite/values.py",
+     "        raise KiteRuntimeError(\"division by zero\")\n    return a // b\n",
+     "        raise KiteRuntimeError(\"division by zero\")\n    q = abs(a) // abs(b)\n    return q if (a < 0) == (b < 0) else -q\n"
+    ],
+    [
+     "kite/values.py",
+     "        raise KiteRuntimeError(\"division by zero\")\n    return a % b\n",
+     "        raise KiteRuntimeError(\"division by zero\")\n    return a - b * int_div(a, b)\n"
+    ]
+   ]
+  },
+  {
+   "id": "cell-per-frame",
+   "visible": false,
+   "what": "compiler: cells of captured locals are made once per call and declarations store into them, so a let/fn run again (loop) reuses the variable",
+   "edits": [
+    [
+     "kite/compiler.py",
+     "            self.emit(\"MAKE_CELL\", slot, line)\n        for slot in self.info.captured_locals():\n            self.emit(\"NIL\", None, line)\n            self.emit(\"MAKE_CELL\", slot, line)\n        for s in stmts:\n",
+     "            self.emit(\"MAKE_CELL\", slot, line)\n        for s in stmts:\n"
+    ],
+    [
+     "kite/compiler.py",
+     "        elif var.captured:\n            self.emit(\"STORE_CELL\", var.slot, line)\n            self.emit(\"POP\", None, line)\n",
+     "        elif var.captured:\n            self.emit(\"MAKE_CELL\", var.slot, line)\n"
+    ],
+    [
+     "kite/compiler.py",
+     "        elif t is N.FnDecl:\n            self.function(node.function)\n            self.define(node.var, node.name, node.line)\n",
+     "        elif t is N.FnDecl:\n            var = node.var\n            if var is not None and var.captured:\n                self.emit(\"NIL\", None, node.line)\n                self.emit(\"MAKE_CELL\", var.slot, node.line)\n                self.function(node.function)\n                self.emit(\"STORE_CELL\", var.slot, node.line)\n                self.emit(\"POP\", None, node.line)\n            else:\n                self.function(node.function)\n                self.define(var, node.name, node.line)\n"
+    ]
+   ]
+  },
+  {
+   "id": "capture-kind-early",
+   "visible": false,
+   "what": "resolver fixes LOAD_LOCAL vs LOAD_CELL when it meets a name, before later closures mark the variable captured",
+   "edits": [
+    [
+     "kite/scope.py",
+     "        if var is not None:\n            return (\"cell\" if var.captured else \"local\", var)\n",
+     "        if var is not None:\n            return (\"local\", var)\n"
+    ],
+    [
+     "kite/compiler.py",
+     "        if kind == \"local\":\n            self.emit(\"LOAD_LOCAL\", what.slot, line)\n        elif kind == \"cell\":\n            self.emit(\"LOAD_CELL\", what.slot, line)\n",
+     "        if kind == \"local\":\n            self.emit(\"LOAD_CELL\" if what.captured else \"LOAD_LOCAL\", what.slot, line)\n"
+    ],
+    [
+     "kite/compiler.py",
+     "        if kind == \"local\":\n            self.emit(\"STORE_LOCAL\", what.slot, line)\n        elif kind == \"cell\":\n            self.emit(\"STORE_CELL\", what.slot, line)\n",
+     "        if kind == \"local\":\n            self.emit(\"STORE_CELL\" if what.captured else \"STORE_LOCAL\", what.slot, line)\n"
+    ],
+    [
+     "kite/nodes.py",
+     "set by the resolver: (\"local\", Var) | (\"cell\", Var) | (\"free\", index) | (\"global\", name)",
+     "set by the resolver: (\"local\", Var) | (\"free\", index) | (\"global\", name)"
+    ]
+   ]
+  },
+  {
+   "id": "display-active-kept",
+   "visible": true,
+   "what": "values.show never removes a finished list from the active set, so a list shown twice in one value prints [...] the second time (visible in examples/loops.kite only after for-continue-target and or-drops-value are fixed)",
+   "edits": [
+    [
+     "kite/values.py",
+     "            text = \"{\" + \", \".join(show(k, True, active) + \": \" + show(x, True, active) for k, x in v.items()) + \"}\"\n        return text\n",
+     "            text = \"{\" + \", \".join(show(k, True, active) + \": \" + show(x, True, active) for k, x in v.items()) + \"}\"\n        active.discard(id(v))\n        return text\n"
+    ]
+   ]
+  },
+  {
+   "id": "global-cache-define",
+   "visible": false,
+   "what": "vm: DEFINE_GLOBAL does not bump the globals version, so cached global reads go stale after a top-level redeclaration",
+   "edits": [
+    [
+     "kite/vm.py",
+     "                    globals_[arg] = stack.pop()\n                elif op == \"POP\":\n",
+     "                    globals_[arg] = stack.pop()\n                    version += 1\n                elif op == \"POP\":\n"
+    ]
+   ]
+  },
+  {
+   "id": "free-key-collision",
+   "visible": false,
+   "what": "resolver dedupes free variables by bare slot/index numbers, so a parent local and a grandparent variable can share one free slot (3-level closures)",
+   "edits": [
+    [
+     "kite/scope.py",
+     "            return fs.add_free(var.slot, True, var.slot)\n",
+     "            return fs.add_free((\"local\", var.slot), True, var.slot)\n"
+    ],
+    [
+     "kite/scope.py",
+     "            return fs.add_free(index, False, index)\n",
+     "            return fs.add_free((\"free\", index), False, index)\n"
+    ]
+   ]
+  },
+  {
+   "id": "map-tombstone-stop",
+   "visible": false,
+   "what": "kmap.find treats every negative slot (EMPTY and DELETED) as the end of the probe chain: keys behind a removed key become unreachable, re-storing them duplicates them",
+   "edits": [
+    [
+     "kite/kmap.py",
+     "        mask = len(self.slots) - 1\n        i = key_hash(key) & mask\n        while True:\n            ix = self.slots[i]\n            if ix < 0:\n                return -1, i\n            k = self.entries[ix][0]\n            if type(k) is type(key) and k == key:\n                return i, i\n            i = (i + 1) & mask\n",
+     "        mask = len(self.slots) - 1\n        i = key_hash(key) & mask\n        free = -1\n        while True:\n            ix = self.slots[i]\n            if ix == EMPTY:\n                return -1, (i if free < 0 else free)\n            if ix == DELETED:\n                if free < 0:\n                    free = i\n            else:\n                k = self.entries[ix][0]\n                if type(k) is type(key) and k == key:\n                    return i, i\n            i = (i + 1) & mask\n"
+    ]
+   ]
+  },
+  {
+   "id": "map-resize-stale-index",
+   "visible": false,
+   "what": "kmap.resize indexes entries by their position before removed entries are compacted away: after removals, a growth step makes keys point at the wrong entries",
+   "edits": [
+    [
+     "kite/kmap.py",
+     "    def resize(self):\n        size = MIN_SIZE\n        while size <= self.count * 2:\n            size *= 2\n        mask = size - 1\n        slots = [EMPTY] * size\n        for ix, entry in enumerate(self.entries):\n            if entry is None:\n                continue\n            i = key_hash(entry[0]) & mask\n            while slots[i] != EMPTY:\n                i = (i + 1) & mask\n            slots[i] = ix\n        self.entries = [e for e in self.entries if e is not None]\n        self.slots = slots\n        self.filled = self.count\n",
+     "    def resize(self):\n        live = [e for e in self.entries if e is not None]\n        size = MIN_SIZE\n        while size <= len(live) * 2:\n            size *= 2\n        mask = size - 1\n        slots = [EMPTY] * size\n        for ix, entry in enumerate(live):\n            i = key_hash(entry[0]) & mask\n            while slots[i] != EMPTY:\n                i = (i + 1) & mask\n            slots[i] = ix\n        self.entries = live\n        self.slots = slots\n        self.filled = len(live)\n"
+    ]
+   ]
+  }
+ ]
+}

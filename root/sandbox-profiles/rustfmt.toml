@@ -1,0 +1,3 @@
+# Check tables (one row per line) read better wide; applies to this crate only.
+max_width = 160
+use_small_heuristics = "Max"

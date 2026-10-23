@@ -1,0 +1,122 @@
+[
+ {
+  "expect": "'l \\nl '",
+  "expr": "center_lines('l\\nl', 2)",
+  "name": "center_lines_kept"
+ },
+ {
+  "expect": "'   ab  \\n  cde  '",
+  "expr": "center_lines('ab\\ncde', 7)",
+  "name": "center_lines_kept_wide"
+ },
+ {
+  "expect": "'   ab  \\n  cde  '",
+  "expr": "align_lines('ab\\ncde', 7)",
+  "name": "center_default"
+ },
+ {
+  "expect": "' a  \\n ab '",
+  "expr": "align_lines('a\\nab', 4, 'center')",
+  "name": "center_odd_pad"
+ },
+ {
+  "expect": "'***ab**'",
+  "expr": "align_lines('ab', 7, 'center', '*')",
+  "name": "center_fill"
+ },
+ {
+  "expect": "'one  \\ntwo2 \\n3    '",
+  "expr": "align_lines('one\\ntwo2\\n3', 5, 'left')",
+  "name": "left_basic"
+ },
+ {
+  "expect": "'  one\\n two2\\n    3'",
+  "expr": "align_lines('one\\ntwo2\\n3', 5, 'right')",
+  "name": "right_basic"
+ },
+ {
+  "expect": "'0007\\n0042'",
+  "expr": "align_lines('7\\n42', 4, 'right', '0')",
+  "name": "right_fill"
+ },
+ {
+  "expect": "'abcdefgh\\n  ab'",
+  "expr": "align_lines('abcdefgh\\nab', 4, 'right')",
+  "name": "long_line_kept"
+ },
+ {
+  "expect": "'ab\\n'",
+  "expr": "align_lines('ab\\n', 0, 'left')",
+  "name": "width_zero"
+ },
+ {
+  "expect": "'  a  \\nabcde\\n abc '",
+  "expr": "align_lines('a\\nabcde\\nabc', None)",
+  "name": "width_none_center"
+ },
+ {
+  "expect": "'ab--\\nabcd'",
+  "expr": "align_lines('ab\\nabcd', None, 'left', '-')",
+  "name": "width_none_left"
+ },
+ {
+  "expect": "'  ab\\n  cd'",
+  "expr": "align_lines('ab  \\ncd\\t', 4, 'right')",
+  "name": "trailing_ws_stripped"
+ },
+ {
+  "expect": "' ab\\nabc'",
+  "expr": "align_lines('ab   \\nabc', None, 'right')",
+  "name": "trailing_ws_width_none"
+ },
+ {
+  "expect": "'  ab..'",
+  "expr": "align_lines('  ab', 6, 'left', '.')",
+  "name": "leading_ws_kept"
+ },
+ {
+  "expect": "'   '",
+  "expr": "align_lines('', 3, 'left')",
+  "name": "empty_text"
+ },
+ {
+  "expect": "'..\\n..\\n..'",
+  "expr": "align_lines('\\n\\n', 2, 'right', '.')",
+  "name": "empty_lines"
+ },
+ {
+  "expect": "'_ab\\n___'",
+  "expr": "align_lines('ab\\n', 3, 'center', '_')",
+  "name": "trailing_newline_line"
+ },
+ {
+  "expr": "align_lines('x', 3, 'middle')",
+  "name": "bad_align",
+  "raises": "ValueError"
+ },
+ {
+  "expr": "align_lines('x', 3, 'left', '--')",
+  "name": "bad_fill_two",
+  "raises": "ValueError"
+ },
+ {
+  "expr": "align_lines('x', 3, 'left', '')",
+  "name": "bad_fill_empty",
+  "raises": "ValueError"
+ },
+ {
+  "expr": "align_lines('x', -1, 'left')",
+  "name": "bad_width",
+  "raises": "ValueError"
+ },
+ {
+  "expect": "'42   '",
+  "expr": "pad_cell(42, 5)",
+  "name": "pad_cell_kept"
+ },
+ {
+  "expect": "'#a##\\nabcd'",
+  "expr": "align_lines('a\\nabcd', None, 'center', '#')",
+  "name": "center_none_odd"
+ }
+]

@@ -1,0 +1,149 @@
+#!/usr/bin/env python3
+"""e-py-acronym: Exercism `acronym` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Seeded parameters (EvoEval-style "combined deltas"): extra word separators, a minimum word length, the
+joiner between letters and the case rule. Difficulty adds deltas. Hidden cases: 24 seeded phrases plus the
+4 visible examples, scored by the shared runner's py_cases step (partial credit).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "..", "packs", "s1", "lib"))
+import s1lib  # noqa: E402
+
+WORDS = ["portable", "network", "graphics", "complementary", "metal", "oxide", "semiconductor", "ruby", "rails",
+         "first", "hyper", "text", "markup", "language", "road", "taken", "soon", "possible", "liquid", "crystal",
+         "display", "friday", "complex", "functional", "beverage", "self", "contained", "underwater", "breathing",
+         "apparatus", "lord", "rings", "light", "emitting", "diode", "random", "access", "memory", "read", "only",
+         "global", "positioning", "system", "halley", "comet", "machine", "learning", "open", "source", "kernel"]
+SHORT = ["a", "an", "of", "on", "in", "to", "by", "is", "it", "the", "and", "for", "not", "as", "at", "or"]
+EXTRA_SEPS = [".", "/", ":", "+", "_"]
+
+REFERENCE = '''SEPARATORS = {seps!r}
+MIN_LETTERS = {min_len!r}
+JOINER = {joiner!r}
+KEEP_CASE = {keep!r}
+
+
+def abbreviate(phrase):
+    words, current = [], []
+    for ch in phrase:
+        if ch.isspace() or ch in SEPARATORS:
+            words.append("".join(current))
+            current = []
+        else:
+            current.append(ch)
+    words.append("".join(current))
+    letters = []
+    for word in words:
+        kept = [c for c in word if "a" <= c <= "z" or "A" <= c <= "Z"]
+        if not kept or len(kept) < MIN_LETTERS:
+            continue
+        letters.append(kept[0] if KEEP_CASE else kept[0].upper())
+    return JOINER.join(letters)
+'''
+
+STUB = '''def abbreviate(phrase):
+    raise NotImplementedError("abbreviate")
+'''
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    n_extra = {1: 1, 2: 1, 3: 2, 4: 2, 5: 3}[d]
+    seps = "-" + "".join(rng.sample(EXTRA_SEPS, n_extra))
+    min_len = 1 if d <= 2 else rng.choice([2, 3])
+    joiner = "" if d == 1 else rng.choice(["", ".", "-", " "])
+    keep = d == 5 and rng.chance(1, 2)
+    return seps, min_len, joiner, keep
+
+
+def styled(rng, w):
+    form = rng.below(4)
+    if form == 0:
+        return w.lower()
+    if form == 1:
+        return w.capitalize()
+    if form == 2:
+        return w.upper()
+    return w[0].lower() + w[1:].capitalize() if len(w) > 1 else w  # e.g. "hYperText"-like inner capital
+
+
+def phrase(rng, seps):
+    n = rng.randint(3, 7)
+    out = []
+    for i in range(n):
+        w = rng.choice(SHORT) if rng.chance(1, 4) else rng.choice(WORDS)
+        w = styled(rng, w)
+        if rng.chance(1, 8):
+            w = w + "'s"
+        if rng.chance(1, 10):
+            w = "_" + w + "_"
+        if rng.chance(1, 12):
+            w = w + ","
+        out.append(w)
+        if i < n - 1:
+            k = rng.below(5)
+            out.append(" " if k < 2 else (rng.choice(seps) if k < 4 else " " + rng.choice(seps) + " "))
+    return "".join(out)
+
+
+def describe(seps, min_len, joiner, keep):
+    shown = ", ".join("`%s`" % c for c in seps)
+    rules = [
+        "1. Split the phrase into words at every whitespace character and at each of these separator "
+        "characters: %s. Consecutive separators produce empty words, which are ignored." % shown,
+        "2. In each word keep only the ASCII letters A-Z and a-z; every other character is dropped (so "
+        "`Halley's` becomes `Halleys`). A capital letter inside a word does not start a new word.",
+        "3. Ignore every word that has fewer than %d letter%s left." % (min_len, "" if min_len == 1 else "s"),
+        "4. Take the first letter of each remaining word, %s." % (
+            "exactly as written (keep its upper or lower case)" if keep else "converted to upper case"),
+        "5. Join the letters %s." % (
+            "with no separator" if joiner == "" else "with `%s` between consecutive letters (nothing before the "
+            "first or after the last)" % joiner),
+    ]
+    return "\n".join(rules)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    seps, min_len, joiner, keep = params(ctx, rng)
+    ref = REFERENCE.format(seps=seps, min_len=min_len, joiner=joiner, keep=keep)
+    seen, phrases = set(), []
+    while len(phrases) < 28:
+        p = phrase(rng, seps)
+        if p not in seen:
+            seen.add(p)
+            phrases.append(p)
+    exprs = ["abbreviate(%r)" % p for p in phrases]
+    results = s1lib.py_eval({"acronym.py": ref}, "acronym", exprs)
+    cases = []
+    for i, (e, r) in enumerate(zip(exprs, results)):
+        if not r["ok"]:
+            raise s1lib.GenError("reference failed on %s" % e)
+        cases.append({"name": "c%02d" % i, "expr": e, "expect": r["repr"]})
+    visible = cases[:4]
+    inst = s1lib.Instance(ctx, prompt="")
+    inst.prompt = (
+        "Implement `abbreviate(phrase)` in `acronym.py`. It returns the acronym of `phrase` under the rules "
+        "below. They differ from the usual acronym exercise, so follow them exactly:\n\n"
+        + describe(seps, min_len, joiner, keep)
+        + "\n\nExamples:\n"
+        + "\n".join("    %s == %s" % (c["expr"], c["expect"]) for c in visible)
+        + "\n\n`tests/test_acronym.py` checks these examples (run `python3 -m unittest tests/test_acronym.py`). "
+        "Do not edit the tests; your function will also be checked on other phrases."
+    )
+    inst.workspace["acronym.py"] = STUB
+    inst.workspace["tests/test_acronym.py"] = s1lib.unittest_source(
+        "acronym", [("example_%d" % i, c["expr"], c["expect"]) for i, c in enumerate(visible)])
+    inst.notice()
+    inst.protect("tests/test_acronym.py")
+    inst.solution["acronym.py"] = ref
+    inst.hidden["hidden/cases.json"] = s1lib.dumps(cases)
+    inst.step({"kind": "py_cases", "name": "abbreviate", "import": "acronym", "cases": "hidden/cases.json"})
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

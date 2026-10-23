@@ -1,0 +1,265 @@
+{
+ "items": [
+  {
+   "checks": [
+    [
+     "from clinicdesk.store import Store\nfrom clinicdesk.models import Supply\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom clinicdesk.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "------------------------------"
+    ]
+   ],
+   "name": "t01",
+   "ticket": "sep"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.store import Store\nfrom clinicdesk.models import Supply\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom clinicdesk.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Supply(id='k01', name='z', ward='c'))\nexcept Invalid as e:\n    print(e, s.count())",
+     "duplicate id k01 2"
+    ]
+   ],
+   "name": "t02",
+   "ticket": "dup"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.report import summary\nfrom clinicdesk.io import load_csv\nprint(list(summary(load_csv('data/sample.csv'))))",
+     "['Pediatrics', 'icu', 'surgery', 'triage']"
+    ]
+   ],
+   "name": "t03",
+   "ticket": "summary_sorted"
+  },
+  {
+   "checks": [
+    [
+     "import clinicdesk\nprint(clinicdesk.__version__, open('VERSION').read().strip())",
+     "3.1.0 3.1.0"
+    ]
+   ],
+   "name": "t04",
+   "ticket": "version"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-¥1,234.50 ¥7.00"
+    ]
+   ],
+   "name": "t05",
+   "ticket": "money_neg"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.store import Store\nfrom clinicdesk.models import Supply\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "t06",
+   "ticket": "page1"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.cli import main\nmain(['count', 'data/sample.csv', '--ward', 'icu'])\nmain(['count', 'data/sample.csv'])",
+     "8\n30"
+    ]
+   ],
+   "name": "t07",
+   "ticket": "count_cat"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.store import Store\nfrom clinicdesk.models import Supply\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nimport os, tempfile\nfrom clinicdesk.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').tags = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[-1], load_csv(p).get('k01').tags, load_csv(p).get('k00').tags)",
+     "tags ['a', 'b'] []"
+    ]
+   ],
+   "name": "t08",
+   "ticket": "csv_tags"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.errors import NotFound\nprint(str(NotFound('q7')))",
+     "supply 'q7' not found"
+    ]
+   ],
+   "name": "t09",
+   "ticket": "notfound"
+  },
+  {
+   "checks": [
+    [
+     "L = open('README.md').read().splitlines()\nprint(repr(L[L.index('    clinicdesk count FILE') + 1]))",
+     "'    clinicdesk export FILE'"
+    ]
+   ],
+   "name": "t10",
+   "ticket": "readme"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.validate import MAX_NAME\nprint(MAX_NAME)",
+     "64"
+    ]
+   ],
+   "name": "t11",
+   "ticket": "maxname"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.08"
+    ]
+   ],
+   "name": "t12",
+   "ticket": "tax"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.store import Store\nfrom clinicdesk.models import Supply\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "t13",
+   "ticket": "remove_ret"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.store import Store\nfrom clinicdesk.models import Supply\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "t14",
+   "ticket": "search_ci"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom clinicdesk.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "10"
+    ]
+   ],
+   "name": "t15",
+   "ticket": "thr"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.store import Store\nfrom clinicdesk.models import Supply\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom clinicdesk.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Supplies inventory"
+    ]
+   ],
+   "name": "t16",
+   "ticket": "title"
+  },
+  {
+   "checks": [
+    [
+     "import io, json, contextlib\nfrom clinicdesk.cli import main\nfrom clinicdesk.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'data/sample.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/sample.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))",
+     "True 1"
+    ]
+   ],
+   "name": "t17",
+   "ticket": "json_cmd"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.store import Store\nfrom clinicdesk.models import Supply\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom clinicdesk.errors import Invalid\ntry:\n    mk(0).add(Supply(id='a', name='b', ward='c', price=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "price cannot be negative"
+    ]
+   ],
+   "name": "t18",
+   "ticket": "price_msg"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0"
+    ]
+   ],
+   "name": "t19",
+   "ticket": "discount_range"
+  },
+  {
+   "checks": [
+    [
+     "L = open('CHANGELOG.md').read().splitlines()\nprint(L[L.index('## Changes') + 1])",
+     "- 3.1.0: ticket batch CLN-40"
+    ]
+   ],
+   "name": "t20",
+   "ticket": "changelog"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.models import Supply\nprint(Supply(id='a', name='b', ward='c', qty=3, price=1.105).to_dict()['value'])",
+     "3.31"
+    ]
+   ],
+   "name": "t21",
+   "ticket": "value_field"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.store import Store\nfrom clinicdesk.models import Supply\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom clinicdesk.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "t22",
+   "ticket": "low_sorted"
+  },
+  {
+   "checks": [
+    [
+     "import clinicdesk\nprint(sorted(clinicdesk.__all__), clinicdesk.NotFound.__name__, clinicdesk.Invalid.__name__)",
+     "['Invalid', 'NotFound', 'Store', 'Supply'] NotFound Invalid"
+    ]
+   ],
+   "name": "t23",
+   "ticket": "all_export"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "6"
+    ]
+   ],
+   "name": "t24",
+   "ticket": "pagesize"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.models import Supply\nprint(Supply.from_dict({'id': 'a', 'name': 'b', 'ward': 'c', 'tags': ['x', 'y', 'x', 'z', 'y']}).tags)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "t25",
+   "ticket": "tags_dedupe"
+  },
+  {
+   "checks": [
+    [
+     "from clinicdesk.io import load_csv\nfrom clinicdesk.pricing import subtotal\ns = load_csv('data/sample.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)",
+     "30 True"
+    ]
+   ],
+   "name": "regress",
+   "ticket": "regress"
+  }
+ ],
+ "pkg": "clinicdesk"
+}

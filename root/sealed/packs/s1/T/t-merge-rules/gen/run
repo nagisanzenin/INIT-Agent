@@ -1,0 +1,513 @@
+#!/usr/bin/env python3
+"""t-merge-rules: merge a feature branch into main and resolve three files by stated rules (family T, pack s1;
+INIT licence)."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+# Invented package names; none is a prefix of another, so "sorted by name" has one meaning.
+PKGS = ["arborlog", "bollard", "brisket", "capstan", "cinderhttp", "davit", "dovetail", "emberjson", "fairlead",
+        "gantry", "gunwale", "halyard", "hawser", "inkwell", "jibsheet", "kestrel-db", "lanyard", "mizzen",
+        "nocturne", "oarlock", "pennant", "quoin", "rigger", "sextant-geo", "tackline", "umbra", "vantage-cli",
+        "windlass", "yardarm", "zephyr-rpc", "anchorage", "bilgepump", "crowsnest", "deckhand", "forestay",
+        "keelson", "lazarette", "marlin-io", "outhaul", "scupper", "thole", "whipstaff"]
+
+# Settings keys and candidate values; no key is a prefix of another.
+KEYS = {
+    "auth.mode": ["token", "password", "sso", "none", "mtls"],
+    "auth.session_ttl": ["900", "1800", "3600", "7200", "14400"],
+    "cache.dir": ["/var/cache/app", "/tmp/app-cache", "/srv/cache", "./cache", "/opt/app/cache"],
+    "cache.ttl": ["60", "120", "300", "600", "1200"],
+    "db.pool_size": ["4", "8", "12", "16", "24"],
+    "db.timeout_s": ["5", "10", "15", "30", "45"],
+    "export.format": ["csv", "json", "tsv", "ndjson", "xlsx"],
+    "http.port": ["8080", "8081", "8443", "9000", "9090"],
+    "http.retries": ["0", "1", "2", "3", "5"],
+    "log.format": ["text", "json", "logfmt", "compact"],
+    "log.level": ["debug", "info", "warn", "error"],
+    "mail.sender": ["noreply", "ops", "alerts", "reports", "billing"],
+    "queue.depth": ["100", "250", "500", "1000", "2000"],
+    "queue.workers": ["1", "2", "4", "6", "8"],
+    "report.locale": ["en_GB", "de_DE", "fr_FR", "nb_NO", "pt_BR"],
+    "sync.interval_s": ["15", "30", "60", "120", "300"],
+    "ui.theme": ["light", "dark", "contrast", "system"],
+    "upload.max_mb": ["8", "16", "32", "64", "128"],
+    "api.base_url": ["/api/v1", "/api/v2", "/v1", "/rest", "/svc"],
+    "backup.keep_days": ["7", "14", "30", "60", "90"],
+    "csv.delimiter": ["comma", "semicolon", "tab", "pipe"],
+    "image.max_px": ["1024", "2048", "4096", "8192"],
+    "jobs.retry_delay_s": ["5", "10", "30", "60", "90"],
+    "metrics.port": ["9100", "9101", "9200", "9300", "9400"],
+    "net.proxy": ["none", "system", "http://proxy:3128", "http://gw:8080"],
+    "pdf.page_size": ["A4", "A5", "letter", "legal"],
+    "search.max_hits": ["50", "100", "200", "500", "1000"],
+    "tls.min_version": ["1.0", "1.1", "1.2", "1.3"],
+    "webhook.timeout_s": ["2", "5", "10", "20", "30"],
+    "zone.default": ["utc", "local", "europe", "americas", "asia"],
+}
+
+ENTRIES = [
+    "Fix a crash when the cache directory is missing", "Add a --dry-run flag to the export command",
+    "Speed up report rendering for large tables", "Log the request id on every error line",
+    "Retry failed uploads once before giving up", "Show the build date in the about dialog",
+    "Accept lower-case country codes in addresses", "Drop the unused legacy XML exporter",
+    "Warn when the session lifetime is shorter than a minute", "Keep sort order stable when two rows tie",
+    "Read proxy settings from the environment", "Stop writing empty audit files",
+    "Validate e-mail addresses before sending invites", "Round totals half-up in invoices",
+    "Allow a custom date format in CSV exports", "Close idle database connections after the timeout",
+    "Report the queue depth in the health check", "Trim trailing spaces from imported names",
+    "Use the configured locale for month names", "Make the upload limit configurable",
+    "Print a clear error when the port is already in use", "Skip hidden files when scanning folders",
+    "Add a --quiet flag to the sync command", "Show progress while importing large files",
+    "Ignore comment lines in settings files", "Fix the timezone of nightly reports",
+    "Escape commas in exported free-text fields", "Remember the last chosen theme",
+    "Limit concurrent workers to the CPU count", "Return 404 instead of 500 for unknown report ids",
+]
+
+TOPICS = ["audit-trail", "bulk-export", "dark-mode", "quota-sync", "smart-retry", "batch-import", "geo-tags",
+          "rate-limits", "saved-filters", "team-invites", "csv-dates", "health-probe"]
+
+PEOPLE = [("Ilse Marten", "ilse.marten"), ("Tomas Reyes", "tomas.reyes"), ("Noor Haddad", "noor.haddad"),
+          ("Kenji Arai", "kenji.arai"), ("Maren Solberg", "maren.solberg"), ("Ola Brandvik", "ola.brandvik"),
+          ("Priya Venkat", "priya.venkat"), ("Luca Ferri", "luca.ferri")]
+
+T0 = 1767268800  # 2026-01-01 12:00 UTC
+
+
+def vstr(v):
+    return "%d.%d.%d" % v
+
+
+def higher(a, b):
+    return a if a >= b else b  # tuples of ints compare numerically, part by part
+
+
+def bump(rng, v):
+    a, b, c = v
+    if rng.chance(1, 2):
+        return (a, b, c + rng.randint(1, 2))
+    return (a, b + 1, rng.randint(0, 2))
+
+
+def lower(rng, v):
+    a, b, c = v
+    return (a, b - 1, rng.randint(0, 9))
+
+
+def pins_text(d):
+    return "".join("%s==%s\n" % (n, vstr(d[n])) for n in sorted(d))
+
+
+def settings_text(d):
+    return "".join("%s=%s\n" % (k, d[k]) for k in sorted(d))
+
+
+def other_value(rng, key, *avoid):
+    vals = [v for v in KEYS[key] if v not in avoid]
+    return rng.choice(vals)
+
+
+def changelog_text(unreleased, older):
+    out = ["# Changelog", "", "All notable changes to this project are listed here, newest first.", "",
+           "## Unreleased", ""]
+    out += ["- " + e for e in unreleased]
+    out.append("")
+    for head, ents in older:
+        out += ["## " + head, ""] + ["- " + e for e in ents] + [""]
+    return "\n".join(out)
+
+
+def module_text(pkg, fn_names, doc, extra_fn):
+    f1, f2, f3, f4 = fn_names
+    lines = [
+        '"""%s.report: small helpers that turn rows into report lines.' % pkg,
+        "",
+        doc,
+        '"""',
+        "",
+        "",
+        "def %s(rows):" % f1,
+        '    """Number of rows that carry a value."""',
+        "    return sum(1 for r in rows if r.get(\"value\") is not None)",
+        "",
+        "",
+        "def %s(rows):" % f2,
+        '    """Sum of the values, missing values counted as zero."""',
+        "    return sum(r.get(\"value\") or 0 for r in rows)",
+        "",
+        "",
+        "def %s(rows, width=40):" % f3,
+        '    """One line per row: the label padded to `width`, then the value."""',
+        "    out = []",
+        "    for r in rows:",
+        "        out.append(\"%-*s %s\" % (width, r.get(\"label\", \"?\"), r.get(\"value\")))",
+        "    return out",
+        "",
+        "",
+        "def %s(rows):" % f4,
+        '    """The label of the row with the largest value, or None."""',
+        "    best = None",
+        "    for r in rows:",
+        "        if r.get(\"value\") is not None and (best is None or r[\"value\"] > best[\"value\"]):",
+        "            best = r",
+        "    return None if best is None else best.get(\"label\")",
+    ]
+    if extra_fn:
+        lines += ["", ""] + extra_fn
+    return "\n".join(lines) + "\n"
+
+
+def isolated(name, base, main, feat):
+    """True when every neighbour of `name` in the sorted union of the three versions is unchanged on both
+    sides, so git merges the change to `name` without a conflict."""
+    order = sorted(set(base) | set(main) | set(feat))
+    i = order.index(name)
+    for j in (i - 1, i + 1):
+        if 0 <= j < len(order):
+            n = order[j]
+            if not (n in base and main.get(n) == base[n] and feat.get(n) == base[n]):
+                return False
+    return True
+
+
+def make_pins(pr, L):
+    traps = []
+    names = pr.sample(PKGS, 16)
+    nbase = pr.randint(9, 11) if L >= 2 else pr.randint(7, 9)
+    base_names = names[:nbase]
+    spare = names[nbase:]
+    base_p = {n: (pr.randint(0, 4), pr.randint(1, 7), pr.randint(1, 6)) for n in base_names}
+    pool = pr.shuffled(base_names)
+    p_both = pool.pop()
+    a = base_p[p_both][0]
+    if L >= 3:  # numeric trap: the higher version is the one that sorts lower as text
+        if pr.chance(1, 2):
+            hi, lo, b0 = (a, 10 + pr.randint(0, 2), pr.randint(0, 4)), (a, 9, pr.randint(0, 9)), (a, 8, 3)
+        else:
+            m = pr.randint(1, 6)
+            hi, lo, b0 = (a, m, 10 + pr.randint(0, 3)), (a, m, 9), (a, m, 8)
+        base_p[p_both] = b0
+        traps.append("pins: numeric version compare")
+    else:
+        b0 = base_p[p_both]
+        hi, lo = (b0[0], b0[1] + 1, pr.randint(0, 2)), (b0[0], b0[1], b0[2] + pr.randint(1, 3))
+    main_p = dict(base_p)
+    feat_p = dict(base_p)
+    main_p[p_both], feat_p[p_both] = (hi, lo) if pr.chance(1, 2) else (lo, hi)
+    p_mbump, p_fbump = pool.pop(), pool.pop()
+    main_p[p_mbump] = bump(pr, base_p[p_mbump])
+    feat_p[p_fbump] = bump(pr, base_p[p_fbump])
+    add_m, add_f = spare[0], spare[1]
+    main_p[add_m] = (pr.randint(0, 3), pr.randint(0, 9), pr.randint(0, 9))
+    feat_p[add_f] = (pr.randint(0, 3), pr.randint(0, 9), pr.randint(0, 9))
+    silent = []
+    if L >= 2:  # feature lowers a package main kept: git merges the lower version silently
+        p_down = pool.pop()
+        feat_p[p_down] = lower(pr, base_p[p_down])
+        silent.append(p_down)
+        traps.append("pins: feature downgrade merged silently")
+    if L >= 4:  # both add the same package with different versions
+        add_b = spare[2]
+        v1 = (pr.randint(1, 3), 9, pr.randint(0, 9))
+        v2 = (v1[0], 10 + pr.randint(0, 5), pr.randint(0, 9))
+        main_p[add_b], feat_p[add_b] = (v1, v2) if pr.chance(1, 2) else (v2, v1)
+        traps.append("pins: same package added on both sides")
+    if L >= 5:  # main lowers a package the feature kept
+        p_mdown = pool.pop()
+        main_p[p_mdown] = lower(pr, base_p[p_mdown])
+        silent.append(p_mdown)
+        traps.append("pins: main downgrade merged silently")
+    want = {}
+    for n in sorted(set(main_p) | set(feat_p)):
+        want[n] = max(d[n] for d in (main_p, feat_p) if n in d)
+    root_p = dict(base_p)
+    old = pool.pop()
+    root_p[old] = lower(pr, base_p[old])
+    return {"base": base_p, "main": main_p, "feat": feat_p, "want": want, "root": root_p, "silent": silent,
+            "traps": traps}
+
+
+def make_settings(sr, L, pkg):
+    traps = []
+    all_keys = sorted(KEYS)
+    picked = sr.sample(all_keys, len(all_keys))
+    nbase_k = sr.randint(15, 18) if L >= 4 else sr.randint(10, 13)
+    base_keys = picked[:nbase_k]
+    spare_k = picked[nbase_k:]
+    base_s = {k: sr.choice(KEYS[k]) for k in base_keys}
+    for k in base_s:
+        if k == "mail.sender":
+            base_s[k] = "%s@%s.example" % (base_s[k], pkg)
+    main_s = dict(base_s)
+    feat_s = dict(base_s)
+    kpool = sr.shuffled(base_keys)
+
+    def val(k, *avoid):
+        v = other_value(sr, k, *[x.split("@")[0] for x in avoid])
+        return "%s@%s.example" % (v, pkg) if k == "mail.sender" else v
+
+    k_both = kpool.pop()  # plain key, both change: main wins
+    main_s[k_both] = val(k_both, base_s[k_both])
+    feat_s[k_both] = val(k_both, base_s[k_both], main_s[k_both])
+    o1 = kpool.pop()      # owned key, both change: feature wins
+    main_s[o1] = val(o1, base_s[o1])
+    feat_s[o1] = val(o1, base_s[o1], main_s[o1])
+    owned = [o1]
+    k_mone = kpool.pop()  # plain key, only main changes
+    main_s[k_mone] = val(k_mone, base_s[k_mone])
+    o_fone = kpool.pop()  # owned key, only the feature changes
+    feat_s[o_fone] = val(o_fone, base_s[o_fone])
+    owned.append(o_fone)
+    add_mk, add_fk = spare_k[0], spare_k[1]
+    main_s[add_mk] = val(add_mk)
+    feat_s[add_fk] = val(add_fk)
+    silent = []
+    if L >= 3:  # one side deletes a key the other changes
+        kd = kpool.pop()
+        if sr.chance(1, 2):
+            del main_s[kd]
+            feat_s[kd] = val(kd, base_s[kd])
+        else:
+            del feat_s[kd]
+            main_s[kd] = val(kd, base_s[kd])
+        traps.append("settings: delete vs modify")
+    if L >= 4:  # lines git merges silently that the rules overturn
+        o2 = kpool.pop()
+        main_s[o2] = val(o2, base_s[o2])
+        owned.append(o2)
+        ky = kpool.pop()
+        feat_s[ky] = val(ky, base_s[ky])
+        silent += [o2, ky]
+        traps.append("settings: owned key changed only on main; plain key changed only on feature (silent)")
+    if L >= 5:  # an owned key deleted on main
+        o3 = kpool.pop()
+        del main_s[o3]
+        owned.append(o3)
+        traps.append("settings: owned key deleted on main")
+    owned = sorted(owned)
+    want = {}
+    for k in sorted(set(main_s) | set(feat_s)):
+        if k in base_s and (k not in main_s or k not in feat_s):
+            continue
+        if k in owned and k in feat_s:
+            want[k] = feat_s[k]
+        elif k in main_s:
+            want[k] = main_s[k]
+        else:
+            want[k] = feat_s[k]
+    root_s = dict(base_s)
+    del root_s[kpool.pop()]
+    return {"base": base_s, "main": main_s, "feat": feat_s, "want": want, "root": root_s, "owned": owned,
+            "silent": silent, "traps": traps}
+
+
+RULES = """\
+Merge rules for `{branch}` -> `main`
+
+The rules decide the final content of each file below, including lines that git merges without reporting
+a conflict. "Base" means the version of a file at the merge base (`git merge-base main {branch}`).
+
+1. `{pins}`: one `name==X.Y.Z` line per package.
+   a. Every package that appears on `main` or on `{branch}` is listed exactly once.
+   b. Its version is the HIGHER of the versions on the two branches; a package that exists on one branch only
+      keeps that version. Compare versions as numbers, part by part (X, then Y, then Z), so `1.10.0` is higher
+      than `1.9.3`.
+   c. This holds even for a line only one branch changed: if one branch lowered a version and the other kept
+      it, the result is the kept, higher version.
+   d. Lines are sorted by package name.
+2. `CHANGELOG.md`: the bullet list under the first heading, `## Unreleased`, becomes: first the entries added
+   on `{first}`, in their order; then the entries added on `{second}`, in their order; then the entries that
+   were already in the base version, in their order. Keep one blank line after the heading and one after the
+   list. Everything else in the file stays as it is (the branches did not change it).
+3. `{settings}`: one `key=value` line per key, no spaces around `=`, lines sorted by key.
+   a. A key that is in the base version but was deleted on either branch is left out, even if the other
+      branch changed its value.
+   b. Otherwise a feature-owned key (list below) takes the value from `{branch}`, even if only `main`
+      changed it.
+   c. Otherwise a key takes the value from `main`, even if only `{branch}` changed it. A key that exists only
+      on `{branch}` (added there) keeps the value from `{branch}`.
+4. Every other file: keep what git merges.
+
+Feature-owned keys: {owned}
+"""
+
+
+def build(ctx):
+    rng = ctx.rng()
+    L = ctx.difficulty
+    proj = rng.choice(["ledgerly", "tallyhub", "parcelo", "rostera", "quillon", "fieldnote", "shiplog",
+                       "binwise"]) + "-" + rng.word(3)
+    pkg = proj.split("-")[0]
+    topic = rng.choice(TOPICS)
+    branch = "feature/%s-%s" % (topic, rng.word(4))
+    pins_name = rng.choice(["requirements.txt", "constraints.txt", "pins.txt"])
+    settings_name = rng.choice(["config/app.conf", "settings.env", "config/defaults.env"])
+    first = rng.choice(["main", branch])
+    second = "main" if first == branch else branch
+    people = rng.sample(PEOPLE, 5)
+    who = [(n, "%s@%s.example" % (e, pkg)) for n, e in people]
+    traps = []
+
+    # ------------------------------------------------------------------ pins and settings
+    for attempt in range(200):  # retry until the "silent" lines are isolated (git merges them cleanly)
+        P = make_pins(rng.fork("pins%d" % attempt), L)
+        if all(isolated(n, P["base"], P["main"], P["feat"]) for n in P["silent"]):
+            break
+    else:
+        raise s1lib.GenError("could not isolate the silent pin changes")
+    for attempt in range(200):
+        S = make_settings(rng.fork("settings%d" % attempt), L, pkg)
+        if all(isolated(k, S["base"], S["main"], S["feat"]) for k in S["silent"]):
+            break
+    else:
+        raise s1lib.GenError("could not isolate the silent settings changes")
+    traps += P["traps"] + S["traps"]
+    base_p, main_p, feat_p, root_p, want_p = P["base"], P["main"], P["feat"], P["root"], P["want"]
+    base_s, main_s, feat_s, root_s, want_s, owned = S["base"], S["main"], S["feat"], S["root"], S["want"], S["owned"]
+    base_names = sorted(base_p)
+
+    # ------------------------------------------------------------------ changelog
+    cr = rng.fork("changelog")
+    ents = cr.sample(ENTRIES, 16)
+    base_unrel = ents[0:2]
+    older = [("%d.%d.0 - 2025-%02d-%02d" % (base_p[base_names[0]][0] + 1, cr.randint(2, 9), cr.randint(9, 12),
+                                           cr.randint(1, 28)), ents[2:5]),
+             ("%d.%d.0 - 2025-%02d-%02d" % (base_p[base_names[0]][0] + 1, 1, cr.randint(3, 8), cr.randint(1, 28)),
+              ents[5:7])]
+    n_m = cr.randint(1, 2) if L <= 2 else cr.randint(2, 3)
+    n_f = cr.randint(1, 3)
+    main_new = ents[7:7 + n_m]
+    feat_new = ents[10:10 + n_f]
+    main_unrel = main_new + base_unrel
+    if L >= 4:  # one side appends below the old entries: git merges it silently in the wrong place
+        if cr.chance(1, 2):
+            feat_unrel = base_unrel + feat_new
+        else:
+            feat_unrel = feat_new + base_unrel
+            main_unrel = base_unrel + main_new
+        traps.append("changelog: one side appends (silent merge, wrong order)")
+    else:
+        feat_unrel = feat_new + base_unrel
+    first_new, second_new = (feat_new, main_new) if first == branch else (main_new, feat_new)
+    want_c = changelog_text(first_new + second_new + base_unrel, older)
+    base_c = changelog_text(base_unrel, older)
+    root_c = changelog_text([], older)
+    main_c = changelog_text(main_unrel, older)
+    feat_c = changelog_text(feat_unrel, older)
+
+    # ------------------------------------------------------------------ the module that merges cleanly
+    mr = rng.fork("module")
+    fn_names = [mr.choice(x) for x in (["count_rows", "row_count", "count_values"],
+                                       ["total", "sum_values", "grand_total"],
+                                       ["format_lines", "render_lines", "as_lines"],
+                                       ["top_label", "largest_label", "best_label"])]
+    doc_base = "Rows are dicts with a `label` and a `value` (a number or None)."
+    doc_main = "Rows are dicts with a `label` (text) and a `value` (int, float or None)."
+    extra_name = mr.choice(["average", "mean_value", "avg_value"])
+    extra = ["def %s(rows):" % extra_name,
+             '    """Mean of the present values, or None when there are none."""',
+             "    vals = [r[\"value\"] for r in rows if r.get(\"value\") is not None]",
+             "    return sum(vals) / len(vals) if vals else None"]
+    mod_path = "src/%s/report.py" % pkg
+    base_mod = module_text(pkg, fn_names, doc_base, None)
+    main_mod = module_text(pkg, fn_names, doc_main if L >= 5 else doc_base, None)
+    feat_mod = module_text(pkg, fn_names, doc_base, extra if L >= 2 else None)
+    want_mod = module_text(pkg, fn_names, doc_main if L >= 5 else doc_base, extra if L >= 2 else None)
+    if L >= 2:
+        traps.append("report.py merges cleanly and must keep the feature's function")
+
+    readme_repo = "# %s\n\nInternal reporting service. Run `make test` before you push.\n" % proj
+
+    def snap(pins, settings, changelog, mod):
+        return {"README.md": readme_repo, pins_name: pins_text(pins), settings_name: settings_text(settings),
+                "CHANGELOG.md": changelog, mod_path: mod}
+
+    # ------------------------------------------------------------------ history
+    hr = rng.fork("history")
+    g = tgen.Git(prefix="repo", user=("Release Desk", "release@%s.example" % pkg))
+    t = T0 + hr.randint(0, 86400 * 20)
+
+    def tick():
+        nonlocal t
+        t += hr.randint(3600, 86400 * 2)
+        return t
+
+    c0 = g.commit(g.tree_of(snap(root_p, root_s, root_c, base_mod)), [], "Initial import of %s" % proj, tick(),
+                  author=who[0])
+    c1 = g.commit(g.tree_of(snap(base_p, root_s, base_c, base_mod)), [c0],
+                  "Refresh pins and start the Unreleased notes", tick(), author=who[1])
+    base_snap = snap(base_p, base_s, base_c, base_mod)
+    cb = g.commit(g.tree_of(base_snap), [c1], "Tune default settings", tick(), author=who[0])
+    f1 = g.commit(g.tree_of(snap(feat_p, feat_s, base_c, base_mod)), [cb],
+                  "%s: pin dependencies and settings" % topic, tick(), author=who[2])
+    m1 = g.commit(g.tree_of(snap(main_p, main_s, base_c, main_mod)), [cb],
+                  "Upgrade dependencies and adjust settings", tick(), author=who[3])
+    f2 = g.commit(g.tree_of(snap(feat_p, feat_s, feat_c, base_mod)), [f1],
+                  "%s: changelog entries" % topic, tick(), author=who[2])
+    main_snap = snap(main_p, main_s, main_c, main_mod)
+    m2 = g.commit(g.tree_of(main_snap), [m1], "Changelog: note recent fixes", tick(), author=who[4])
+    feat_snap = snap(feat_p, feat_s, feat_c, feat_mod)
+    f3 = g.commit(g.tree_of(feat_snap), [f2], "%s: report helper" % topic, tick(), author=who[2]) \
+        if feat_mod != base_mod else f2
+    g.refs["refs/heads/main"] = m2
+    g.refs["refs/heads/" + branch] = f3
+    cfg_extra = "[core]\n\teditor = true\n"
+    ws_repo = g.files(worktree=main_snap, config_extra=cfg_extra)
+
+    # the reference merge commit, built with the same writer
+    want_snap = snap(want_p, want_s, want_c, want_mod)
+    merge = g.commit(g.tree_of(want_snap), [m2, f3], "Merge branch '%s'" % branch, tick(),
+                     author=("Release Desk", "release@%s.example" % pkg))
+    g.refs["refs/heads/main"] = merge
+    sol_repo = g.files(worktree=want_snap, config_extra=cfg_extra)
+
+    owned_s = ", ".join("`%s`" % k for k in owned)
+    rules = RULES.format(branch=branch, pins=pins_name, settings=settings_name, first=first, second=second,
+                         owned=owned_s)
+    task = (
+        "The git repository in `repo/` has the branch `main` checked out and a branch `{branch}`. The two "
+        "branches diverged and both changed `{pins}`, `CHANGELOG.md` and `{settings}`.\n\n"
+        "Merge `{branch}` into `main`, resolve the files by the rules below (the same text is in "
+        "`MERGE_RULES.md`), and finish with exactly one merge commit on `main`:\n"
+        "- its first parent is the current tip of `main` and its second parent is the tip of `{branch}`;\n"
+        "- `main` points at it and is still checked out; do not rebase, squash or add other commits, and do not "
+        "change `{branch}`;\n"
+        "- afterwards the work tree is clean: every change committed, no conflict markers, no merge in "
+        "progress.\n"
+        "The repository already has a committer identity configured. Do not modify `MERGE_RULES.md`.\n\n"
+    ).format(branch=branch, pins=pins_name, settings=settings_name)
+    prompt = task + rules
+    readme = "# Merge task\n\n" + task + "The rules are in `MERGE_RULES.md`.\n"
+
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = readme
+    inst.workspace["MERGE_RULES.md"] = rules
+    inst.workspace.update(ws_repo)
+    inst.marker_files = ["README.md"]
+    inst.protect("MERGE_RULES.md")
+    for p, v in sol_repo.items():
+        if ws_repo.get(p) != v:
+            inst.solution[p] = v
+    for p in ws_repo:
+        if p not in sol_repo:
+            inst.solution[p] = None
+
+    files = [{"name": "pins_file", "path": pins_name, "want": pins_text(want_p)},
+             {"name": "changelog_file", "path": "CHANGELOG.md", "want": want_c},
+             {"name": "settings_file", "path": settings_name, "want": settings_text(want_s)}]
+    if L >= 2:
+        files.append({"name": "clean_file", "path": mod_path, "want": want_mod})
+    names = ["merge_commit"] + [f["name"] for f in files] + ["worktree_clean"]
+    spec = {"main_tip": m2, "feature_tip": f3, "feature_ref": "refs/heads/" + branch, "files": files,
+            "traps": traps}
+    tgen.finish(inst, ctx, spec=spec, names=names)
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

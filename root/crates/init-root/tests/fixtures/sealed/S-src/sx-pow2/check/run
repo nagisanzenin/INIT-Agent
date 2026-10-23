@@ -1,0 +1,10 @@
+#!/bin/sh
+# 10 cases, 100 permille each: line k of pow2.txt must be the k-th expected value.
+ok=0
+k=1
+for want in 1 2 4 8 16 32 64 128 256 512; do
+  got=$(sed -n "${k}p" pow2.txt 2>/dev/null)
+  [ "$got" = "$want" ] && ok=$((ok + 1))
+  k=$((k + 1))
+done
+echo "{\"score_permille\":$((ok * 100))}"

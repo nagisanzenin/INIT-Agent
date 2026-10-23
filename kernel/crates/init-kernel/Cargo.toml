@@ -1,0 +1,20 @@
+[package]
+name = "init-kernel"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Thin binary: argv dispatch over the lane library crates (BUILD_PLAN.md "Shape").
+[dependencies]
+init-proto.workspace = true
+kernel-supervise.workspace = true
+kernel-proxy.workspace = true
+kernel-gate.workspace = true
+kernel-selfmap.workspace = true
+kernel-serve.workspace = true
+kernel-sandbox.workspace = true
+kernel-evo.workspace = true
+
+# K-FLAKE: the bounded test watchdog (init_testkit::watchdog) for the process-spawning tests.
+[dev-dependencies]
+init-testkit = { path = "../init-testkit" }

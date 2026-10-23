@@ -1,0 +1,23 @@
+{
+ "v": 1,
+ "id": "c-pair-count",
+ "family": "C",
+ "lang": "py",
+ "title": "Pair counter with a seeded relation",
+ "difficulty": {
+  "default": 3,
+  "min": 1,
+  "max": 5
+ },
+ "toolchains": [
+  "python3"
+ ],
+ "licence": "CRUXEval-MIT",
+ "source": {
+  "repo": "facebookresearch/cruxeval",
+  "path": "data/cruxeval.jsonl",
+  "sample": "sample_793",
+  "commit": "190faf16d175b5847b0af05d937872b1fb395942"
+ },
+ "notes": "Family C (S1-C): CRUXEval sample_793 under a seeded name in a 3-file package; operator cond; pass-rate guess at the default difficulty (deepseek-flash, 8 turns): 55%. See C/_lib/s1c.py for the operators and the difficulty knob."
+}

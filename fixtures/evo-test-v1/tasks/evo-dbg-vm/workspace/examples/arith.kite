@@ -1,0 +1,17 @@
+# Integer arithmetic, precedence and associativity.
+let a = 20;
+let b = 6;
+let c = 4;
+print(a + b * c, (a + b) * c);
+print(a - b - c, a - b + c);
+print(a / b, a % b, a / b * c, a % b * c);
+print(2 ** 10, 2 ** 3 ** 2, -3 ** 2, (-3) ** 2);
+print(100 - 10 * 3 - 5 + 2);
+let total = 0;
+let i = 1;
+while (i <= 10) {
+  total = total + i * i - i;
+  i += 1;
+}
+print("sum of i*i - i:", total);
+print(1 < 2, 2 <= 2, 3 > 4, "abc" < "abd", 10 == 10, 10 != 10);

@@ -1,0 +1,332 @@
+#!/usr/bin/env python3
+"""t-perms-tar: fix a release packaging script (family T, pack s1; INIT licence).
+
+The workspace holds a small app tree (bin/, lib/, conf/, docs/), a VERSION file, junk (.DS_Store, *.tmp,
+__pycache__) and a broken package.sh that should build dist/<name>-<version>.tar.gz with one top directory,
+rule-based permission bits, exclusions and sorted entries. Files start with wrong modes. The check runs
+`sh package.sh` in a copy with hidden extra files and a changed VERSION and inspects the archive with tarfile;
+it also inspects the agent's own dist tarball."""
+import io
+import os
+import struct
+import sys
+import tarfile
+import zlib
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+APPS = ["quill", "tern", "otter", "pylon", "sable", "wren", "cobalt", "fennel", "garnet", "ibis", "jasper",
+        "kelp", "lynx", "marten", "nimbus", "osprey"]
+TOOL_SUFFIX = ["-admin", "ctl", "-sync", "-check", "-migrate"]
+MODULES = ["core", "util", "store", "cli", "fmt", "net"]
+EXTRA_MODULES = ["cache", "events", "hooks", "render", "timing"]
+SUBPKGS = ["plugins", "backends", "formats"]
+WORDS = ["amber", "birch", "coral", "dawn", "elm", "flint", "glade", "hazel", "ivy", "jade", "knoll", "linden"]
+FIXED_MTIME = 1767225600  # 2026-01-01 00:00:00 UTC
+ROOTS = ("bin", "lib", "conf", "docs")
+
+# ------------------------------------------------------------------------------------------ the rules
+
+
+def excluded(rel, level):
+    parts = rel.split("/")
+    base = parts[-1]
+    if base == ".DS_Store" or base.endswith(".tmp"):
+        return True
+    return level >= 2 and (base.endswith(".pyc") or "__pycache__" in parts)
+
+
+def packaged(rel):
+    return rel == "VERSION" or (rel.split("/")[0] in ROOTS and "/" in rel)
+
+
+def mode_for(rel, kind, level):
+    if kind == "d":
+        return 0o755
+    parts = rel.split("/")
+    if parts[0] == "bin" and len(parts) == 2:
+        return 0o755
+    if level >= 3 and parts[0] == "conf" and parts[-1].endswith(".secret"):
+        return 0o600
+    return 0o644
+
+
+def expected(tree, top, level):
+    """tree {rel: text} (the source files) -> {archive name: [kind, mode, text or None]}."""
+    files = {rel: t for rel, t in tree.items() if packaged(rel) and not excluded(rel, level)}
+    dirs = set()
+    for rel in files:
+        parts = rel.split("/")
+        for i in range(1, len(parts)):
+            dirs.add("/".join(parts[:i]))
+    want = {top: ["d", 0o755, None]}
+    for d in dirs:
+        want[top + "/" + d] = ["d", mode_for(d, "d", level), None]
+    for rel, t in files.items():
+        want[top + "/" + rel] = ["f", mode_for(rel, "f", level), t]
+    # the order rule compares paths without a trailing '/': make sure no name makes that ambiguous
+    names = sorted(want)
+    slashed = sorted(want, key=lambda n: n + "/" if want[n][0] == "d" else n)
+    if names != slashed:
+        raise s1lib.GenError("ambiguous sort order in generated tree")
+    return want
+
+
+def version_of(text):
+    return text.split("\n")[0].strip()
+
+# --------------------------------------------------------------------------------------- deterministic gz
+
+
+def gzip_stored(data):
+    """A gzip member with stored (uncompressed) deflate blocks: byte-identical on every zlib build."""
+    out = bytearray(b"\x1f\x8b\x08\x00\x00\x00\x00\x00\x00\xff")
+    blocks = [data[i:i + 65535] for i in range(0, len(data), 65535)] or [b""]
+    for i, blk in enumerate(blocks):
+        out += bytes([1 if i == len(blocks) - 1 else 0]) + struct.pack("<HH", len(blk), len(blk) ^ 0xFFFF) + blk
+    out += struct.pack("<II", zlib.crc32(data) & 0xFFFFFFFF, len(data) & 0xFFFFFFFF)
+    return bytes(out)
+
+
+def make_archive(want):
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w", format=tarfile.PAX_FORMAT) as tf:
+        for name in sorted(want):
+            kind, mode, text = want[name]
+            ti = tarfile.TarInfo(name)
+            ti.mtime, ti.uid, ti.gid, ti.uname, ti.gname, ti.mode = FIXED_MTIME, 0, 0, "root", "wheel", mode
+            if kind == "d":
+                ti.type = tarfile.DIRTYPE
+                tf.addfile(ti)
+            else:
+                data = text.encode("utf-8")
+                ti.size = len(data)
+                tf.addfile(ti, io.BytesIO(data))
+    return gzip_stored(buf.getvalue())
+
+# ------------------------------------------------------------------------------------------ the scripts
+
+
+BROKEN = """#!/bin/sh
+# package.sh: builds dist/NAME-VERSION.tar.gz from bin/, lib/, conf/, docs/ and VERSION (rules: README.md).
+set -e
+NAME=@NAME@
+VERSION=$(cat VERSION)
+STAGE=build/$NAME-$VERSION
+
+rm -rf build
+mkdir -p $STAGE dist
+cp -R bin lib conf docs VERSION $STAGE/
+chmod +x $STAGE/bin/*
+find $STAGE -name '*.tmp' -delete
+tar -czf dist/$NAME-$VERSION.tar.gz build
+rm -rf build
+echo "wrote dist/$NAME-$VERSION.tar.gz"
+"""
+
+
+def fixed_script(name, level):
+    out = ["#!/bin/sh",
+           "# package.sh: builds dist/NAME-VERSION.tar.gz from bin/, lib/, conf/, docs/ and VERSION",
+           "# (rules: README.md).",
+           "set -eu",
+           "cd \"$(dirname \"$0\")\"",
+           "NAME=%s" % name,
+           "VERSION=$(sed -n '1{s/^[[:space:]]*//;s/[[:space:]]*$//;p;q;}' VERSION)",
+           "TOP=$NAME-$VERSION",
+           "OUT=$PWD/dist/$TOP.tar.gz",
+           "STAGE=$(mktemp -d \"${TMPDIR:-/tmp}/package.XXXXXX\")",
+           "trap 'rm -rf \"$STAGE\"' EXIT",
+           "",
+           "mkdir -p \"$STAGE/$TOP\" dist",
+           "cp -R bin lib conf docs VERSION \"$STAGE/$TOP/\"",
+           "cd \"$STAGE\"",
+           "# leave out what must not ship, then the directories that became empty",
+           "find \"$TOP\" -type d -name __pycache__ -prune -exec rm -rf {} +",
+           "find \"$TOP\" -type f \\( -name .DS_Store -o -name '*.tmp' -o -name '*.pyc' \\) -exec rm -f {} +",
+           "find \"$TOP\" -depth -mindepth 1 -type d -empty -exec rmdir {} \\;",
+           "# permission bits by rule, whatever the modes on disk",
+           "find \"$TOP\" -type d -exec chmod 755 {} +",
+           "find \"$TOP\" -type f -exec chmod 644 {} +",
+           "find \"$TOP/bin\" -maxdepth 1 -type f -exec chmod 755 {} +"]
+    if level >= 3:
+        out += ["find \"$TOP/conf\" -type f -name '*.secret' -exec chmod 600 {} +"]
+    if level >= 5:
+        out += ["TZ=UTC0 find \"$TOP\" -exec touch -h -t 202601010000.00 {} +"]
+    owner = " --uid 0 --gid 0" if level >= 4 else ""
+    out += ["# sorted entries, no recursion, no AppleDouble ._ files",
+            "find \"$TOP\" | LC_ALL=C sort > list",
+            "rm -f \"$OUT\"",
+            "COPYFILE_DISABLE=1 tar -czf \"$OUT\" -n -T list%s" % owner,
+            "echo \"wrote dist/$TOP.tar.gz\"", ""]
+    return "\n".join(out)
+
+# ------------------------------------------------------------------------------------------- the tree
+
+
+def build_tree(rng, app, level):
+    """-> (files {rel: text}, executable set, junk list)"""
+    tools = [app] + ["%s%s" % (app, s) for s in rng.sample(TOOL_SUFFIX, 2)]
+    mods = rng.sample(MODULES, 3)
+    files = {}
+    for t in tools:
+        files["bin/" + t] = "#!/bin/sh\n# %s: wrapper\nexec python3 -m %s.%s \"$@\"\n" % (t, app, rng.choice(mods))
+    files["lib/%s/__init__.py" % app] = '"""%s: the %s package."""\n' % (app, rng.choice(WORDS))
+    for m in mods:
+        files["lib/%s/%s.py" % (app, m)] = "def %s_%s():\n    return %d\n" % (m, rng.word(4), rng.randint(1, 999))
+    files["conf/%s.conf" % app] = "[%s]\nport = %d\nworkers = %d\n" % (app, rng.randint(3000, 9000),
+                                                                       rng.randint(1, 8))
+    files["docs/index.md"] = "# %s\n\nStart with `bin/%s --help`.\n" % (app, app)
+    files["docs/CHANGES.md"] = "# Changes\n\n- %s\n" % rng.word(7)
+    if rng.chance(1, 2):
+        files["docs/guide.md"] = "# Guide\n\nSee %s.conf.\n" % app
+    if level >= 3:
+        files["conf/%s.secret" % rng.choice(["db", "api", "smtp"])] = "token=%s\n" % rng.hex(12)
+    junk = ["lib/%s/notes.tmp" % app, "conf/.DS_Store", "docs/.DS_Store"]
+    if level >= 2:
+        junk.append("lib/%s/__pycache__/%s.cpython-39.pyc" % (app, mods[0]))
+    if level >= 3:
+        junk.append("docs/drafts/todo.tmp")
+    for j in junk:
+        files[j] = "junk %s\n" % rng.word(6)
+    # wrong modes on disk: one tool without +x, one module and one doc with +x
+    executable = {"bin/" + tools[0], "bin/" + tools[2], "lib/%s/%s.py" % (app, mods[1]), "docs/index.md"}
+    return files, executable, junk
+
+
+def hidden_extras(rng, app, level, files):
+    """-> (extras [[rel, text, mode]], junk list); VERSION is set separately."""
+    extras = []
+    junk = []
+    tool = "%s-%s" % (app, rng.choice(["report", "export", "doctor"]))
+    extras.append(["bin/" + tool, "#!/bin/sh\necho %s\n" % rng.word(5), 0o644])
+    mod = rng.choice(EXTRA_MODULES)
+    extras.append(["lib/%s/%s.py" % (app, mod), "VALUE = %d\n" % rng.randint(1, 99), 0o755])
+    extras.append(["NOTES.md", "# notes (not shipped)\n", 0o644])
+    junk += ["bin/.DS_Store", "docs/%s.tmp" % rng.choice(WORDS)]
+    if level >= 2:
+        sub = rng.choice(SUBPKGS)
+        extras.append(["lib/%s/%s/__init__.py" % (app, sub), "NAME = %r\n" % sub, 0o644])
+        junk += ["lib/%s/%s/__pycache__/__init__.cpython-39.pyc" % (app, sub), "lib/%s/stray.pyc" % app]
+    if level >= 3:
+        extras.append(["conf/%s.secret" % rng.choice(["oauth", "ssh", "vault"]), "key=%s\n" % rng.hex(8), 0o644])
+        extras.append(["docs/release notes.md", "# Release notes\n\n%s\n" % rng.word(8), 0o755])
+        junk.append("docs/wip/%s.tmp" % rng.choice(WORDS))
+    if level >= 5:
+        extras.append(["conf/keys/%s.secret" % rng.choice(WORDS), "k=%s\n" % rng.hex(6), 0o644])
+    for j in junk:
+        extras.append([j, "junk %s\n" % rng.word(5), 0o644])
+    return extras, junk
+
+
+def check_names(level):
+    names = ["dist_present", "top_dir", "members", "modes", "excludes", "contents"]
+    if level >= 3:
+        names.append("order")
+    if level >= 4:
+        names.append("owner")
+    if level >= 5:
+        names.append("mtime")
+    return names
+
+# ------------------------------------------------------------------------------------------ the text
+
+
+def spec_text(app, level):
+    excl = "every file named `.DS_Store` and every file whose name ends in `.tmp`"
+    if level >= 2:
+        excl = ("every file named `.DS_Store`, every file whose name ends in `.tmp` or `.pyc`, and every directory "
+                "named `__pycache__` with everything below it")
+    modes = ("regular files directly in `bin/`: `0755`; " +
+             ("files anywhere under `conf/` whose name ends in `.secret`: `0600`; " if level >= 3 else "") +
+             "every other file: `0644`; every directory: `0755`")
+    version = ("the first line of the file `VERSION` with surrounding spaces removed (later lines are notes)"
+               if level >= 4 else "the first line of the file `VERSION`")
+    rules = [
+        "Content. Every file under `bin/`, `lib/`, `conf/` and `docs/` (at any depth) and the file `VERSION`, "
+        "each stored as `%s-<version>/<path>`: one top directory, no `./` or `/` prefix, and nothing else (not "
+        "README.md, package.sh, dist/ or any other file of this directory)." % app,
+        "Exclusions, at any depth: " + excl + ".",
+        "Directories. One entry for the top directory and one for every directory that ends up holding at "
+        "least one archived file (directly or deeper)" +
+        ("; a directory whose files are all excluded is not archived at all" if level >= 3 else "") + ".",
+        "Modes. The permission bits of each entry follow these rules, whatever the modes on disk: " + modes + ".",
+    ]
+    if level >= 3:
+        rules.append("Order. Entries are sorted by path in byte order (as `LC_ALL=C sort` sorts the paths written "
+                     "without a trailing `/`), so every directory comes right before its contents.")
+    if level >= 4:
+        rules.append("Owner. Every entry has numeric owner 0 and group 0.")
+    if level >= 5:
+        rules.append("Times. Every entry's modification time is 2026-01-01 00:00:00 UTC (Unix time 1767225600).")
+    rules.append("No other entries. macOS bsdtar adds `._*` AppleDouble entries for files that carry extended "
+                 "attributes unless `COPYFILE_DISABLE=1` is set in its environment; those count as extra "
+                 "entries.")
+    text = ("`sh package.sh`, run from this directory, must (re)create `dist/%s-<version>.tar.gz`, a "
+            "gzip-compressed tar archive, where <version> is %s. The archive:\n\n" % (app, version))
+    for i, r in enumerate(rules):
+        text += "%d. %s\n" % (i + 1, r)
+    return text
+
+
+def build(ctx):
+    rng = ctx.rng()
+    level = ctx.difficulty
+    app = rng.choice(APPS)
+    files, executable, ws_junk = build_tree(rng.fork("tree"), app, level)
+    vis_version = "1.%d.%d" % (rng.randint(0, 9), rng.randint(0, 20))
+    files["VERSION"] = vis_version + "\n"
+    top_vis = "%s-%s" % (app, vis_version)
+    want_vis = expected(files, top_vis, level)
+
+    hrng = rng.fork("hidden")
+    extras, hid_junk = hidden_extras(hrng, app, level, files)
+    hid_version = "2.%d.%d" % (hrng.randint(0, 9), hrng.randint(0, 20))
+    hid_version_text = hid_version + "\n"
+    if level >= 4:
+        hid_version = "2.0.0-rc.%d" % hrng.randint(1, 9)
+        hid_version_text = "%s  \n# codename %s\n" % (hid_version, hrng.choice(WORDS))
+    extras.append(["VERSION", hid_version_text, 0o644])
+    hid_tree = dict(files)
+    for rel, text, _mode in extras:
+        hid_tree[rel] = text
+    top_hid = "%s-%s" % (app, version_of(hid_version_text))
+    want_hid = expected(hid_tree, top_hid, level)
+
+    spec = spec_text(app, level)
+    tail = (
+        "\nThe check copies this directory, adds files of its own to `bin/`, `lib/`, `conf/`, `docs/` and the top "
+        "level (with arbitrary modes), may change `VERSION`, runs `sh package.sh` there and inspects the archive "
+        "with Python's `tarfile`. So package.sh must apply the rules to whatever it finds, and it must not "
+        "delete or change the source files (changing their modes is fine). It may use any tool available here "
+        "(sh, bsdtar as `tar`, find, sort, sed, python3 and its `tarfile` module). Finally run it here, so that "
+        "`dist/%s.tar.gz` exists in this directory when you finish; that archive is checked too. Do not edit, "
+        "add or delete files under `bin/`, `lib/`, `conf/`, `docs/` or `VERSION`.\n" % top_vis)
+    readme = "# Packaging %s\n\n" % app + spec + tail
+    prompt = ("`package.sh` in this directory should build the release archive of `%s`, but it is broken. Fix it "
+              "so that it follows these rules exactly, then run it.\n\n" % app + spec + tail +
+              "\nThe same text is in README.md.")
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = readme
+    inst.workspace["package.sh"] = BROKEN.replace("@NAME@", app)
+    inst.executable.add("package.sh")
+    for rel, text in files.items():
+        inst.workspace[rel] = text
+    inst.executable.update(executable)
+    inst.marker_files = ["README.md", "package.sh"]
+    inst.protect("README.md", "VERSION", *sorted(r for r in files if r not in ws_junk and r != "VERSION"))
+    inst.solution["package.sh"] = fixed_script(app, level)
+    inst.solution["dist/%s.tar.gz" % top_vis] = make_archive(want_vis)
+    tgen.finish(inst, ctx, spec={
+        "level": level, "top_vis": top_vis, "top_hid": top_hid, "want_vis": want_vis, "want_hid": want_hid,
+        "extras": extras, "junk": sorted(ws_junk + hid_junk), "mtime": FIXED_MTIME if level >= 5 else None,
+    }, names=check_names(level))
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

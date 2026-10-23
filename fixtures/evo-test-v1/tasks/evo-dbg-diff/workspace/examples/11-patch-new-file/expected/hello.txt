@@ -1,0 +1,3 @@
+Hello!
+This file was created by a patch.
+Bye.

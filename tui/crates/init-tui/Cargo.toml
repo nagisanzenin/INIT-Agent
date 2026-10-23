@@ -1,0 +1,18 @@
+[package]
+name = "init-tui"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+description = "The owner's terminal client for INIT Agent (docs/tui.md)"
+
+[[bin]]
+name = "init-tui"
+path = "src/main.rs"
+
+# docs/tui.md §3.14: exact pins, vendored, offline. No dev-dependencies.
+[dependencies]
+crossterm = { version = "=0.29.0", default-features = false, features = ["events", "bracketed-paste"] }
+unicode-width = "=0.2.2"
+unicode-segmentation = "=1.13.3"
+serde_json = "=1.0.154"   # Value only, no derive; never `preserve_order` (CONVENTIONS §5)
+signal-hook = "=0.3.18"   # already in crossterm's tree: SIGINT in line mode, SIGTERM/SIGHUP restore

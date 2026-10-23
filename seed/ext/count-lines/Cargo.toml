@@ -1,0 +1,13 @@
+[package]
+name = "count-lines"            # CHANGE 1 of 2: must equal the directory name (kebab-case)
+version = "0.1.0"
+edition.workspace = true
+publish = false
+
+[lib]
+crate-type = ["cdylib"]         # cdylib only: nothing may depend on an extension
+
+[dependencies]
+wit-bindgen.workspace = true
+serde.workspace = true
+serde_json.workspace = true

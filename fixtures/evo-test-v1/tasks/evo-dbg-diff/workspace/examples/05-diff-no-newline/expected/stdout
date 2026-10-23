@@ -1,0 +1,10 @@
+--- a/notes.txt
++++ b/notes.txt
+@@ -1,4 +1,5 @@
+ Meeting notes, 3 May
+ - budget approved
+ - hiring: two engineers
+-- next meeting: 10 May
+\ No newline at end of file
++- next meeting: 10 May
++- action: send the minutes

@@ -1,0 +1,90 @@
+{
+ "id": "evo-dbg-sheet",
+ "title": "Make the sheet spreadsheet engine follow its spec",
+ "family": "t",
+ "difficulty": 5,
+ "labels": [
+  "py",
+  "debug"
+ ],
+ "max_turns": 60,
+ "prompt": "This directory holds sheet, a small spreadsheet engine in Python: a formula tokenizer and parser, an evaluator with typed values and error values, a set of built-in functions, a dependency graph with incremental recalculation, copying and row/column insertion and deletion, and CSV input and output, in the sheet/ package, with run.py as the command (`python3 run.py BOOK.csv [EDITS]`). It does not behave as SPEC.md describes: some of the examples in examples/ give the wrong result (`python3 run_examples.py` runs them all and compares each with its expected.txt). Fix the implementation so that it follows SPEC.md in every respect; more tests than the visible examples check the whole of SPEC.md. Do not modify SPEC.md, run_examples.py or anything in examples/. Code must run on /usr/bin/python3 (Python 3.9), the interpreter the checks use; standard library only.",
+ "source": {
+  "kind": "fresh"
+ },
+ "protected": [
+  "SPEC.md",
+  "run_examples.py",
+  "examples/budget/book.csv",
+  "examples/budget/edits.txt",
+  "examples/budget/expected.txt",
+  "examples/copy-fill/book.csv",
+  "examples/copy-fill/edits.txt",
+  "examples/copy-fill/expected.txt",
+  "examples/cycles/book.csv",
+  "examples/cycles/edits.txt",
+  "examples/cycles/expected.txt",
+  "examples/errors/book.csv",
+  "examples/errors/expected.txt",
+  "examples/invoice/book.csv",
+  "examples/invoice/expected.txt",
+  "examples/labels/book.csv",
+  "examples/labels/expected.txt",
+  "examples/parabola/book.csv",
+  "examples/parabola/expected.txt"
+ ],
+ "steps": [
+  {
+   "kind": "sh",
+   "script": "hidden/check.sh",
+   "names": [
+    "display_numbers",
+    "csv_input_typing",
+    "csv_output_quoting",
+    "precedence_assoc",
+    "power_unary",
+    "comparisons_types",
+    "coercions",
+    "error_precedence",
+    "div_and_domain_errors",
+    "names_parse_errors",
+    "sum_average_mixed",
+    "min_max_count",
+    "if_lazy",
+    "and_or_not",
+    "round_abs",
+    "text_functions",
+    "sumif_countif",
+    "wide_columns",
+    "wide_columns_edits",
+    "copy_anchors",
+    "copy_ref_errors",
+    "cycles_membership",
+    "cycle_edits",
+    "recalc_order_load",
+    "recalc_incremental",
+    "recalc_after_replace",
+    "stale_values_after_replace",
+    "print_and_used_range",
+    "blank_semantics",
+    "cli_errors",
+    "long_chain_ledger",
+    "long_cycle",
+    "fill_down_copy",
+    "delete_rows",
+    "delete_columns",
+    "structural_wide",
+    "edit_session_long",
+    "insert_rows",
+    "edit_print_session"
+   ],
+   "timeout_s": 30
+  }
+ ],
+ "evo": {
+  "group": "heldout",
+  "kind": "debug",
+  "spare": false,
+  "pair": "evo-dbg-vm"
+ }
+}

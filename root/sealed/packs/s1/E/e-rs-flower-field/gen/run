@@ -1,0 +1,161 @@
+#!/usr/bin/env python3
+"""e-rs-flower-field: Exercism `flower-field` (Rust) with a seeded semantic change (m7-design §3.1.1, E).
+
+Seeded parameters: the flower and empty symbols, how a zero count is shown, the neighbourhood (orthogonal,
+diagonal, Moore, knight moves, radius-2 cross) and, at difficulty 4, a toroidal (wrap-around) garden.
+Every seed differs from the original (`*`, space, Moore neighbourhood, blank zeros, no wrap).
+Graded cases: 4 visible + 26 hidden `annotate` calls, one #[test] each.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "flower_field_variant"
+N_HIDDEN = 26
+FLOWERS = ["*", "#", "@", "X"]
+EMPTIES = [" ", ".", "_"]
+HOODS = {
+    "orthogonal": ([(-1, 0), (1, 0), (0, -1), (0, 1)],
+                   "the 4 cells directly above, below, left and right of it (not the diagonals)"),
+    "diagonal": ([(-1, -1), (-1, 1), (1, -1), (1, 1)],
+                 "the 4 diagonally adjacent cells only (not the cells directly above, below, left or right)"),
+    "moore": ([(-1, -1), (-1, 0), (-1, 1), (0, -1), (0, 1), (1, -1), (1, 0), (1, 1)],
+              "the 8 surrounding cells (horizontally, vertically and diagonally adjacent)"),
+    "knight": ([(-2, -1), (-2, 1), (-1, -2), (-1, 2), (1, -2), (1, 2), (2, -1), (2, 1)],
+               "the up to 8 cells a chess knight can reach from it: 2 rows and 1 column away, or 1 row and 2 "
+               "columns away (adjacent cells do NOT count)"),
+    "cross2": ([(-2, 0), (-1, 0), (1, 0), (2, 0), (0, -2), (0, -1), (0, 1), (0, 2)],
+               "the up to 8 cells at distance 1 or 2 in a straight line up, down, left or right (same column "
+               "or same row; diagonals do NOT count)"),
+}
+
+STUB = '''/// Annotates every non-flower cell with the number of flowers among its neighbours.
+pub fn annotate(garden: &[&str]) -> Vec<String> {
+    todo!("annotate {garden:?}")
+}
+'''
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    while True:
+        p = {"flower": rng.choice(FLOWERS), "empty": rng.choice(EMPTIES),
+             "hood": rng.choice(["orthogonal", "diagonal", "moore"] if d == 2 else
+                                ["orthogonal", "diagonal", "knight", "cross2"]),
+             "wrap": d >= 4}
+        p["zero"] = rng.choice([p["empty"], "0"]) if d >= 3 else p["empty"]
+        if p["hood"] == "moore" and p["flower"] == "*" and p["empty"] == " ":
+            continue
+        return p
+
+
+def annotate(rows, p):
+    h = len(rows)
+    out = []
+    for r, row in enumerate(rows):
+        w = len(row)
+        line = []
+        for c, cell in enumerate(row):
+            if cell == p["flower"]:
+                line.append(cell)
+                continue
+            seen = set()
+            for dr, dc in HOODS[p["hood"]][0]:
+                nr, nc = r + dr, c + dc
+                if p["wrap"]:
+                    nr, nc = nr % h, nc % w
+                elif not (0 <= nr < h and 0 <= nc < w):
+                    continue
+                if (nr, nc) != (r, c):
+                    seen.add((nr, nc))
+            n = sum(1 for (nr, nc) in seen if rows[nr][nc] == p["flower"])
+            line.append(p["zero"] if n == 0 else str(n))
+        out.append("".join(line))
+    return out
+
+
+def naive(rows):
+    """The original exercise: `*` flowers, space empty, Moore neighbourhood, blank zero, no wrap."""
+    return annotate(rows, {"flower": "*", "empty": " ", "zero": " ", "hood": "moore", "wrap": False})
+
+
+def garden(rng, p, h, w, density):
+    return ["".join(p["flower"] if rng.chance(density, 100) else p["empty"] for _ in range(w)) for _ in range(h)]
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    gardens = []
+
+    def add(g):
+        if g not in gardens:
+            gardens.append(g)
+
+    add(garden(rng, p, 3, 4, 30))
+    add(garden(rng, p, 4, 5, 25))
+    add(garden(rng, p, 1, 6, 40))
+    lone = [p["empty"] * 5 for _ in range(5)]
+    lone[2] = p["empty"] * 2 + p["flower"] + p["empty"] * 2
+    add(lone)
+    add([])
+    add([""])
+    add([p["flower"]])
+    add([p["empty"]])
+    add([p["flower"] * 3] * 3)
+    add([p["empty"] * 4] * 2)
+    add([p["empty"]] * 4)
+    add(garden(rng, p, 2, 2, 50))
+    add(garden(rng, p, 5, 1, 40))
+    for _ in range(40):
+        if len(gardens) >= N_HIDDEN + 4:
+            break
+        add(garden(rng, p, rng.randint(2, 7), rng.randint(2, 8), rng.choice([15, 25, 35, 45])))
+    vis, rest = gardens[:4], rng.shuffled(gardens[4:])[:N_HIDDEN]
+    order = vis + rest
+    if sum(1 for g in order if annotate(g, p) != naive(g)) < 4:
+        raise s1lib.GenError("too few cases separate the mutation from the original")
+    cases = []
+    for n, g in enumerate(order):
+        name = "visible_%d" % (n + 1) if n < 4 else "case_%02d" % (n - 3)
+        arg = "&[%s]" % ", ".join(ersgen.rs_str(r) for r in g) if g else "&[]"
+        want = annotate(g, p)
+        exp = "Vec::<String>::new()" if not want else ersgen.rs_vec(want, ersgen.rs_string)
+        cases.append((name, "annotate(%s)" % arg, exp))
+
+    empty_name = {" ": "a space `' '`", ".": "a full stop `'.'`", "_": "an underscore `'_'`"}[p["empty"]]
+    zero = ("left unchanged (it stays %s)" % empty_name if p["zero"] == p["empty"] else "replaced by the digit `0`")
+    wrap = ("The garden wraps around like a torus: moving up from the top row arrives at the bottom row (same "
+            "column), moving left from the first column arrives at the last column (same row), and so on, so "
+            "every offset lands on some cell. The neighbours of a cell are the DISTINCT cells reached this way, "
+            "excluding the cell itself (on small gardens several offsets can land on the same cell, which then "
+            "counts once, or on the cell itself, which never counts)."
+            if p["wrap"] else
+            "Neighbour positions that fall outside the garden are ignored (no wrap-around).")
+    rules = "\n".join([
+        "1. The garden is a slice of rows of equal length. Each cell is either a flower `%s` or an empty plot, "
+        "written as %s; "
+        "no other characters occur. An empty slice returns an empty vector; rows of length 0 stay empty strings."
+        % (p["flower"], empty_name),
+        "2. The neighbours of a cell are %s. %s" % (HOODS[p["hood"]][1], wrap),
+        "3. Return the garden with the same shape. A flower cell stays `%s`. An empty cell is replaced by the "
+        "number of flowers among its neighbours, written as one decimal digit; if that number is 0 the cell is %s."
+        % (p["flower"], zero),
+    ])
+    offsets = ", ".join("(%d, %d)" % o for o in HOODS[p["hood"]][0])
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {
+        "FLOWER": ersgen.rs_char(p["flower"]), "ZERO": ersgen.rs_char(p["zero"]), "OFFSETS": offsets,
+        "WRAP": ersgen.rs_bool(p["wrap"])})
+    return ersgen.finish(
+        ctx, crate=CRATE, api="pub fn annotate(garden: &[&str]) -> Vec<String>",
+        intro="A gardener's planning tool marks how many flowers each empty plot can see. Write `annotate`.",
+        rules=rules, stub=STUB, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::annotate;" % CRATE, cases=cases, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

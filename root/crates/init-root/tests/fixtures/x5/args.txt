@@ -1,0 +1,5 @@
+{"name":"semver-sort","input":{"list":["1.2.0","1.10.0"],"note":"ARGTEXT-ext-7f3a"}}
+{"path":"/tmp/init-home/body/skills/release-notes/SKILL.md"}
+{"command":"cat agents/reviewer/AGENT.md && ls skills/release-notes/ && echo ARGTEXT-bash-91c2 skills/x","timeout":30}
+{"content":"# Notes\nsee skills/fake-in-content/ ARGTEXT-write-c0de\n","path":"notes/out.md"}
+{"edits":[{"new_text":"ARGTEXT-edit-new","old_text":"ARGTEXT-edit-old"}],"path":"skills/release-notes/SKILL.md"}

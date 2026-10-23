@@ -1,0 +1,12 @@
+Item,Qty,Unit price,Line total,Share
+Notebook,4,2.35,=B2*C2,=D2/SUM(D$2:D$5)
+Pencil box,10,0.99,=B3*C3,=D3/SUM(D$2:D$5)
+"Desk lamp, LED",1,24.5,=B4*C4,=D4/SUM(D$2:D$5)
+Stapler,2,7.125,=B5*C5,=D5/SUM(D$2:D$5)
+Subtotal,=SUM(B2:B5),,=SUM(D2:D5),=SUM(E2:E5)
+Discount,,,"=IF(D6>40,D6*0.05,0)",
+Tax 8%,,,"=ROUND((D6-D7)*0.08,2)",
+Total,,,=D6-D7+D8,
+Average line,,,"=ROUND(AVERAGE(D2:D5),2)",
+Largest share,,,,"=ROUND(MAX(E2:E5),3)"
+Lines,=COUNT(D2:D5),,,

@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-perms-tar",
+ "family": "T",
+ "lang": "sh",
+ "title": "Fix a release packaging script: tar layout, modes and excludes",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3", "sh", "tar", "sed", "sort"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: release packaging on macOS; fix package.sh so dist/<name>-<version>.tar.gz has one top dir, fixed permission bits by rule (bin 0755, conf *.secret 0600, files 0644, dirs 0755) whatever the modes on disk, excludes (.DS_Store, *.tmp; *.pyc and __pycache__/ from L2), sorted entries and no empty dirs (L3), owner 0 (L4), fixed mtime (L5); checked by running sh package.sh in a copy with hidden extra files (a 0644 bin script, a 0755 lib file, nested __pycache__, a new .secret, a junk-only dir, a name with a space, a root file that must not ship) and a changed VERSION, inspecting the archive with tarfile, plus the agent's own dist tarball; traps: tar of the staging parent (wrong top dir), modes copied from disk, bsdtar walk order, empty dirs left after deleting junk, AppleDouble ._ entries from xattrs (COPYFILE_DISABLE), VERSION whitespace (L4), deleting the source junk instead of excluding it; pass_guess_permille: 400"
+}

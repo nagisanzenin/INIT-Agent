@@ -1,0 +1,2170 @@
+{
+ "calendars": [
+  {
+   "delim": "|",
+   "dt_fmt": "YYYY-MM-DDTHH:MM",
+   "fields": [
+    [
+     "ref",
+     "id"
+    ],
+    [
+     "space",
+     "room"
+    ],
+    [
+     "starts",
+     "start"
+    ],
+    [
+     "ends",
+     "end"
+    ],
+    [
+     "subject",
+     "title"
+    ],
+    [
+     "booked_by",
+     "owner"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "orbit",
+   "style": "tuple",
+   "system": "Orbit Scheduler"
+  },
+  {
+   "delim": ";",
+   "dt_fmt": "YYYYMMDDTHHMM",
+   "fields": [
+    [
+     "ref",
+     "id"
+    ],
+    [
+     "dtstart",
+     "start"
+    ],
+    [
+     "finish",
+     "end"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "label",
+     "title"
+    ],
+    [
+     "booked_by",
+     "owner"
+    ],
+    [
+     "attendees",
+     "attendees"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "tempo",
+   "style": "format",
+   "system": "Tempo Calendar"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "DD.MM.YYYY HH:MM",
+   "fields": [
+    [
+     "uid",
+     "id"
+    ],
+    [
+     "room",
+     "room"
+    ],
+    [
+     "begin",
+     "start"
+    ],
+    [
+     "to",
+     "end"
+    ],
+    [
+     "label",
+     "title"
+    ],
+    [
+     "owner",
+     "owner"
+    ]
+   ],
+   "notation": "keyvalue",
+   "sep": "=",
+   "slug": "chronos",
+   "style": "kvlines",
+   "system": "Chronos Planner"
+  },
+  {
+   "delim": ",",
+   "dt_fmt": "MM/DD/YYYY HH:MM",
+   "fields": [
+    [
+     "key",
+     "id"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "dtstart",
+     "start"
+    ],
+    [
+     "to",
+     "end"
+    ],
+    [
+     "subject",
+     "title"
+    ],
+    [
+     "owner",
+     "owner"
+    ],
+    [
+     "attendees",
+     "attendees"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "agendo",
+   "style": "dictwriter",
+   "system": "Agendo Planner"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "YYYY-MM-DD HH:MM",
+   "fields": [
+    [
+     "uid",
+     "id"
+    ],
+    [
+     "space",
+     "room"
+    ],
+    [
+     "starts",
+     "start"
+    ],
+    [
+     "to",
+     "end"
+    ],
+    [
+     "summary",
+     "title"
+    ],
+    [
+     "organizer",
+     "owner"
+    ],
+    [
+     "size",
+     "attendees"
+    ]
+   ],
+   "notation": "jsonl",
+   "sep": null,
+   "slug": "slotify",
+   "style": "jsondump",
+   "system": "Slotify Agenda"
+  },
+  {
+   "delim": ",",
+   "dt_fmt": "YYYY-MM-DDTHH:MM",
+   "fields": [
+    [
+     "booking_id",
+     "id"
+    ],
+    [
+     "dtstart",
+     "start"
+    ],
+    [
+     "to",
+     "end"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "subject",
+     "title"
+    ],
+    [
+     "booked_by",
+     "owner"
+    ],
+    [
+     "size",
+     "attendees"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "meetwise",
+   "style": "klass",
+   "system": "Meetwise Agenda"
+  },
+  {
+   "delim": ";",
+   "dt_fmt": "YYYYMMDDTHHMM",
+   "fields": [
+    [
+     "uid",
+     "id"
+    ],
+    [
+     "begin",
+     "start"
+    ],
+    [
+     "finish",
+     "end"
+    ],
+    [
+     "room",
+     "room"
+    ],
+    [
+     "label",
+     "title"
+    ],
+    [
+     "host",
+     "owner"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "roomly",
+   "style": "tuple",
+   "system": "Roomly Scheduler"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "DD.MM.YYYY HH:MM",
+   "fields": [
+    [
+     "ref",
+     "id"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "starts",
+     "start"
+    ],
+    [
+     "to",
+     "end"
+    ],
+    [
+     "name",
+     "title"
+    ],
+    [
+     "owner",
+     "owner"
+    ],
+    [
+     "attendees",
+     "attendees"
+    ]
+   ],
+   "notation": "keyvalue",
+   "sep": "=",
+   "slug": "plannr",
+   "style": "kvjoin",
+   "system": "Plannr Agenda"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "MM/DD/YYYY HH:MM",
+   "fields": [
+    [
+     "ref",
+     "id"
+    ],
+    [
+     "starts",
+     "start"
+    ],
+    [
+     "finish",
+     "end"
+    ],
+    [
+     "resource",
+     "room"
+    ],
+    [
+     "label",
+     "title"
+    ],
+    [
+     "host",
+     "owner"
+    ],
+    [
+     "attendees",
+     "attendees"
+    ]
+   ],
+   "notation": "jsonl",
+   "sep": null,
+   "slug": "kairos",
+   "style": "jsonbuild",
+   "system": "Kairos Planner"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "YYYY-MM-DD HH:MM",
+   "fields": [
+    [
+     "key",
+     "id"
+    ],
+    [
+     "dtstart",
+     "start"
+    ],
+    [
+     "ends",
+     "end"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "name",
+     "title"
+    ],
+    [
+     "host",
+     "owner"
+    ]
+   ],
+   "notation": "keyvalue",
+   "sep": "=",
+   "slug": "daybook",
+   "style": "kvlines",
+   "system": "Daybook Agenda"
+  },
+  {
+   "delim": "\t",
+   "dt_fmt": "YYYY-MM-DDTHH:MM",
+   "fields": [
+    [
+     "booking_id",
+     "id"
+    ],
+    [
+     "starts",
+     "start"
+    ],
+    [
+     "ends",
+     "end"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "subject",
+     "title"
+    ],
+    [
+     "host",
+     "owner"
+    ],
+    [
+     "attendees",
+     "attendees"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "nimbus",
+   "style": "format",
+   "system": "Nimbus Planner"
+  },
+  {
+   "delim": ",",
+   "dt_fmt": "YYYYMMDDTHHMM",
+   "fields": [
+    [
+     "ref",
+     "id"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "starts",
+     "start"
+    ],
+    [
+     "finish",
+     "end"
+    ],
+    [
+     "summary",
+     "title"
+    ],
+    [
+     "booked_by",
+     "owner"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "quill",
+   "style": "dictwriter",
+   "system": "Quill Planner"
+  },
+  {
+   "delim": "|",
+   "dt_fmt": "DD.MM.YYYY HH:MM",
+   "fields": [
+    [
+     "ref",
+     "id"
+    ],
+    [
+     "dtstart",
+     "start"
+    ],
+    [
+     "to",
+     "end"
+    ],
+    [
+     "space",
+     "room"
+    ],
+    [
+     "name",
+     "title"
+    ],
+    [
+     "booked_by",
+     "owner"
+    ],
+    [
+     "size",
+     "attendees"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "zenday",
+   "style": "klass",
+   "system": "Zenday Planner"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "MM/DD/YYYY HH:MM",
+   "fields": [
+    [
+     "ref",
+     "id"
+    ],
+    [
+     "from",
+     "start"
+    ],
+    [
+     "to",
+     "end"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "subject",
+     "title"
+    ],
+    [
+     "booked_by",
+     "owner"
+    ],
+    [
+     "size",
+     "attendees"
+    ]
+   ],
+   "notation": "jsonl",
+   "sep": null,
+   "slug": "pulse",
+   "style": "jsondump",
+   "system": "Pulse Planner"
+  },
+  {
+   "delim": ";",
+   "dt_fmt": "YYYY-MM-DD HH:MM",
+   "fields": [
+    [
+     "uid",
+     "id"
+    ],
+    [
+     "space",
+     "room"
+    ],
+    [
+     "dtstart",
+     "start"
+    ],
+    [
+     "to",
+     "end"
+    ],
+    [
+     "label",
+     "title"
+    ],
+    [
+     "owner",
+     "owner"
+    ],
+    [
+     "seats",
+     "attendees"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "horizon",
+   "style": "tuple",
+   "system": "Horizon Scheduler"
+  },
+  {
+   "delim": ",",
+   "dt_fmt": "YYYY-MM-DDTHH:MM",
+   "fields": [
+    [
+     "uid",
+     "id"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "starts",
+     "start"
+    ],
+    [
+     "finish",
+     "end"
+    ],
+    [
+     "subject",
+     "title"
+    ],
+    [
+     "booked_by",
+     "owner"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "almanac",
+   "style": "format",
+   "system": "Almanac Calendar"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "YYYYMMDDTHHMM",
+   "fields": [
+    [
+     "key",
+     "id"
+    ],
+    [
+     "starts",
+     "start"
+    ],
+    [
+     "dtend",
+     "end"
+    ],
+    [
+     "space",
+     "room"
+    ],
+    [
+     "name",
+     "title"
+    ],
+    [
+     "organizer",
+     "owner"
+    ],
+    [
+     "seats",
+     "attendees"
+    ]
+   ],
+   "notation": "jsonl",
+   "sep": null,
+   "slug": "beacon",
+   "style": "jsonbuild",
+   "system": "Beacon Agenda"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "DD.MM.YYYY HH:MM",
+   "fields": [
+    [
+     "key",
+     "id"
+    ],
+    [
+     "from",
+     "start"
+    ],
+    [
+     "finish",
+     "end"
+    ],
+    [
+     "space",
+     "room"
+    ],
+    [
+     "subject",
+     "title"
+    ],
+    [
+     "owner",
+     "owner"
+    ],
+    [
+     "attendees",
+     "attendees"
+    ]
+   ],
+   "notation": "keyvalue",
+   "sep": ": ",
+   "slug": "cadence",
+   "style": "kvjoin",
+   "system": "Cadence Agenda"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "MM/DD/YYYY HH:MM",
+   "fields": [
+    [
+     "booking_id",
+     "id"
+    ],
+    [
+     "begin",
+     "start"
+    ],
+    [
+     "dtend",
+     "end"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "name",
+     "title"
+    ],
+    [
+     "booked_by",
+     "owner"
+    ]
+   ],
+   "notation": "jsonl",
+   "sep": null,
+   "slug": "dialog",
+   "style": "jsondump",
+   "system": "Dialog Calendar"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "YYYY-MM-DD HH:MM",
+   "fields": [
+    [
+     "ref",
+     "id"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "from",
+     "start"
+    ],
+    [
+     "ends",
+     "end"
+    ],
+    [
+     "summary",
+     "title"
+    ],
+    [
+     "organizer",
+     "owner"
+    ]
+   ],
+   "notation": "keyvalue",
+   "sep": "=",
+   "slug": "epoch",
+   "style": "kvlines",
+   "system": "Epoch Agenda"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "YYYY-MM-DDTHH:MM",
+   "fields": [
+    [
+     "ref",
+     "id"
+    ],
+    [
+     "dtstart",
+     "start"
+    ],
+    [
+     "dtend",
+     "end"
+    ],
+    [
+     "resource",
+     "room"
+    ],
+    [
+     "name",
+     "title"
+    ],
+    [
+     "owner",
+     "owner"
+    ],
+    [
+     "size",
+     "attendees"
+    ]
+   ],
+   "notation": "keyvalue",
+   "sep": ": ",
+   "slug": "fathom",
+   "style": "kvjoin",
+   "system": "Fathom Agenda"
+  },
+  {
+   "delim": "\t",
+   "dt_fmt": "YYYYMMDDTHHMM",
+   "fields": [
+    [
+     "uid",
+     "id"
+    ],
+    [
+     "dtstart",
+     "start"
+    ],
+    [
+     "dtend",
+     "end"
+    ],
+    [
+     "location",
+     "room"
+    ],
+    [
+     "summary",
+     "title"
+    ],
+    [
+     "host",
+     "owner"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "gather",
+   "style": "dictwriter",
+   "system": "Gather Agenda"
+  },
+  {
+   "delim": null,
+   "dt_fmt": "DD.MM.YYYY HH:MM",
+   "fields": [
+    [
+     "ref",
+     "id"
+    ],
+    [
+     "space",
+     "room"
+    ],
+    [
+     "starts",
+     "start"
+    ],
+    [
+     "ends",
+     "end"
+    ],
+    [
+     "summary",
+     "title"
+    ],
+    [
+     "booked_by",
+     "owner"
+    ],
+    [
+     "seats",
+     "attendees"
+    ]
+   ],
+   "notation": "jsonl",
+   "sep": null,
+   "slug": "huddle",
+   "style": "jsonbuild",
+   "system": "Huddle Planner"
+  },
+  {
+   "delim": ";",
+   "dt_fmt": "MM/DD/YYYY HH:MM",
+   "fields": [
+    [
+     "booking_id",
+     "id"
+    ],
+    [
+     "starts",
+     "start"
+    ],
+    [
+     "ends",
+     "end"
+    ],
+    [
+     "room",
+     "room"
+    ],
+    [
+     "summary",
+     "title"
+    ],
+    [
+     "organizer",
+     "owner"
+    ],
+    [
+     "seats",
+     "attendees"
+    ]
+   ],
+   "notation": "delimited",
+   "sep": null,
+   "slug": "itinera",
+   "style": "klass",
+   "system": "Itinera Scheduler"
+  }
+ ],
+ "feeds": [
+  {
+   "date_fmt": "DD.MM.YYYY",
+   "date_impl": "regex",
+   "delim": null,
+   "names": {
+    "attendees": "guests",
+    "date": "event_date",
+    "end": "until",
+    "owner": "organizer",
+    "room": "location",
+    "start": "time_from",
+    "title": "event"
+   },
+   "notation": "jsonl",
+   "partner": "Acme Offices",
+   "sep": null,
+   "slug": "acme",
+   "span": "from-until",
+   "style": "jsonobj",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "suffix"
+  },
+  {
+   "date_fmt": "YYYY-MM-DD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "guests",
+    "date": "day",
+    "minutes": "length",
+    "owner": "booker",
+    "room": "hall",
+    "start": "from",
+    "title": "topic",
+    "zone": "offset"
+   },
+   "notation": "keyvalue",
+   "partner": "Borealis Offices",
+   "sep": ": ",
+   "slug": "borealis",
+   "span": "start-duration",
+   "style": "kvblock",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "DD-Mon-YYYY",
+   "date_impl": "regex",
+   "delim": ";",
+   "names": {
+    "attendees": "seats",
+    "end": "stops",
+    "owner": "booker",
+    "room": "hall",
+    "start": "start_at",
+    "title": "topic",
+    "zone": "offset"
+   },
+   "notation": "delimited",
+   "partner": "Cobalt Halls",
+   "sep": null,
+   "slug": "cobalt",
+   "span": "datetimes",
+   "style": "csvmod",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "YYYYMMDD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "pax",
+    "date": "on",
+    "end": "time_to",
+    "owner": "organizer",
+    "room": "site",
+    "start": "start",
+    "title": "event",
+    "zone": "timezone"
+   },
+   "notation": "keyvalue",
+   "partner": "Dunmore Rooms",
+   "sep": "=",
+   "slug": "dunmore",
+   "span": "from-until",
+   "style": "kvregex",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "MM/DD/YYYY",
+   "date_impl": "regex",
+   "delim": ",",
+   "names": {
+    "attendees": "people",
+    "date": "date",
+    "minutes": "minutes",
+    "owner": "host",
+    "room": "space",
+    "start": "begins",
+    "title": "subject",
+    "zone": "zone"
+   },
+   "notation": "delimited",
+   "partner": "Eastgate Halls",
+   "sep": null,
+   "slug": "eastgate",
+   "span": "start-duration",
+   "style": "split",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "YYYY/MM/DD",
+   "date_impl": "slice",
+   "delim": "\t",
+   "names": {
+    "attendees": "guests",
+    "end": "end_at",
+    "owner": "organizer",
+    "room": "room_code",
+    "start": "begin",
+    "title": "summary",
+    "zone": "offset_minutes"
+   },
+   "notation": "delimited",
+   "partner": "Fjord Venues",
+   "sep": null,
+   "slug": "fjord",
+   "span": "datetimes",
+   "style": "klass",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "DD.MM.YYYY",
+   "date_impl": "regex",
+   "delim": null,
+   "names": {
+    "attendees": "guests",
+    "date": "day",
+    "end": "until",
+    "owner": "organizer",
+    "room": "space",
+    "start": "start",
+    "title": "summary",
+    "zone": "timezone"
+   },
+   "notation": "jsonl",
+   "partner": "Granite Rooms",
+   "sep": null,
+   "slug": "granite",
+   "span": "from-until",
+   "style": "jsonpairs",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "YYYY-MM-DD",
+   "date_impl": "slice",
+   "delim": ";",
+   "names": {
+    "attendees": "headcount",
+    "date": "event_date",
+    "minutes": "length",
+    "owner": "booker",
+    "room": "location",
+    "start": "begins",
+    "title": "event",
+    "zone": "utc_minutes"
+   },
+   "notation": "delimited",
+   "partner": "Harbor Venues",
+   "sep": null,
+   "slug": "harbor",
+   "span": "start-duration",
+   "style": "table",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "DD-Mon-YYYY",
+   "date_impl": "regex",
+   "delim": "|",
+   "names": {
+    "attendees": "guests",
+    "end": "stops",
+    "owner": "organizer",
+    "room": "site",
+    "start": "begin",
+    "title": "topic",
+    "zone": "timezone"
+   },
+   "notation": "delimited",
+   "partner": "Ironwood Venues",
+   "sep": null,
+   "slug": "ironwood",
+   "span": "datetimes",
+   "style": "csvmod",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "YYYYMMDD",
+   "date_impl": "slice",
+   "delim": ";",
+   "names": {
+    "attendees": "people",
+    "date": "day",
+    "end": "until",
+    "owner": "booker",
+    "room": "venue",
+    "start": "begins",
+    "title": "subject",
+    "zone": "gmt_offset"
+   },
+   "notation": "delimited",
+   "partner": "Juniper Spaces",
+   "sep": null,
+   "slug": "juniper",
+   "span": "from-until",
+   "style": "split",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "MM/DD/YYYY",
+   "date_impl": "regex",
+   "delim": ",",
+   "names": {
+    "attendees": "pax",
+    "date": "day",
+    "minutes": "length",
+    "owner": "organizer",
+    "room": "venue",
+    "start": "time_from",
+    "title": "topic"
+   },
+   "notation": "delimited",
+   "partner": "Kestrel Venues",
+   "sep": null,
+   "slug": "kestrel",
+   "span": "start-duration",
+   "style": "klass",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "suffix"
+  },
+  {
+   "date_fmt": "YYYY/MM/DD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "seats",
+    "end": "stops",
+    "owner": "host",
+    "room": "space",
+    "start": "start_at",
+    "title": "subject",
+    "zone": "utc_minutes"
+   },
+   "notation": "jsonl",
+   "partner": "Lumen Offices",
+   "sep": null,
+   "slug": "lumen",
+   "span": "datetimes",
+   "style": "jsonobj",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "DD.MM.YYYY",
+   "date_impl": "regex",
+   "delim": ";",
+   "names": {
+    "attendees": "pax",
+    "date": "day",
+    "end": "until",
+    "owner": "organizer",
+    "room": "hall",
+    "start": "time_from",
+    "title": "summary",
+    "zone": "offset_minutes"
+   },
+   "notation": "delimited",
+   "partner": "Meridian Rooms",
+   "sep": null,
+   "slug": "meridian",
+   "span": "from-until",
+   "style": "table",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "YYYY-MM-DD",
+   "date_impl": "slice",
+   "delim": ";",
+   "names": {
+    "attendees": "seats",
+    "date": "on",
+    "minutes": "minutes",
+    "owner": "organizer",
+    "room": "hall",
+    "start": "start",
+    "title": "topic",
+    "zone": "offset_min"
+   },
+   "notation": "delimited",
+   "partner": "Northwind Venues",
+   "sep": null,
+   "slug": "northwind",
+   "span": "start-duration",
+   "style": "csvmod",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "DD-Mon-YYYY",
+   "date_impl": "regex",
+   "delim": null,
+   "names": {
+    "attendees": "guests",
+    "end": "end_at",
+    "owner": "host",
+    "room": "room_code",
+    "start": "start_at",
+    "title": "summary",
+    "zone": "timezone"
+   },
+   "notation": "jsonl",
+   "partner": "Oakridge Offices",
+   "sep": null,
+   "slug": "oakridge",
+   "span": "datetimes",
+   "style": "jsonpairs",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "YYYYMMDD",
+   "date_impl": "slice",
+   "delim": "|",
+   "names": {
+    "attendees": "people",
+    "date": "event_date",
+    "end": "time_to",
+    "owner": "organizer",
+    "room": "space",
+    "start": "begins",
+    "title": "topic",
+    "zone": "offset_min"
+   },
+   "notation": "delimited",
+   "partner": "Pinecrest Halls",
+   "sep": null,
+   "slug": "pinecrest",
+   "span": "from-until",
+   "style": "split",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "MM/DD/YYYY",
+   "date_impl": "regex",
+   "delim": ",",
+   "names": {
+    "attendees": "seats",
+    "date": "day",
+    "minutes": "minutes",
+    "owner": "contact",
+    "room": "location",
+    "start": "time_from",
+    "title": "subject",
+    "zone": "offset_min"
+   },
+   "notation": "delimited",
+   "partner": "Quarry Spaces",
+   "sep": null,
+   "slug": "quarry",
+   "span": "start-duration",
+   "style": "klass",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "YYYY/MM/DD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "guests",
+    "end": "end_at",
+    "owner": "organizer",
+    "room": "venue",
+    "start": "start_at",
+    "title": "subject"
+   },
+   "notation": "keyvalue",
+   "partner": "Riverside Rooms",
+   "sep": ": ",
+   "slug": "riverside",
+   "span": "datetimes",
+   "style": "kvblock",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "suffix"
+  },
+  {
+   "date_fmt": "DD.MM.YYYY",
+   "date_impl": "regex",
+   "delim": "|",
+   "names": {
+    "attendees": "people",
+    "date": "on",
+    "end": "until",
+    "owner": "contact",
+    "room": "location",
+    "start": "start",
+    "title": "summary"
+   },
+   "notation": "delimited",
+   "partner": "Summit Spaces",
+   "sep": null,
+   "slug": "summit",
+   "span": "from-until",
+   "style": "table",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "suffix"
+  },
+  {
+   "date_fmt": "YYYY-MM-DD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "seats",
+    "date": "event_date",
+    "minutes": "length",
+    "owner": "host",
+    "room": "hall",
+    "start": "start",
+    "title": "topic",
+    "zone": "offset_minutes"
+   },
+   "notation": "keyvalue",
+   "partner": "Tidewater Offices",
+   "sep": "=",
+   "slug": "tidewater",
+   "span": "start-duration",
+   "style": "kvregex",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "DD-Mon-YYYY",
+   "date_impl": "regex",
+   "delim": "\t",
+   "names": {
+    "attendees": "guests",
+    "end": "stops",
+    "owner": "booker",
+    "room": "room_code",
+    "start": "start_at",
+    "title": "event",
+    "zone": "zone"
+   },
+   "notation": "delimited",
+   "partner": "Upland Rooms",
+   "sep": null,
+   "slug": "upland",
+   "span": "datetimes",
+   "style": "csvmod",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "YYYYMMDD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "people",
+    "date": "event_date",
+    "end": "ends",
+    "owner": "contact",
+    "room": "location",
+    "start": "from",
+    "title": "topic",
+    "zone": "tz_name"
+   },
+   "notation": "jsonl",
+   "partner": "Vantage Spaces",
+   "sep": null,
+   "slug": "vantage",
+   "span": "from-until",
+   "style": "jsonobj",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "MM/DD/YYYY",
+   "date_impl": "regex",
+   "delim": null,
+   "names": {
+    "attendees": "people",
+    "date": "on",
+    "minutes": "length",
+    "owner": "booker",
+    "room": "room_code",
+    "start": "time_from",
+    "title": "event"
+   },
+   "notation": "jsonl",
+   "partner": "Westbrook Venues",
+   "sep": null,
+   "slug": "westbrook",
+   "span": "start-duration",
+   "style": "jsonpairs",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "suffix"
+  },
+  {
+   "date_fmt": "YYYY/MM/DD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "people",
+    "end": "end_at",
+    "owner": "organizer",
+    "room": "room_code",
+    "start": "starts",
+    "title": "summary"
+   },
+   "notation": "keyvalue",
+   "partner": "Yarrow Venues",
+   "sep": "=",
+   "slug": "yarrow",
+   "span": "datetimes",
+   "style": "kvblock",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "suffix"
+  },
+  {
+   "date_fmt": "DD.MM.YYYY",
+   "date_impl": "regex",
+   "delim": ",",
+   "names": {
+    "attendees": "pax",
+    "date": "on",
+    "end": "end",
+    "owner": "contact",
+    "room": "site",
+    "start": "start",
+    "title": "subject",
+    "zone": "tz_name"
+   },
+   "notation": "delimited",
+   "partner": "Alder Halls",
+   "sep": null,
+   "slug": "alder",
+   "span": "from-until",
+   "style": "split",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "YYYY-MM-DD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "seats",
+    "date": "day",
+    "minutes": "minutes",
+    "owner": "organizer",
+    "room": "location",
+    "start": "from",
+    "title": "summary",
+    "zone": "gmt_offset"
+   },
+   "notation": "keyvalue",
+   "partner": "Brightwater Offices",
+   "sep": "=",
+   "slug": "brightwater",
+   "span": "start-duration",
+   "style": "kvregex",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "DD-Mon-YYYY",
+   "date_impl": "regex",
+   "delim": ";",
+   "names": {
+    "attendees": "guests",
+    "end": "finish",
+    "owner": "booker",
+    "room": "site",
+    "start": "start_at",
+    "title": "event"
+   },
+   "notation": "delimited",
+   "partner": "Cedar Halls",
+   "sep": null,
+   "slug": "cedar",
+   "span": "datetimes",
+   "style": "klass",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "suffix"
+  },
+  {
+   "date_fmt": "YYYYMMDD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "guests",
+    "date": "event_date",
+    "end": "ends",
+    "owner": "organizer",
+    "room": "venue",
+    "start": "start",
+    "title": "subject",
+    "zone": "offset"
+   },
+   "notation": "jsonl",
+   "partner": "Driftwood Rooms",
+   "sep": null,
+   "slug": "driftwood",
+   "span": "from-until",
+   "style": "jsonobj",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "MM/DD/YYYY",
+   "date_impl": "regex",
+   "delim": null,
+   "names": {
+    "attendees": "people",
+    "date": "event_date",
+    "minutes": "length",
+    "owner": "host",
+    "room": "location",
+    "start": "begins",
+    "title": "subject",
+    "zone": "offset"
+   },
+   "notation": "jsonl",
+   "partner": "Elmstead Offices",
+   "sep": null,
+   "slug": "elmstead",
+   "span": "start-duration",
+   "style": "jsonpairs",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "YYYY/MM/DD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "pax",
+    "end": "stops",
+    "owner": "host",
+    "room": "site",
+    "start": "begin",
+    "title": "summary",
+    "zone": "utc_offset"
+   },
+   "notation": "keyvalue",
+   "partner": "Foxglove Venues",
+   "sep": "=",
+   "slug": "foxglove",
+   "span": "datetimes",
+   "style": "kvblock",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "DD.MM.YYYY",
+   "date_impl": "regex",
+   "delim": null,
+   "names": {
+    "attendees": "guests",
+    "date": "event_date",
+    "end": "time_to",
+    "owner": "organizer",
+    "room": "room_code",
+    "start": "from",
+    "title": "subject",
+    "zone": "offset"
+   },
+   "notation": "keyvalue",
+   "partner": "Glenmore Venues",
+   "sep": ": ",
+   "slug": "glenmore",
+   "span": "from-until",
+   "style": "kvregex",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "YYYY-MM-DD",
+   "date_impl": "slice",
+   "delim": ";",
+   "names": {
+    "attendees": "pax",
+    "date": "on",
+    "minutes": "minutes",
+    "owner": "contact",
+    "room": "space",
+    "start": "begins",
+    "title": "topic",
+    "zone": "offset_minutes"
+   },
+   "notation": "delimited",
+   "partner": "Hawthorn Rooms",
+   "sep": null,
+   "slug": "hawthorn",
+   "span": "start-duration",
+   "style": "table",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "DD-Mon-YYYY",
+   "date_impl": "regex",
+   "delim": null,
+   "names": {
+    "attendees": "people",
+    "end": "finish",
+    "owner": "booker",
+    "room": "space",
+    "start": "begin",
+    "title": "subject",
+    "zone": "gmt_offset"
+   },
+   "notation": "keyvalue",
+   "partner": "Inglewood Halls",
+   "sep": ": ",
+   "slug": "inglewood",
+   "span": "datetimes",
+   "style": "kvblock",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "YYYYMMDD",
+   "date_impl": "slice",
+   "delim": null,
+   "names": {
+    "attendees": "headcount",
+    "date": "on",
+    "end": "end",
+    "owner": "organizer",
+    "room": "room_code",
+    "start": "time_from",
+    "title": "topic",
+    "zone": "gmt_offset"
+   },
+   "notation": "jsonl",
+   "partner": "Jasper Venues",
+   "sep": null,
+   "slug": "jasper",
+   "span": "from-until",
+   "style": "jsonobj",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "MM/DD/YYYY",
+   "date_impl": "regex",
+   "delim": ";",
+   "names": {
+    "attendees": "pax",
+    "date": "day",
+    "minutes": "length",
+    "owner": "contact",
+    "room": "site",
+    "start": "start",
+    "title": "summary",
+    "zone": "tz_name"
+   },
+   "notation": "delimited",
+   "partner": "Kingsley Rooms",
+   "sep": null,
+   "slug": "kingsley",
+   "span": "start-duration",
+   "style": "csvmod",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "YYYY/MM/DD",
+   "date_impl": "slice",
+   "delim": "|",
+   "names": {
+    "attendees": "pax",
+    "end": "stops",
+    "owner": "contact",
+    "room": "hall",
+    "start": "starts",
+    "title": "topic",
+    "zone": "zone"
+   },
+   "notation": "delimited",
+   "partner": "Larkspur Spaces",
+   "sep": null,
+   "slug": "larkspur",
+   "span": "datetimes",
+   "style": "split",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "DD.MM.YYYY",
+   "date_impl": "regex",
+   "delim": ",",
+   "names": {
+    "attendees": "guests",
+    "date": "date",
+    "end": "ends",
+    "owner": "host",
+    "room": "site",
+    "start": "start",
+    "title": "event",
+    "zone": "timezone"
+   },
+   "notation": "delimited",
+   "partner": "Marlow Rooms",
+   "sep": null,
+   "slug": "marlow",
+   "span": "from-until",
+   "style": "klass",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "label"
+  },
+  {
+   "date_fmt": "YYYY-MM-DD",
+   "date_impl": "slice",
+   "delim": ";",
+   "names": {
+    "attendees": "headcount",
+    "date": "day",
+    "minutes": "minutes",
+    "owner": "host",
+    "room": "location",
+    "start": "begins",
+    "title": "topic"
+   },
+   "notation": "delimited",
+   "partner": "Nettle Venues",
+   "sep": null,
+   "slug": "nettle",
+   "span": "start-duration",
+   "style": "table",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "suffix"
+  },
+  {
+   "date_fmt": "DD-Mon-YYYY",
+   "date_impl": "regex",
+   "delim": null,
+   "names": {
+    "attendees": "people",
+    "end": "stops",
+    "owner": "organizer",
+    "room": "site",
+    "start": "start_at",
+    "title": "subject",
+    "zone": "utc_minutes"
+   },
+   "notation": "keyvalue",
+   "partner": "Orchard Rooms",
+   "sep": "=",
+   "slug": "orchard",
+   "span": "datetimes",
+   "style": "kvregex",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "YYYYMMDD",
+   "date_impl": "slice",
+   "delim": ";",
+   "names": {
+    "attendees": "guests",
+    "date": "date",
+    "end": "ends",
+    "owner": "organizer",
+    "room": "site",
+    "start": "start",
+    "title": "topic"
+   },
+   "notation": "delimited",
+   "partner": "Primrose Spaces",
+   "sep": null,
+   "slug": "primrose",
+   "span": "from-until",
+   "style": "csvmod",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "suffix"
+  },
+  {
+   "date_fmt": "MM/DD/YYYY",
+   "date_impl": "regex",
+   "delim": ",",
+   "names": {
+    "attendees": "guests",
+    "date": "event_date",
+    "minutes": "duration_min",
+    "owner": "booker",
+    "room": "site",
+    "start": "begins",
+    "title": "topic"
+   },
+   "notation": "delimited",
+   "partner": "Quillon Spaces",
+   "sep": null,
+   "slug": "quillon",
+   "span": "start-duration",
+   "style": "split",
+   "time_fmt": "HH:MM",
+   "time_impl": "regex",
+   "zone": "suffix"
+  },
+  {
+   "date_fmt": "YYYY/MM/DD",
+   "date_impl": "slice",
+   "delim": "\t",
+   "names": {
+    "attendees": "pax",
+    "end": "stops",
+    "owner": "organizer",
+    "room": "hall",
+    "start": "starts",
+    "title": "summary",
+    "zone": "offset_minutes"
+   },
+   "notation": "delimited",
+   "partner": "Rowan Spaces",
+   "sep": null,
+   "slug": "rowan",
+   "span": "datetimes",
+   "style": "klass",
+   "time_fmt": "h:MMam",
+   "time_impl": "regex",
+   "zone": "minutes"
+  },
+  {
+   "date_fmt": "DD.MM.YYYY",
+   "date_impl": "regex",
+   "delim": ";",
+   "names": {
+    "attendees": "pax",
+    "date": "on",
+    "end": "end",
+    "owner": "organizer",
+    "room": "site",
+    "start": "begins",
+    "title": "event",
+    "zone": "gmt_offset"
+   },
+   "notation": "delimited",
+   "partner": "Sorrel Venues",
+   "sep": null,
+   "slug": "sorrel",
+   "span": "from-until",
+   "style": "table",
+   "time_fmt": "HHMM",
+   "time_impl": "split",
+   "zone": "compact"
+  },
+  {
+   "date_fmt": "YYYY-MM-DD",
+   "date_impl": "slice",
+   "delim": "\t",
+   "names": {
+    "attendees": "guests",
+    "date": "event_date",
+    "minutes": "duration_min",
+    "owner": "organizer",
+    "room": "site",
+    "start": "time_from",
+    "title": "topic"
+   },
+   "notation": "delimited",
+   "partner": "Thistle Rooms",
+   "sep": null,
+   "slug": "thistle",
+   "span": "start-duration",
+   "style": "csvmod",
+   "time_fmt": "HH.MM",
+   "time_impl": "split",
+   "zone": "suffix"
+  }
+ ],
+ "grouped": [
+  {
+   "group": "weekday",
+   "metric": "count",
+   "slug": "weekday_count",
+   "style": "dict"
+  },
+  {
+   "group": "weekday",
+   "metric": "minutes",
+   "slug": "weekday_minutes",
+   "style": "groupby"
+  },
+  {
+   "group": "hour",
+   "metric": "count",
+   "slug": "hour_count",
+   "style": "counter"
+  },
+  {
+   "group": "hour",
+   "metric": "attendees",
+   "slug": "hour_attendees",
+   "style": "klass"
+  },
+  {
+   "group": "week",
+   "metric": "minutes",
+   "slug": "week_minutes",
+   "style": "dict"
+  },
+  {
+   "group": "daypart",
+   "metric": "count",
+   "slug": "daypart_count",
+   "style": "groupby"
+  },
+  {
+   "group": "month",
+   "metric": "owners",
+   "slug": "month_owners",
+   "style": "counter"
+  },
+  {
+   "group": "dateroom",
+   "metric": "minutes",
+   "slug": "dateroom_minutes",
+   "style": "klass"
+  },
+  {
+   "group": "weekday",
+   "metric": "owners",
+   "slug": "weekday_owners",
+   "style": "dict"
+  },
+  {
+   "group": "hour",
+   "metric": "minutes",
+   "slug": "hour_minutes",
+   "style": "groupby"
+  },
+  {
+   "group": "week",
+   "metric": "count",
+   "slug": "week_count",
+   "style": "counter"
+  },
+  {
+   "group": "daypart",
+   "metric": "attendees",
+   "slug": "daypart_attendees",
+   "style": "klass"
+  },
+  {
+   "group": "month",
+   "metric": "count",
+   "slug": "month_count",
+   "style": "dict"
+  },
+  {
+   "group": "dateroom",
+   "metric": "count",
+   "slug": "dateroom_count",
+   "style": "groupby"
+  }
+ ],
+ "notifiers": [
+  {
+   "channel": "Slackish",
+   "empty": "nothing booked",
+   "header": null,
+   "line": "[{time}] {title} @ {room} ({owner})",
+   "slug": "slackish",
+   "style": "listcomp",
+   "time_fmt": "HH:MM"
+  },
+  {
+   "channel": "Teamsy",
+   "empty": "(no bookings)",
+   "header": null,
+   "line": "{time} - {title} - {room}",
+   "slug": "teamsy",
+   "style": "loop",
+   "time_fmt": "HH.MM"
+  },
+  {
+   "channel": "Mailer",
+   "empty": "free day",
+   "header": "Bookings for {date}",
+   "line": "{owner}: {title} in {room} at {time}",
+   "slug": "mailer",
+   "style": "klass",
+   "time_fmt": "HHhMM"
+  },
+  {
+   "channel": "Pager",
+   "empty": "nothing booked",
+   "header": "Bookings for {date}",
+   "line": "* {time} {title} ({room}, {attendees} people)",
+   "slug": "pager",
+   "style": "join",
+   "time_fmt": "h:MMam"
+  },
+  {
+   "channel": "Sms",
+   "empty": "(no bookings)",
+   "header": "== {date} ==",
+   "line": "{room} | {time} | {title}",
+   "slug": "sms",
+   "style": "listcomp",
+   "time_fmt": "HH:MM"
+  },
+  {
+   "channel": "Matrixy",
+   "empty": "free day",
+   "header": "== {date} ==",
+   "line": "[{time}] {title} @ {room} ({owner})",
+   "slug": "matrixy",
+   "style": "loop",
+   "time_fmt": "HH.MM"
+  },
+  {
+   "channel": "Discordy",
+   "empty": "nothing booked",
+   "header": null,
+   "line": "{time} - {title} - {room}",
+   "slug": "discordy",
+   "style": "klass",
+   "time_fmt": "HHhMM"
+  },
+  {
+   "channel": "Webex",
+   "empty": "(no bookings)",
+   "header": null,
+   "line": "{owner}: {title} in {room} at {time}",
+   "slug": "webex",
+   "style": "join",
+   "time_fmt": "h:MMam"
+  },
+  {
+   "channel": "Ircbot",
+   "empty": "free day",
+   "header": "Bookings for {date}",
+   "line": "* {time} {title} ({room}, {attendees} people)",
+   "slug": "ircbot",
+   "style": "listcomp",
+   "time_fmt": "HH:MM"
+  },
+  {
+   "channel": "Telegrammy",
+   "empty": "nothing booked",
+   "header": "Bookings for {date}",
+   "line": "{room} | {time} | {title}",
+   "slug": "telegrammy",
+   "style": "loop",
+   "time_fmt": "HH.MM"
+  },
+  {
+   "channel": "Signalish",
+   "empty": "(no bookings)",
+   "header": "== {date} ==",
+   "line": "[{time}] {title} @ {room} ({owner})",
+   "slug": "signalish",
+   "style": "klass",
+   "time_fmt": "HHhMM"
+  },
+  {
+   "channel": "Zulipy",
+   "empty": "free day",
+   "header": "== {date} ==",
+   "line": "{time} - {title} - {room}",
+   "slug": "zulipy",
+   "style": "join",
+   "time_fmt": "h:MMam"
+  },
+  {
+   "channel": "Rocketchat",
+   "empty": "nothing booked",
+   "header": null,
+   "line": "{owner}: {title} in {room} at {time}",
+   "slug": "rocketchat",
+   "style": "listcomp",
+   "time_fmt": "HH:MM"
+  },
+  {
+   "channel": "Mattermosty",
+   "empty": "(no bookings)",
+   "header": null,
+   "line": "* {time} {title} ({room}, {attendees} people)",
+   "slug": "mattermosty",
+   "style": "loop",
+   "time_fmt": "HH.MM"
+  },
+  {
+   "channel": "Lineapp",
+   "empty": "free day",
+   "header": "Bookings for {date}",
+   "line": "{room} | {time} | {title}",
+   "slug": "lineapp",
+   "style": "klass",
+   "time_fmt": "HHhMM"
+  },
+  {
+   "channel": "Viberish",
+   "empty": "nothing booked",
+   "header": "Bookings for {date}",
+   "line": "[{time}] {title} @ {room} ({owner})",
+   "slug": "viberish",
+   "style": "join",
+   "time_fmt": "h:MMam"
+  }
+ ],
+ "seed": 4207
+}

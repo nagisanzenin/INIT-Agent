@@ -1,0 +1,4 @@
+{"chunk": 64, "kind": "meta", "model": "deepseek-flash", "name": "sx-fib", "provider": "deepseek", "v": 1}
+{"kind": "turn", "reply": {"calls": [{"input": {"content": "1\n1\n2\n3\n5\n8\n13\n21\n34\n55\n", "path": "fib.txt"}, "name": "write_file"}], "stop": "tool_use", "text": "", "think": ""}, "v": 1}
+{"kind": "turn", "reply": {"calls": [{"input": {}, "name": "run_tests"}], "stop": "tool_use", "text": "", "think": ""}, "v": 1}
+{"kind": "turn", "reply": {"stop": "end_turn", "text": "Done.", "think": ""}, "v": 1}

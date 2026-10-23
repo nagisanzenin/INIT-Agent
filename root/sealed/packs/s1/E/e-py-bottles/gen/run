@@ -1,0 +1,221 @@
+#!/usr/bin/env python3
+"""e-py-bottles: Exercism `bottle-song` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d2 a seeded object (singular/plural), colour, place phrase, verb and highest start
+(12..20) with exact line templates and ValueError for a bad start/take; d3 makes k (2 or 3) items fall per verse
+(all of them when fewer are left); d4 adds a seeded refrain line after the second line of every verse whose
+starting count is even.
+Reference: ref/solution.py (parameterized by P). Dev fixtures: ref/original.py (ten green bottles hanging on the
+wall, one at a time) and, from d3, naive (the reference without the newest delta).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "bottle_song"
+STUB = '''def recite(start, take=1):
+    raise NotImplementedError("recite")
+'''
+OBJECTS = [("jar", "jars"), ("glass", "glasses"), ("box", "boxes"), ("cup", "cups"), ("bell", "bells"),
+           ("lamp", "lamps"), ("vase", "vases"), ("candle", "candles")]
+COLOURS = ["red", "blue", "yellow", "silver", "golden", "purple", "white", "orange"]
+PLACES = ["sitting on the shelf", "standing by the door", "resting on the fence", "lined up on the table",
+          "waiting in the hall", "perched on the ledge"]
+VERBS = ["fall", "drop", "tumble", "slip"]
+REFRAINS = ["Oh, how they shine and sway,", "Count them all once more,", "Hear the neighbours sing along,",
+            "Steady now, steady now,", "What a lovely sight they make,"]
+WORDS = ["no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven",
+         "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty"]
+
+
+def outcome(ns, expr):
+    """What the check would see for expr against a namespace: ("ok", repr) or ("exc", name)."""
+    try:
+        return "ok", repr(eval(expr, dict(ns)))  # noqa: S307 - our own expressions against our own code
+    except Exception as e:  # noqa: BLE001
+        return "exc", type(e).__name__
+
+
+def cover(ns, exprs, n_visible, rivals, candidate, need=3, cap=40, tries=800):
+    """Adds candidate expressions until every rival (the original exercise, or the reference without one
+    delta) differs from the reference on >= need hidden cases, so each active delta is exercised."""
+    for label, rival in rivals:
+        hits = sum(1 for e in exprs[n_visible:] if outcome(ns, e) != outcome(rival, e))
+        for _ in range(tries):
+            if hits >= need:
+                break
+            e = candidate(label)
+            if e in exprs or outcome(ns, e) == outcome(rival, e):
+                continue
+            if len(exprs) >= cap:
+                raise s1lib.GenError("case cap reached while covering %s" % label)
+            exprs.append(e)
+            hits += 1
+        if hits < need:
+            raise s1lib.GenError("could not cover %s" % label)
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    one, many = rng.choice(OBJECTS)
+    return {"one": one, "many": many, "colour": rng.choice(COLOURS), "place": rng.choice(PLACES),
+            "verb": rng.choice(VERBS), "max": rng.randint(12, 20), "k": rng.choice([2, 3]) if d >= 3 else 1,
+            "refrain": rng.choice(REFRAINS) if d >= 4 else ""}
+
+
+def rules_text(p, worked_n, worked_lines):
+    k, colour, place = p["k"], p["colour"], p["place"]
+    words = ", ".join("`%s`" % w for w in WORDS[1:p["max"] + 1])
+    lines = [
+        "**Words.** Numbers are written as lower-case English words: 0 is `no`, and 1 to %d are %s. The object "
+        "is `%s` when the number is exactly one and `%s` otherwise (also for `no`). The colour is `%s`, the "
+        "place phrase is `%s` and the verb is `%s`." % (p["max"], words, p["one"], p["many"], colour, place,
+                                                         p["verb"]),
+        "",
+        "**Lines.** Below, `<x>` stands for the number word of x, a space, `%s`, a space and the object word "
+        "(for example `<3>` is `three %s %s`, `<1>` is `one %s %s` and `<0>` is `no %s %s`). The verse for n "
+        "items, in which m items fall, has these lines in this order:" % (
+            colour, colour, p["many"], colour, p["one"], colour, p["many"]),
+        "",
+        "- `<n> %s,` with its first letter changed to upper case" % place,
+        "- the same line again",
+    ]
+    if p["refrain"]:
+        lines.append("- only when n is even: the line `%s` exactly as written (no such line when n is odd)"
+                     % p["refrain"])
+    lines += [
+        "- `And if <m> should accidentally %s,`" % p["verb"],
+        "- `There'll be <n - m> %s.`" % place,
+        "",
+    ]
+    if k == 1:
+        lines.append("**Falling.** One item falls in every verse (m = 1). The verse for n is followed by the "
+                     "verse for n - 1; the last verse of the song is the verse for 1.")
+    else:
+        lines.append("**Falling.** In every verse %s items fall (m = %d), except that when fewer than %d items "
+                     "are left, all of them fall (m = n). The verse for n is followed by the verse for n - m; "
+                     "the last verse of the song is the one that leaves no items, and there is never a verse "
+                     "for 0." % (WORDS[k], k, k))
+    lines += [
+        "",
+        "**Example.** The verse for n = %d:" % worked_n,
+        "",
+        "```text",
+    ] + worked_lines + [
+        "```",
+        "",
+        "**recite(start, take=1)** returns a list of `str`: the lines of `take` consecutive verses of the song, "
+        "starting with the verse for n = `start` and continuing with the verses that follow it. Consecutive "
+        "verses are separated by one empty string `''`; there is no `''` before the first verse or after the "
+        "last one.",
+        "",
+        "**Errors.** `recite` raises `ValueError` when `start` is less than 1 or greater than %d, when `take` "
+        "is less than 1, or when `take` is greater than the number of verses from the verse for `start` to the "
+        "end of the song (that verse included)." % p["max"],
+    ]
+    return "\n".join(lines)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    d = ctx.difficulty
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    ns = load_ref(ref)
+    top, k = p["max"], p["k"]
+    orig = ctx.read("ref", "original.py")
+    rivals = [("original", load_ref(orig)),
+              ("max-low", load_ref(ref_with_params(ctx, dict(p, max=top - 1)))),
+              ("max-high", load_ref(ref_with_params(ctx, dict(p, max=top + 1))))]
+    dev = {"original": orig}
+    if k > 1:
+        dev["naive"] = ref_with_params(ctx, dict(p, k=1))
+        rivals.append(("k", load_ref(dev["naive"])))
+    if p["refrain"]:
+        dev["naive"] = ref_with_params(ctx, dict(p, refrain=""))
+        rivals.append(("refrain", load_ref(dev["naive"])))
+
+    def left(s):
+        return len(range(s, 0, -k))
+
+    def rec(s, t=None, kw=False):
+        if kw:
+            return "recite(start=%d, take=%d)" % (s, t)
+        return "recite(%d)" % s if t is None else "recite(%d, %d)" % (s, t)
+
+    def rand_case(max_take=3):
+        s = rng.randint(1, top)
+        return rec(s, rng.randint(1, min(max_take, left(s))))
+
+    # the worked verse in the prompt: a verse where k items fall, with the refrain at d4
+    cands = [n for n in range(max(2, k + 1), top + 1) if not p["refrain"] or n % 2 == 0]
+    worked_n = rng.choice(cands)
+    worked = ns["recite"](worked_n)
+    exprs = []
+
+    def add(e):
+        if e not in exprs:
+            exprs.append(e)
+
+    # visible examples (4): one verse, two verses, the end of the song, an error
+    odd = [n for n in range(3, top + 1) if n != worked_n and (n % 2 == 1 or not p["refrain"])]
+    add(rec(rng.choice(odd)))
+    s = rng.choice([n for n in range(2 * k + 1, top + 1) if n != worked_n])
+    add(rec(s, 2))
+    if k > 1:
+        s = rng.choice([n for n in range(k + 1, 2 * k + 2) if n % k != 0])
+        add(rec(s, left(s)))
+    else:
+        add(rec(2, 2))
+    add(rec(top + 1))
+    n_visible = len(exprs)
+    # hidden: edges and errors
+    add(rec(1))
+    add(rec(2))
+    add(rec(top))
+    add(rec(top, 2))
+    add(rec(0))
+    add(rec(top + 1, 2))
+    add(rec(-rng.randint(1, 5), 1))
+    s = rng.randint(1, top)
+    add(rec(s, 0))
+    s = rng.randint(1, top)
+    add(rec(s, -1))
+    s = rng.randint(1, min(top, 6 * k))
+    add(rec(s, left(s) + 1))
+    # hidden: whole rest of the song (with partial last verses when k > 1), random spans, keyword calls
+    for _ in range(2):
+        s = rng.choice([n for n in range(1, min(top, 6 * k) + 1) if k == 1 or n % k != 0])
+        add(rec(s, left(s)))
+    if k > 1:
+        add(rec(rng.randint(1, k - 1)))
+    for _ in range(10):
+        add(rand_case())
+    for _ in range(2):
+        s = rng.randint(1, top)
+        add(rec(s, rng.randint(1, min(2, left(s))), kw=True))
+
+    def candidate(label):
+        if label in ("max-low", "max-high"):
+            s = top if label == "max-low" else top + 1
+            return rec(s, rng.randint(1, min(3, left(top))), kw=rng.chance(1, 2))
+        if label == "refrain":
+            s = rng.choice([n for n in range(2, top + 1) if n % 2 == 0])
+            return rec(s, rng.randint(1, min(2, left(s))))
+        return rand_case()
+
+    cover(ns, exprs, n_visible, rivals, candidate)
+    while len(exprs) < 28:
+        add(candidate("pad"))
+    task = ("Implement `recite(start, take=1)` in `%s.py`: the lyrics of a counting-down song about %s %s %s."
+            % (MODULE, p["colour"], p["many"], p["place"]))
+    return assemble(ctx, MODULE, task, rules_text(p, worked_n, worked), ref, exprs, n_visible, dev, STUB)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

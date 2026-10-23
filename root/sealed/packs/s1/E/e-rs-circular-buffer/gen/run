@@ -1,0 +1,241 @@
+#!/usr/bin/env python3
+"""e-rs-circular-buffer: Exercism `circular-buffer` (Rust) with a seeded semantic change (m7 §3.1.1, E).
+
+Seeded parameters: which end `read` takes from (oldest or newest) and which element `overwrite` evicts
+from a full buffer (oldest or newest); never (oldest, oldest), the original. Difficulty 3 adds the
+capacity-0 rule and longer mixed sequences; difficulty 4 adds `peek`/`drain` and String elements.
+Graded cases: 4 visible + 26 hidden op sequences, one #[test] each.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "circular_buffer_variant"
+N_HIDDEN = 26
+
+STUB_HEAD = '''#[derive(Debug, PartialEq, Eq)]
+pub enum Error {
+    EmptyBuffer,
+    FullBuffer,
+}
+
+pub struct CircularBuffer<T> {
+    // replace with your own fields
+    phantom: std::marker::PhantomData<T>,
+}
+
+impl<T> CircularBuffer<T> {
+    pub fn new(capacity: usize) -> Self {
+        todo!("a buffer holding up to {capacity} elements")
+    }
+
+    pub fn write(&mut self, _element: T) -> Result<(), Error> {
+        todo!("write")
+    }
+
+    pub fn read(&mut self) -> Result<T, Error> {
+        todo!("read")
+    }
+
+    pub fn clear(&mut self) {
+        todo!("clear")
+    }
+
+    pub fn overwrite(&mut self, _element: T) {
+        todo!("overwrite")
+    }
+
+    pub fn len(&self) -> usize {
+        todo!("len")
+    }
+'''
+STUB_D4 = '''
+    pub fn peek(&self) -> Option<&T> {
+        todo!("peek")
+    }
+
+    pub fn drain(&mut self) -> Vec<T> {
+        todo!("drain")
+    }
+'''
+
+
+class Model:
+    def __init__(self, cap, p):
+        self.cap, self.p, self.items = cap, p, []
+
+    def write(self, x):
+        if len(self.items) >= self.cap:
+            return "Err(Error::FullBuffer)"
+        self.items.append(x)
+        return "Ok(())"
+
+    def read(self):
+        if not self.items:
+            return None
+        return self.items.pop() if self.p["read_newest"] else self.items.pop(0)
+
+    def overwrite(self, x):
+        if self.cap == 0:
+            return
+        if len(self.items) >= self.cap:
+            if self.p["evict_newest"]:
+                self.items.pop()
+            else:
+                self.items.pop(0)
+        self.items.append(x)
+
+    def peek(self):
+        if not self.items:
+            return None
+        return self.items[-1] if self.p["read_newest"] else self.items[0]
+
+
+def params(ctx, rng):
+    combos = [(False, True), (True, False), (True, True)]
+    rn, en = rng.choice(combos)
+    return {"read_newest": rn, "evict_newest": en, "cap0": ctx.difficulty >= 3, "d4": ctx.difficulty >= 4}
+
+
+def sequence(rng, p, cap, n_ops, strings, mix):
+    """A random op sequence as Rust statements, with the model's expected results."""
+    m = Model(cap, p)
+    ty = "String" if strings else "i32"
+    lines = ["let mut buf: CircularBuffer<%s> = CircularBuffer::new(%d);" % (ty, cap)]
+    counter = [rng.randint(1, 50)]
+
+    def val():
+        counter[0] += rng.randint(1, 9)
+        v = counter[0]
+        return ("\"%s%d\".to_string()" % (rng.word(2), v)) if strings else str(v)
+
+    ops = ["write"] * mix[0] + ["read"] * mix[1] + ["overwrite"] * mix[2] + ["len"] + ["clear"] * mix[3]
+    if p["d4"]:
+        ops += ["peek", "peek", "drain"]
+    for _ in range(n_ops):
+        op = rng.choice(ops)
+        if op == "write":
+            v = val()
+            r = m.write(v)
+            lines.append("assert_eq!(buf.write(%s), %s);" % (v, r))
+        elif op == "read":
+            r = m.read()
+            lines.append("assert_eq!(buf.read(), %s);" % ("Err(Error::EmptyBuffer)" if r is None else "Ok(%s)" % r))
+        elif op == "overwrite":
+            v = val()
+            m.overwrite(v)
+            lines.append("buf.overwrite(%s);" % v)
+        elif op == "len":
+            lines.append("assert_eq!(buf.len(), %d);" % len(m.items))
+        elif op == "clear":
+            m.items = []
+            lines.append("buf.clear();")
+        elif op == "peek":
+            r = m.peek()
+            lines.append("assert_eq!(buf.peek(), %s);" % ("None" if r is None else "Some(&%s)" % r))
+        elif op == "drain":
+            out = []
+            while m.items:
+                out.append(m.read())
+            lines.append("assert_eq!(buf.drain(), %s);" % ("Vec::<%s>::new()" % ty if not out else "vec![%s]" % ", ".join(out)))
+    lines.append("assert_eq!(buf.len(), %d);" % len(m.items))
+    return "\n".join(lines)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    bodies = []
+
+    def add(body):
+        if body not in bodies:
+            bodies.append(body)
+
+    # visible: fill then read back, overwrite on a full buffer, read from an empty buffer, a mixed sequence
+    m = Model(3, p)
+    vis1 = ["let mut buf: CircularBuffer<i32> = CircularBuffer::new(3);"]
+    for v in (1, 2, 3):
+        vis1.append("assert_eq!(buf.write(%d), %s);" % (v, m.write(str(v))))
+    vis1.append("assert_eq!(buf.write(4), %s);" % m.write("4"))
+    for _ in range(3):
+        vis1.append("assert_eq!(buf.read(), Ok(%s));" % m.read())
+    bodies.append("\n".join(vis1))
+    m = Model(2, p)
+    vis2 = ["let mut buf: CircularBuffer<i32> = CircularBuffer::new(2);"]
+    for v in (10, 20):
+        vis2.append("assert_eq!(buf.write(%d), %s);" % (v, m.write(str(v))))
+    m.overwrite("30")
+    vis2.append("buf.overwrite(30);")
+    vis2.append("assert_eq!(buf.len(), %d);" % len(m.items))
+    for _ in range(2):
+        vis2.append("assert_eq!(buf.read(), Ok(%s));" % m.read())
+    vis2.append("assert_eq!(buf.read(), Err(Error::EmptyBuffer));")
+    bodies.append("\n".join(vis2))
+    add(sequence(rng, p, 1, 6, False, (3, 2, 2, 0)))
+    add(sequence(rng, p, 4, 12, False, (3, 2, 2, 1)))
+    # hidden
+    if p["cap0"]:
+        bodies.append("let mut buf: CircularBuffer<i32> = CircularBuffer::new(0);\n"
+                      "assert_eq!(buf.write(1), Err(Error::FullBuffer));\nbuf.overwrite(2);\n"
+                      "assert_eq!(buf.len(), 0);\nassert_eq!(buf.read(), Err(Error::EmptyBuffer));")
+    for cap in (1, 1, 2, 2, 3, 3, 4, 5, 5, 7):
+        add(sequence(rng, p, cap, rng.randint(8, 14), p["d4"] and rng.chance(1, 2), (3, 2, 3, 1)))
+    for cap in (2, 3, 4, 6):
+        add(sequence(rng, p, cap, rng.randint(10, 15), p["d4"] and rng.chance(1, 2), (2, 3, 4, 0)))
+    if p["cap0"]:
+        add(sequence(rng, p, 0, 6, False, (2, 2, 2, 1)))
+    tries = 0
+    while len(bodies) < N_HIDDEN + 4 and tries < 200:
+        tries += 1
+        add(sequence(rng, p, rng.randint(1, 6), rng.randint(6, 15), p["d4"] and rng.chance(1, 2),
+                     (rng.randint(1, 4), rng.randint(1, 3), rng.randint(1, 4), rng.below(2))))
+    vis, rest = bodies[:4], rng.shuffled(bodies[4:])[:N_HIDDEN]
+    cases = [("visible_%d" % (n + 1) if n < 4 else "case_%02d" % (n - 3), None, b) for n, b in enumerate(vis + rest)]
+
+    read_end = "the NEWEST element (the one written most recently; last in, first out)" if p["read_newest"] else \
+        "the OLDEST element (first in, first out)"
+    evict_end = "the NEWEST element (the one written most recently)" if p["evict_newest"] else "the OLDEST element"
+    rules = [
+        "1. `new(capacity)` creates an empty buffer that holds at most `capacity` elements. `len()` is the "
+        "number of elements currently held.",
+        "2. `write(x)` stores `x` and returns `Ok(())`; if the buffer already holds `capacity` elements it "
+        "returns `Err(Error::FullBuffer)` and changes nothing.",
+        "3. `read()` removes and returns %s; on an empty buffer it returns `Err(Error::EmptyBuffer)`." % read_end,
+        "4. `overwrite(x)` behaves like `write(x)` when there is room. When the buffer is full it first removes "
+        "%s, then stores `x` (which is now the newest element).%s" % (
+            evict_end, " With capacity 0 it does nothing (the element is dropped)." if p["cap0"] else ""),
+        "5. `clear()` removes every element.",
+    ]
+    if p["cap0"]:
+        rules.append("6. A buffer created with capacity 0 is valid: it is always full and always empty, so "
+                     "`write` returns `Err(Error::FullBuffer)` and `read` returns `Err(Error::EmptyBuffer)`.")
+    if p["d4"]:
+        rules.append("%d. `peek()` returns a reference to the element `read()` would return next, without "
+                     "removing it (`None` when empty). `drain()` removes every element and returns them in the "
+                     "order successive `read()` calls would have returned them. `T` has no trait bounds: the "
+                     "element type may be `String` (not `Copy`, and you must not require `Clone`)." % (len(rules) + 1))
+    api = ("#[derive(Debug, PartialEq, Eq)]\npub enum Error { EmptyBuffer, FullBuffer }\n"
+           "pub struct CircularBuffer<T> { /* your fields */ }\nimpl<T> CircularBuffer<T> {\n"
+           "    pub fn new(capacity: usize) -> Self;\n    pub fn write(&mut self, element: T) -> Result<(), Error>;\n"
+           "    pub fn read(&mut self) -> Result<T, Error>;\n    pub fn clear(&mut self);\n"
+           "    pub fn overwrite(&mut self, element: T);\n    pub fn len(&self) -> usize;\n")
+    if p["d4"]:
+        api += "    pub fn peek(&self) -> Option<&T>;\n    pub fn drain(&mut self) -> Vec<T>;\n"
+    api += "}"
+    stub = STUB_HEAD + (STUB_D4 if p["d4"] else "") + "}\n"
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {"READ_NEWEST": ersgen.rs_bool(p["read_newest"]),
+                                                    "EVICT_NEWEST": ersgen.rs_bool(p["evict_newest"])})
+    return ersgen.finish(
+        ctx, crate=CRATE, api=api,
+        intro="A telemetry pipeline needs a bounded in-memory buffer with specific read and eviction ends. "
+              "Implement `CircularBuffer<T>` (you may use any standard-library collection inside).",
+        rules="\n".join(rules), stub=stub, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::{CircularBuffer, Error};" % CRATE, cases=cases, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

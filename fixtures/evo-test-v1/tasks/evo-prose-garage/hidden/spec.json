@@ -1,0 +1,625 @@
+{
+ "items": [
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.store import Fleet\nfrom garagedesk.vehicles.models import Vehicle\ndef mk(n, cat='x'):\n    s = Fleet()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, model='N%02d' % k, kind=cat, units=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom garagedesk.vehicles.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Vehicle(id='k01', model='z', kind='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').model)",
+     "duplicate vehicle id k01 2 N01"
+    ]
+   ],
+   "name": "r01",
+   "site": "dup/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PartsBin\nfrom garagedesk.parts.models import Part\ndef mk(n, cat='x'):\n    s = PartsBin()\n    for k in range(n):\n        s.add(Part(id='k%02d' % k, label='N%02d' % k, bin=cat, stock=(k * 5) % 7, cost=1.0 + k))\n    return s\nfrom garagedesk.parts.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Part(id='k01', label='z', bin='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').label)",
+     "duplicate part id k01 2 N01"
+    ]
+   ],
+   "name": "r02",
+   "site": "dup/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import JobBoard\nfrom garagedesk.jobs.models import Job\ndef mk(n, cat='x'):\n    s = JobBoard()\n    for k in range(n):\n        s.add(Job(id='k%02d' % k, summary='N%02d' % k, bay=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom garagedesk.jobs.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Job(id='k01', summary='z', bay='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').summary)",
+     "duplicate job id k01 2 N01"
+    ]
+   ],
+   "name": "r03",
+   "site": "dup/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.errors import NotFound\nprint(str(NotFound('q7')))",
+     "vehicle 'q7' not found"
+    ]
+   ],
+   "name": "r04",
+   "site": "notfound/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.errors import NotFound\nprint(str(NotFound('q7')))",
+     "part 'q7' not found"
+    ]
+   ],
+   "name": "r05",
+   "site": "notfound/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.errors import NotFound\nprint(str(NotFound('q7')))",
+     "job 'q7' not found"
+    ]
+   ],
+   "name": "r06",
+   "site": "notfound/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.store import Fleet\nfrom garagedesk.vehicles.models import Vehicle\ndef mk(n, cat='x'):\n    s = Fleet()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, model='N%02d' % k, kind=cat, units=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom garagedesk.vehicles.errors import Invalid\ntry:\n    mk(0).add(Vehicle(id='a', model='b', kind='c', units=-1))\nexcept Invalid as e:\n    print(e)",
+     "units cannot be negative"
+    ]
+   ],
+   "name": "r07",
+   "site": "qty_msg/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PartsBin\nfrom garagedesk.parts.models import Part\ndef mk(n, cat='x'):\n    s = PartsBin()\n    for k in range(n):\n        s.add(Part(id='k%02d' % k, label='N%02d' % k, bin=cat, stock=(k * 5) % 7, cost=1.0 + k))\n    return s\nfrom garagedesk.parts.errors import Invalid\ntry:\n    mk(0).add(Part(id='a', label='b', bin='c', stock=-1))\nexcept Invalid as e:\n    print(e)",
+     "stock cannot be negative"
+    ]
+   ],
+   "name": "r08",
+   "site": "qty_msg/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.store import Fleet\nfrom garagedesk.vehicles.models import Vehicle\ndef mk(n, cat='x'):\n    s = Fleet()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, model='N%02d' % k, kind=cat, units=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom garagedesk.vehicles.validate import MAX_NAME\nfrom garagedesk.vehicles.errors import Invalid\ns = mk(0)\ns.add(Vehicle(id='a', model='x' * 72, kind='c'))\ntry:\n    s.add(Vehicle(id='b', model='x' * 73, kind='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "72 1"
+    ]
+   ],
+   "name": "r09",
+   "site": "maxname/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PartsBin\nfrom garagedesk.parts.models import Part\ndef mk(n, cat='x'):\n    s = PartsBin()\n    for k in range(n):\n        s.add(Part(id='k%02d' % k, label='N%02d' % k, bin=cat, stock=(k * 5) % 7, cost=1.0 + k))\n    return s\nfrom garagedesk.parts.validate import MAX_NAME\nfrom garagedesk.parts.errors import Invalid\ns = mk(0)\ns.add(Part(id='a', label='x' * 48, bin='c'))\ntry:\n    s.add(Part(id='b', label='x' * 49, bin='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "48 1"
+    ]
+   ],
+   "name": "r10",
+   "site": "maxname/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import JobBoard\nfrom garagedesk.jobs.models import Job\ndef mk(n, cat='x'):\n    s = JobBoard()\n    for k in range(n):\n        s.add(Job(id='k%02d' % k, summary='N%02d' % k, bay=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom garagedesk.jobs.validate import MAX_NAME\nfrom garagedesk.jobs.errors import Invalid\ns = mk(0)\ns.add(Job(id='a', summary='x' * 120, bay='c'))\ntry:\n    s.add(Job(id='b', summary='x' * 121, bay='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "120 1"
+    ]
+   ],
+   "name": "r11",
+   "site": "maxname/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import JobBoard\nfrom garagedesk.jobs.models import Job\ndef mk(n, cat='x'):\n    s = JobBoard()\n    for k in range(n):\n        s.add(Job(id='k%02d' % k, summary='N%02d' % k, bay=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom garagedesk.jobs.errors import Invalid\ntry:\n    mk(0).add(Job(id='a', summary='b', bay='c', rate=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "rate cannot be negative"
+    ]
+   ],
+   "name": "r12",
+   "site": "price_msg/jobs"
+  },
+  {
+   "checks": [
+    [
+     "import garagedesk\nprint(garagedesk.__version__, open('VERSION').read().strip())",
+     "1.0.0 1.0.0"
+    ]
+   ],
+   "name": "r13",
+   "site": "version"
+  },
+  {
+   "checks": [
+    [
+     "L = open('CHANGELOG.md').read().splitlines()\nprint(L[L.index('## Changes') + 1])",
+     "- 1.0.0: design note GAR-3"
+    ]
+   ],
+   "name": "r14",
+   "site": "changelog"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.21"
+    ]
+   ],
+   "name": "r15",
+   "site": "tax/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.07"
+    ]
+   ],
+   "name": "r16",
+   "site": "tax/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.16"
+    ]
+   ],
+   "name": "r17",
+   "site": "tax/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-€1,234.50 €7.00"
+    ]
+   ],
+   "name": "r18",
+   "site": "money_neg/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-€1,234.50 €7.00"
+    ]
+   ],
+   "name": "r19",
+   "site": "money_neg/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-€1,234.50 €7.00"
+    ]
+   ],
+   "name": "r20",
+   "site": "money_neg/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100), discount(10, 0))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0 10.0"
+    ]
+   ],
+   "name": "r21",
+   "site": "discount_range/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100), discount(10, 0))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0 10.0"
+    ]
+   ],
+   "name": "r22",
+   "site": "discount_range/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.store import Fleet\nfrom garagedesk.vehicles.models import Vehicle\ndef mk(n, cat='x'):\n    s = Fleet()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, model='N%02d' % k, kind=cat, units=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom garagedesk.vehicles.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Vehicles in stock"
+    ]
+   ],
+   "name": "r23",
+   "site": "title/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PartsBin\nfrom garagedesk.parts.models import Part\ndef mk(n, cat='x'):\n    s = PartsBin()\n    for k in range(n):\n        s.add(Part(id='k%02d' % k, label='N%02d' % k, bin=cat, stock=(k * 5) % 7, cost=1.0 + k))\n    return s\nfrom garagedesk.parts.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Parts on hand"
+    ]
+   ],
+   "name": "r24",
+   "site": "title/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import JobBoard\nfrom garagedesk.jobs.models import Job\ndef mk(n, cat='x'):\n    s = JobBoard()\n    for k in range(n):\n        s.add(Job(id='k%02d' % k, summary='N%02d' % k, bay=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom garagedesk.jobs.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Jobs open"
+    ]
+   ],
+   "name": "r25",
+   "site": "title/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.store import Fleet\nfrom garagedesk.vehicles.models import Vehicle\ndef mk(n, cat='x'):\n    s = Fleet()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, model='N%02d' % k, kind=cat, units=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom garagedesk.vehicles.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "r26",
+   "site": "low_sorted/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PartsBin\nfrom garagedesk.parts.models import Part\ndef mk(n, cat='x'):\n    s = PartsBin()\n    for k in range(n):\n        s.add(Part(id='k%02d' % k, label='N%02d' % k, bin=cat, stock=(k * 5) % 7, cost=1.0 + k))\n    return s\nfrom garagedesk.parts.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "r27",
+   "site": "low_sorted/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import JobBoard\nfrom garagedesk.jobs.models import Job\ndef mk(n, cat='x'):\n    s = JobBoard()\n    for k in range(n):\n        s.add(Job(id='k%02d' % k, summary='N%02d' % k, bay=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom garagedesk.jobs.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "r28",
+   "site": "low_sorted/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PartsBin\nfrom garagedesk.parts.models import Part\ndef mk(n, cat='x'):\n    s = PartsBin()\n    for k in range(n):\n        s.add(Part(id='k%02d' % k, label='N%02d' % k, bin=cat, stock=(k * 5) % 7, cost=1.0 + k))\n    return s\nfrom garagedesk.parts.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "========================================"
+    ]
+   ],
+   "name": "r29",
+   "site": "sep/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import JobBoard\nfrom garagedesk.jobs.models import Job\ndef mk(n, cat='x'):\n    s = JobBoard()\n    for k in range(n):\n        s.add(Job(id='k%02d' % k, summary='N%02d' % k, bay=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom garagedesk.jobs.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "############"
+    ]
+   ],
+   "name": "r30",
+   "site": "sep/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.report import summary\nfrom garagedesk.vehicles.io import load_csv\nprint(list(summary(load_csv('data/vehicles.csv'))))",
+     "['Truck', 'bike', 'car', 'van']"
+    ]
+   ],
+   "name": "r31",
+   "site": "summary_sorted/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.report import summary\nfrom garagedesk.parts.io import load_csv\nprint(list(summary(load_csv('data/parts.csv'))))",
+     "['Engine', 'body', 'brakes', 'tyres']"
+    ]
+   ],
+   "name": "r32",
+   "site": "summary_sorted/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.report import summary\nfrom garagedesk.jobs.io import load_csv\nprint(list(summary(load_csv('data/jobs.csv'))))",
+     "['Wash', 'bay-1', 'bay-2', 'paint']"
+    ]
+   ],
+   "name": "r33",
+   "site": "summary_sorted/jobs"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom garagedesk.vehicles.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "2"
+    ]
+   ],
+   "name": "r34",
+   "site": "thr/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom garagedesk.parts.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "10"
+    ]
+   ],
+   "name": "r35",
+   "site": "thr/parts"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom garagedesk.jobs.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "4"
+    ]
+   ],
+   "name": "r36",
+   "site": "thr/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.store import Fleet\nfrom garagedesk.vehicles.models import Vehicle\ndef mk(n, cat='x'):\n    s = Fleet()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, model='N%02d' % k, kind=cat, units=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r37",
+   "site": "page1/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PartsBin\nfrom garagedesk.parts.models import Part\ndef mk(n, cat='x'):\n    s = PartsBin()\n    for k in range(n):\n        s.add(Part(id='k%02d' % k, label='N%02d' % k, bin=cat, stock=(k * 5) % 7, cost=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r38",
+   "site": "page1/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import JobBoard\nfrom garagedesk.jobs.models import Job\ndef mk(n, cat='x'):\n    s = JobBoard()\n    for k in range(n):\n        s.add(Job(id='k%02d' % k, summary='N%02d' % k, bay=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r39",
+   "site": "page1/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.store import Fleet\nfrom garagedesk.vehicles.models import Vehicle\ndef mk(n, cat='x'):\n    s = Fleet()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, model='N%02d' % k, kind=cat, units=(k * 5) % 7, price=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r40",
+   "site": "search_ci/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PartsBin\nfrom garagedesk.parts.models import Part\ndef mk(n, cat='x'):\n    s = PartsBin()\n    for k in range(n):\n        s.add(Part(id='k%02d' % k, label='N%02d' % k, bin=cat, stock=(k * 5) % 7, cost=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r41",
+   "site": "search_ci/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import JobBoard\nfrom garagedesk.jobs.models import Job\ndef mk(n, cat='x'):\n    s = JobBoard()\n    for k in range(n):\n        s.add(Job(id='k%02d' % k, summary='N%02d' % k, bay=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r42",
+   "site": "search_ci/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.store import Fleet\nfrom garagedesk.vehicles.models import Vehicle\ndef mk(n, cat='x'):\n    s = Fleet()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, model='N%02d' % k, kind=cat, units=(k * 5) % 7, price=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_kind('mIXED')), len(mk(3, 'lo').by_kind('LO')))",
+     "4 3"
+    ]
+   ],
+   "name": "r43",
+   "site": "bycat_ci/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PartsBin\nfrom garagedesk.parts.models import Part\ndef mk(n, cat='x'):\n    s = PartsBin()\n    for k in range(n):\n        s.add(Part(id='k%02d' % k, label='N%02d' % k, bin=cat, stock=(k * 5) % 7, cost=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_bin('mIXED')), len(mk(3, 'lo').by_bin('LO')))",
+     "4 3"
+    ]
+   ],
+   "name": "r44",
+   "site": "bycat_ci/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "6"
+    ]
+   ],
+   "name": "r45",
+   "site": "pagesize/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "25"
+    ]
+   ],
+   "name": "r46",
+   "site": "pagesize/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "5"
+    ]
+   ],
+   "name": "r47",
+   "site": "pagesize/jobs"
+  },
+  {
+   "checks": [
+    [
+     "import io, json, contextlib\nfrom garagedesk.cli import main\nfrom garagedesk.vehicles.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'vehicles', 'data/vehicles.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/vehicles.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))\nfrom garagedesk.jobs.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'jobs', 'data/jobs.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/jobs.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))\n",
+     "True 1\nTrue 1"
+    ]
+   ],
+   "name": "r48",
+   "site": "json_cmd"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.cli import main\nmain(['count', 'vehicles', 'data/vehicles.csv', '--category', 'van'])\nmain(['count', 'parts', 'data/parts.csv', '--category', 'Engine'])\nmain(['count', 'jobs', 'data/jobs.csv'])",
+     "8\n8\n30"
+    ]
+   ],
+   "name": "r49",
+   "site": "count_cat"
+  },
+  {
+   "checks": [
+    [
+     "L = open('README.md').read().splitlines()\nprint(repr(L[L.index('    garagedesk count CATALOG FILE') + 1]))",
+     "'    garagedesk json CATALOG FILE'"
+    ]
+   ],
+   "name": "r50",
+   "site": "readme"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.store import PartsBin\nfrom garagedesk.parts.models import Part\ndef mk(n, cat='x'):\n    s = PartsBin()\n    for k in range(n):\n        s.add(Part(id='k%02d' % k, label='N%02d' % k, bin=cat, stock=(k * 5) % 7, cost=1.0 + k))\n    return s\nimport os, tempfile\nfrom garagedesk.parts.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').labels = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[5:], load_csv(p).get('k01').labels, load_csv(p).get('k00').labels)",
+     "['labels'] ['a', 'b'] []"
+    ]
+   ],
+   "name": "r51",
+   "site": "csv_tags/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import JobBoard\nfrom garagedesk.jobs.models import Job\ndef mk(n, cat='x'):\n    s = JobBoard()\n    for k in range(n):\n        s.add(Job(id='k%02d' % k, summary='N%02d' % k, bay=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nimport os, tempfile\nfrom garagedesk.jobs.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').codes = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[5:], load_csv(p).get('k01').codes, load_csv(p).get('k00').codes)",
+     "['codes'] ['a', 'b'] []"
+    ]
+   ],
+   "name": "r52",
+   "site": "csv_tags/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.models import Vehicle\nprint(Vehicle(id='a', model='b', kind='c', units=3, price=1.105).to_dict()['value'])",
+     "3.31"
+    ]
+   ],
+   "name": "r53",
+   "site": "value_field/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.models import Part\nprint(Part(id='a', label='b', bin='c', stock=3, cost=1.105).to_dict()['stock_value'])",
+     "3.31"
+    ]
+   ],
+   "name": "r54",
+   "site": "value_field/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.parts.models import Part\nprint(Part.from_dict({'id': 'a', 'label': 'b'}).bin)",
+     "misc"
+    ]
+   ],
+   "name": "r55",
+   "site": "defcat/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.models import Vehicle\nprint(Vehicle.from_dict({'id': 'a', 'model': 'b', 'kind': 'c', 'tags': ['x', 'y', 'x', 'z', 'y']}).tags)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "r56",
+   "site": "tags_dedupe/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.models import Job\nprint(Job.from_dict({'id': 'a', 'summary': 'b', 'bay': 'c', 'codes': ['x', 'y', 'x', 'z', 'y']}).codes)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "r57",
+   "site": "tags_dedupe/jobs"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.store import Fleet\nfrom garagedesk.vehicles.models import Vehicle\ndef mk(n, cat='x'):\n    s = Fleet()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, model='N%02d' % k, kind=cat, units=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r58",
+   "site": "remove_ret/vehicles"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.jobs.store import JobBoard\nfrom garagedesk.jobs.models import Job\ndef mk(n, cat='x'):\n    s = JobBoard()\n    for k in range(n):\n        s.add(Job(id='k%02d' % k, summary='N%02d' % k, bay=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r59",
+   "site": "remove_ret/jobs"
+  },
+  {
+   "checks": [
+    [
+     "import garagedesk.parts\nfrom garagedesk.parts.errors import Invalid, NotFound\nprint(sorted(garagedesk.parts.__all__), garagedesk.parts.NotFound is NotFound, garagedesk.parts.Invalid is Invalid)",
+     "['CATEGORY', 'Invalid', 'NAME_FIELD', 'NotFound', 'Part', 'PartsBin', 'dump_csv', 'load_csv', 'render'] True True"
+    ]
+   ],
+   "name": "r60",
+   "site": "all_export/parts"
+  },
+  {
+   "checks": [
+    [
+     "from garagedesk.vehicles.io import load_csv\nfrom garagedesk.vehicles.pricing import subtotal\ns = load_csv('data/vehicles.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\nfrom garagedesk.parts.io import load_csv\nfrom garagedesk.parts.pricing import subtotal\ns = load_csv('data/parts.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\nfrom garagedesk.jobs.io import load_csv\nfrom garagedesk.jobs.pricing import subtotal\ns = load_csv('data/jobs.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\n",
+     "30 True\n30 True\n30 True"
+    ]
+   ],
+   "name": "regress-data",
+   "site": "regress"
+  },
+  {
+   "checks": [
+    [
+     "import io, contextlib\nfrom garagedesk.cli import main\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'vehicles', 'data/vehicles.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'parts', 'data/parts.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'jobs', 'data/jobs.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\n",
+     "30 v101\n30 P-001\n30 J1001"
+    ]
+   ],
+   "name": "regress-cli",
+   "site": "regress"
+  }
+ ],
+ "pkg": "garagedesk"
+}

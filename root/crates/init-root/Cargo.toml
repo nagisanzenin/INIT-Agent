@@ -1,0 +1,50 @@
+[package]
+name = "init-root"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "init-root"
+path = "src/main.rs"
+
+# Test support (WP21): an in-test fake kernel that speaks the Root's side of the control link
+# (root/root.md §4.1). Built only with `test-fixtures`; lives under tests/, outside the size budget.
+[[bin]]
+name = "init-root-fakekernel"
+path = "tests/support/fakekernel.rs"
+required-features = ["test-fixtures"]
+test = false
+
+# Test support (WP24): a stand-in for `init-kernel gate judge` over the stand-in body (tests/fixtures/sealed/).
+[[bin]]
+name = "init-root-stubgate"
+path = "tests/support/stubgate.rs"
+required-features = ["test-fixtures"]
+test = false
+
+[features]
+# Test builds only (root/root.md §3.16): the fake clock, test ledgers and `init-root test …`, plus the
+# fault points. Release builds never enable it.
+test-fixtures = ["fault-injection"]
+# The Root's `INIT_FAULT` points (testing.md §3.8.1, root/root.md §4.7; WP23 D3): lineage, mirror, kernel.git.
+# Never in release builds.
+fault-injection = []
+# The D1 instance sweep over the real process table (proc_listpids + sandbox_check, root/root.md §3.5.4).
+# Off by default: on the owner's machine only the processes the Root holds are ever signalled
+# (CONVENTIONS §1). Enable it only in a disposable environment (a VM or a separate macOS user).
+live-sweep = []
+
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+sha2.workspace = true
+ed25519-dalek.workspace = true
+libc.workspace = true
+ureq.workspace = true
+httparse.workspace = true
+init-sandbox-profiles = { path = "../../sandbox-profiles" }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+seccompiler.workspace = true

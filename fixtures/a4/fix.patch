@@ -1,0 +1,14 @@
+diff --git a/src/main.rs b/src/main.rs
+index c015040..9a4c40d 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -8,9 +8,6 @@ const AGENT: &str = include_str!("../agent-path.txt");
+ fn main() {
+     let reason = std::env::var("INIT_BOOT_REASON").unwrap_or_default();
+     eprintln!("boot: {reason}");
+-    if std::env::var_os("INIT_BOOT_ID").is_some() {
+-        panic!("A4 injected boot crash");
+-    }
+     let agent = AGENT.trim();
+     let err = std::process::Command::new(agent)
+         .args(std::env::args_os().skip(1))

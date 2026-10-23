@@ -1,0 +1,1576 @@
+{
+ "items": [
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "# running balance with fees and refunds\nlet balance = 1000;\nlet fee = 15;\nlet refund = 40;\nprint(balance - fee - fee + refund);\nprint(balance - fee * 3 - refund / 4);\nlet width = 80;\nlet margin = 6;\nprint(width - margin - margin, width - 2 * margin + 1);\n"
+     },
+     "stdin": "",
+     "stdout": "1010\n945\n68 69\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn span(lo, hi) { return hi - lo + 1; }\nprint(span(3, 9), span(10, 10), span(0, 99));\nlet total = 0;\nfor (let i = 1; i <= 5; i += 1) { total = total - i + 2 * i; }\nprint(total);\nprint(50 - 20 - 10 - 5, 50 - (20 - (10 - 5)));\n"
+     },
+     "stdin": "",
+     "stdout": "7 1 100\n15\n15 35\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "print(360 / 6 / 3, 360 / (6 / 3), 100 / 7 * 7, 100 % 7 * 2, 2 * 3 % 4);\nprint(3 ** 2 ** 2, (3 ** 2) ** 2, -2 ** 4, 2 ** 0, 0 ** 0);\nprint(10 - 2 ** 3 - 1, 1 + 2 * 3 ** 2 - 4 / 2);\n"
+     },
+     "stdin": "",
+     "stdout": "20 180 98 4 2\n81 81 -16 1 1\n1 17\n"
+    }
+   ],
+   "name": "arith_assoc_chain"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "print(-7 / 2, -7 % 2, 7 / -2, 7 % -2, -7 / -2, -7 % -2);\nprint(-9 / 3, -9 % 3, 0 / -5, -1 / 10, -1 % 10);\n"
+     },
+     "stdin": "",
+     "stdout": "-3 -1 -3 1 3 -1\n-3 0 0 0 -1\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let ok = true;\nfor (let a = -12; a <= 12; a += 5) {\n  for (let b = -5; b <= 5; b += 3) {\n    let q = a / b;\n    let r = a % b;\n    if (q * b + r != a) { ok = false; }\n    print(a, b, q, r);\n  }\n}\nprint(\"identity holds:\", ok);\n"
+     },
+     "stdin": "",
+     "stdout": "-12 -5 2 -2\n-12 -2 6 0\n-12 1 -12 0\n-12 4 -3 0\n-7 -5 1 -2\n-7 -2 3 -1\n-7 1 -7 0\n-7 4 -1 -3\n-2 -5 0 -2\n-2 -2 1 0\n-2 1 -2 0\n-2 4 0 -2\n3 -5 0 3\n3 -2 -1 1\n3 1 3 0\n3 4 0 3\n8 -5 -1 3\n8 -2 -4 0\n8 1 8 0\n8 4 2 0\nidentity holds: true\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn average(xs) {\n  let sum = 0;\n  for (let i = 0; i < len(xs); i += 1) { sum += xs[i]; }\n  return sum / len(xs);\n}\nprint(average([-3, -4, -4]), average([5, -12]), average([-1, 0]));\nlet t = -17;\nprint(\"t/5:\", t / 5, \"t%5:\", t % 5);\n"
+     },
+     "stdin": "",
+     "stdout": "-3 -3 0\nt/5: -3 t%5: -2\n"
+    }
+   ],
+   "name": "arith_division_negative"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let x = 100;\nx -= 30;\nx *= 2;\nx /= 3;\nx %= 7;\nprint(x);\nlet y = -100;\ny /= 7;\nprint(y);\ny %= 4;\nprint(y);\n"
+     },
+     "stdin": "",
+     "stdout": "4\n-14\n-2\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let z = 5;\nz -= z - 1 + 1;\nprint(z);\nlet l = [7, -7, 9];\nl[0] /= -2;\nl[1] %= 3;\nl[2] -= l[0] - l[1];\nprint(l);\n"
+     },
+     "stdin": "",
+     "stdout": "0\n[-3, -1, 11]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let s = \"ab\";\ns += \"cd\";\ns += s;\nprint(s, len(s));\nlet acc = [1];\nacc += [2, 3];\nprint(acc);\n"
+     },
+     "stdin": "",
+     "stdout": "abcdabcd 8\n[1, 2, 3]\n"
+    }
+   ],
+   "name": "arith_compound_assign"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn fact(n) {\n  let r = 1;\n  while (n > 1) {\n    r *= n;\n    n -= 1;\n  }\n  return r;\n}\nprint(fact(25));\nprint(2 ** 100 - 1);\nprint(fact(30) / fact(28), fact(20) % 1000007);\n"
+     },
+     "stdin": "",
+     "stdout": "15511210043330985984000000\n1267650600228229401496703205375\n870 794133\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn digit_sum(n) {\n  let s = 0;\n  while (n > 0) {\n    s += n % 10;\n    n /= 10;\n  }\n  return s;\n}\nfn reverse_digits(n) {\n  let r = 0;\n  while (n > 0) {\n    r = r * 10 + n % 10;\n    n /= 10;\n  }\n  return r;\n}\nprint(digit_sum(2 ** 64), reverse_digits(1234567890123), digit_sum(0));\nlet p = 1;\nfor (let i = 0; i < 70; i += 1) { p *= 3; }\nprint(p, p - p / 2 - p / 2);\n"
+     },
+     "stdin": "",
+     "stdout": "88 3210987654321 0\n2503155504993241601315571986085849 1\n"
+    }
+   ],
+   "name": "arith_bigint"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "print(1 == 1, 1 == true, nil == false, \"1\" == 1, [1, 2] == [1, 2], [1, [2, 3]] == [1, [2, 4]]);\nprint([] != [nil], \"abc\" < \"abd\", \"Z\" < \"a\", \"apple\" > \"app\", 3 >= 3, -1 < -2);\nprint(10 - 4 - 3 == 3, 2 * 3 == 6 and 6 / 4 == 1);\nfn f() { return 1; }\nlet g = f;\nprint(f == g, f == fn() { return 1; }, print == print, nil == nil, true != false);\n"
+     },
+     "stdin": "",
+     "stdout": "true false false false true false\ntrue true true true true false\ntrue true\ntrue false true true true\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let words = [\"pear\", \"Apple\", \"fig\", \"apple\", \"banana\", \"Fig\"];\nfor (let i = 1; i < len(words); i += 1) {\n  let w = words[i];\n  let j = i - 1;\n  while (j >= 0 and words[j] > w) {\n    words[j + 1] = words[j];\n    j -= 1;\n  }\n  words[j + 1] = w;\n}\nprint(words);\n"
+     },
+     "stdin": "",
+     "stdout": "[\"Apple\", \"Fig\", \"apple\", \"banana\", \"fig\", \"pear\"]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "print(1 < 2, (1 < 2) == true);\nprint(1 < 2 < 3);\n"
+     },
+     "stdin": "",
+     "stdout": "true true\nruntime error (line 2): unsupported operand types for <: bool and int\n"
+    }
+   ],
+   "name": "compare_equality"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let n = 27;\nlet steps = 0;\nwhile (n != 1) {\n  if (n % 2 == 0) { n /= 2; } else { n = 3 * n + 1; }\n  steps += 1;\n}\nprint(\"collatz steps:\", steps);\nlet i = 0;\nlet out = [];\nwhile (i < 20) {\n  i += 1;\n  if (i % 3 == 0) { continue; }\n  if (i > 14) { break; }\n  push(out, i);\n}\nprint(out);\n"
+     },
+     "stdin": "",
+     "stdout": "collatz steps: 111\n[1, 2, 4, 5, 7, 8, 10, 11, 13, 14]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let row = 1;\nwhile (row <= 4) {\n  let line = \"\";\n  let col = 1;\n  while (true) {\n    if (col > row) { break; }\n    line = line + str(row * col) + \" \";\n    col += 1;\n  }\n  print(line);\n  row += 1;\n}\n"
+     },
+     "stdin": "",
+     "stdout": "1 \n2 4 \n3 6 9 \n4 8 12 16 \n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let total = 90;\nlet used = 25;\nlet wasted = 10;\nlet days = 0;\nwhile (total - used - wasted > 0) {\n  total -= 20;\n  days += 1;\n}\nprint(days, total, total - used - wasted);\n"
+     },
+     "stdin": "",
+     "stdout": "3 30 -5\n"
+    }
+   ],
+   "name": "loops_while"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let primes = [];\nfor (let n = 2; n < 40; n += 1) {\n  let is_prime = true;\n  for (let d = 2; d * d <= n; d += 1) {\n    if (n % d == 0) {\n      is_prime = false;\n      break;\n    }\n  }\n  if (not is_prime) { continue; }\n  push(primes, n);\n}\nprint(primes);\n"
+     },
+     "stdin": "",
+     "stdout": "[2, 3, 5, 7, 11, 13, 17, 19, 23, 29, 31, 37]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let s = 0;\nfor (let i = 0; i < 30; i += 1) {\n  if (i % 3 == 0) { continue; }\n  if (i % 5 == 0) { continue; }\n  s += i;\n}\nprint(s);\nfor (let i = 10; i > 0; i -= 3) {\n  if (i == 7) { continue; }\n  print(\"i =\", i);\n}\n"
+     },
+     "stdin": "",
+     "stdout": "240\ni = 10\ni = 4\ni = 1\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let k = 0;\nfor (; k < 5;) {\n  k += 2;\n  if (k == 2) { continue; }\n  print(\"k\", k);\n}\nlet count = 0;\nfor (let j = 0; ; j += 1) {\n  if (j >= 4) { break; }\n  if (j == 1) { continue; }\n  count += 10;\n}\nprint(count);\n"
+     },
+     "stdin": "",
+     "stdout": "k 4\nk 6\n30\n"
+    }
+   ],
+   "name": "loops_for_continue"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let pairs = [];\nfor (let a = 1; a <= 4; a += 1) {\n  for (let b = 1; b <= 4; b += 1) {\n    if (b == a) { continue; }\n    if (a + b > 6) { break; }\n    push(pairs, [a, b]);\n  }\n}\nprint(len(pairs), pairs);\n"
+     },
+     "stdin": "",
+     "stdout": "10 [[1, 2], [1, 3], [1, 4], [2, 1], [2, 3], [2, 4], [3, 1], [3, 2], [4, 1], [4, 2]]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let total = 0;\nfor (let i = 1; i <= 3; i += 1) {\n  let j = 0;\n  while (j < 5) {\n    j += 1;\n    if (j == 2) { continue; }\n    total += i * j;\n  }\n  if (i == 2) { continue; }\n  total += 100;\n}\nprint(total);\n"
+     },
+     "stdin": "",
+     "stdout": "278\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let grid = [[3, 8, 1], [9, 4, 7], [2, 6, 5]];\nlet target = 7;\nlet at = nil;\nfor (let r = 0; r < len(grid); r += 1) {\n  for (let c = 0; c < len(grid[r]); c += 1) {\n    if (grid[r][c] != target) { continue; }\n    at = [r, c];\n    break;\n  }\n  if (at != nil) { break; }\n}\nprint(\"found at\", at);\n"
+     },
+     "stdin": "",
+     "stdout": "found at [1, 2]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let header = [1, 2, 3];\nlet table = [header];\nfor (let r = 2; r <= 3; r += 1) {\n  let row = [];\n  for (let c = 1; c <= 3; c += 1) { push(row, r * c); }\n  push(table, row);\n}\npush(table, header);\nprint(table);\n"
+     },
+     "stdin": "",
+     "stdout": "[[1, 2, 3], [2, 4, 6], [3, 6, 9], [1, 2, 3]]\n"
+    }
+   ],
+   "name": "loops_nested_control"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn classify(n) {\n  if (n % 15 == 0) { return \"FizzBuzz\"; }\n  else if (n % 3 == 0) { return \"Fizz\"; }\n  else if (n % 5 == 0) { return \"Buzz\"; }\n  else { return str(n); }\n}\nlet line = \"\";\nlet n = 1;\nwhile (n <= 20) {\n  line = line + classify(n) + \" \";\n  n += 1;\n}\nprint(line);\n"
+     },
+     "stdin": "",
+     "stdout": "1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz 16 17 Fizz 19 Buzz \n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn grade(score, penalty, late) {\n  let final = score - penalty - late;\n  if (final >= 90) { return \"A\"; } else if (final >= 80) { return \"B\"; } else if (final >= 65) { return \"C\"; }\n  return \"F\";\n}\nprint(grade(95, 0, 0), grade(95, 5, 5), grade(90, 10, 1), grade(70, 5, 0), grade(40, 0, 0));\nfn sign(x) {\n  if (x > 0) { return 1; } else if (x < 0) { return -1; }\n  return 0;\n}\nprint(sign(-5), sign(0), sign(9));\n"
+     },
+     "stdin": "",
+     "stdout": "A B C C F\n-1 0 1\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn describe(user) {\n  let name = user[0] or \"anonymous\";\n  let age = user[1];\n  if (age == nil) { return name + \" (age unknown)\"; }\n  else if (age < 18) { return name + \" (minor)\"; }\n  return name + \" (adult)\";\n}\nprint(describe([\"ana\", 31]));\nprint(describe([nil, 12]));\nprint(describe([\"bo\", nil]));\n"
+     },
+     "stdin": "",
+     "stdout": "ana (adult)\nanonymous (minor)\nbo (age unknown)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn shipping(w) { return w * 2; }\nfn quote(w) {\n  if (w > 10) { return shipping(w) + 5; }\n  else { return shipping(w); }\n}\nprint(quote(3), quote(12));\nfn shipping(w) { return w + 100; }\nprint(quote(3), quote(12));\n"
+     },
+     "stdin": "",
+     "stdout": "6 29\n103 117\n"
+    }
+   ],
+   "name": "if_else_chains"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let calls = 0;\nfn touch(v) {\n  calls += 1;\n  return v;\n}\nprint(touch(nil) or touch(2), calls);\nprint(touch(1) or touch(2), calls);\nprint(touch(false) and touch(3), calls);\nprint(touch(4) and touch(5), calls);\n"
+     },
+     "stdin": "",
+     "stdout": "2 2\n1 3\nfalse 4\n5 6\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let cfg = [nil, \"dark\", nil];\nlet theme = cfg[0] or cfg[1] or \"light\";\nlet font = cfg[2] or \"mono\";\nprint(theme, font);\nlet x = 0;\nlet y = x or 99;\nprint(y, \"\" or \"empty\", [] or [1], false or nil, nil and 1, 0 and 7);\n"
+     },
+     "stdin": "",
+     "stdout": "dark mono\n0  [] nil nil 7\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn safe_div(a, b) { return b != 0 and a / b; }\nprint(safe_div(10, 2), safe_div(1, 0));\nlet xs = [];\nprint(len(xs) > 0 and xs[0] > 3, len(xs) == 0 or xs[0]);\npush(xs, 8);\nprint(len(xs) > 0 and xs[0] > 3, len(xs) == 0 or xs[0]);\n"
+     },
+     "stdin": "",
+     "stdout": "5 false\nfalse true\ntrue 8\n"
+    }
+   ],
+   "name": "logic_short_circuit"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn truth(v) {\n  if (v) { return \"T\"; }\n  return \"F\";\n}\nprint(truth(0), truth(\"\"), truth([]), truth(nil), truth(false), truth(\"x\"), truth(truth));\nprint(not 0, not nil, not not \"a\", not (1 == 2));\n"
+     },
+     "stdin": "",
+     "stdout": "T T T F F T T\nfalse true true true\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let flags = [true, false, nil, 0, \"\", [], \"no\"];\nlet n = 0;\nfor (let i = 0; i < len(flags); i += 1) {\n  if (flags[i] or false) { n += 1; }\n}\nprint(n);\nlet m = 0;\nlet k = 0;\nwhile (k < len(flags)) {\n  if (not flags[k]) { m += 1; }\n  k += 1;\n}\nprint(m);\n"
+     },
+     "stdin": "",
+     "stdout": "5\n2\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let debug = false;\nfn log(msg) {\n  if (debug) { print(\"[debug]\", msg); }\n  return not debug;\n}\nprint(log(\"one\"));\nlet debug = true;\nprint(log(\"two\"));\n"
+     },
+     "stdin": "",
+     "stdout": "true\n[debug] two\nfalse\n"
+    }
+   ],
+   "name": "logic_truthiness"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn hanoi(n, from, to, via, moves) {\n  if (n == 0) { return moves; }\n  moves = hanoi(n - 1, from, via, to, moves);\n  push(moves, from + to);\n  return hanoi(n - 1, via, to, from, moves);\n}\nlet m = hanoi(3, \"A\", \"C\", \"B\", []);\nprint(len(m), m);\nfn ack(m, n) {\n  if (m == 0) { return n + 1; }\n  if (n == 0) { return ack(m - 1, 1); }\n  return ack(m - 1, ack(m, n - 1));\n}\nprint(ack(2, 3));\n"
+     },
+     "stdin": "",
+     "stdout": "7 [\"AC\", \"AB\", \"CB\", \"AC\", \"BA\", \"BC\", \"AC\"]\n9\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn is_even(n) {\n  if (n == 0) { return true; }\n  return is_odd(n - 1);\n}\nfn is_odd(n) {\n  if (n == 0) { return false; }\n  return is_even(n - 1);\n}\nprint(is_even(10), is_odd(7), is_even(7));\nfn power_set_size(items, i) {\n  if (i == len(items)) { return 1; }\n  return 2 * power_set_size(items, i + 1);\n}\nprint(power_set_size([1, 2, 3, 4, 5], 0));\nfn tree_sum(t) {\n  fn walk(node) {\n    if (type(node) == \"int\") { return node; }\n    let s = 0;\n    for (let i = 0; i < len(node); i += 1) { s += walk(node[i]); }\n    return s;\n  }\n  return walk(t);\n}\nprint(tree_sum([1, [2, 3], [[4], 5]]), tree_sum(7));\n"
+     },
+     "stdin": "",
+     "stdout": "true true false\n32\n15 7\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn bsearch(xs, x, lo, hi) {\n  if (lo > hi) { return -1; }\n  let mid = lo + (hi - lo) / 2;\n  if (xs[mid] == x) { return mid; }\n  if (xs[mid] < x) { return bsearch(xs, x, mid + 1, hi); }\n  return bsearch(xs, x, lo, mid - 1);\n}\nlet xs = [-40, -12, -3, 0, 7, 19, 33, 51];\nlet last = len(xs) - 1;\nprint(bsearch(xs, 19, 0, last), bsearch(xs, -40, 0, last), bsearch(xs, 8, 0, last), bsearch(xs, 51, 0, last));\n"
+     },
+     "stdin": "",
+     "stdout": "5 0 -1 7\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_fib() {\n  let memo = [0, 1];\n  while (len(memo) < 20) { push(memo, memo[len(memo) - 1] + memo[len(memo) - 2]); }\n  return fn(n) {\n    while (len(memo) <= n) { push(memo, memo[len(memo) - 1] + memo[len(memo) - 2]); }\n    return memo[n];\n  };\n}\nlet fib = make_fib();\nprint(fib(10), fib(30), fib(19));\n"
+     },
+     "stdin": "",
+     "stdout": "55 832040 4181\n"
+    }
+   ],
+   "name": "functions_recursion"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "fn add3(a, b, c) { return a + b + c; }\nprint(add3(1, 2, 3));\nlet f = add3;\nprint(f(10, 20, 30), type(f), f);\nprint(add3(1, 2));\n"
+     },
+     "stdin": "",
+     "stdout": "6\n60 function <fn add3>\nruntime error (line 5): expected 3 arguments but got 2\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "print(len(\"abc\"), len([1, 2]));\nlet n = len(\"x\", \"y\");\n"
+     },
+     "stdin": "",
+     "stdout": "3 2\nruntime error (line 2): expected 1 arguments but got 2\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn nothing() { }\nfn early(x) {\n  if (x) { return; }\n  return 5;\n}\nprint(nothing(), early(true), early(false));\nlet r = print(\"side\");\nprint(r);\nlet g = fn(a) { return a * 2; };\nprint(g(21), (fn(x, y) { return x - y; })(10, 3));\n"
+     },
+     "stdin": "",
+     "stdout": "nil nil 5\nside\nnil\n42 7\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn clamp(v, lo, hi) { return v < lo and lo or v > hi and hi or v; }\nprint(clamp(-5, 0, 10), clamp(5, 0, 10), clamp(50, 0, 10));\n"
+     },
+     "stdin": "",
+     "stdout": "0 5 10\n"
+    }
+   ],
+   "name": "functions_calls_arity"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_counter(initial) {\n  let n = initial or 0;\n  return [fn() { n += 1; return n; }, fn() { return n; }, fn() { n = 0; return n; }];\n}\nlet c = make_counter(nil);\nlet inc = c[0];\nlet get = c[1];\nlet reset = c[2];\ninc();\ninc();\ninc();\nprint(get());\nreset();\ninc();\nprint(get());\nlet d = make_counter(40);\nd[0]();\nprint(get(), d[1]());\n"
+     },
+     "stdin": "",
+     "stdout": "3\n1\n1 41\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn outer() {\n  let x = 1;\n  let show = fn() { return x; };\n  x = 50;\n  let before = show();\n  let set = fn(v) { x = v; };\n  set(7);\n  return [before, show(), x];\n}\nprint(outer());\n"
+     },
+     "stdin": "",
+     "stdout": "[50, 7, 7]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn memoize(f) {\n  let cache = [];\n  return fn(n) {\n    while (len(cache) <= n) { push(cache, nil); }\n    if (cache[n] == nil) { cache[n] = f(n); }\n    return cache[n];\n  };\n}\nlet calls = 0;\nlet slow_square = fn(n) {\n  calls += 1;\n  return n * n;\n};\nlet fast = memoize(slow_square);\nprint(fast(4), fast(4), fast(9), fast(4), calls);\n"
+     },
+     "stdin": "",
+     "stdout": "16 16 81 16 2\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_averager(seed) {\n  let total = 0;\n  let count = 0;\n  for (let i = 0; i < len(seed); i += 1) {\n    total += seed[i];\n    count += 1;\n  }\n  return fn(x) {\n    total += x;\n    count += 1;\n    return total / count;\n  };\n}\nlet avg = make_averager([10, 20, 30]);\nprint(avg(40), avg(0), avg(100));\n"
+     },
+     "stdin": "",
+     "stdout": "25 20 33\n"
+    }
+   ],
+   "name": "closures_counters"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let fs = [];\nfor (let i = 0; i < 4; i += 1) {\n  let sq = i * i;\n  push(fs, fn() { return sq; });\n}\nlet out = [];\nfor (let k = 0; k < len(fs); k += 1) { push(out, fs[k]()); }\nprint(out);\n"
+     },
+     "stdin": "",
+     "stdout": "[0, 1, 4, 9]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let handlers = [];\nlet names = [\"save\", \"open\", \"quit\"];\nlet i = 0;\nwhile (i < len(names)) {\n  let label = names[i];\n  let clicks = 0;\n  push(handlers, fn() { clicks += 1; return label + \":\" + str(clicks); });\n  i += 1;\n}\nprint(handlers[0](), handlers[0](), handlers[2](), handlers[1](), handlers[0]());\n"
+     },
+     "stdin": "",
+     "stdout": "save:1 save:2 quit:1 open:1 save:3\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_multipliers(n) {\n  let result = [];\n  for (let i = 1; i <= n; i += 1) {\n    let factor = i;\n    push(result, fn(x) { return x * factor; });\n  }\n  return result;\n}\nlet ms = make_multipliers(3);\nprint(ms[0](10), ms[1](10), ms[2](10));\nlet ms2 = make_multipliers(2);\nprint(ms2[1](7), ms[0](7));\n"
+     },
+     "stdin": "",
+     "stdout": "10 20 30\n14 7\n"
+    }
+   ],
+   "name": "closures_loop_capture"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let get_i = [];\nlet get_j = [];\nfor (let i = 0; i < 3; i += 1) {\n  let j = i;\n  push(get_i, fn() { return i; });\n  push(get_j, fn() { return j; });\n}\nprint(get_i[0](), get_i[2](), get_j[0](), get_j[2]());\n"
+     },
+     "stdin": "",
+     "stdout": "3 3 0 2\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let fns = [];\nfor (let n = 1; n <= 3; n += 1) {\n  let base = n * 100;\n  fn describe(x) { return base + x; }\n  push(fns, describe);\n}\nprint(fns[0](1), fns[1](2), fns[2](3), fns[0] == fns[1]);\n"
+     },
+     "stdin": "",
+     "stdout": "101 202 303 false\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let bump = nil;\nfor (let i = 0; i < 10; i += 1) {\n  if (bump == nil) { bump = fn() { i += 3; }; }\n  bump();\n  print(\"i is\", i);\n}\n"
+     },
+     "stdin": "",
+     "stdout": "i is 3\ni is 7\ni is 11\n"
+    }
+   ],
+   "name": "closures_for_variable"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn level1() {\n  let a = 1;\n  fn level2() {\n    let b = 10;\n    fn level3() {\n      a += 1;\n      b += 1;\n      return a * 100 + b;\n    }\n    return level3;\n  }\n  let l3 = level2();\n  let first = l3();\n  let second = l3();\n  return [first, second, a];\n}\nprint(level1());\n"
+     },
+     "stdin": "",
+     "stdout": "[211, 312, 3]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn compose(f, g) { return fn(x) { return f(g(x)); }; }\nfn curry3(f) { return fn(a) { return fn(b) { return fn(c) { return f(a, b, c); }; }; }; }\nlet inc = fn(x) { return x + 1; };\nlet dbl = fn(x) { return x * 2; };\nprint(compose(inc, dbl)(5), compose(dbl, inc)(5));\nlet vol = curry3(fn(a, b, c) { return a * b * c - a - b; });\nprint(vol(2)(3)(4), vol(1)(1)(1));\n"
+     },
+     "stdin": "",
+     "stdout": "11 12\n19 -1\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn range_iter(lo, hi) {\n  let cur = lo;\n  return fn() {\n    if (cur >= hi) { return nil; }\n    let v = cur;\n    cur += 1;\n    return v;\n  };\n}\nlet it = range_iter(3, 7);\nlet v = it();\nlet seen = [];\nwhile (v != nil) {\n  push(seen, v);\n  v = it();\n}\nprint(seen, it());\n"
+     },
+     "stdin": "",
+     "stdout": "[3, 4, 5, 6] nil\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_logger(prefix) {\n  let lines = [];\n  let n = 0;\n  n += 1;\n  push(lines, prefix + \" started\");\n  fn log(msg) {\n    n += 1;\n    push(lines, prefix + \" \" + str(n) + \": \" + msg);\n    return len(lines);\n  }\n  fn dump() { return lines; }\n  return [log, dump];\n}\nlet lg = make_logger(\"app\");\nlg[0](\"load\");\nlg[0](\"run\");\nprint(lg[1]());\n"
+     },
+     "stdin": "",
+     "stdout": "[\"app started\", \"app 2: load\", \"app 3: run\"]\n"
+    }
+   ],
+   "name": "closures_nested_levels"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_stack() {\n  let items = [];\n  fn push_item(v) {\n    push(items, v);\n    return len(items);\n  }\n  fn pop_item() { return pop(items); }\n  return [push_item, pop_item];\n}\nlet stacks = [];\nfor (let i = 0; i < 3; i += 1) {\n  let s = make_stack();\n  push(stacks, s);\n  s[0](i * 10);\n  s[0](i * 10 + 1);\n}\nprint(stacks[0][1](), stacks[1][1](), stacks[2][1](), stacks[0][1]());\n"
+     },
+     "stdin": "",
+     "stdout": "1 11 21 0\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let points = [];\nfor (let i = 0; i < 3; i += 1) {\n  let x = i;\n  let y = i * i;\n  push(points, [fn() { return [x, y]; }, fn(dx) { x += dx; }]);\n}\npoints[1][1](10);\nprint(points[0][0](), points[1][0](), points[2][0]());\n"
+     },
+     "stdin": "",
+     "stdout": "[0, 0] [11, 1] [2, 4]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_buttons(labels) {\n  let buttons = [];\n  for (let i = 0; i < len(labels); i += 1) {\n    let label = labels[i];\n    fn render() { return \"[\" + label + \"]\"; }\n    push(buttons, fn() { return render() + \"!\"; });\n  }\n  return buttons;\n}\nlet bs = make_buttons([\"ok\", \"cancel\", \"help\"]);\nprint(bs[0](), bs[1](), bs[2]());\n"
+     },
+     "stdin": "",
+     "stdout": "[ok]! [cancel]! [help]!\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_account(owner) {\n  let balance = 0;\n  let history = [];\n  balance = 100;\n  push(history, \"open \" + owner);\n  fn deposit(x) {\n    balance += x;\n    push(history, \"+\" + str(x));\n    return balance;\n  }\n  fn report() { return [owner, balance, history]; }\n  return [deposit, report];\n}\nlet acc = make_account(\"ana\");\nacc[0](25);\nprint(acc[1]());\n"
+     },
+     "stdin": "",
+     "stdout": "[\"ana\", 125, [\"open ana\", \"+25\"]]\n"
+    }
+   ],
+   "name": "closures_objects"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn map(xs, f) {\n  let out = [];\n  for (let i = 0; i < len(xs); i += 1) { push(out, f(xs[i])); }\n  return out;\n}\nfn filter(xs, p) {\n  let out = [];\n  for (let i = 0; i < len(xs); i += 1) {\n    if (p(xs[i])) { push(out, xs[i]); }\n  }\n  return out;\n}\nfn reduce(xs, f, acc) {\n  for (let i = 0; i < len(xs); i += 1) { acc = f(acc, xs[i]); }\n  return acc;\n}\nlet nums = [4, 9, 2, 7, 5];\nprint(map(nums, fn(x) { return x * 3; }));\nprint(filter(nums, fn(x) { return x % 2 == 1; }));\nprint(reduce(nums, fn(a, b) { return a + b; }, 0), reduce(nums, fn(a, b) { if (b > a) { return b; } return a; }, 0));\n"
+     },
+     "stdin": "",
+     "stdout": "[12, 27, 6, 21, 15]\n[9, 7, 5]\n27 9\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn map(xs, f) {\n  let out = [];\n  for (let i = 0; i < len(xs); i += 1) { push(out, f(xs[i])); }\n  return out;\n}\nlet adders = [];\nfor (let k = 1; k <= 3; k += 1) {\n  let step = k * 5;\n  push(adders, fn(x) { return x + step; });\n}\nfor (let a = 0; a < len(adders); a += 1) {\n  print(map([1, 2], adders[a]));\n}\n"
+     },
+     "stdin": "",
+     "stdout": "[6, 7]\n[11, 12]\n[16, 17]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let queue = [];\nfn schedule(f) { push(queue, f); }\nlet log = [];\nlet tasks = [\"load\", \"parse\", \"save\"];\nfor (let i = 0; i < len(tasks); i += 1) {\n  let name = tasks[i];\n  let order = i + 1;\n  schedule(fn() { push(log, str(order) + \"-\" + name); });\n}\nwhile (len(queue) > 0) {\n  let f = queue[0];\n  let rest = [];\n  for (let j = 1; j < len(queue); j += 1) { push(rest, queue[j]); }\n  queue = rest;\n  f();\n}\nprint(log);\n"
+     },
+     "stdin": "",
+     "stdout": "[\"1-load\", \"2-parse\", \"3-save\"]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_lookup(keys, values) {\n  let table = [];\n  for (let i = 0; i < len(keys); i += 1) { push(table, [keys[i], values[i]]); }\n  return fn(k) {\n    for (let j = 0; j < len(table); j += 1) {\n      if (table[j][0] == k) { return table[j][1]; }\n    }\n    return nil;\n  };\n}\nlet color = make_lookup([\"red\", \"green\", \"blue\"], [1, 2, 3]);\nprint(color(\"green\"), color(\"blue\"), color(\"pink\"));\n"
+     },
+     "stdin": "",
+     "stdout": "2 3 nil\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_pipeline(prefix) {\n  let count = 0;\n  return fn(stage) {\n    let label = prefix + \"/\" + stage;\n    return fn(x) {\n      count += 1;\n      return label + \"#\" + str(count) + \"=\" + str(x * 2);\n    };\n  };\n}\nlet p = make_pipeline(\"job\");\nlet s1 = p(\"scale\");\nlet s2 = p(\"load\");\nprint(s1(5), s2(7), s1(1));\n"
+     },
+     "stdin": "",
+     "stdout": "job/scale#1=10 job/load#2=14 job/scale#3=2\n"
+    }
+   ],
+   "name": "callbacks_higher_order"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let stack = [];\npush(stack, 1);\npush(stack, 2);\npush(stack, 3);\nlet top = pop(stack);\nprint(top, stack, len(stack));\nlet q = [10, 20, 30, 40];\nq[0] += q[-1];\nq[-1] -= 5;\nq[1] *= 2;\nprint(q);\nlet i = 2;\nq[i - 1] = q[i] - q[i - 1] - 1;\nprint(q);\n"
+     },
+     "stdin": "",
+     "stdout": "3 [1, 2] 2\n[50, 40, 30, 35]\n[50, -11, 30, 35]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let row = [0, 0, 0];\nlet board = [row, row];\nboard[0][1] = 5;\nprint(board, board[0] == board[1]);\nlet fresh = [[0, 0], [0, 0]];\nfresh[0][1] = 5;\nprint(fresh);\nfn fill(n, v) {\n  let l = [];\n  for (let i = 0; i < n; i += 1) { push(l, v); }\n  return l;\n}\nlet m = fill(3, nil);\nm[1] = fill(2, \"x\");\nprint(m, len(m[1]));\n"
+     },
+     "stdin": "",
+     "stdout": "[[0, 5, 0], [0, 5, 0]] true\n[[0, 5], [0, 0]]\n[nil, [\"x\", \"x\"], nil] 2\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "let xs = [1, 2, 3];\nprint(xs[-3], xs[2]);\nxs[-4] = 0;\n"
+     },
+     "stdin": "",
+     "stdout": "1 3\nruntime error (line 3): index out of range\n"
+    }
+   ],
+   "name": "lists_mutation"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "print([]);\nprint([[], [[]], [nil, true, false]]);\nprint([\"a\\\"b\", \"tab\\t\", \"nl\\n\", \"back\\\\\"]);\nprint(\"plain\\\\text\", str([\"s\"]), str(\"s\"));\nfn named() {}\nprint([print, fn() {}, named, [named]]);\n"
+     },
+     "stdin": "",
+     "stdout": "[]\n[[], [[]], [nil, true, false]]\n[\"a\\\"b\", \"tab\\t\", \"nl\\n\", \"back\\\\\"]\nplain\\text [\"s\"] s\n[<builtin print>, <fn>, <fn named>, [<fn named>]]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let a = [1];\npush(a, a);\nprint(a);\nlet b = [a, 2];\npush(a, b);\nprint(a, len(a));\n"
+     },
+     "stdin": "",
+     "stdout": "[1, [...]]\n[1, [...], [[...], 2]] 3\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let x = [1, \"1\", [true, \"true\"]];\nlet s = str(x);\nprint(s, len(s), type(s), type(x[2]));\nprint(str(nil) + str(false) + str(-12));\n"
+     },
+     "stdin": "",
+     "stdout": "[1, \"1\", [true, \"true\"]] 24 string list\nnilfalse-12\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let pair = [1, 2];\nprint([pair, pair], [pair, [pair]]);\nlet empty = [];\nlet graph = [empty, empty, [1]];\nprint(graph);\npush(empty, 0);\nprint(graph);\n"
+     },
+     "stdin": "",
+     "stdout": "[[1, 2], [1, 2]] [[1, 2], [[1, 2]]]\n[[], [], [1]]\n[[0], [0], [1]]\n"
+    }
+   ],
+   "name": "lists_display"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn itoa(n) {\n  if (n == 0) { return \"0\"; }\n  let neg = n < 0;\n  let s = \"\";\n  while (n != 0) {\n    let d = n % 10;\n    if (d < 0) { d = -d; }\n    s = chr(48 + d) + s;\n    n /= 10;\n  }\n  if (neg) { s = \"-\" + s; }\n  return s;\n}\nprint(itoa(0), itoa(7), itoa(-305), itoa(123456), itoa(-9));\n"
+     },
+     "stdin": "",
+     "stdout": "0 7 -305 123456 -9\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let s = \"\";\nfor (let i = 0; i < 5; i += 1) { s = s + chr(ord(\"a\") + i); }\nprint(s, len(s), s[0] + s[len(s) - 1], s < \"abd\", s == \"abcde\");\nlet words = [\"kite\", \"Kite\", \"KITE\"];\nprint(words[0] == words[1], words[1] < words[0], words[2] < words[1]);\n"
+     },
+     "stdin": "",
+     "stdout": "abcde 5 ae true true\nfalse true true\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn reverse(s) {\n  let r = \"\";\n  for (let i = len(s) - 1; i >= 0; i -= 1) { r = r + s[i]; }\n  return r;\n}\nfn is_pal(s) { return s == reverse(s); }\nprint(reverse(\"stressed\"), is_pal(\"racecar\"), is_pal(\"kite\"), reverse(\"\"));\nprint(int(\"0\") + int(\"-0\") + int(\"0042\"));\n"
+     },
+     "stdin": "",
+     "stdout": "desserts true false \n42\n"
+    }
+   ],
+   "name": "strings_ops"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn bubble(xs) {\n  let n = len(xs);\n  for (let i = 0; i < n; i += 1) {\n    for (let j = 0; j < n - i - 1; j += 1) {\n      if (xs[j] > xs[j + 1]) {\n        let t = xs[j];\n        xs[j] = xs[j + 1];\n        xs[j + 1] = t;\n      }\n    }\n  }\n  return xs;\n}\nprint(bubble([5, -2, 9, 0, -7, 3, 3]));\n"
+     },
+     "stdin": "",
+     "stdout": "[-7, -2, 0, 3, 3, 5, 9]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn qsort(xs) {\n  if (len(xs) <= 1) { return xs; }\n  let pivot = xs[0];\n  let lo = [];\n  let hi = [];\n  for (let i = 1; i < len(xs); i += 1) {\n    if (xs[i] < pivot) { push(lo, xs[i]); } else { push(hi, xs[i]); }\n  }\n  return qsort(lo) + [pivot] + qsort(hi);\n}\nprint(qsort([31, -4, 15, 9, 26, -53, 5, 8, 97, 9]));\nprint(qsort([\"delta\", \"alpha\", \"charlie\", \"bravo\"]));\n"
+     },
+     "stdin": "",
+     "stdout": "[-53, -4, 5, 8, 9, 9, 15, 26, 31, 97]\n[\"alpha\", \"bravo\", \"charlie\", \"delta\"]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn median(sorted) {\n  let n = len(sorted);\n  let mid = n / 2;\n  if (n % 2 == 1) { return sorted[mid]; }\n  return (sorted[mid - 1] + sorted[mid]) / 2;\n}\nprint(median([-9, -4, 1]), median([-9, -4, 1, 6]), median([-10, -5, -2, -1]), median([2, 4]));\n"
+     },
+     "stdin": "",
+     "stdout": "-4 -1 -3 3\n"
+    }
+   ],
+   "name": "algo_sorting"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn ext_gcd(a, b) {\n  if (b == 0) { return [a, 1, 0]; }\n  let r = ext_gcd(b, a % b);\n  return [r[0], r[2], r[1] - (a / b) * r[2]];\n}\nlet pairs = [[240, 46], [-240, 46], [17, -5], [-9, -6]];\nfor (let i = 0; i < len(pairs); i += 1) {\n  let a = pairs[i][0];\n  let b = pairs[i][1];\n  let r = ext_gcd(a, b);\n  print(a, b, r, a * r[1] + b * r[2] == r[0]);\n}\n"
+     },
+     "stdin": "",
+     "stdout": "240 46 [2, -9, 47] true\n-240 46 [2, 9, 47] true\n17 -5 [-1, 2, 7] true\n-9 -6 [-3, 1, -1] true\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn digits(n) {\n  let out = [];\n  while (n != 0) {\n    push(out, n % 10);\n    n /= 10;\n  }\n  return out;\n}\nprint(digits(4096), digits(-4096), digits(-7));\n"
+     },
+     "stdin": "",
+     "stdout": "[6, 9, 0, 4] [-6, -9, 0, -4] [-7]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let perfect = [];\nfor (let n = 2; n < 130; n += 1) {\n  let s = 1;\n  for (let d = 2; d * d <= n; d += 1) {\n    if (n % d != 0) { continue; }\n    s += d;\n    if (d * d != n) { s += n / d; }\n  }\n  if (s == n) { push(perfect, n); }\n}\nprint(perfect);\n"
+     },
+     "stdin": "",
+     "stdout": "[6, 28]\n"
+    }
+   ],
+   "name": "algo_number_theory"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn split_weeks(days) { return [days / 7, days % 7]; }\nlet offsets = [10, -10, -7, 0, -1, 23];\nfor (let i = 0; i < len(offsets); i += 1) { print(offsets[i], split_weeks(offsets[i])); }\n"
+     },
+     "stdin": "",
+     "stdout": "10 [1, 3]\n-10 [-1, -3]\n-7 [-1, 0]\n0 [0, 0]\n-1 [0, -1]\n23 [3, 2]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn is_leap(y) { return y % 4 == 0 and (y % 100 != 0 or y % 400 == 0); }\nlet years = [1900, 2000, 2023, 2024, 2100];\nlet out = [];\nfor (let i = 0; i < len(years); i += 1) {\n  if (is_leap(years[i])) { push(out, years[i]); }\n}\nprint(out);\nfn day_of_year(y, m, d) {\n  let lengths = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];\n  if (is_leap(y)) { lengths[1] = 29; }\n  let n = d;\n  for (let i = 0; i < m - 1; i += 1) { n += lengths[i]; }\n  return n;\n}\nprint(day_of_year(2024, 3, 1), day_of_year(2023, 12, 31), day_of_year(2000, 1, 1));\n"
+     },
+     "stdin": "",
+     "stdout": "[2000, 2024]\n61 365 1\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn clock(mins) {\n  let h = mins / 60;\n  let m = mins % 60;\n  return str(h) + \":\" + str(m);\n}\nprint(clock(125), clock(-125), clock(-60), clock(59), clock(-59));\n"
+     },
+     "stdin": "",
+     "stdout": "2:5 -2:-5 -1:0 0:59 0:-59\n"
+    }
+   ],
+   "name": "algo_calendar"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let v = 1;\nfn f() {\n  let v = 2;\n  { let v = 3; }\n  return v;\n}\n{\n  let v = v + 10;\n  print(v, f());\n}\nprint(v);\nfn g(v) {\n  {\n    let v = v * 2;\n    return v;\n  }\n}\nprint(g(21));\n"
+     },
+     "stdin": "",
+     "stdout": "11 2\n1\n42\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn total() { return base + bonus(); }\nlet base = 10;\nfn bonus() { return 5; }\nprint(total());\nfn bonus() { return 50; }\nprint(total());\nlet base = 1;\nprint(total());\n"
+     },
+     "stdin": "",
+     "stdout": "15\n60\n51\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "fn later() { return missing + 1; }\nprint(\"start\");\nprint(later());\n"
+     },
+     "stdin": "",
+     "stdout": "start\nruntime error (line 1): undefined variable 'missing'\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn outer() {\n  fn peek() { return hidden; }\n  let hidden = \"local\";\n  return peek();\n}\nlet hidden = \"global\";\nprint(outer());\n"
+     },
+     "stdin": "",
+     "stdout": "global\n"
+    }
+   ],
+   "name": "scope_shadowing"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let rate = 10;\nfn price(n) { return n * rate; }\nprint(price(3));\nlet rate = 12;\nprint(price(3));\nfn price(n) { return n * rate + 1; }\nfn total(items) {\n  let s = 0;\n  for (let i = 0; i < len(items); i += 1) { s += price(items[i]); }\n  return s;\n}\nprint(total([1, 2]));\nlet rate = 0;\nprint(total([1, 2]));\n"
+     },
+     "stdin": "",
+     "stdout": "30\n36\n38\n2\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn show(x) { print(\"value:\", x); }\nshow(1);\nfn print(a, b) { return nil; }\nshow(2);\n"
+     },
+     "stdin": "",
+     "stdout": "value: 1\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let count = 0;\nfn bump() {\n  count += 1;\n  return count;\n}\nbump();\nbump();\nprint(count, bump());\n"
+     },
+     "stdin": "",
+     "stdout": "2 3\n"
+    }
+   ],
+   "name": "globals_redefinition"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let ages = {\"ana\": 31, \"bo\": 25};\nages[\"cy\"] = 40;\nages[\"bo\"] += 1;\nprint(ages, len(ages), ages[\"bo\"], has(ages, \"cy\"), has(ages, \"dee\"));\nlet mixed = {1: \"int\", true: \"bool\", \"1\": \"string\"};\nprint(mixed[1], mixed[true], mixed[\"1\"], len(mixed), keys(mixed));\nlet nested = {\"list\": [1, {\"x\": nil}], \"empty\": {}};\nprint(nested, type(nested), nested == nested, {} == {});\n"
+     },
+     "stdin": "",
+     "stdout": "{\"ana\": 31, \"bo\": 26, \"cy\": 40} 3 26 true false\nint bool string 3 [1, true, \"1\"]\n{\"list\": [1, {\"x\": nil}], \"empty\": {}} map true false\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "let m = {\"a\": 1};\nprint(m[\"a\"]);\nprint(m[\"b\"]);\n"
+     },
+     "stdin": "",
+     "stdout": "1\nruntime error (line 3): key not found\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "let m = {};\nm[\"ok\"] = 1;\nm[[1]] = 2;\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 3): invalid map key: list\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "print(keys({\"x\": 1, \"y\": 2}), keys([1]));\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 1): keys: expected a map\n"
+    }
+   ],
+   "name": "maps_basics"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let stock = {};\nlet items = [\"apple\", \"pear\", \"fig\", \"kiwi\", \"plum\", \"lime\", \"date\", \"nut\", \"yam\", \"oat\"];\nfor (let i = 0; i < len(items); i += 1) { stock[items[i]] = (i + 1) * 10; }\nprint(del(stock, \"pear\"), del(stock, \"kiwi\"), del(stock, \"apple\"), del(stock, \"date\"));\nlet report = [];\nfor (let i = 0; i < len(items); i += 1) {\n  let name = items[i];\n  if (has(stock, name)) { push(report, name + \"=\" + str(stock[name])); } else { push(report, name + \"=gone\"); }\n}\nprint(report);\nstock[\"pear\"] = 5;\nstock[\"fig\"] += 1;\nstock[\"oat\"] = 0;\nprint(stock, len(stock));\nlet extra = [\"rye\", \"bean\", \"corn\", \"leek\", \"okra\", \"taro\", \"sago\", \"kale\"];\nfor (let i = 0; i < len(extra); i += 1) { stock[extra[i]] = i; }\nprint(stock[\"lime\"], stock[\"nut\"], stock[\"kale\"], len(stock), keys(stock));\n"
+     },
+     "stdin": "",
+     "stdout": "20 40 10 70\n[\"apple=gone\", \"pear=gone\", \"fig=30\", \"kiwi=gone\", \"plum=50\", \"lime=60\", \"date=gone\", \"nut=80\", \"yam=90\", \"oat=100\"]\n{\"fig\": 31, \"plum\": 50, \"lime\": 60, \"nut\": 80, \"yam\": 90, \"oat\": 0, \"pear\": 5} 7\n60 80 7 15 [\"fig\", \"plum\", \"lime\", \"nut\", \"yam\", \"oat\", \"pear\", \"rye\", \"bean\", \"corn\", \"leek\", \"okra\", \"taro\", \"sago\", \"kale\"]\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let seen = {};\nlet ids = [3, 11, 19, 27, 35, 4, 12];\nfor (let i = 0; i < len(ids); i += 1) { seen[ids[i]] = i; }\ndel(seen, 3);\ndel(seen, 19);\nprint(has(seen, 11), has(seen, 27), has(seen, 35), seen[12]);\nseen[11] = 100;\nseen[3] = -1;\nprint(seen, len(seen), keys(seen));\n"
+     },
+     "stdin": "",
+     "stdout": "true true true 6\n{11: 100, 27: 3, 35: 4, 4: 5, 12: 6, 3: -1} 6 [11, 27, 35, 4, 12, 3]\n"
+    }
+   ],
+   "name": "maps_delete_order"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let text = \"the quick brown fox jumps over the lazy dog the dog barks and the fox runs away from the dog while the quick cat sleeps\";\nlet words = [];\nlet w = \"\";\nfor (let i = 0; i < len(text); i += 1) {\n  let c = text[i];\n  if (c == \" \") {\n    if (len(w) > 0) { push(words, w); }\n    w = \"\";\n  } else {\n    w = w + c;\n  }\n}\nif (len(w) > 0) { push(words, w); }\nlet freq = {};\nfor (let i = 0; i < len(words); i += 1) {\n  let k = words[i];\n  if (has(freq, k)) { freq[k] += 1; } else { freq[k] = 1; }\n}\nprint(len(words), len(freq));\nlet ks = keys(freq);\nfor (let i = 0; i < len(ks); i += 1) {\n  if (freq[ks[i]] == 1) { del(freq, ks[i]); }\n}\nprint(freq);\nlet more = [\"owl\", \"bat\", \"elk\", \"emu\", \"yak\", \"ant\", \"bee\", \"cod\", \"the\", \"dog\", \"gnu\", \"hen\", \"jay\"];\nfor (let i = 0; i < len(more); i += 1) {\n  if (has(freq, more[i])) { freq[more[i]] += 1; } else { freq[more[i]] = 1; }\n}\nprint(freq, len(freq));\n"
+     },
+     "stdin": "",
+     "stdout": "25 16\n{\"the\": 6, \"quick\": 2, \"fox\": 2, \"dog\": 3}\n{\"the\": 7, \"quick\": 2, \"fox\": 2, \"dog\": 4, \"owl\": 1, \"bat\": 1, \"elk\": 1, \"emu\": 1, \"yak\": 1, \"ant\": 1, \"bee\": 1, \"cod\": 1, \"gnu\": 1, \"hen\": 1, \"jay\": 1} 15\n"
+    }
+   ],
+   "name": "maps_word_freq"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "fn make_cache(capacity) {\n  let data = {};\n  let log = [];\n  fn get(k) {\n    if (not has(data, k)) {\n      push(log, \"miss \" + str(k));\n      return nil;\n    }\n    let v = del(data, k);\n    data[k] = v;\n    push(log, \"hit \" + str(k));\n    return v;\n  }\n  fn put(k, v) {\n    if (has(data, k)) { del(data, k); }\n    else if (len(data) >= capacity) {\n      let oldest = keys(data)[0];\n      del(data, oldest);\n      push(log, \"evict \" + str(oldest));\n    }\n    data[k] = v;\n  }\n  fn state() { return keys(data); }\n  return [get, put, state, log];\n}\nlet c = make_cache(3);\nlet get = c[0];\nlet put = c[1];\nput(1, \"a\");\nput(2, \"b\");\nput(3, \"c\");\nget(1);\nput(4, \"d\");\nget(2);\nget(3);\nput(5, \"e\");\nput(1, \"z\");\nget(4);\nget(1);\nfor (let i = 10; i < 30; i += 1) {\n  put(i, i * i);\n  if (i % 3 == 0) { get(i - 1); }\n}\nprint(c[2]());\nprint(len(c[3]), c[3][len(c[3]) - 1]);\nprint(get(29), get(27), get(10));\n"
+     },
+     "stdin": "",
+     "stdout": "[26, 28, 29]\n34 evict 27\n841 nil nil\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let sessions = {};\nlet users = [\"kim\", \"lee\", \"max\", \"ned\", \"oli\", \"pat\", \"quinn\", \"ray\", \"sam\", \"tia\"];\nfor (let round = 0; round < 3; round += 1) {\n  for (let i = 0; i < len(users); i += 1) {\n    let u = users[i];\n    if ((i + round) % 3 == 0 and has(sessions, u)) { del(sessions, u); }\n    else { sessions[u] = round * 10 + i; }\n  }\n}\nlet active = [];\nfor (let i = 0; i < len(users); i += 1) {\n  if (has(sessions, users[i])) { push(active, users[i] + \":\" + str(sessions[users[i]])); }\n}\nprint(active, len(sessions));\n"
+     },
+     "stdin": "",
+     "stdout": "[\"kim:20\", \"max:22\", \"ned:23\", \"pat:25\", \"quinn:26\", \"sam:28\", \"tia:29\"] 7\n"
+    }
+   ],
+   "name": "maps_lru_cache"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let edges = [[\"a\", \"b\"], [\"a\", \"c\"], [\"b\", \"d\"], [\"c\", \"d\"], [\"d\", \"e\"], [\"e\", \"f\"], [\"c\", \"f\"], [\"f\", \"g\"], [\"b\", \"h\"], [\"h\", \"g\"]];\nlet adj = {};\nfor (let i = 0; i < len(edges); i += 1) {\n  let u = edges[i][0];\n  let v = edges[i][1];\n  if (not has(adj, u)) { adj[u] = []; }\n  if (not has(adj, v)) { adj[v] = []; }\n  push(adj[u], v);\n  push(adj[v], u);\n}\nfn bfs(start, blocked) {\n  let dist = {};\n  dist[start] = 0;\n  let queue = [start];\n  let head = 0;\n  while (head < len(queue)) {\n    let u = queue[head];\n    head += 1;\n    let ns = adj[u];\n    for (let i = 0; i < len(ns); i += 1) {\n      let v = ns[i];\n      if (has(blocked, v) or has(dist, v)) { continue; }\n      dist[v] = dist[u] + 1;\n      push(queue, v);\n    }\n  }\n  return dist;\n}\nprint(bfs(\"a\", {}));\nlet blocked = {\"x\": true, \"d\": true, \"y\": true, \"c\": true};\ndel(blocked, \"x\");\ndel(blocked, \"c\");\nprint(bfs(\"a\", blocked));\n"
+     },
+     "stdin": "",
+     "stdout": "{\"a\": 0, \"b\": 1, \"c\": 1, \"d\": 2, \"h\": 2, \"f\": 2, \"e\": 3, \"g\": 3}\n{\"a\": 0, \"b\": 1, \"c\": 1, \"h\": 2, \"f\": 2, \"g\": 3, \"e\": 3}\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let parent = {};\nfn find(x) {\n  if (not has(parent, x)) { parent[x] = x; }\n  if (parent[x] == x) { return x; }\n  let root = find(parent[x]);\n  parent[x] = root;\n  return root;\n}\nfn union(a, b) {\n  let ra = find(a);\n  let rb = find(b);\n  if (ra != rb) { parent[ra] = rb; }\n}\nlet pairs = [[1, 9], [17, 25], [9, 25], [2, 10], [33, 41], [3, 11]];\nfor (let i = 0; i < len(pairs); i += 1) { union(pairs[i][0], pairs[i][1]); }\ndel(parent, 1);\ndel(parent, 17);\nprint(find(25), find(9), find(33), find(41), find(1), len(parent));\n"
+     },
+     "stdin": "",
+     "stdout": "25 25 41 41 1 9\n"
+    }
+   ],
+   "name": "maps_graph_search"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "let readings = [4, -1, 6, 0, 3];\nlet inverse = [];\nfor (let i = 0; i < len(readings); i += 1) {\n  if (readings[i] < 0) { continue; }\n  push(inverse, 120 / readings[i]);\n  print(inverse);\n}\n"
+     },
+     "stdin": "",
+     "stdout": "[30]\n[30, 20]\nruntime error (line 5): division by zero\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "/* configuration\n   block */\nlet rate = 4;\n# compute\nlet parts = [\n  10,\n  20\n];\nprint(parts[0] / rate);\nprint(parts[1]\n  /\n  (rate - 4));\n"
+     },
+     "stdin": "",
+     "stdout": "2\nruntime error (line 11): division by zero\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "let config = nil;\nfn load() {\n  return config(1);\n}\nprint(\"loading\");\nload();\n"
+     },
+     "stdin": "",
+     "stdout": "loading\nruntime error (line 3): cannot call nil\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "fn down(n) {\n  if (n == 0) { return 0; }\n  return 1 + down(n - 1);\n}\nprint(down(199));\nprint(down(200));\n"
+     },
+     "stdin": "",
+     "stdout": "199\nruntime error (line 3): stack overflow\n"
+    }
+   ],
+   "name": "errors_runtime_lines"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "print(\"n=\" + 5);\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 1): unsupported operand types for +: string and int\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "let items = [1, 2];\nprint(items - 1);\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 2): unsupported operand types for -: list and int\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "print(-[1]);\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 1): unsupported operand type for -: list\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "let s = \"abc\";\nprint(s[1], s[\"0\"]);\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 2): index must be an int\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "print(5[0]);\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 1): cannot index int\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "push(\"x\", 1);\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 1): push: expected a list\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "print(ord(\"ab\"));\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 1): ord: expected a string of length 1\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "print(int(12));\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 1): int: expected a string\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 1,
+     "files": {
+      "main.kite": "print(\"x\" < 1);\n"
+     },
+     "stdin": "",
+     "stdout": "runtime error (line 1): unsupported operand types for <: string and int\n"
+    }
+   ],
+   "name": "errors_types"
+  },
+  {
+   "cases": [
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "print(1);\nlet = 5;\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 2)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "let a = \"unterminated;\nprint(a);\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 1)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "while (true) {\n  print(1);\n}\nbreak;\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 4)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 0,
+     "files": {
+      "main.kite": "let x = 1;\nlet x = 2;\nprint(x);\n"
+     },
+     "stdin": "",
+     "stdout": "2\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "fn f(a, b, a) {\n  return a;\n}\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 1)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "{\n  let y = 1;\n  let y = 2;\n}\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 3)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "print(\"ok\");\nprint(5 = 3);\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 2)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "let s = \"bad \\q escape\";\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 1)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "let n = 12abc;\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 1)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "print(1);\n/* never\nclosed\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 2)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "while (true) {\n  fn h() { break; }\n}\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 2)\n"
+    },
+    {
+     "argv": [
+      "main.kite"
+     ],
+     "code": 2,
+     "files": {
+      "main.kite": "print(\"top\");\nreturn;\n"
+     },
+     "stdin": "",
+     "stdout": "syntax error (line 2)\n"
+    }
+   ],
+   "name": "errors_syntax"
+  }
+ ]
+}

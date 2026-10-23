@@ -1,0 +1,19 @@
+--- wrap_old.py
++++ wrap.py
+@@ -2,14 +2,14 @@
+ import sys
+ 
+ WIDTH = 72
+-
++MARGIN = 4
+ 
+ def wrap(text, width=WIDTH):
+     """Splits text into lines of at most width characters."""
+     words = text.split()
+     lines, line = [], ""
+     for word in words:
+-        if len(line) + len(word) >= width:
++        if len(line) + len(word) >= width - MARGIN:
+             lines.append(line)
+             line = ""
+         line = (line + " " + word).strip()

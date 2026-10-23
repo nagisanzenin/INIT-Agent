@@ -1,0 +1,12 @@
+Item,Qty,Unit price,Line total,Share
+Notebook,4,2.35,9.4,0.1619293712
+Pencil box,10,0.99,9.9,0.1705426357
+"Desk lamp, LED",1,24.5,24.5,0.4220499569
+Stapler,2,7.125,14.25,0.2454780362
+Subtotal,17,,58.05,1
+Discount,,,2.9025,
+Tax 8%,,,4.41,
+Total,,,59.5575,
+Average line,,,14.51,
+Largest share,,,,0.422
+Lines,4,,,

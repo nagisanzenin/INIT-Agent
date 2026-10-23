@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-bob",
+ "family": "E",
+ "lang": "py",
+ "title": "Conversational replies with seeded rules and rule order",
+ "difficulty": {"default": 3, "min": 2, "max": 4},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/bob", "exercise": "bob", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d2 seeded replies, a seeded yelling threshold (at least k capitals and no lower case), a new trailing-off rule and a seeded rule order; d3 + a numbers-only rule; d4 + a whisper rule that collides with trailing-off. Difficulty guess for deepseek-flash: medium (d3)."
+}

@@ -1,0 +1,11 @@
+--- shopping.txt
++++ shopping.txt
+@@ -4,7 +4,7 @@
+ cheese 2
+ eggs 12
+ flour 1
+-honey 1
++honey 2
+ jam 2
+ lemons 3
+ milk 2

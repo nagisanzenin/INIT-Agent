@@ -1,0 +1,12 @@
+{
+ "id": "pool-c-rotate-at",
+ "title": "Change rotor.rotate_after: any occurrence of a multi-character mark",
+ "family": "c",
+ "difficulty": 3,
+ "labels": ["repair", "py"],
+ "max_turns": 8,
+ "prompt": "The package rotor in the current directory has `rotate_after(text, letter)` (rotor/core.py), which moves the part of `text` up to and including the first `letter` to the end, and `rotate_all(items, letter)` (rotor/batch.py). Change them to\n\n    rotate_after(text, mark, occurrence=1)\n    rotate_all(items, mark, occurrence=1)\n\nwith this behaviour:\n- `mark` is any non-empty string. Its occurrences are found left to right without overlapping (after a match the search resumes at the end of that match).\n- occurrence=k > 0 picks the k-th of those occurrences from the left; k < 0 picks the |k|-th from the right (-1 is the last). If there are fewer than |k| occurrences, `text` is returned unchanged.\n- With the chosen occurrence starting at index i, the result is text[i+len(mark):] + text[:i+len(mark)].\n- ValueError when `mark` is empty or `occurrence` is 0.\n- rotate_all applies rotate_after with the same mark and occurrence to every item and returns a new list.\n\ntests/test_rotor.py has a few examples (run `python3 -m unittest discover -s tests`); a hidden suite checks the full behaviour. Do not modify tests/test_rotor.py.",
+ "source": {"kind": "cruxeval", "repo": "facebookresearch/cruxeval", "commit": "190faf16d175b5847b0af05d937872b1fb395942", "sample": 786, "path": "data/cruxeval.jsonl"},
+ "protected": ["tests/test_rotor.py"],
+ "steps": [{"kind": "py_cases", "import": "rotor", "cases": "hidden/cases.json", "timeout_s": 2}]
+}

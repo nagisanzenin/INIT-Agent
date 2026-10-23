@@ -1,0 +1,35 @@
+{
+ "id": "pool-t-patch-port",
+ "title": "Port a patch written against an old layout",
+ "family": "t",
+ "difficulty": 3,
+ "labels": [
+  "terminal"
+ ],
+ "max_turns": 10,
+ "prompt": "patches/0001-count-unique-words.patch in the current directory was written when the package lived in lib/textstats/. The package has since moved to src/textstats/ and changed a little (src/textstats/cli.py gained a --lines option, core.py gained char_count), so the patch no longer applies as it is. Apply its change to the current tree:\n- everything the patch adds or changes must end up in src/textstats/ (core.py and cli.py), and nothing the tree has gained since may be lost;\n- with both flags, `PYTHONPATH=src python3 -m textstats.cli FILE --lines --unique` prints the words line, then the lines line, then the unique line;\n- do not create lib/, and leave no .orig or .rej files behind;\n- do not modify the patch file, README.md or src/textstats/__init__.py.",
+ "source": {
+  "kind": "fresh"
+ },
+ "protected": [
+  "patches/0001-count-unique-words.patch",
+  "README.md",
+  "src/textstats/__init__.py"
+ ],
+ "steps": [
+  {
+   "kind": "sh",
+   "script": "hidden/check.sh",
+   "names": [
+    "words_lowercase",
+    "unique_words",
+    "newer_helpers_kept",
+    "cli_default",
+    "cli_unique",
+    "cli_lines_and_unique",
+    "no_leftovers"
+   ],
+   "timeout_s": 20
+  }
+ ]
+}

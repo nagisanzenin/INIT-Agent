@@ -1,0 +1,5 @@
+{"branch": "refs/heads/release-1.1",
+ "subjects": ["fix: README typo", "fix: add treats None as 0", "fix: mul rounds floats to 6 places"],
+ "tree": "c4ab4258643735f3c92d7089d2ebf47b86b9c24a",
+ "main": "2f8454e67df2c3d3dab7e29caa1f8b54c9375b7b",
+ "v1.0": "6edbbe94b9f97ad7eb04646695305a618eb4dcb2"}

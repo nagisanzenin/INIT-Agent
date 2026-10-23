@@ -1,0 +1,104 @@
+#!/usr/bin/env python3
+"""c-rule-apply: CRUXEval sample_623 with a case_add change (family C, operator case_add; see C/_lib/s1c.py).
+
+The function applies one-character rules to a text: `@` reverses, `~` upper-cases, any other rule removes the
+last character when it equals the rule. The seeded change adds two new rule symbols with seeded actions,
+checked after `@` and `~` and before the fallback.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(text, rules):
+    for rule in rules:
+        if rule == '@':
+            text = text[::-1]
+        elif rule == '~':
+            text = text.upper()
+        elif text and text[len(text)-1] == rule:
+            text = text[0:len(text)-1]
+    return text
+'''
+
+HELPER = '''REVERSE = '@'
+UPPER = '~'
+
+
+def drop_last(text):
+    return text[0:len(text)-1]
+'''
+
+CORE = '''from .__HELPER__ import REVERSE, UPPER, drop_last
+
+
+def __FN__(text, rules):
+    for rule in rules:
+        if rule == REVERSE:
+            text = text[::-1]
+        elif rule == UPPER:
+            text = text.upper()
+        elif text and text[len(text)-1] == rule:
+            text = drop_last(text)
+    return text
+'''
+
+FALLBACK = "        elif text and text[len(text)-1] == rule:\n"
+SYMBOLS = ["#", "%", "^", "+", "=", "*", "!"]
+ACTIONS = {
+    "swapcase": ("swaps the case of every letter of `text` (as `str.swapcase` does)", "text.swapcase()"),
+    "drop_first": ("removes the first character of `text` (an empty text stays empty)", "text[1:]"),
+    "dup_last": ("appends the last character of `text` once more (an empty text stays empty)", "text + text[-1:]"),
+    "rotate": ("moves the first character of `text` to its end (an empty text stays empty)", "text[1:] + text[:1]"),
+    "lower": ("lower-cases `text`", "text.lower()"),
+    "double": ("replaces `text` by two copies of itself, one after the other", "text + text"),
+}
+
+
+def variant(rng):
+    syms = rng.sample(SYMBOLS, 2)
+    acts = rng.sample(sorted(ACTIONS), 2)
+    branch = ""
+    lines = []
+    for s, a in zip(syms, acts):
+        desc, expr = ACTIONS[a]
+        branch += "        elif rule == %r:\n            text = %s\n" % (s, expr)
+        lines.append("- the rule `%s` %s;" % (s, desc))
+    change = ("Add two new rules, checked after the `@` and `~` rules and before the existing rule that removes a "
+              "matching last character (so a new rule symbol never removes a matching last character):\n"
+              + "\n".join(lines) + "\nAll the existing rules keep working as they do today.")
+    return {"change": change, "core": CORE.replace(FALLBACK, branch + FALLBACK), "state": syms,
+            "hint": "add the new rules as new branches of the existing if/elif chain, before its last branch."}
+
+
+def inputs(rng, state):
+    out = [("hi~!", ["~", "`", "!", "&"])]
+    syms = state
+    for _ in range(400):
+        text = s1c.rand_str(rng, "abcXYZ" + "".join(syms) + "@~!", 0, 7)
+        rules = []
+        for _ in range(rng.randint(1, 6)):
+            r = rng.below(10)
+            if r < 4:
+                rules.append(rng.choice(syms))
+            elif r < 6:
+                rules.append(rng.choice(["@", "~"]))
+            elif r < 8 and text:
+                rules.append(rng.choice(text))
+            else:
+                rules.append(rng.choice(["a", "Z", "!", "&", "`"]))
+        out.append((text, rules))
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="case_add", original=ORIGINAL,
+                    fn_choices=["apply_rules", "run_rules", "rewrite", "edit_by_rules"],
+                    params="text, rules", doc="edits a text by a list of one-character rules.", core=CORE,
+                    helper=HELPER, variant=variant, inputs=inputs, kind="str")
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

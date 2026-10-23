@@ -1,0 +1,5 @@
+This template is derived from the "anagram" exercise of the Exercism Python track
+(https://github.com/exercism/python, exercises/practice/anagram, commit
+6105f6d9d3ef66ce3d5c8f529d2882af3d76b706), Copyright (c) 2021 Exercism, used under the MIT License
+(see LICENSE). The specification, tests and reference solution were rewritten and semantically changed
+by the INIT maintainers; generated instances carry this notice.

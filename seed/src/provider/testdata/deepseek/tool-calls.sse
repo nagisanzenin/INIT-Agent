@@ -1,0 +1,32 @@
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"","role":"assistant"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"Use ls, "},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"then rea"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"d."},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"","name":"bash"},"id":"call_00_mock0","index":0,"type":"function"}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"comman"},"index":0}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"d\":\"ls -"},"index":0}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"la\",\"tim"},"index":0}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"eout\":30"},"index":0}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"}"},"index":0}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"","name":"read"},"id":"call_01_mock0","index":1,"type":"function"}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"path\":"},"index":1}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"\"src/mai"},"index":1}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"n.rs\"}"},"index":1}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"","reasoning_content":null},"finish_reason":"tool_calls","index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock","usage":{"completion_tokens":21,"completion_tokens_details":{"reasoning_tokens":5},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":101,"prompt_tokens":101,"prompt_tokens_details":{"cached_tokens":0},"total_tokens":122}}
+
+data: [DONE]
+

@@ -1,0 +1,265 @@
+{
+ "items": [
+  {
+   "checks": [
+    [
+     "import garagebook\nprint(garagebook.__version__, open('VERSION').read().strip())",
+     "1.0.0 1.0.0"
+    ]
+   ],
+   "name": "t01",
+   "ticket": "version"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import Store\nfrom garagebook.models import Vehicle\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, name='N%02d' % k, kind=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom garagebook.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Vehicle(id='k01', name='z', kind='c'))\nexcept Invalid as e:\n    print(e, s.count())",
+     "duplicate id k01 2"
+    ]
+   ],
+   "name": "t02",
+   "ticket": "dup"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.21"
+    ]
+   ],
+   "name": "t03",
+   "ticket": "tax"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import Store\nfrom garagebook.models import Vehicle\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, name='N%02d' % k, kind=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom garagebook.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Vehicles inventory"
+    ]
+   ],
+   "name": "t04",
+   "ticket": "title"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import Store\nfrom garagebook.models import Vehicle\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, name='N%02d' % k, kind=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "t05",
+   "ticket": "page1"
+  },
+  {
+   "checks": [
+    [
+     "import io, json, contextlib\nfrom garagebook.cli import main\nfrom garagebook.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'data/sample.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/sample.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))",
+     "True 1"
+    ]
+   ],
+   "name": "t06",
+   "ticket": "json_cmd"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import Store\nfrom garagebook.models import Vehicle\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, name='N%02d' % k, kind=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom garagebook.errors import Invalid\ntry:\n    mk(0).add(Vehicle(id='a', name='b', kind='c', qty=-1))\nexcept Invalid as e:\n    print(e)",
+     "quantity cannot be negative"
+    ]
+   ],
+   "name": "t07",
+   "ticket": "qty_msg"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import Store\nfrom garagebook.models import Vehicle\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, name='N%02d' % k, kind=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "t08",
+   "ticket": "search_ci"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import Store\nfrom garagebook.models import Vehicle\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, name='N%02d' % k, kind=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nimport os, tempfile\nfrom garagebook.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').tags = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[-1], load_csv(p).get('k01').tags, load_csv(p).get('k00').tags)",
+     "tags ['a', 'b'] []"
+    ]
+   ],
+   "name": "t09",
+   "ticket": "csv_tags"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.validate import MAX_NAME\nprint(MAX_NAME)",
+     "72"
+    ]
+   ],
+   "name": "t10",
+   "ticket": "maxname"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import Store\nfrom garagebook.models import Vehicle\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, name='N%02d' % k, kind=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom garagebook.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "t11",
+   "ticket": "low_sorted"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.errors import NotFound\nprint(str(NotFound('q7')))",
+     "vehicle 'q7' not found"
+    ]
+   ],
+   "name": "t12",
+   "ticket": "notfound"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.models import Vehicle\nprint(Vehicle(id='a', name='b', kind='c', qty=3, price=1.105).to_dict()['value'])",
+     "3.31"
+    ]
+   ],
+   "name": "t13",
+   "ticket": "value_field"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-€1,234.50 €7.00"
+    ]
+   ],
+   "name": "t14",
+   "ticket": "money_neg"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import Store\nfrom garagebook.models import Vehicle\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, name='N%02d' % k, kind=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom garagebook.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "------------------------------"
+    ]
+   ],
+   "name": "t15",
+   "ticket": "sep"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.cli import main\nmain(['count', 'data/sample.csv', '--kind', 'van'])\nmain(['count', 'data/sample.csv'])",
+     "8\n30"
+    ]
+   ],
+   "name": "t16",
+   "ticket": "count_cat"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import Store\nfrom garagebook.models import Vehicle\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, name='N%02d' % k, kind=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "t17",
+   "ticket": "remove_ret"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.models import Vehicle\nprint(Vehicle.from_dict({'id': 'a', 'name': 'b'}).kind)",
+     "car"
+    ]
+   ],
+   "name": "t18",
+   "ticket": "defcat"
+  },
+  {
+   "checks": [
+    [
+     "L = open('README.md').read().splitlines()\nprint(repr(L[L.index('    garagebook count FILE') + 1]))",
+     "'    garagebook export FILE'"
+    ]
+   ],
+   "name": "t19",
+   "ticket": "readme"
+  },
+  {
+   "checks": [
+    [
+     "L = open('CHANGELOG.md').read().splitlines()\nprint(L[L.index('## Changes') + 1])",
+     "- 1.0.0: ticket batch GAR-3"
+    ]
+   ],
+   "name": "t20",
+   "ticket": "changelog"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.report import summary\nfrom garagebook.io import load_csv\nprint(list(summary(load_csv('data/sample.csv'))))",
+     "['Truck', 'bike', 'car', 'van']"
+    ]
+   ],
+   "name": "t21",
+   "ticket": "summary_sorted"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import Store\nfrom garagebook.models import Vehicle\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Vehicle(id='k%02d' % k, name='N%02d' % k, kind=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_kind('mIXED')))",
+     "4"
+    ]
+   ],
+   "name": "t22",
+   "ticket": "bycat_ci"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0"
+    ]
+   ],
+   "name": "t23",
+   "ticket": "discount_range"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "8"
+    ]
+   ],
+   "name": "t24",
+   "ticket": "pagesize"
+  },
+  {
+   "checks": [
+    [
+     "import garagebook\nprint(sorted(garagebook.__all__), garagebook.NotFound.__name__, garagebook.Invalid.__name__)",
+     "['Invalid', 'NotFound', 'Store', 'Vehicle'] NotFound Invalid"
+    ]
+   ],
+   "name": "t25",
+   "ticket": "all_export"
+  },
+  {
+   "checks": [
+    [
+     "from garagebook.io import load_csv\nfrom garagebook.pricing import subtotal\ns = load_csv('data/sample.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)",
+     "30 True"
+    ]
+   ],
+   "name": "regress",
+   "ticket": "regress"
+  }
+ ],
+ "pkg": "garagebook"
+}

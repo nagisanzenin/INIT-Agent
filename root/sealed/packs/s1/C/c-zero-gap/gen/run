@@ -1,0 +1,89 @@
+#!/usr/bin/env python3
+"""c-zero-gap: CRUXEval sample_76 with a const change (family C, operator const; see C/_lib/s1c.py).
+
+The function keeps the positive values; a list of more than 3 of them is reversed and five zeros are inserted
+in the middle. The seeded change alters two of three constant groups: the filter floor (0), the short-list
+limit (3) and the gap (5 x 0).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(nums):
+    nums = [y for y in nums if y > 0]
+    if len(nums) <= 3:
+        return nums
+    nums.reverse()
+    half = len(nums)//2
+    return nums[:half] + [0]*5 + nums[half:]
+'''
+
+HELPER = '''FLOOR = 0
+SHORT = 3
+GAP_VALUE = 0
+GAP_WIDTH = 5
+'''
+
+CORE = '''from .__HELPER__ import FLOOR, GAP_VALUE, GAP_WIDTH, SHORT
+
+
+def __FN__(nums):
+    nums = [y for y in nums if y > FLOOR]
+    if len(nums) <= SHORT:
+        return nums
+    nums.reverse()
+    half = len(nums)//2
+    return nums[:half] + [GAP_VALUE]*GAP_WIDTH + nums[half:]
+'''
+
+CRUX_INPUT = [10, 3, 2, 2, 6, 0]
+
+
+def variant(rng):
+    slots = rng.sample(["floor", "short", "gap"], 2)
+    helper, lines = HELPER, []
+    if "floor" in slots:
+        t = rng.choice([-4, -2, 1, 2, 5])
+        helper = helper.replace("FLOOR = 0", "FLOOR = %d" % t)
+        lines.append("- Only the values greater than %d are kept now (today: only the values greater than 0)." % t)
+    if "short" in slots:
+        s = rng.choice([1, 2, 4, 5])
+        helper = helper.replace("SHORT = 3", "SHORT = %d" % s)
+        lines.append("- When at most %d value%s left after filtering, the filtered list is returned as it is, in "
+                     "its original order (today: at most 3 values)." % (s, " is" if s == 1 else "s are"))
+    if "gap" in slots:
+        g = rng.choice([-1, 7, 9])
+        w = rng.choice([1, 2, 3, 4])
+        helper = helper.replace("GAP_VALUE = 0", "GAP_VALUE = %d" % g).replace("GAP_WIDTH = 5", "GAP_WIDTH = %d" % w)
+        lines.append("- The gap inserted in the middle of the reversed list must now be %d cop%s of `%d` "
+                     "(today: five zeros)." % (w, "y" if w == 1 else "ies", g))
+    return {"change": "Make these changes:\n" + "\n".join(lines), "helper": helper,
+            "hint": "all the numbers involved are constants in the helper module."}
+
+
+def inputs(rng, state):
+    out = [(list(CRUX_INPUT),)]
+    for _ in range(400):
+        r = rng.below(6)
+        if r == 0:
+            xs = s1c.mutate_ints(rng, CRUX_INPUT, -6, 12)
+        elif r == 1:
+            xs = s1c.rand_ints(rng, -6, 12, 0, 5)
+        else:
+            xs = s1c.rand_ints(rng, -8, 15, 3, 11)
+        out.append((xs,))
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="const", original=ORIGINAL,
+                    fn_choices=["gap_reverse", "split_reverse", "pad_middle", "positive_gap"],
+                    params="nums", doc="reverses filtered number lists around a gap.", core=CORE, helper=HELPER,
+                    variant=variant, inputs=inputs, kind="list")
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

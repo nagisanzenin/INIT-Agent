@@ -1,0 +1,17 @@
+recalc: D3 D4 B5 D5 B9 B10 B11
+name,value,,diamond
+a,#CYCLE!,,1
+b,#CYCLE!,,2
+c,#CYCLE!,,3
+d,#CYCLE!,,5
+e,#CYCLE!,,
+f,#CYCLE!,,
+g,5,,
+h,7,,
+i,14,,
+j,0,,
+5
+4
+#CYCLE!
+15
+recalc: B2 B5 B9 B10 B11

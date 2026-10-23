@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""e-rs-bowling: Exercism `bowling` (Rust) with a seeded semantic change (m7-design §3.1.1, family E).
+
+Seeded parameters: the number of frames F (5-9, never 10), the pins per frame N, and from difficulty 4 the
+number of bonus rolls for a strike (1-2; 1-3 at d5) and for a spare (1-2), which also sets the number of
+fill rolls after the last frame. Errors and incomplete games are part of the API (as in the original).
+Graded cases: 4 visible + 28 hidden games, one #[test] each.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "bowling_variant"
+N_HIDDEN = 28
+
+STUB = '''#[derive(Debug, PartialEq, Eq)]
+pub enum Error {
+    NotEnoughPinsLeft,
+    GameComplete,
+}
+
+pub struct BowlingGame {
+    // choose your own fields
+}
+
+impl BowlingGame {
+    pub fn new() -> Self {
+        todo!("a new game")
+    }
+
+    pub fn roll(&mut self, pins: u16) -> Result<(), Error> {
+        todo!("record a roll of {pins} pins")
+    }
+
+    pub fn score(&self) -> Option<u16> {
+        todo!("the final score, once the game is complete")
+    }
+}
+'''
+
+
+class Game:
+    def __init__(self, p):
+        self.p = p
+        self.rolls, self.frame, self.second, self.standing = [], 1, False, p["N"]
+        self.fill_left, self.done = None, False
+
+    def end_frame(self, k):
+        self.second, self.standing = False, self.p["N"]
+        if self.frame == self.p["F"]:
+            if k == 0:
+                self.done = True
+            else:
+                self.fill_left = k
+        else:
+            self.frame += 1
+
+    def roll(self, pins):
+        N = self.p["N"]
+        if self.done:
+            return "Err(Error::GameComplete)"
+        if pins > self.standing:
+            return "Err(Error::NotEnoughPinsLeft)"
+        self.rolls.append(pins)
+        if self.fill_left is not None:
+            self.standing -= pins
+            if self.standing == 0:
+                self.standing = N
+            self.fill_left -= 1
+            if self.fill_left == 0:
+                self.done = True
+            return "Ok(())"
+        if not self.second:
+            if pins == N:
+                self.end_frame(self.p["sb"])
+            else:
+                self.standing, self.second = N - pins, True
+        else:
+            self.end_frame(self.p["pb"] if pins == self.standing else 0)
+        return "Ok(())"
+
+    def score(self):
+        if not self.done:
+            return None
+        N, r, total, i = self.p["N"], self.rolls, 0, 0
+        for _ in range(self.p["F"]):
+            if r[i] == N:
+                total += N + sum(r[i + 1:i + 1 + self.p["sb"]])
+                i += 1
+            elif r[i] + r[i + 1] == N:
+                total += N + sum(r[i + 2:i + 2 + self.p["pb"]])
+                i += 2
+            else:
+                total += r[i] + r[i + 1]
+                i += 2
+        return total
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    F = rng.randint(5, 9)
+    N = rng.choice([6, 7, 8, 9, 12] if d == 3 else [5, 6, 7, 8, 9, 10, 12])
+    if d == 3:
+        sb, pb = 2, 1
+    else:
+        while True:
+            sb = rng.choice([1, 2] if d == 4 else [1, 2, 3, 3])
+            pb = rng.choice([1, 2])
+            if (sb, pb) != (2, 1):
+                break
+    return {"F": F, "N": N, "sb": sb, "pb": pb}
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    F, N = p["F"], p["N"]
+
+    def frame_rolls(kind=None):
+        kind = kind or rng.choice(["strike", "spare", "spare", "open", "open", "open"])
+        if kind == "strike":
+            return [N]
+        a = rng.randint(0, N - 1)
+        return [a, N - a] if kind == "spare" else [a, rng.randint(0, N - 1 - a)]
+
+    def fill(g):
+        out = []
+        while g.fill_left:
+            x = rng.choice([g.standing, rng.randint(0, g.standing)])
+            g.roll(x)
+            out.append(x)
+        return out
+
+    def full_game(kinds=None, last=None):
+        g, rolls = Game(p), []
+        for f in range(F):
+            kind = (kinds[f] if kinds else None) or (last if f == F - 1 else None)
+            for x in frame_rolls(kind):
+                assert g.roll(x) == "Ok(())"
+                rolls.append(x)
+        rolls += fill(g)
+        assert g.done
+        return rolls
+
+    games = []  # list of [(pins, expected result)], plus final score check
+
+    def play(rolls):
+        g = Game(p)
+        steps = [(x, g.roll(x)) for x in rolls]
+        return steps, g.score()
+
+    def add(rolls):
+        if rolls not in [r for r, _ in games]:
+            games.append((rolls, play(rolls)))
+
+    # visible: an open game, a game with strikes and spares, a last-frame strike with fill rolls, an error
+    add(full_game(["open"] * F))
+    add(full_game(["strike", "spare"] + [None] * (F - 2)))
+    add(full_game(None, "strike"))
+    bad = full_game(["open"] * F)[:3]
+    first = bad[2] if bad[2] < N else 0
+    add(bad[:2] + [first, N - first + 1])
+    # hidden
+    add([0] * (2 * F))
+    add([N] * (F + p["sb"]))
+    a = rng.randint(1, N - 1)
+    add([a, N - a] * F + [a] + [0] * (p["pb"] - 1))
+    add(full_game(None, "spare"))
+    add(full_game(None, "spare"))
+    add(full_game(["strike"] * (F - 1) + ["open"]))
+    add(full_game(["spare"] * (F - 1) + ["strike"]))
+    add(full_game(["open"] * (F - 2) + ["strike", "strike"]))
+    add(full_game(["open"] * (F - 2) + ["strike", "open"]))
+    add(full_game(["open"] * (F - 2) + ["spare", "strike"]))
+    add([0, N] + [0, 0] * (F - 1))  # a spare, not a strike
+    for _ in range(9):
+        add(full_game())
+    # errors and incomplete games
+    add([N + 1])
+    g = full_game(["open"] * F)
+    add(g + [rng.randint(0, N)])
+    g = full_game(None, "strike")
+    add(g + [0])
+    a = rng.randint(1, N - 1)
+    add([a, N - a + 1, 0] + [0] * (2 * F - 2))  # an over-count is rejected, the game goes on
+    add(full_game()[:rng.randint(1, F)])
+    g = full_game(None, "strike")
+    add(g[:-1])
+    if p["sb"] >= 2:
+        g = full_game(["open"] * (F - 1) + ["strike"])
+        g = g[:-p["sb"]]
+        x = rng.randint(1, N - 1)
+        add(g + [x, N - x + 1, N - x] + [0] * (p["sb"] - 2))
+    if ctx.difficulty >= 5:
+        add(full_game(["strike"] * (F - 2) + ["strike", "open"]))
+        add(full_game()[:-1])
+        add([N] * (F + p["sb"]) + [0])
+    while len(games) < N_HIDDEN + 4:
+        add(full_game())
+    vis, rest = games[:4], rng.shuffled(games[4:])[:N_HIDDEN]
+    cases = []
+    for n, (rolls, (steps, score)) in enumerate(vis + rest):
+        name = "visible_%d" % (n + 1) if n < 4 else "case_%02d" % (n - 3)
+        lines = ["let mut game = BowlingGame::new();"]
+        i = 0
+        while i < len(steps):
+            j = i
+            while j < len(steps) and steps[j][1] == "Ok(())":
+                j += 1
+            if j - i >= 2:
+                lines.append("for pins in [%s] {" % ", ".join(str(x) for x, _ in steps[i:j]))
+                lines.append("    assert_eq!(game.roll(pins), Ok(()));")
+                lines.append("}")
+                i = j
+            else:
+                lines.append("assert_eq!(game.roll(%d), %s);" % steps[i])
+                i += 1
+        lines.append("assert_eq!(game.score(), %s);" % ("None" if score is None else "Some(%d)" % score))
+        cases.append((name, None, "\n".join(lines)))
+
+    def rolls_word(k):
+        return "the next roll" if k == 1 else "the next %d rolls" % k
+
+    rules = [
+        "1. A game has exactly %d frames, and every frame starts with %d pins standing." % (F, N),
+        "2. In each frame the player rolls until all %d pins are down or two rolls are made. Knocking down all "
+        "%d pins with the first roll is a STRIKE and ends the frame. Knocking down all remaining pins with the "
+        "second roll is a SPARE (also when the first roll knocked down 0). Otherwise the frame is OPEN." % (N, N),
+        "3. A frame scores the pins knocked down in it; a strike additionally scores the pins of %s, and a "
+        "spare the pins of %s (those rolls may belong to later frames or to fill rolls)."
+        % (rolls_word(p["sb"]), rolls_word(p["pb"])),
+        "4. Last frame (frame %d): if it is a strike, the player makes exactly %d fill roll%s; if it is a spare, "
+        "exactly %d fill roll%s; if it is open, the game ends. Fill rolls only provide bonus pins; they are not "
+        "frames. During fill rolls the pins are reset to %d whenever all pins are down; otherwise the next fill "
+        "roll can only knock down the pins still standing."
+        % (F, p["sb"], "" if p["sb"] == 1 else "s", p["pb"], "" if p["pb"] == 1 else "s", N),
+        "5. `roll(pins)`: if the game is complete, return `Err(Error::GameComplete)`. Otherwise, if `pins` is "
+        "more than the pins currently standing, return `Err(Error::NotEnoughPinsLeft)`; such a rejected roll "
+        "changes nothing and the game continues. Otherwise record it and return `Ok(())`.",
+        "6. `score()` returns `None` until the game is complete (all %d frames and all fill rolls made), then "
+        "`Some(total)`, the sum of the frame scores." % F,
+    ]
+    if p["sb"] == 3:
+        rules.append("7. A strike in frame %d followed by an open frame %d has only 2 later rolls: its bonus is "
+                     "then the pins of those 2 rolls (a bonus never waits for rolls that are not part of the "
+                     "game)." % (F - 1, F))
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {"FRAMES": F, "PINS": N, "STRIKE_BONUS": p["sb"],
+                                                    "SPARE_BONUS": p["pb"]})
+    return ersgen.finish(
+        ctx, crate=CRATE,
+        api="#[derive(Debug, PartialEq, Eq)]\npub enum Error { NotEnoughPinsLeft, GameComplete }\n"
+            "pub struct BowlingGame { /* your fields */ }\nimpl BowlingGame {\n    pub fn new() -> Self;\n"
+            "    pub fn roll(&mut self, pins: u16) -> Result<(), Error>;\n    pub fn score(&self) -> Option<u16>;\n}",
+        intro="A small bowling alley runs a short variant of ten-pin bowling. Implement the score keeper.",
+        rules="\n".join(rules), stub=STUB, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::{BowlingGame, Error};" % CRATE, cases=cases, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

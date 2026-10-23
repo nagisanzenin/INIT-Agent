@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""t-make-repair: fix a seeded-broken Makefile for a small text build (family T, pack s1; INIT licence)."""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+TOPICS = ["intro", "install", "config", "usage", "backup", "restore", "network", "storage", "logging", "upgrade",
+          "security", "faq", "limits", "glossary", "metrics", "alerts"]
+WORDS = ["the", "service", "reads", "its", "settings", "from", "disk", "before", "each", "run", "and", "writes",
+         "a", "short", "report", "operators", "should", "check", "queue", "length", "daily", "keep", "old",
+         "copies", "for", "seven", "days", "rotate", "keys", "when", "staff", "leave", "nodes", "sync", "every",
+         "hour", "use", "plain", "text", "files"]
+BOOKS = ["handbook", "manual", "guide", "runbook", "notes"]
+
+RENDER_SH = """#!/bin/sh
+# Render one page: the title line becomes a banner, the --- line a blank line, body lines are indented.
+awk 'NR == 1 { sub(/^title: /, ""); print "== " toupper($0) " =="; next }
+     /^---$/ { print ""; next }
+     { print "    " $0 }' "$@"
+"""
+
+TOC_SH = """#!/bin/sh
+# Table of contents: one numbered line per page title, in argument order.
+echo "CONTENTS"
+n=0
+for f in "$@"; do
+  n=$((n + 1))
+  t=$(sed -n '1s/^title: //p' "$f")
+  printf '%d. %s\\n' "$n" "$t"
+done
+echo
+"""
+
+MAKEFILE = """\
+# Build the {book}: render every page, then a table of contents, line stats and the bundle.
+PAGES := $(sort $(wildcard pages/*.page))
+TXT := $(patsubst pages/%.page,build/%.txt,$(PAGES))
+
+.PHONY: all clean test
+
+all: build/{book}.txt
+
+build:
+\tmkdir -p build
+
+build/%.txt: pages/%.page tools/render.sh | build
+\tsh tools/render.sh $< > $@
+
+build/toc.txt: $(PAGES) tools/toc.sh | build
+\tsh tools/toc.sh $(PAGES) > $@
+
+build/stats.txt: $(TXT) | build
+\tfor f in $(TXT); do printf '%s %s\\n' "$$(wc -l < $$f | tr -d ' ')" "$$f"; done > $@
+
+build/{book}.txt: build/toc.txt $(TXT) build/stats.txt
+\tcat $^ > $@
+
+clean:
+\trm -rf build
+
+test:
+\tsh test/run.sh
+"""
+
+# (id, old, new): applied in this order, latent bugs first
+LATENT = {
+    "toc_deps": ("build/toc.txt: $(PAGES) tools/toc.sh | build", "build/toc.txt: tools/toc.sh | build"),
+    "phony_test": (".PHONY: all clean test", ".PHONY: all clean"),
+    "clean": ("\trm -rf build", "\trm -f build/*.txt"),
+    "render_dep": ("build/%.txt: pages/%.page tools/render.sh | build", "build/%.txt: pages/%.page | build"),
+}
+HARD = ["tab", "all_prereqs", "dollar", "no_dir", "patsubst"]
+
+
+def apply_hard(mk, bug, rng):
+    if bug == "all_prereqs":
+        return mk.replace("\tsh tools/render.sh $< > $@", "\tsh tools/render.sh $^ > $@")
+    if bug == "dollar":
+        return mk.replace("\"$$(wc -l < $$f | tr -d ' ')\" \"$$f\"", "\"$$(wc -l < $f | tr -d ' ')\" \"$f\"")
+    if bug == "no_dir":
+        mk = mk.replace("build:\n\tmkdir -p build\n\n", "")
+        return mk.replace(" | build\n", "\n")
+    if bug == "patsubst":
+        return mk.replace("build/%.txt,$(PAGES)", "build/%.text,$(PAGES)")
+    if bug == "tab":
+        targets = ["\tcat $^ > $@", "\tsh tools/toc.sh $(PAGES) > $@", "\tsh tools/render.sh $< > $@",
+                   "\tsh tools/render.sh $^ > $@"]
+        present = [t for t in targets if t in mk]
+        t = rng.choice(present)
+        return mk.replace(t, "    " + t[1:])
+    raise ValueError(bug)
+
+
+def render(page):
+    out = []
+    for i, ln in enumerate(page.split("\n")[:-1]):
+        if i == 0:
+            t = ln[len("title: "):] if ln.startswith("title: ") else ln
+            out.append("== " + t.upper() + " ==")
+        elif ln == "---":
+            out.append("")
+        else:
+            out.append("    " + ln)
+    return "".join(x + "\n" for x in out)
+
+
+def render_alt(page):
+    return render(page).replace("== ", "## ", 1).replace(" ==\n", " ##\n", 1) if page else ""
+
+
+def title_of(page):
+    first = page.split("\n", 1)[0]
+    return first[len("title: "):] if first.startswith("title: ") else ""
+
+
+def book(pages, renderer=render):
+    names = sorted(pages)
+    toc = "CONTENTS\n" + "".join("%d. %s\n" % (i + 1, title_of(pages[n])) for i, n in enumerate(names)) + "\n"
+    txts = [renderer(pages[n]) for n in names]
+    stats = "".join("%d build/%s.txt\n" % (t.count("\n"), n) for n, t in zip(names, txts))
+    return toc + "".join(txts) + stats
+
+
+def make_page(rng, topic):
+    title = "%s %s" % (topic.capitalize(), rng.choice(["basics", "notes", "checklist", "overview", "details"]))
+    body = []
+    for _ in range(rng.randint(2, 4)):
+        body.append(" ".join(rng.choice(WORDS) for _ in range(rng.randint(4, 9))) + ".")
+    tail = [" ".join(rng.choice(WORDS) for _ in range(rng.randint(3, 6))) + "."] if rng.chance(1, 2) else []
+    return "title: %s\n---\n%s" % (title, "".join(x + "\n" for x in body + (["---"] + tail if tail else [])))
+
+
+def build(ctx):
+    rng = ctx.rng()
+    lvl = ctx.difficulty
+    bk = rng.choice(BOOKS)
+    topics = rng.sample(TOPICS, 7)
+    npages = rng.randint(3, 5)
+    pages = {}
+    for i in range(npages):
+        pages["%02d-%s" % ((i + 1) * 10, topics[i])] = make_page(rng, topics[i])
+    n_hard, n_latent = {1: (1, 1), 2: (1, 2), 3: (2, 2), 4: (2, 3), 5: (3, 4)}[lvl]
+    latent = sorted(rng.sample(sorted(LATENT), n_latent))
+    pool = [h for h in HARD if not (h == "all_prereqs" and "render_dep" in latent)]
+    hard = rng.sample(pool, n_hard)
+    if "tab" in hard:  # the tab bug goes last so that it can hit any recipe
+        hard = [h for h in hard if h != "tab"] + ["tab"]
+    good = MAKEFILE.format(book=bk)
+    mk = good
+    for b in latent:
+        old, new = LATENT[b]
+        if old not in mk:
+            raise s1lib.GenError("latent bug %s does not apply" % b)
+        mk = mk.replace(old, new)
+    for b in hard:
+        nxt = apply_hard(mk, b, rng.fork("tab"))
+        if nxt == mk:
+            raise s1lib.GenError("hard bug %s does not apply" % b)
+        mk = nxt
+    # hidden scenarios
+    names = sorted(pages)
+    edit_name = rng.choice(names)
+    edited = dict(pages)
+    edited[edit_name] = pages[edit_name].replace("title: ", "title: Revised ", 1) + "Updated %s.\n" % rng.choice(
+        ["today", "for release two", "after review", "by ops"])
+    new_name = "%02d-%s" % (rng.choice([1, 2, 3]) * 10 + 5, topics[npages])
+    added = dict(pages)
+    added[new_name] = make_page(rng, topics[npages])
+    test_sh = ("#!/bin/sh\n# Compares the built bundle with the expected one.\necho \"test/run.sh: ran\"\n"
+               "if cmp -s build/{b}.txt expected/{b}.txt; then echo \"test: OK\"; else "
+               "echo \"test: FAIL (build/{b}.txt differs from expected/{b}.txt)\"; exit 1; fi\n").format(b=bk)
+    spec_text = """\
+The build (GNU make 3.81, `/usr/bin/make`) must do exactly this:
+
+1. `make` with no arguments builds `build/{b}.txt`: the concatenation of `build/toc.txt`, then every
+   rendered page `build/<name>.txt` in name order, then `build/stats.txt`.
+2. Each page `pages/<name>.page` is rendered with `sh tools/render.sh pages/<name>.page > build/<name>.txt`
+   (exactly one page argument). `build/toc.txt` is `sh tools/toc.sh <all pages in name order>`.
+   `build/stats.txt` has one line `<number of lines> build/<name>.txt` per rendered page, in name order.
+   `build/` is created by the build when it does not exist.
+3. Incremental builds are correct: after editing any page, after adding a new page, or after a change to
+   `tools/render.sh` or `tools/toc.sh`, a plain `make` brings every affected output up to date. When nothing
+   changed, `make` runs no recipe at all.
+4. `make clean` deletes the whole `build/` directory.
+5. `make test` always runs `sh test/run.sh` (it compares `build/{b}.txt` with `expected/{b}.txt`).
+
+Fix only `Makefile`. Do not modify `pages/`, `tools/`, `test/` or `expected/`.
+""".format(b=bk)
+    prompt = ("The `Makefile` in this directory is broken in several places. Some bugs make the build fail or "
+              "produce wrong output, others only show up in incremental builds or in the other targets. Repair "
+              "it so that it meets this specification:\n\n" + spec_text +
+              "\nWith the pages given, `build/%s.txt` must equal `expected/%s.txt`. The specification is also "
+              "in README.md." % (bk, bk))
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = "# The %s build\n\n%s" % (bk, spec_text)
+    inst.workspace["Makefile"] = mk
+    inst.workspace["tools/render.sh"] = RENDER_SH
+    inst.workspace["tools/toc.sh"] = TOC_SH
+    inst.workspace["test/run.sh"] = test_sh
+    inst.workspace["expected/%s.txt" % bk] = book(pages)
+    for n, p in pages.items():
+        inst.workspace["pages/%s.page" % n] = p
+    inst.executable.update({"tools/render.sh", "tools/toc.sh", "test/run.sh"})
+    inst.marker_files = ["README.md", "Makefile"]
+    inst.protect("tools/render.sh", "tools/toc.sh", "test/run.sh", "expected/%s.txt" % bk,
+                 *["pages/%s.page" % n for n in names])
+    inst.solution["Makefile"] = good
+    spec = {
+        "book": bk,
+        "want_fresh": book(pages),
+        "edit": {"path": "pages/%s.page" % edit_name, "text": edited[edit_name], "want": book(edited)},
+        "add": {"path": "pages/%s.page" % new_name, "text": added[new_name], "want": book(added)},
+        "tool": {"old": "print \"== \" toupper($0) \" ==\"", "new": "print \"## \" toupper($0) \" ##\"",
+                 "want": book(pages, render_alt)},
+        "bugs": {"hard": hard, "latent": latent},
+    }
+    tgen.finish(inst, ctx, spec=spec, names=["fresh_build", "up_to_date", "incremental_edit", "new_page",
+                                             "tool_change", "clean", "test_target"])
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

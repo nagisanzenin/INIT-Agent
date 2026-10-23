@@ -1,0 +1,228 @@
+#!/usr/bin/env python3
+"""e-rs-armstrong-numbers: Exercism `armstrong-numbers` (Rust) with a seeded semantic change (m7-design §3.1.1,
+family E).
+
+Seeded parameters: the base B (3, 4, 5, 6, 7, 8, 9, 12, 16, or 10 only together with an exponent offset) and the
+exponent offset k in {0, 1, 2}: a number with L digits in base B is narcissistic when the sum of its base-B digits,
+each raised to the power p = L + k, equals the number (0 has one digit). Difficulty 2 adds the full u64 range
+(a power or a sum above u64::MAX never equals the number; no overflow, no panic) and hidden cases near
+u64::MAX; difficulty 1 keeps all inputs below 10^9. Every seed differs from the original (base 10, k = 0).
+Graded cases: 4 visible + 28 hidden `is_armstrong_number` calls, one #[test] each.
+"""
+import os
+import sys
+from itertools import combinations_with_replacement
+from math import comb
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "armstrong_numbers_variant"
+BASES = [3, 4, 5, 6, 7, 8, 9, 12, 16]
+N_HIDDEN = 28
+N_TOTAL = 32
+CAP = 80000          # at most this many digit multisets are enumerated per parameter set
+U64_MAX = (1 << 64) - 1
+D1_LIMIT = 10 ** 9
+DECIMAL_ARMSTRONG = [153, 370, 371, 407, 1634, 8208, 9474, 54748, 92727, 93084, 548834]
+
+STUB = '''/// Whether `num` is narcissistic under the rules of the task.
+pub fn is_armstrong_number(num: u64) -> bool {
+    todo!("check {num}")
+}
+'''
+
+
+def digits(n, b):
+    """Base-b digits, most significant first; 0 is [0]."""
+    if n == 0:
+        return [0]
+    out = []
+    while n:
+        out.append(n % b)
+        n //= b
+    return out[::-1]
+
+
+def narcissistic(num, b, k):
+    ds = digits(num, b)
+    p = len(ds) + k
+    return sum(d ** p for d in ds) == num
+
+
+def naive(num):
+    """The original exercise: base 10, exponent = number of digits."""
+    return narcissistic(num, 10, 0)
+
+
+def enum_true(b, k, limit):
+    """All narcissistic numbers below `limit` with at most CAP digit multisets examined."""
+    out, total, length = [], 0, 1
+    while True:
+        lo = b ** (length - 1) if length > 1 else 0
+        if lo >= limit:
+            break
+        total += comb(length + b - 1, length)
+        if total > CAP:
+            break
+        p = length + k
+        pw = [d ** p for d in range(b)]
+        hi = b ** length
+        for ms in combinations_with_replacement(range(b), length):
+            s = sum(pw[d] for d in ms)
+            if lo <= s < hi and s < limit and sorted(digits(s, b)) == list(ms):
+                out.append(s)
+        length += 1
+    return sorted(out)
+
+
+def params(ctx, rng):
+    limit = D1_LIMIT if ctx.difficulty == 1 else U64_MAX + 1
+    for _ in range(60):
+        k = rng.choice([0, 1, 2])
+        b = rng.choice(BASES + ([10] if k else []))
+        trues = enum_true(b, k, limit)
+        big = [x for x in trues if len(digits(x, b)) >= 3]
+        if len(trues) >= 6 and len(big) >= 3:
+            return b, k, trues, limit
+    raise s1lib.GenError("no suitable base / offset found")
+
+
+def rand_below(rng, limit):
+    """Roughly log-uniform in [10, limit)."""
+    bits = rng.randint(4, limit.bit_length() - 1)
+    return rng.below(min(1 << bits, limit - 10)) + 10
+
+
+def build(ctx):
+    rng = ctx.rng()
+    b, k, trues, limit = params(ctx, rng)
+    d2 = ctx.difficulty >= 2
+
+    def oracle(x):
+        return narcissistic(x, b, k)
+
+    big = [x for x in trues if len(digits(x, b)) >= 3]
+    small = [x for x in trues if len(digits(x, b)) < 3 and x > 1]
+    n_true = min(len(trues), 13)
+    n_small = min(len(small), 3)
+    n_big = min(len(big), max(3, n_true - 2 - n_small))
+    n_small = min(len(small), n_true - 2 - n_big)
+    chosen_true = [0, 1] + rng.shuffled(big)[:n_big] + rng.shuffled(small)[:n_small]
+    n_false = N_TOTAL - len(chosen_true)
+    used = set(chosen_true)
+
+    falses = []  # (category, value) in priority order
+
+    def add_false(cat, x):
+        if 0 <= x < limit and x not in used and not oracle(x):
+            used.add(x)
+            falses.append((cat, x))
+
+    for x in rng.shuffled([x for x in DECIMAL_ARMSTRONG if x < limit])[:3]:
+        add_false("decimal", x)
+    if d2:
+        for x in (U64_MAX, U64_MAX - 1, 1 << 63, (1 << 63) - 1, 10 ** 19, rng.randint(1 << 62, U64_MAX), U64_MAX - b):
+            add_false("max", x)
+    anchors = [x for x in chosen_true if len(digits(x, b)) >= 3]
+    near = []
+    for x in anchors:
+        near += [x - 1, x + 1]
+    for x in rng.shuffled(near)[:5]:
+        add_false("near", x)
+    for x in rng.shuffled(anchors):
+        ds = digits(x, b)
+        for _ in range(20):
+            q = rng.shuffled(ds)
+            v = sum(dd * b ** i for i, dd in enumerate(reversed(q)))
+            if q[0] != 0 and v != x:
+                before = len(falses)
+                add_false("perm", v)
+                if len(falses) > before:
+                    break
+        if sum(1 for c, _ in falses if c == "perm") >= 2:
+            break
+    j = rng.randint(2, 4)
+    add_false("boundary", b ** j - 1)
+    add_false("boundary", b ** j)
+    add_false("digit", 2 if k else b)
+    tries = 0
+    while len(falses) < n_false and tries < 2000:
+        tries += 1
+        add_false("random", rand_below(rng, limit))
+    if len(falses) < n_false:
+        raise s1lib.GenError("not enough false cases")
+    # keep the structured categories, trim the surplus from the end of the priority order (randoms first)
+    order_cat = ["decimal", "max", "near", "perm", "boundary", "digit", "random"]
+    falses.sort(key=lambda cv: order_cat.index(cv[0]))
+    falses = falses[:n_false]
+
+    anchor_big = [x for x in chosen_true if len(digits(x, b)) >= 3]
+    vis_true = [anchor_big[0], 0]
+    vis_false = [next(x for c, x in falses if c == "decimal"),
+                 next(x for c, x in falses if c in ("near", "perm", "boundary", "random"))]
+    vis = [vis_true[0], vis_false[0], vis_true[1], vis_false[1]]
+    allv = [x for x in chosen_true] + [x for _, x in falses]
+    rest_v = [x for x in allv if x not in vis]
+    order = vis + rng.shuffled(rest_v)
+    if len(order) != N_TOTAL or len(set(order)) != N_TOTAL:
+        raise s1lib.GenError("case list size")
+    if sum(1 for x in order if oracle(x) != naive(x)) < 4:
+        raise s1lib.GenError("too few cases separate the mutation from the original")
+    cases = []
+    for n, x in enumerate(order):
+        name = "visible_%d" % (n + 1) if n < 4 else "case_%02d" % (n - 3)
+        cases.append((name, "is_armstrong_number(%d)" % x, ersgen.rs_bool(oracle(x))))
+
+    # --------------------------------------------------------------------------- rules text
+    p0 = 1 + k
+
+    def explain(x):
+        ds = digits(x, b)
+        p = len(ds) + k
+        terms = " + ".join("%d^%d" % (d, p) for d in ds)
+        vals = " + ".join(str(d ** p) for d in ds)
+        return ("%d is written in base %d with the digits %s (most significant first), so L = %d and p = %d; "
+                "the digit powers add up to %s = %s = %d" % (x, b, ", ".join(str(d) for d in ds), len(ds), p, terms,
+                                                            vals, sum(d ** p for d in ds)))
+
+    ex_true = vis[0]
+    ex_false = vis[3]
+    ds_f = digits(ex_false, b)
+    if k == 0:
+        pdesc = "p = L"
+    else:
+        pdesc = "p = L + %d" % k
+    rules = [
+        "1. Write `num` in base %d with no leading zeros: the digits are the integers 0..%d (a digit above 9 is "
+        "just its decimal value, for example 11 in base 12). The number 0 is written as the single digit 0, so 0 "
+        "has L = 1 digit. Let L be the number of digits of `num` in base %d." % (b, b - 1, b),
+        "2. The exponent is %s (so a one-digit number such as 0 uses p = %d)." % (pdesc, p0),
+        "3. `num` is narcissistic exactly when the sum of its base-%d digits, each raised to the power p, equals "
+        "`num`. The function returns whether `num` is narcissistic. For example, 0 is narcissistic because "
+        "0^%d = 0." % (b, p0),
+        "4. Worked examples: %s, so it is narcissistic. And %d is not narcissistic: it is written %s in base %d "
+        "(L = %d, p = %d) and %s = %d, which is not %d." % (
+            explain(ex_true), ex_false, ", ".join(str(d) for d in ds_f), b, len(ds_f), len(ds_f) + k,
+            " + ".join("%d^%d" % (d, len(ds_f) + k) for d in ds_f), sum(d ** (len(ds_f) + k) for d in ds_f), ex_false),
+    ]
+    if d2:
+        rules.append(
+            "5. `num` can be any `u64`, up to %d (`u64::MAX`). The function must work for every `u64` without "
+            "overflow and without panicking, in a debug build too: if a digit power or the whole sum is larger "
+            "than `u64::MAX`, the sum cannot equal `num`, so the answer is `false`." % U64_MAX)
+    else:
+        rules.append("5. All inputs used by the checks are below 1_000_000_000.")
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {"BASE": b, "OFFSET": k})
+    return ersgen.finish(
+        ctx, crate=CRATE, api="pub fn is_armstrong_number(num: u64) -> bool",
+        intro="A number club collects \"narcissistic\" numbers, a variation of Armstrong numbers with its own "
+              "base and exponent. Write `is_armstrong_number`, which says whether a number belongs to the club.",
+        rules="\n".join(rules), stub=STUB, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::is_armstrong_number;" % CRATE, cases=cases, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

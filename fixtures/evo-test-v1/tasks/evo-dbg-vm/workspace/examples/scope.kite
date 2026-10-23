@@ -1,0 +1,18 @@
+# Blocks, shadowing and globals.
+let x = "global";
+fn show() { return x; }
+{
+  let x = "block";
+  print(x, show());
+  {
+    let x = "inner";
+    print(x);
+  }
+  print(x);
+}
+print(x);
+fn uses_later() { return later * 2; }
+let later = 21;
+print(uses_later());
+x = "changed";
+print(show());

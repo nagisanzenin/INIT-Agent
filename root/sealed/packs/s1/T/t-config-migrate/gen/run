@@ -1,0 +1,461 @@
+#!/usr/bin/env python3
+"""t-config-migrate: write `migrate`, a v1 INI -> v2 JSON config migrator (family T, pack s1; INIT licence).
+
+The reference migrator below (REF) is the single source of truth: the generator executes it to compute every
+expected document, and the solution overlay ships it as the reference tool."""
+import json
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+REF = r'''
+import json
+import re
+import sys
+
+BOOLS = {"yes": True, "on": True, "true": True, "1": True, "no": False, "off": False, "false": False, "0": False}
+UNIT = {"ms": 1, "s": 1000, "m": 60000, "h": 3600000}
+DUR_RE = re.compile(r"^(\d+)(ms|s|m|h)?$")
+
+
+def parse_ini(text):
+    sections = {}
+    cur = None
+    for raw in text.split("\n"):
+        line = raw.strip()
+        if not line or line[0] in "#;":
+            continue
+        if line[0] == "[" and line[-1] == "]":
+            cur = line[1:-1].strip()
+            sections.setdefault(cur, {})
+            continue
+        key, _, value = line.partition("=")
+        sections[cur][key.strip().lower()] = value.strip()
+    return sections
+
+
+def address(v, port):
+    if v.startswith("["):
+        host, _, rest = v[1:].partition("]")
+        p = rest[1:]
+    elif ":" in v:
+        host, _, p = v.rpartition(":")
+    else:
+        host, p = v, ""
+    return {"host": host, "port": int(p) if p else port}
+
+
+def convert(kind, v, dflt):
+    if kind == "str":
+        return v
+    if kind == "int":
+        return int(v)
+    if kind == "bool":
+        return BOOLS[v.lower()]
+    if kind == "duration":
+        m = DUR_RE.match(v)
+        return int(m.group(1)) * UNIT[m.group(2) or "s"]
+    if kind == "list":
+        return [x.strip() for x in v.split(",") if x.strip()]
+    if kind == "address":
+        return address(v, dflt["port"])
+    raise ValueError(kind)
+
+
+def section(raw, keys, defaults):
+    out = {}
+    for v1, v2, kind, dflt in keys:
+        if v2 is None:
+            continue
+        if v1 in raw:
+            out[v2] = convert(kind, raw[v1], dflt)
+        elif defaults:
+            out[v2] = dflt
+    return out
+
+
+def migrate(text, table):
+    ini = parse_ini(text)
+    doc = {"version": 2, "env": {}}
+    for sec in table:
+        doc[sec["v2"]] = section(ini.get(sec["v1"], {}), sec["keys"], True)
+    for name in ini:
+        if name.startswith("env."):
+            doc["env"][name[4:]] = section(ini[name], table[0]["keys"], False)
+    return doc
+
+
+def dump(doc):
+    return json.dumps(doc, indent=2, sort_keys=True) + "\n"
+'''
+
+TOOL_MAIN = '''
+
+TABLE = json.loads(%r)
+
+
+def main():
+    with open(sys.argv[1], "rb") as f:
+        text = f.read().decode("utf-8")
+    sys.stdout.write(dump(migrate(text, TABLE)))
+
+
+main()
+'''
+
+_NS = {}
+exec(compile(REF, "migrate-ref", "exec"), _NS)  # noqa: S102 - trusted reference code of this template
+migrate, dump = _NS["migrate"], _NS["dump"]
+
+HOSTS = ["db-%d.internal", "pg%d.corp.example", "10.0.%d.17", "store-%d.svc"]
+CACHE_HOSTS = ["cache-%d.internal", "10.1.%d.9", "redis-%d.svc", "mc%d.corp.example"]
+IPV6 = ["fd00::%d", "2001:db8::%d", "fd12:3456::%d"]
+ENV_NAMES = ["staging", "prod", "dev", "qa", "canary", "local", "perf", "demo"]
+APPS = ["web", "worker", "api", "billing", "edge", "batch", "search", "gateway", "notifier", "reports"]
+TARGETS = ["stderr", "stdout", "syslog", "file:/var/log/app.log", "journald", "udp:10.0.0.5:514"]
+LEVELS = ["debug", "info", "warn", "error"]
+PLAIN_FORMATS = ["json", "plain", "logfmt", "{time} {level} {msg}"]
+PCT_FORMATS = ["%t %l %m", "%(asctime)s %(levelname)s %(message)s", "[%d] %p: %m", "%h %l %u %t \"%r\" %s",
+               "%Y-%m-%d %H:%M %msg"]
+BOOL_TRUE = {1: ["yes", "true"], 2: ["yes", "true", "on", "1", "Yes", "TRUE", "On"]}
+BOOL_FALSE = {1: ["no", "false"], 2: ["no", "false", "off", "0", "No", "FALSE", "Off"]}
+
+
+DROPPED_VALUES = {"debug": ["yes", "no", "on"], "pidfile": ["/var/run/app.pid", "/run/svc.pid"],
+                  "user": ["www-data", "app", "nobody"], "driver": ["postgres", "mysql", "pgx"],
+                  "charset": ["utf8", "latin1"], "autocommit": ["on", "off"], "engine": ["redis", "memcached"],
+                  "compress": ["zstd", "none", "lz4"], "verbose": ["yes", "1", "true"], "syslog": ["on", "off"]}
+
+
+class Lv:
+    def __init__(self, level):
+        self.level = level
+        self.l2 = level >= 2   # env sections, more bool tokens/cases, messy lists, dropped keys, ';' comments
+        self.l3 = level >= 3   # '%' values, bare-second durations, missing sections, env {} when absent
+        self.l4 = level >= 4   # duplicate keys, port-less addresses, mixed-case keys
+        self.l5 = level >= 5   # bracketed IPv6 hosts, '=' and '#' inside values
+
+
+def make_table(rng):
+    """The migration table of this instance: [{v1, v2, keys: [[v1key, v2key|None, type, default], ...]}]."""
+    p_listen = rng.choice([8080, 8000, 8443, 9000, 3000])
+    p_db = rng.choice([5432, 3306, 26257])
+    server = {"v1": "server", "v2": "server", "keys": [
+        ["listen", "listen", "address", {"host": "0.0.0.0", "port": p_listen}],
+        ["timeout", "request_timeout_ms", "duration", rng.choice([15000, 30000, 60000])],
+        ["keepalive", "keep_alive", "bool", True],
+        ["workers", "workers", "int", rng.choice([2, 4, 8])],
+        [rng.choice(["debug", "pidfile", "user"]), None, "dropped", None]]}
+    db = {"v1": rng.choice(["db", "database", "storage"]), "v2": "database", "keys": [
+        ["addr", "primary", "address", {"host": "localhost", "port": p_db}],
+        ["pool", "pool_size", "int", rng.choice([5, 10, 20])],
+        ["idle", "idle_timeout_ms", "duration", rng.choice([300000, 600000])],
+        ["ssl", "tls", "bool", False],
+        ["replicas", "replicas", "list", []],
+        [rng.choice(["driver", "charset", "autocommit"]), None, "dropped", None]]}
+    cache = {"v1": rng.choice(["cache", "memcache", "kv"]), "v2": "cache", "keys": [
+        ["servers", "nodes", "list", []],
+        ["ttl", "ttl_ms", "duration", rng.choice([60000, 300000])],
+        ["enabled", "enabled", "bool", rng.choice([False, True])],
+        [rng.choice(["engine", "compress"]), None, "dropped", None]]}
+    log = {"v1": rng.choice(["log", "logging", "logs"]), "v2": "logging", "keys": [
+        ["level", "level", "str", "info"],
+        ["targets", "outputs", "list", ["stderr"]],
+        ["format", "format", "str", "plain"],
+        ["color", "color", "bool", False],
+        [rng.choice(["verbose", "syslog"]), None, "dropped", None]]}
+    return [server, db, cache, log]
+
+
+# ------------------------------------------------------------------------------------------ values
+
+
+def v_bool(rng, lv):
+    t = rng.chance(1, 2)
+    return rng.choice((BOOL_TRUE if t else BOOL_FALSE)[2 if lv.l2 else 1])
+
+
+def v_duration(rng, lv, bare=False):
+    if bare:
+        return str(rng.randint(5, 120))
+    unit = rng.choice(["ms", "s", "s", "m", "h"])
+    n = {"ms": rng.randint(50, 900), "s": rng.randint(2, 90), "m": rng.randint(1, 30), "h": rng.randint(1, 6)}[unit]
+    return "%d%s" % (n, unit)
+
+
+def v_address(rng, lv, hosts, portless=False, v6=False):
+    if v6:
+        host = "[%s]" % (rng.choice(IPV6) % rng.randint(2, 99))
+    else:
+        host = rng.choice(hosts) % rng.randint(1, 9)
+    if portless:
+        return host
+    return "%s:%d" % (host, rng.randint(1025, 65000))
+
+
+def v_list(rng, lv, items):
+    xs = rng.sample(items, rng.randint(1, min(3, len(items))))
+    if not lv.l2:
+        return ", ".join(xs)
+    out = []
+    for x in xs:
+        out.append(rng.choice(["", " ", "  "]) + x + rng.choice(["", " "]))
+        if rng.chance(1, 3):
+            out.append(rng.choice(["", " "]))
+    return ",".join(out).strip()
+
+
+def value_for(rng, lv, key, sec_v2, kind, force):
+    if kind == "bool":
+        return v_bool(rng, lv)
+    if kind == "int":
+        return str(rng.randint(1, 64))
+    if kind == "duration":
+        return v_duration(rng, lv, bare=force.get("bare", False))
+    if kind == "address":
+        hosts = HOSTS if sec_v2 == "database" else ["10.0.%d.2", "api-%d.internal", "127.0.0.%d"]
+        return v_address(rng, lv, hosts, portless=force.get("portless", False), v6=force.get("v6", False))
+    if kind == "list":
+        if sec_v2 == "database":
+            return v_list(rng, lv, ["%s:%d" % (rng.choice(HOSTS) % i, rng.randint(1025, 65000)) for i in range(1, 5)])
+        if sec_v2 == "cache":
+            return v_list(rng, lv, ["%s:%d" % (rng.choice(CACHE_HOSTS) % i, rng.randint(1025, 65000))
+                                    for i in range(1, 5)])
+        return v_list(rng, lv, TARGETS)
+    if kind == "str":
+        if key == "level":
+            return rng.choice(LEVELS)
+        if force.get("eqhash"):
+            return rng.choice(["ts=%t lvl=%l # %m", "level=%p msg=%m #end", "#%d app=%a %m"])
+        if force.get("pct"):
+            return rng.choice(PCT_FORMATS)
+        return rng.choice(PLAIN_FORMATS)
+    if kind == "dropped":
+        return rng.choice(DROPPED_VALUES.get(key, ["yes", "off"]))
+    raise ValueError(kind)
+
+
+def kv_line(rng, lv, key, value):
+    if lv.l4 and rng.chance(1, 6):
+        key = key.upper() if rng.chance(1, 2) else key.capitalize()
+    sep = rng.choice([" = ", "=", " =", "= ", "  =  "]) if lv.l2 else " = "
+    return "%s%s%s" % (key, sep, value)
+
+
+def make_ini(rng, lv, table, app, flags):
+    """A v1 file. flags: no_env, missing (v2 name of a section to leave out)."""
+    lines = ["# %s service configuration (format v1)" % app]
+    if rng.chance(1, 2):
+        lines.append("# generated by %s-deploy, do not edit by hand" % app)
+    secs = [s for s in table if s["v2"] != flags.get("missing")]
+    secs = [secs[0]] + rng.shuffled(secs[1:])
+    # traps that must appear in every file of the level
+    need = {"bare": lv.l3, "pct": lv.l3 and flags.get("missing") != "logging", "dropped": lv.l2,
+            "dup": lv.l4, "portless": lv.l4, "upper": lv.l4, "v6": lv.l5,
+            "eqhash": lv.l5 and flags.get("missing") != "logging"}
+    dur_keys = [(s["v2"], k[0]) for s in secs for k in s["keys"] if k[2] == "duration"]
+    bare_at = rng.choice(dur_keys) if need["bare"] else None
+    addr_keys = [(s["v2"], k[0]) for s in secs for k in s["keys"] if k[2] == "address"]
+    portless_at = rng.choice(addr_keys) if need["portless"] else None
+    others = [a for a in addr_keys if a != portless_at]
+    v6_at = (rng.choice(others) if others else portless_at) if need["v6"] else None  # one key: `[v6]` alone
+    dropped_at = rng.choice([s["v2"] for s in secs]) if need["dropped"] else None
+    for s in secs:
+        lines.append("")
+        if lv.l2 and rng.chance(1, 3):
+            lines.append(rng.choice(["; %s settings" % s["v2"], "# --- %s ---" % s["v1"]]))
+        lines.append("[%s]" % s["v1"])
+        body = []
+        for v1, v2, kind, dflt in s["keys"]:
+            where = (s["v2"], v1)
+            if kind == "dropped":
+                if dropped_at == s["v2"] or (lv.l2 and rng.chance(1, 4)):
+                    body.append((v1, value_for(rng, lv, v1, s["v2"], kind, {})))
+                continue
+            forced = (where in (bare_at, portless_at, v6_at) or (v1 == "format" and (need["pct"] or need["eqhash"]))
+                      or (s is secs[0] and v1 == "workers"))
+            if not forced and rng.chance(1, 4):
+                continue  # missing key: default
+            force = {"bare": where == bare_at, "portless": where == portless_at, "v6": where == v6_at,
+                     "pct": v1 == "format" and need["pct"], "eqhash": v1 == "format" and need["eqhash"]}
+            body.append((v1, value_for(rng, lv, v1, s["v2"], kind, force)))
+        body = rng.shuffled(body)
+        dup = None
+        if need["dup"] and s is secs[0]:
+            # a key set early in lower case and again later in upper/mixed case: the last value wins, and
+            # only a reader with case-insensitive keys sees the two as the same key
+            kinds = {k[0]: k[2] for k in s["keys"]}
+            typed = [i for i, (k, v) in enumerate(body) if kinds[k] in ("int", "bool", "duration")]
+            dup = rng.choice(typed or list(range(len(body))))
+            k = body[dup][0]
+            dflt = {kk[0]: kk[3] for kk in s["keys"]}[k]
+            final = _NS["convert"](kinds[k], body[dup][1], dflt)
+            old = value_for(rng, lv, k, s["v2"], kinds[k], {})
+            while _NS["convert"](kinds[k], old, dflt) == final:
+                old = value_for(rng, lv, k, s["v2"], kinds[k], {})
+            lines.append("%s = %s" % (k, old))
+        for i, (k, v) in enumerate(body):
+            if lv.l2 and rng.chance(1, 8):
+                lines.append(rng.choice(["; tuned after load test", "# TODO review %s" % k, "; see runbook"]))
+            if i == dup:
+                lines.append("%s%s%s" % (rng.choice([k.upper(), k.capitalize()]), rng.choice([" = ", "="]), v))
+            else:
+                lines.append(kv_line(rng, lv, k, v))
+    if lv.l2 and not flags.get("no_env"):
+        server = table[0]
+        for name in rng.sample(ENV_NAMES, rng.randint(1, 2)):
+            lines.append("")
+            lines.append("[env.%s]" % name)
+            keys = rng.sample([k for k in server["keys"]], rng.randint(2, 3))
+            for v1, v2, kind, dflt in keys:
+                lines.append(kv_line(rng, lv, v1, value_for(rng, lv, v1, "server", kind, {})))
+    return "\n".join(lines) + "\n"
+
+
+# ---------------------------------------------------------------------------------------------- spec
+
+
+def jv(v):
+    return "`%s`" % json.dumps(v)
+
+
+def spec_text(table, lv):
+    s = ["# Config migration: v1 INI to v2 JSON", "",
+         "`./migrate <file.ini>` reads one v1 configuration file and prints its v2 JSON document on stdout.", "",
+         "## 1. Reading v1 files", "",
+         "- Every line is read with its leading and trailing whitespace removed. Blank lines and lines that "
+         "start with `#` or `;` are comments.",
+         "- `[name]` starts a section. Every other line is `key = value`: it is split at the first `=`, and "
+         "spaces around the key and around the value are removed." + (
+             " Keys are case-insensitive (`Workers` is the key `workers`). When a key appears more than once in a "
+             "section, the last value wins." if lv.l4 else ""),
+         "- Values are literal text: there are no quotes, escapes or inline comments" + (
+             ", and `%` has no special meaning." if lv.l3 else "."),
+         "- A file contains only the sections and keys of the table below" + (
+             ", plus `[env.<name>]` sections (see 4)." if lv.l2 else "."), "",
+         "## 2. Mapping", "",
+         "| v1 section | v1 key | v2 key | type | default |", "|---|---|---|---|---|"]
+    for sec in table:
+        for v1, v2, kind, dflt in sec["keys"]:
+            if v2 is None:
+                s.append("| `[%s]` | `%s` | *dropped* | | |" % (sec["v1"], v1))
+            else:
+                s.append("| `[%s]` | `%s` | `%s.%s` | %s | %s |" % (sec["v1"], v1, sec["v2"], v2, kind, jv(dflt)))
+    s += ["", "Keys marked *dropped* are deprecated: they are read and discarded.", "",
+          "## 3. Types", "",
+          "- **int**: a decimal integer, written as a JSON number.",
+          "- **bool**: `yes`, `on`, `true`, `1` mean `true`; `no`, `off`, `false`, `0` mean `false`; in any letter "
+          "case (`Yes`, `OFF`).",
+          "- **duration**: an integer directly followed by `ms`, `s`, `m` or `h`, written as an integer number of "
+          "milliseconds (`250ms` is `250`, `30s` is `30000`, `5m` is `300000`, `2h` is `7200000`)." + (
+              " A bare integer means seconds (`45` is `45000`)." if lv.l3 else ""),
+          "- **list**: comma-separated items, each with surrounding spaces removed; empty items are dropped "
+          "(`a, b,,c,` is `[\"a\", \"b\", \"c\"]`; an empty value is `[]`). Items are strings.",
+          "- **address**: `host:port`, written as `{\"host\": \"<host>\", \"port\": <port as an integer>}`; the port "
+          "is what follows the last `:`." + (
+              " When there is no port (`db-1.internal`), the port of the key's default is used." if lv.l4 else "") + (
+              " An IPv6 host is written in brackets: `[fd00::7]:6379` is `{\"host\": \"fd00::7\", \"port\": 6379}`"
+              " (and `[fd00::7]` alone has no port)." if lv.l5 else ""),
+          "- **str**: the value unchanged.", "",
+          "## 4. The v2 document", "",
+          "- The top level has `\"version\": 2`, one object per v2 section (`server`, `database`, `cache`, "
+          "`logging`) and `env`.",
+          "- Every v2 key of the table is present in its section's object. A key missing from the file (or whose "
+          "whole section is missing) takes the default from the table.",
+          "- Each `[env.<name>]` section becomes `\"env\": {\"<name>\": {...}}`. Its keys are those of the `[server]` "
+          "rows of the table, converted the same way (dropped keys are discarded) but with no defaults: only "
+          "keys present in that section appear. `env` is `{}` when the file has no env sections.",
+          "- Output: JSON with the keys sorted at every level, 2-space indentation and a final newline, which is "
+          "what Python's `json.dumps(doc, indent=2, sort_keys=True)` followed by `\\n` produces.", ""]
+    return "\n".join(s)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    lv = Lv(ctx.difficulty)
+    table = make_table(rng)
+    spec = spec_text(table, lv)
+    apps = rng.sample(APPS, 7)
+    nvis = 2 if ctx.difficulty <= 2 else 3
+    visible = []
+    for i in range(nvis):
+        flags = {"missing": rng.choice(["cache", "logging"]) if (lv.l3 and i == 0) else None,
+                 "no_env": lv.l3 and i == 1}
+        text = make_ini(rng.fork("vis%d" % i), lv, table, apps[i], flags)
+        visible.append((apps[i], text))
+    sample_lv = Lv(min(ctx.difficulty, 2))
+    sample = make_ini(rng.fork("sample"), sample_lv, table, apps[nvis], {})
+    cases = []
+    hidden_flags = [{"no_env": lv.l3}, {"missing": rng.choice(["cache", "logging", "database"]) if lv.l3 else None},
+                    {}]
+    for k in range(3):
+        name = apps[nvis + 1 + k]
+        text = make_ini(rng.fork("hidden%d" % k), lv, table, name, hidden_flags[k])
+        cases.append({"name": "hidden_%d" % (k + 1), "arg": "_check/%s.ini" % name, "input": text,
+                      "want": migrate(text, table)})
+    vis_list = ", ".join("`config/%s.ini`" % a for a, _ in visible)
+    prompt = (
+        "This directory holds legacy v1 configuration files in `config/`. Create an executable program "
+        "`./migrate` (any language available here: sh, awk, python3 standard library) such that "
+        "`./migrate <file.ini>` prints the v2 JSON document of that file on stdout, exactly as specified in "
+        "`MIGRATION.md` (reproduced below). Then, for each of %s, write its v2 document to `out/<name>.json` "
+        "(for example `config/%s.ini` -> `out/%s.json`). `./migrate` will also be run on other v1 files, so "
+        "implement the rules; do not hard-code anything from the examples.\n\n" % (vis_list, visible[0][0],
+                                                                                   visible[0][0])
+        + spec +
+        "\nWorked example: `./migrate examples/sample.ini` must print exactly the contents of "
+        "`examples/sample.json`; `sh tests/run_example.sh` checks that. The example does not exercise every rule. "
+        "Do not modify `config/`, `examples/`, `tests/` or `MIGRATION.md`.")
+    readme = ("# Config migration\n\nWrite `./migrate <file.ini>` (prints the v2 JSON document) as specified in "
+              "`MIGRATION.md`, then write `out/<name>.json` for every `config/<name>.ini`.\n\nExample: "
+              "`./migrate examples/sample.ini` must print exactly `examples/sample.json` "
+              "(`sh tests/run_example.sh`). Do not edit `config/`, `examples/`, `tests/` or `MIGRATION.md`.\n")
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = readme
+    inst.workspace["MIGRATION.md"] = spec
+    for a, text in visible:
+        inst.workspace["config/%s.ini" % a] = text
+    inst.workspace["examples/sample.ini"] = sample
+    inst.workspace["examples/sample.json"] = dump(migrate(sample, table))
+    inst.workspace["tests/run_example.sh"] = (
+        "#!/bin/sh\n# Compares ./migrate on the worked example with the expected v2 document.\n"
+        "cd \"$(dirname \"$0\")/..\" || exit 2\n"
+        "if ./migrate examples/sample.ini | diff -u examples/sample.json -; then echo 'example: OK'; "
+        "else echo 'example: DIFFERENT'; exit 1; fi\n")
+    inst.executable.add("tests/run_example.sh")
+    inst.marker_files = ["README.md"]
+    inst.protect("MIGRATION.md", "examples/sample.ini", "examples/sample.json", "tests/run_example.sh",
+                 *["config/%s.ini" % a for a, _ in visible])
+    tool = ("#!/usr/bin/env python3\n\"\"\"Reference migrate (INIT pack s1, t-config-migrate).\"\"\"\n" + REF +
+            TOOL_MAIN % json.dumps(table, sort_keys=True))
+    inst.solution["migrate"] = tool
+    inst.executable.add("migrate")
+    outputs = []
+    for a, text in visible:
+        doc = migrate(text, table)
+        inst.solution["out/%s.json" % a] = dump(doc)
+        outputs.append({"path": "out/%s.json" % a, "want": doc})
+    # dev fixture: a migrator that reads with configparser defaults ('%' interpolation, strict duplicates)
+    inst.dev["configparser"] = {"migrate": tool.replace("def parse_ini(text):", "def parse_ini_unused(text):").replace(
+        "\ndef address(", "\n" + CONFIGPARSER_READER + "\n\ndef address("),
+        **{"out/%s.json" % a: dump(migrate(text, table)) for a, text in visible}}
+    tgen.finish(inst, ctx, spec={"tool": "migrate", "outputs": outputs, "cases": cases},
+                names=["outputs"] + [c["name"] for c in cases])
+    return inst
+
+
+CONFIGPARSER_READER = '''def parse_ini(text):
+    import configparser
+    cp = configparser.ConfigParser()
+    cp.read_string(text)
+    return {s: {k: cp.get(s, k) for k in cp.options(s)} for s in cp.sections()}
+'''
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

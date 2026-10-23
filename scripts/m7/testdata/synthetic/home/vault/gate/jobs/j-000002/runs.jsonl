@@ -1,0 +1,2 @@
+{"arm":"p","caps_hit":null,"gate_id":"j-000002","labels":["interactive"],"level":"L1","outcome":"done","repeat":1,"run_id":"p-t8-r1","score_permille":1000,"set":"pool","sha":"0e786c7","source":"owner","tamper":false,"task":"t8","turns":5,"v":3}
+{"arm":"c","caps_hit":null,"gate_id":"j-000002","level":"L1","outcome":"done","repeat":1,"run_id":"c-h2-r1","score_permille":0,"set":"holdout","sha":"0e786c7","source":"owner","tamper":false,"task":"holdout","turns":5,"v":3}

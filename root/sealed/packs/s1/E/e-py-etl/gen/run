@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""e-py-etl: Exercism `etl` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d1 seeded output case, a seeded rule for letters listed more than once (sum, max,
+min) and entries holding several letters or other characters; d2 adds digit-string scores and seeded bonus
+letters with a multiplier; d3 returns sorted (letter, score) tuples instead of a dict.
+Reference: ref/solution.py (parameterized by P). Dev fixture: ref/original.py (the unmutated exercise).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "etl"
+STUB = '''def transform(legacy_data):
+    raise NotImplementedError("transform")
+'''
+UPPER = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+JUNK = ["!", "-", " ", "1", "7", ".", "*", "?"]
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    p = {"case": rng.choice(["lower", "upper"]), "combine": rng.choice(["sum", "max", "min"]), "str_keys": False,
+         "bonus": "", "mult": 1, "as_list": False}
+    if d >= 2:
+        p["str_keys"] = True
+        p["bonus"] = "".join(sorted(rng.sample("abcdefghijklmnopqrstuvwxyz", rng.randint(3, 5))))
+        p["mult"] = rng.choice([2, 3])
+    if d >= 3:
+        p["as_list"] = True
+    return p
+
+
+def rules_text(p):
+    lines = [
+        "`legacy_data` is a `dict` that maps a score to a `list` of entries (`str`). %s" % (
+            "A score is an `int` or a `str` of decimal digits, possibly with spaces around it (for example "
+            "`\" 3\"`); use its integer value." if p["str_keys"] else "Scores are `int`."),
+        "",
+        "Every ASCII letter (`A`-`Z`, `a`-`z`) inside an entry gets that entry's score: an entry may hold "
+        "several letters (`\"QU\"` gives both `Q` and `U` the score) and may contain other characters "
+        "(spaces, digits, punctuation), which are ignored. Upper and lower case input letters are the same "
+        "letter.",
+        "",
+        "If a letter occurs more than once (in the same entry or in different entries, under the same or "
+        "different scores), its score is %s." % {
+            "sum": "the **sum** of the scores of all its occurrences",
+            "max": "the **largest** of those scores",
+            "min": "the **smallest** of those scores"}[p["combine"]],
+    ]
+    if p["bonus"]:
+        lines += ["", "Bonus letters: the final score of each of the letters %s is then multiplied by %d." % (
+            ", ".join("`%s`" % c for c in p["bonus"]), p["mult"])]
+    case = "lower case" if p["case"] == "lower" else "upper case"
+    if p["as_list"]:
+        lines += ["", "`transform(legacy_data)` returns a `list` of `(letter, score)` tuples, one per letter that "
+                  "occurs, with the letter in %s, sorted by score from highest to lowest and, for equal scores, "
+                  "alphabetically by letter. An input without letters gives `[]`." % case]
+    else:
+        lines += ["", "`transform(legacy_data)` returns a `dict` that maps each letter that occurs, in %s, to its "
+                  "score (`int`). An input without letters gives `{}`." % case]
+    return "\n".join(lines)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    exprs = []
+
+    def entry():
+        k = rng.below(10)
+        if k <= 4:
+            e = rng.choice(UPPER)
+        elif k <= 6:
+            e = "".join(rng.sample(UPPER, rng.randint(2, 3)))
+        elif k == 7:
+            e = rng.choice(UPPER) + rng.choice(JUNK)
+        elif k == 8:
+            e = rng.choice(JUNK) + rng.choice(UPPER) + rng.choice(JUNK) + rng.choice(UPPER)
+        else:
+            e = rng.choice(UPPER) * 2
+        if rng.chance(1, 4):
+            e = e.lower()
+        return e
+
+    def legacy(nscores, pool=None):
+        scores = rng.sample(list(range(1, 13)), nscores)
+        out = {}
+        for s in scores:
+            key = s
+            if p["str_keys"] and rng.chance(1, 3):
+                key = rng.choice(["%d", " %d", "%d ", "0%d"]) % s
+            out[key] = [entry() if pool is None else rng.choice(pool) for _ in range(rng.randint(1, 4))]
+        return out
+
+    def add(d):
+        e = "transform(%r)" % (d,)
+        if e not in exprs:
+            exprs.append(e)
+
+    # visible examples (4): repeats across scores, a multi-letter entry, junk characters, a plain mapping
+    add({rng.randint(1, 4): ["A", "E", rng.choice("BCD")], rng.randint(5, 8): ["a", rng.choice("FGH")]})
+    add({rng.randint(1, 5): ["QU", "x"], 10: ["Q", "z"]})
+    add(legacy(2))
+    add({1: ["A", "E", "I"], 2: ["D", "G"], 3: ["B", "C"]})
+    # hidden
+    for _ in range(14):
+        add(legacy(rng.randint(2, 6)))
+    for _ in range(6):
+        add(legacy(rng.randint(2, 5), pool=list("AEIOU") + ["ae", "OU", "E!", "i"]))
+    if p["str_keys"]:
+        add({" %d" % rng.randint(1, 9): ["K", "w"], "1%d" % rng.randint(0, 2): ["k"]})
+        add({"0%d" % rng.randint(1, 9): ["%s%s" % (rng.choice(UPPER), rng.choice(UPPER))]})
+    if p["bonus"]:
+        b = p["bonus"]
+        add({rng.randint(1, 5): [b[0].upper(), b[1]], rng.randint(6, 9): [b[0] + "z"]})
+    add({})
+    add({rng.randint(1, 9): ["!", "", "42"]})
+    add({rng.randint(1, 9): ["MISSISSIPPI"]})
+    dev = {"original": ctx.read("ref", "original.py")}
+    task = ("Implement `transform(legacy_data)` in `%s.py`: convert a table of scores and letters into "
+            "one score per letter." % MODULE)
+    return assemble(ctx, MODULE, task, rules_text(p), ref, exprs, 4, dev, STUB)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

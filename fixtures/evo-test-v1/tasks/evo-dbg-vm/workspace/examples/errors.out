@@ -1,0 +1,4 @@
+8
+10
+runtime error (line 5): division by zero
+exit 1

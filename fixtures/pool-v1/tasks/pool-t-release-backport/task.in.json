@@ -1,0 +1,29 @@
+{
+ "id": "pool-t-release-backport",
+ "title": "Backport fixes to a release branch with git",
+ "family": "t",
+ "difficulty": 3,
+ "labels": [
+  "terminal"
+ ],
+ "max_turns": 10,
+ "prompt": "The current directory is a git repository (branch main, tag v1.0). Create the branch release-1.1, starting at the tag v1.0, that backports fixes from main:\n- Take the commits of main after v1.0 (v1.0..main) whose subject starts with \"fix:\", oldest first, and cherry-pick each onto release-1.1, keeping its subject.\n- Skip a fix whose subject contains \"[no-backport]\".\n- Skip a fix that only changes files which do not exist at v1.0 (it fixes a feature that was never released).\n- No merge commits; do not change main or the tag v1.0.\n\nWhen you are done, release-1.1 must be checked out with a clean working tree. If git asks who you are, set user.name and user.email in this repository only (git config, without --global).",
+ "source": {
+  "kind": "fresh"
+ },
+ "protected": [],
+ "steps": [
+  {
+   "kind": "sh",
+   "script": "hidden/check.sh",
+   "names": [
+    "branch_exists",
+    "subjects",
+    "tree",
+    "main_and_tag_unchanged",
+    "release_checked_out_clean"
+   ],
+   "timeout_s": 15
+  }
+ ]
+}

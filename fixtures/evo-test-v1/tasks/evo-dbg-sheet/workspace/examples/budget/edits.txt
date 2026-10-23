@@ -1,0 +1,10 @@
+# January travel was booked late
+set B4 60
+recalc
+print E2:F5
+set C3 300
+recalc
+print A5:G7
+set E6 4700
+recalc
+print E7:G7

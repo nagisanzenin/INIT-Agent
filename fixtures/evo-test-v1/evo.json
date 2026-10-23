@@ -1,0 +1,300 @@
+{
+ "composition": {
+  "heldout": 11,
+  "spare": 3,
+  "train": 8
+ },
+ "doc": "measurements/evo-test-protocol.md",
+ "licence": "written fresh for INIT (INIT licence); no upstream source",
+ "runner": "pool-v1 poolcheck/1",
+ "set": "evo-test-v1",
+ "tasks": [
+  {
+   "difficulty": 5,
+   "group": "train",
+   "id": "evo-big-client",
+   "kind": "bigfile",
+   "labels": [
+    "py",
+    "bigfile"
+   ],
+   "pair": "evo-big-rules",
+   "spare": false,
+   "title": "Migrate a 5,000-line generated API client to its v2 surface, rule by rule"
+  },
+  {
+   "difficulty": 5,
+   "group": "heldout",
+   "id": "evo-big-forms",
+   "kind": "bigfile",
+   "labels": [
+    "py",
+    "bigfile"
+   ],
+   "pair": "evo-big-client",
+   "spare": true,
+   "title": "Migrate an 8,000-line generated form-widget registry to its v2 tokens, widget by widget"
+  },
+  {
+   "difficulty": 5,
+   "group": "heldout",
+   "id": "evo-big-rules",
+   "kind": "bigfile",
+   "labels": [
+    "py",
+    "bigfile"
+   ],
+   "pair": "evo-big-client",
+   "spare": false,
+   "title": "Migrate a 5,000-line generated rule table to its v2 interface, rule by rule"
+  },
+  {
+   "difficulty": 5,
+   "group": "heldout",
+   "id": "evo-big-schema",
+   "kind": "bigfile",
+   "labels": [
+    "py",
+    "bigfile"
+   ],
+   "pair": "evo-big-client",
+   "spare": false,
+   "title": "Migrate a 10,000-line generated record-class module to its v2 wire format, class by class"
+  },
+  {
+   "difficulty": 5,
+   "group": "train",
+   "id": "evo-dbg-diff",
+   "kind": "debug",
+   "labels": [
+    "py",
+    "debug"
+   ],
+   "pair": "evo-dbg-sheet",
+   "spare": true,
+   "title": "Make the ldiff line diff/patch tool follow its spec"
+  },
+  {
+   "difficulty": 5,
+   "group": "heldout",
+   "id": "evo-dbg-sheet",
+   "kind": "debug",
+   "labels": [
+    "py",
+    "debug"
+   ],
+   "pair": "evo-dbg-vm",
+   "spare": false,
+   "title": "Make the sheet spreadsheet engine follow its spec"
+  },
+  {
+   "difficulty": 5,
+   "group": "train",
+   "id": "evo-dbg-vm",
+   "kind": "debug",
+   "labels": [
+    "py",
+    "debug"
+   ],
+   "pair": "evo-dbg-sheet",
+   "spare": false,
+   "title": "Make the Kite interpreter follow its language spec"
+  },
+  {
+   "difficulty": 5,
+   "group": "heldout",
+   "id": "evo-nav-tz",
+   "kind": "nav",
+   "labels": [
+    "py",
+    "nav"
+   ],
+   "pair": "evo-nav-units",
+   "spare": false,
+   "title": "Add fixed-offset time zones across every layer of the roomkit booking package"
+  },
+  {
+   "difficulty": 5,
+   "group": "train",
+   "id": "evo-nav-units",
+   "kind": "nav",
+   "labels": [
+    "py",
+    "nav"
+   ],
+   "pair": "evo-nav-tz",
+   "spare": false,
+   "title": "Thread units of measure through every layer of a 150-module inventory package"
+  },
+  {
+   "difficulty": 4,
+   "group": "heldout",
+   "id": "evo-prose-clinic",
+   "kind": "prose",
+   "labels": [
+    "py",
+    "prose"
+   ],
+   "pair": "evo-prose-library",
+   "spare": false,
+   "title": "Release 3.1.0 of the wardline package (design note CLN-40)"
+  },
+  {
+   "difficulty": 4,
+   "group": "train",
+   "id": "evo-prose-garage",
+   "kind": "prose",
+   "labels": [
+    "py",
+    "prose"
+   ],
+   "pair": "evo-prose-library",
+   "spare": false,
+   "title": "Release 1.0.0 of the garagedesk package (design note GAR-3)"
+  },
+  {
+   "difficulty": 4,
+   "group": "train",
+   "id": "evo-prose-library",
+   "kind": "prose",
+   "labels": [
+    "py",
+    "prose"
+   ],
+   "pair": "evo-prose-pantry",
+   "spare": false,
+   "title": "Release 1.5.0 of the libris package (design note LIB-7)"
+  },
+  {
+   "difficulty": 4,
+   "group": "heldout",
+   "id": "evo-prose-pantry",
+   "kind": "prose",
+   "labels": [
+    "py",
+    "prose"
+   ],
+   "pair": "evo-prose-library",
+   "spare": false,
+   "title": "Release 2.4.0 of the larder package (design note PAN-12)"
+  },
+  {
+   "difficulty": 4,
+   "group": "heldout",
+   "id": "evo-prose-studio",
+   "kind": "prose",
+   "labels": [
+    "py",
+    "prose"
+   ],
+   "pair": "evo-prose-library",
+   "spare": false,
+   "title": "Release 0.5.0 of the mixroom package (design note STU-9)"
+  },
+  {
+   "difficulty": 5,
+   "group": "train",
+   "id": "evo-spec-ledger",
+   "kind": "spec",
+   "labels": [
+    "py",
+    "spec"
+   ],
+   "pair": "evo-spec-sched",
+   "spare": false,
+   "title": "Implement a plain-text ledger normalizer and validator from a 51-rule spec"
+  },
+  {
+   "difficulty": 5,
+   "group": "heldout",
+   "id": "evo-spec-sched",
+   "kind": "spec",
+   "labels": [
+    "py",
+    "spec"
+   ],
+   "pair": "evo-spec-ledger",
+   "spare": false,
+   "title": "Implement a schedule-expression language (firings, roll/offset/overflow, canonical form, exact errors) from SPEC.md"
+  },
+  {
+   "difficulty": 5,
+   "group": "heldout",
+   "id": "evo-spec-tmpl",
+   "kind": "spec",
+   "labels": [
+    "py",
+    "spec"
+   ],
+   "pair": "evo-spec-ledger",
+   "spare": true,
+   "title": "Implement the Stencil template language from its specification"
+  },
+  {
+   "difficulty": 3,
+   "group": "heldout",
+   "id": "evo-tix-clinic",
+   "kind": "tickets",
+   "labels": [
+    "py",
+    "tickets"
+   ],
+   "pair": "evo-tix-library",
+   "spare": false,
+   "title": "Ticket batch CLN-40 for the clinicdesk package"
+  },
+  {
+   "difficulty": 3,
+   "group": "train",
+   "id": "evo-tix-garage",
+   "kind": "tickets",
+   "labels": [
+    "py",
+    "tickets"
+   ],
+   "pair": "evo-tix-library",
+   "spare": false,
+   "title": "Ticket batch GAR-3 for the garagebook package"
+  },
+  {
+   "difficulty": 3,
+   "group": "train",
+   "id": "evo-tix-library",
+   "kind": "tickets",
+   "labels": [
+    "py",
+    "tickets"
+   ],
+   "pair": "evo-tix-pantry",
+   "spare": false,
+   "title": "Ticket batch LIB-7 for the shelfkit package"
+  },
+  {
+   "difficulty": 3,
+   "group": "heldout",
+   "id": "evo-tix-pantry",
+   "kind": "tickets",
+   "labels": [
+    "py",
+    "tickets"
+   ],
+   "pair": "evo-tix-library",
+   "spare": false,
+   "title": "Ticket batch PAN-12 for the pantryline package"
+  },
+  {
+   "difficulty": 3,
+   "group": "heldout",
+   "id": "evo-tix-studio",
+   "kind": "tickets",
+   "labels": [
+    "py",
+    "tickets"
+   ],
+   "pair": "evo-tix-library",
+   "spare": false,
+   "title": "Ticket batch STU-9 for the studiohub package"
+  }
+ ],
+ "v": 1
+}

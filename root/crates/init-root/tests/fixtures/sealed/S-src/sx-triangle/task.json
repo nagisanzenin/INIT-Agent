@@ -1,0 +1,28 @@
+{
+ "check": {
+  "argv": [
+   "check/run"
+  ],
+  "timeout_s": 30
+ },
+ "created": "2026-10-20T00:00:00Z",
+ "id": "sx-triangle",
+ "labels": [
+  "standin"
+ ],
+ "limits": {
+  "max_cost_musd": 200000,
+  "wall_s": 60
+ },
+ "prompt": "Write triangle.txt with the first 10 triangular numbers (1, 3, 6, ...), one per line. (ref SX-4c6b0e)",
+ "source": {
+  "kind": "maintainer"
+ },
+ "title": "sx-triangle",
+ "v": 2,
+ "workspace": {
+  "bytes": 0,
+  "file": "workspace.tar",
+  "sha256": ""
+ }
+}

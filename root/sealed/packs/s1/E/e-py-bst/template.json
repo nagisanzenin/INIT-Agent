@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-bst",
+ "family": "E",
+ "lang": "py",
+ "title": "Binary search tree with seeded ordering",
+ "difficulty": {"default": 3, "min": 2, "max": 4},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/binary-search-tree", "exercise": "binary-search-tree", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d2 seeded ordering key (numeric, mirrored numeric, mirrored text, digit sum) and seeded duplicate policy (left, right, ignore), sorted_data() and height(); d3 + levels(); d4 + path(value) with seeded step letters and ValueError when absent. Difficulty guess for deepseek-flash: medium (d3)."
+}

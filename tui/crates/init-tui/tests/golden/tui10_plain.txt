@@ -1,0 +1,14 @@
+[thinking…]
+Reading file ␛[31mred␛[0m
+» bash: cat SELF.md
+  « ok exit 0, 96 lines
+  « error error: no_match
+[info] retrying (1/3)
+[error] provider: 500
+── body restarted (boot 2) ──
+[kernel] promoted
+[root] attached: slot running, level L0, 0 queued. Type /panic to stop everything, /root help for more.
+> hello
+── body restarted (boot 1) ──
+fx: hello
+slot running · mode normal

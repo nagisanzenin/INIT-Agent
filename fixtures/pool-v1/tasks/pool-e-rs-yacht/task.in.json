@@ -1,0 +1,32 @@
+{
+ "difficulty": 3,
+ "family": "e",
+ "id": "pool-e-rs-yacht",
+ "labels": [
+  "exercise",
+  "rust"
+ ],
+ "max_turns": 8,
+ "prompt": "Solve the Exercism exercise \"yacht\" in Rust: the crate in the current directory.\n\n- The specification is README.md. Implement it in src/lib.rs (the stub is there; keep its public API).\n- tests/yacht.rs has 10 of the exercise's 29 tests. Run them with `cargo test`.\n- A hidden test suite checks the full specification, including edge cases.\n- Do not modify the tests and do not add dependencies (the check builds offline).",
+ "protected": [
+  "tests/yacht.rs"
+ ],
+ "source": {
+  "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e",
+  "kind": "exercism",
+  "path": "exercises/practice/yacht",
+  "repo": "exercism/rust",
+  "slug": "yacht"
+ },
+ "steps": [
+  {
+   "kind": "cargo_test",
+   "manifest": "hidden/Cargo.toml",
+   "tests": {
+    "yacht.rs": "hidden/yacht.rs"
+   },
+   "timeout_s": 30
+  }
+ ],
+ "title": "Exercism (Rust): yacht"
+}

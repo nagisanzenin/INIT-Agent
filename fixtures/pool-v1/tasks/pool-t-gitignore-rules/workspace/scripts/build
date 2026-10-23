@@ -1,0 +1,4 @@
+#!/bin/sh
+# builds the release artifacts
+set -e
+python3 -m compileall -q src

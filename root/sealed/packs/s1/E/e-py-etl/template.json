@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-etl",
+ "family": "E",
+ "lang": "py",
+ "title": "Score table transform with seeded merge rules",
+ "difficulty": {"default": 2, "min": 1, "max": 3},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/etl", "exercise": "etl", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d1 a seeded output case, a seeded rule for repeated letters (sum, max or min) and entries holding several letters plus ignored characters; d2 + digit-string scores and seeded bonus letters with a multiplier; d3 + sorted (letter, score) tuples instead of a dict. Difficulty guess for deepseek-flash: easy (d2)."
+}

@@ -1,0 +1,2 @@
+# evo-big-client: generate client.py, MIGRATION.md and tests/ (deterministic, seeded)
+exec /usr/bin/python3 -I -S -B "$(dirname "$0")/hidden/apigen.py" "$1"

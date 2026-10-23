@@ -1,0 +1,3 @@
+{"v":1,"kind":"meta","provider":"deepseek","model":"deepseek-flash","name":"h1","chunk":16}
+{"v":1,"kind":"turn","reply":{"calls":[{"name":"bash","input":{"command":"echo 42 > answer.txt"}}],"stop":"tool_use"}}
+{"v":1,"kind":"turn","reply":{"text":"done","stop":"end_turn"}}

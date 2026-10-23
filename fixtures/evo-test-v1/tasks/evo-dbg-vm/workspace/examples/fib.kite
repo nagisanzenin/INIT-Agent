@@ -1,0 +1,19 @@
+# Recursion, while loops and a memo table.
+fn fib(n) {
+  if (n < 2) { return n; }
+  return fib(n - 1) + fib(n - 2);
+}
+let memo = [0, 1];
+fn fast_fib(n) {
+  while (len(memo) <= n) {
+    push(memo, memo[len(memo) - 1] + memo[len(memo) - 2]);
+  }
+  return memo[n];
+}
+let k = 0;
+while (k <= 12) {
+  print(k, fib(k), fast_fib(k));
+  k += 3;
+}
+print(fast_fib(90));
+print(len(memo));

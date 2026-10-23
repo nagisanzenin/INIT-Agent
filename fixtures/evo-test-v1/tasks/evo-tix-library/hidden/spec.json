@@ -1,0 +1,265 @@
+{
+ "items": [
+  {
+   "checks": [
+    [
+     "from shelfkit.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.0725"
+    ]
+   ],
+   "name": "t01",
+   "ticket": "tax"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import Store\nfrom shelfkit.models import Book\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, name='N%02d' % k, genre=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "t02",
+   "ticket": "page1"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "12"
+    ]
+   ],
+   "name": "t03",
+   "ticket": "pagesize"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import Store\nfrom shelfkit.models import Book\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, name='N%02d' % k, genre=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "t04",
+   "ticket": "search_ci"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.errors import NotFound\nprint(str(NotFound('q7')))",
+     "book 'q7' not found"
+    ]
+   ],
+   "name": "t05",
+   "ticket": "notfound"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.validate import MAX_NAME\nprint(MAX_NAME)",
+     "90"
+    ]
+   ],
+   "name": "t06",
+   "ticket": "maxname"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import Store\nfrom shelfkit.models import Book\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, name='N%02d' % k, genre=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom shelfkit.errors import Invalid\ntry:\n    mk(0).add(Book(id='a', name='b', genre='c', qty=-1))\nexcept Invalid as e:\n    print(e)",
+     "quantity cannot be negative"
+    ]
+   ],
+   "name": "t07",
+   "ticket": "qty_msg"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.models import Book\nprint(Book(id='a', name='b', genre='c', qty=3, price=1.105).to_dict()['value'])",
+     "3.31"
+    ]
+   ],
+   "name": "t08",
+   "ticket": "value_field"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.models import Book\nprint(Book.from_dict({'id': 'a', 'name': 'b'}).genre)",
+     "general"
+    ]
+   ],
+   "name": "t09",
+   "ticket": "defcat"
+  },
+  {
+   "checks": [
+    [
+     "import shelfkit\nprint(shelfkit.__version__, open('VERSION').read().strip())",
+     "1.5.0 1.5.0"
+    ]
+   ],
+   "name": "t10",
+   "ticket": "version"
+  },
+  {
+   "checks": [
+    [
+     "L = open('CHANGELOG.md').read().splitlines()\nprint(L[L.index('## Changes') + 1])",
+     "- 1.5.0: ticket batch LIB-7"
+    ]
+   ],
+   "name": "t11",
+   "ticket": "changelog"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.cli import main\nmain(['count', 'data/sample.csv', '--genre', 'poetry'])\nmain(['count', 'data/sample.csv'])",
+     "8\n30"
+    ]
+   ],
+   "name": "t12",
+   "ticket": "count_cat"
+  },
+  {
+   "checks": [
+    [
+     "import io, json, contextlib\nfrom shelfkit.cli import main\nfrom shelfkit.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'data/sample.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/sample.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))",
+     "True 1"
+    ]
+   ],
+   "name": "t13",
+   "ticket": "json_cmd"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import Store\nfrom shelfkit.models import Book\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, name='N%02d' % k, genre=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom shelfkit.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Books inventory"
+    ]
+   ],
+   "name": "t14",
+   "ticket": "title"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import Store\nfrom shelfkit.models import Book\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, name='N%02d' % k, genre=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom shelfkit.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "------------------------------"
+    ]
+   ],
+   "name": "t15",
+   "ticket": "sep"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom shelfkit.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "5"
+    ]
+   ],
+   "name": "t16",
+   "ticket": "thr"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import Store\nfrom shelfkit.models import Book\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, name='N%02d' % k, genre=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom shelfkit.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "t17",
+   "ticket": "low_sorted"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-$1,234.50 $7.00"
+    ]
+   ],
+   "name": "t18",
+   "ticket": "money_neg"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0"
+    ]
+   ],
+   "name": "t19",
+   "ticket": "discount_range"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import Store\nfrom shelfkit.models import Book\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, name='N%02d' % k, genre=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "t20",
+   "ticket": "remove_ret"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import Store\nfrom shelfkit.models import Book\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, name='N%02d' % k, genre=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom shelfkit.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Book(id='k01', name='z', genre='c'))\nexcept Invalid as e:\n    print(e, s.count())",
+     "duplicate id k01 2"
+    ]
+   ],
+   "name": "t21",
+   "ticket": "dup"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import Store\nfrom shelfkit.models import Book\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, name='N%02d' % k, genre=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_genre('mIXED')))",
+     "4"
+    ]
+   ],
+   "name": "t22",
+   "ticket": "bycat_ci"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.models import Book\nprint(Book.from_dict({'id': 'a', 'name': 'b', 'genre': 'c', 'tags': ['x', 'y', 'x', 'z', 'y']}).tags)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "t23",
+   "ticket": "tags_dedupe"
+  },
+  {
+   "checks": [
+    [
+     "import shelfkit\nprint(sorted(shelfkit.__all__), shelfkit.NotFound.__name__, shelfkit.Invalid.__name__)",
+     "['Book', 'Invalid', 'NotFound', 'Store'] NotFound Invalid"
+    ]
+   ],
+   "name": "t24",
+   "ticket": "all_export"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.store import Store\nfrom shelfkit.models import Book\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, name='N%02d' % k, genre=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom shelfkit.errors import Invalid\ntry:\n    mk(0).add(Book(id='a', name='b', genre='c', price=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "price cannot be negative"
+    ]
+   ],
+   "name": "t25",
+   "ticket": "price_msg"
+  },
+  {
+   "checks": [
+    [
+     "from shelfkit.io import load_csv\nfrom shelfkit.pricing import subtotal\ns = load_csv('data/sample.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)",
+     "30 True"
+    ]
+   ],
+   "name": "regress",
+   "ticket": "regress"
+  }
+ ],
+ "pkg": "shelfkit"
+}

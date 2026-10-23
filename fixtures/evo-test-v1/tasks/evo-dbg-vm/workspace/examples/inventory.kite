@@ -1,0 +1,18 @@
+# Maps: counting, updating and listing in insertion order.
+let stock = {"bolts": 120, "nuts": 300};
+stock["washers"] = 75;
+stock["bolts"] -= 20;
+let orders = ["nuts", "washers", "nuts", "gears"];
+let missing = [];
+for (let i = 0; i < len(orders); i += 1) {
+  let item = orders[i];
+  if (not has(stock, item)) {
+    push(missing, item);
+    continue;
+  }
+  stock[item] -= 10;
+}
+print(stock, len(stock));
+print("missing:", missing, keys(stock));
+let price = {1: "one", true: "yes", "1": "text"};
+print(price[1], price[true], price["1"], type(price));

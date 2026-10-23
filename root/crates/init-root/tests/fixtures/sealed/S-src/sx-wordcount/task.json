@@ -1,0 +1,28 @@
+{
+ "check": {
+  "argv": [
+   "check/run"
+  ],
+  "timeout_s": 30
+ },
+ "created": "2026-10-20T00:00:00Z",
+ "id": "sx-wordcount",
+ "labels": [
+  "standin"
+ ],
+ "limits": {
+  "max_cost_musd": 200000,
+  "wall_s": 60
+ },
+ "prompt": "Write the number of words in input.txt to count.txt. (ref SX-d03f77)",
+ "source": {
+  "kind": "maintainer"
+ },
+ "title": "sx-wordcount",
+ "v": 2,
+ "workspace": {
+  "bytes": 0,
+  "file": "workspace.tar",
+  "sha256": ""
+ }
+}

@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-killer",
+ "family": "E",
+ "lang": "py",
+ "title": "Cage sum combinations with seeded digits and order",
+ "difficulty": {"default": 3, "min": 2, "max": 4},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/killer-sudoku-helper", "exercise": "killer-sudoku-helper", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d2 seeded digit range lo..hi (never 1..9), seeded inner (asc/desc) and outer (asc/desc lexicographic) order, ValueError on size < 1 or target < 0 (include described, not exercised); d3 + include (every combination contains all include digits); d4 + a digit may appear at most twice (multisets). Difficulty guess for deepseek-flash: medium (d3)."
+}

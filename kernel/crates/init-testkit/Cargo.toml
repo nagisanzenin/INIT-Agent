@@ -1,0 +1,19 @@
+[package]
+name = "init-testkit"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+# testing.md §3.3: no async runtime (the mock serves one connection per thread).
+# Bins (src/bin/): init-mockllm, init-fakebody, init-fakekernel, init-fakeroot, init-measure.
+[dependencies]
+init-proto.workspace = true
+serde.workspace = true
+# testing.md §3.3/§3.4.3: "raw_value" captures the request's message bytes as sent (prefix hash, cache simulation).
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+# WP3: fd passing on the control link's fd channel (SCM_RIGHTS via sendmsg/recvmsg, root/root.md §3.5.3),
+# process groups, waitid/wait4 and getuid for the disposable-environment guard. std has no stable API for these.
+libc.workspace = true
+# WP3: the fake Root reads charter fixtures (root/root.md §3.12, TOML) and the runner writes kernel_config.
+toml.workspace = true

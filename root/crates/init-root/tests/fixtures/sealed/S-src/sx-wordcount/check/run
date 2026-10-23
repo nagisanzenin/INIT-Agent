@@ -1,0 +1,2 @@
+#!/bin/sh
+[ "$(cat count.txt 2>/dev/null)" = 9 ] || { echo "FAIL count"; exit 1; }

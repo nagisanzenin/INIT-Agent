@@ -1,0 +1,44 @@
+{
+  "v": 1,
+  "id": "WP3-FB",
+  "title": "Fake-body scenario: the runner plays the kernel over stdio-jsonl/1 (supervise.md §4.4-§4.5)",
+  "env": "live",
+  "fixture": {"body": "fake"},
+  "steps": [
+    {"op": "start_body"},
+    {"op": "wait_file", "path": "state/run/ready", "timeout_s": 10, "json": {"v": 1, "prefix_hash": "~sha256:"}},
+    {"op": "wait_file", "path": "state/run/heartbeat", "timeout_s": 10},
+    {"op": "send_frame", "frame": {"t": "input", "id": "9c41e07a2b5d13f0", "seq": 18, "text": "add a pty tool", "ts": "2026-10-19T12:30:00.000Z"}},
+    {"op": "wait_frame", "match": {"t": "ack", "seq": 18}, "timeout_s": 10},
+    {"op": "wait_frame", "match": {"t": "display", "kind": "text"}, "timeout_s": 10, "capture": {"REPLY": "text"}},
+    {"op": "send_frame", "frame": {"t": "notice", "id": "n-0001", "kind": "lkg", "data": {"sha": "4b1e0c2d"}}},
+    {"op": "wait_frame", "match": {"t": "notice_ack", "id": "n-0001"}, "timeout_s": 10},
+    {"op": "send_frame", "frame": {"t": "reload", "job": "j-000045", "kind": "request"}},
+    {"op": "wait_frame", "match": {"t": "reload_done", "job": "j-000045", "ok": true}, "timeout_s": 10},
+    {"op": "send_frame", "frame": {"t": "pause", "token": "5f0d22aa91c3e7b4", "reason": "handoff"}},
+    {"op": "wait_frame", "match": {"t": "paused", "token": "5f0d22aa91c3e7b4"}, "timeout_s": 10, "capture": {"LEAF": "leaf"}},
+    {"op": "send_frame", "frame": {"t": "exit", "token": "5f0d22aa91c3e7b4", "code": 75}},
+    {"op": "wait_exit", "expect_exit": 75, "timeout_s": 10}
+  ],
+  "expect": {
+    "events_in_order": [
+      {"type": "session"},
+      {"type": "boot", "reason": "cold"},
+      {"type": "message", "role": "user", "input_id": "9c41e07a2b5d13f0"},
+      {"type": "message", "role": "assistant", "content": "$REPLY", "final": true},
+      {"type": "notice", "kind": "lkg", "notice_id": "n-0001"},
+      {"id": "$LEAF"}
+    ],
+    "events_absent": [{"type": "update_failed"}],
+    "body_frames_in_order": [
+      {"t": "state", "busy": true},
+      {"t": "ack", "seq": 18},
+      {"t": "display", "text": "~add a pty tool"},
+      {"t": "state", "busy": false},
+      {"t": "paused", "token": "5f0d22aa91c3e7b4"}
+    ],
+    "files": [{"path": "state/session", "exists": true}],
+    "exit": 75,
+    "processes": {"bodies_running_at_end": 0}
+  }
+}

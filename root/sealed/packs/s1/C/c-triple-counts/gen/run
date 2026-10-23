@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+"""c-triple-counts: CRUXEval sample_780 with an in_map change (family C, operator in_map; see C/_lib/s1c.py).
+
+The function lists the values that occur at least 3 times. The seeded change maps every value before it is
+counted: `v % m`, `v // d` or the digit sum of `abs(v)`.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(ints):
+    counts = [0] * 301
+
+    for i in ints:
+        counts[i] += 1
+
+    r = []
+    for i in range(len(counts)):
+        if counts[i] >= 3:
+            r.append(str(i))
+    counts.clear()
+    return ' '.join(r)
+'''
+
+HELPER = '''SLOTS = 301
+MIN_REPEATS = 3
+
+
+def render(values):
+    return ' '.join(values)
+'''
+
+CORE = '''from .__HELPER__ import MIN_REPEATS, SLOTS, render
+
+
+def __FN__(ints):
+    counts = [0] * SLOTS
+
+    for i in ints:
+        counts[i] += 1
+
+    r = []
+    for i in range(len(counts)):
+        if counts[i] >= MIN_REPEATS:
+            r.append(str(i))
+    counts.clear()
+    return render(r)
+'''
+
+CRUX_INPUT = [2, 3, 5, 2, 4, 5, 2, 89]
+
+
+def variant(rng):
+    kind = rng.choice(["mod", "div", "digits"])
+    if kind == "mod":
+        m = rng.choice([6, 7, 8, 9, 11, 12])
+        expr, text = "i %% %d" % m, "`v %% %d` (Python's `%%` operator)" % m
+    elif kind == "div":
+        m = rng.choice([10, 20, 25, 50])
+        expr, text = "i // %d" % m, "`v // %d` (Python's floor division)" % m
+    else:
+        m = 0
+        expr, text = "sum(int(c) for c in str(abs(i)))", "the sum of the decimal digits of `abs(v)`"
+    return {
+        "change": "Before a value is counted it must now be mapped: every value `v` of `ints` is replaced by %s, "
+                  "and the counting, the threshold and the output work on the mapped values only." % text,
+        "core": CORE.replace("        counts[i] += 1", "        counts[%s] += 1" % expr),
+        "hint": "only the line that increments a count needs to change.",
+        "state": (kind, m),
+    }
+
+
+def inputs(rng, state):
+    kind, m = state
+    out = [(list(CRUX_INPUT),)]
+    for k in range(400):
+        r = rng.below(10)
+        if r < 2:
+            xs = s1c.mutate_ints(rng, CRUX_INPUT, 0, 120)
+        elif r < 4:
+            base = s1c.rand_ints(rng, 0, 300, 2, 5)
+            xs = rng.shuffled(base * 3 + s1c.rand_ints(rng, 0, 300, 0, 6))
+        elif r < 5:
+            xs = s1c.rand_ints(rng, -40, 300, 4, 16)
+        else:
+            xs = s1c.rand_ints(rng, 0, 300, 5, 18)
+        out.append((xs,))
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="in_map", original=ORIGINAL,
+                    fn_choices=["repeated_values", "frequent_values", "triples_of", "common_values"],
+                    params="ints", doc="counts how often small integers repeat.", core=CORE, helper=HELPER,
+                    variant=variant, inputs=inputs, kind="str")
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

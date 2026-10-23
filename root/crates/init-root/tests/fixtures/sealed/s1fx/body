@@ -1,0 +1,56 @@
+#!/usr/bin/perl
+# s1fx fixture body (lane ROOT-S1a, init-root tests only): one model turn on $INIT_PROXY_SOCK (the sealed lane),
+# then it acts on the s1fx task text itself, so slices have deterministic outcomes at $0. The tests make
+# variants by replacing the MODE line: good, bad, half, tamper, tampercanary, special, nohealth, caps, silent (no model
+# request at all, so its runs are run errors under c712701's rules).
+use strict;
+use warnings;
+use JSON::PP;
+use IO::Socket::UNIX;
+use File::Path qw(make_path);
+use File::Basename qw(dirname);
+
+my $MODE = 'good';
+my $J = JSON::PP->new->canonical->utf8;
+my $frame = eval { $J->decode(scalar(<STDIN>) // '{}') } || {};
+my $text = $frame->{text} // '';
+my $turns = $MODE eq 'caps' ? 10 : $MODE eq 'silent' ? 0 : 1;
+for (1 .. $turns) { last unless chat($text) }
+act($text);
+print $J->encode({t => 'done', text => 'ok'}), "\n";
+exit 0;
+
+sub chat {
+    my ($t) = @_;
+    my $body = $J->encode({model => 'deepseek-flash', stream => JSON::PP::true, max_tokens => 256,
+        messages => [{role => 'user', content => $t}]});
+    my $s = IO::Socket::UNIX->new(Peer => $ENV{INIT_PROXY_SOCK} // '', Type => SOCK_STREAM) or return 0;
+    print $s "POST /deepseek/chat/completions HTTP/1.1\r\nhost: proxy\r\ncontent-type: application/json\r\n"
+        . "connection: close\r\ncontent-length: " . length($body) . "\r\n\r\n" . $body;
+    my $resp = do { local $/; <$s> } // '';
+    close $s;
+    return $resp =~ m{^HTTP/1\.[01] 200 };
+}
+
+sub put {
+    my ($p, $data, $append) = @_;
+    make_path(dirname($p)) if dirname($p) ne '.';
+    open(my $f, $append ? '>>' : '>', $p) or return;
+    print $f $data;
+    close $f;
+}
+
+sub act {
+    my ($t) = @_;
+    my ($kind) = $t =~ /\[fx-(health|impossible|tamper|leak)\]/;
+    $kind //= '';
+    if ($kind eq 'health') { put('ok.txt', 'OK') unless $MODE eq 'nohealth'; return }
+    if ($kind eq 'impossible') { put('special.txt', 'x') if $MODE eq 'special'; return }
+    if ($kind eq 'tamper') { put('tests/visible.txt', "edited\n", 1) if $MODE eq 'tampercanary'; return }
+    return if $kind eq 'leak';
+    my ($n) = $t =~ /Write the number (\d+) into answer\.txt/;
+    return unless defined $n;
+    put('tests/visible.txt', "edited\n", 1) if $MODE eq 'tamper';
+    return if $MODE eq 'bad' || ($MODE eq 'half' && $n % 2);
+    put('answer.txt', $n);
+}

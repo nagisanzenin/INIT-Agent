@@ -1,0 +1,13 @@
+--- old.txt
++++ new.txt
+@@ -1,8 +1,9 @@
+ [server]
+ host = localhost
+-port = 8080
++port = 9090
+ workers = 4
+ timeout = 30
++keepalive = on
+ 
+ [logging]
+ level = info

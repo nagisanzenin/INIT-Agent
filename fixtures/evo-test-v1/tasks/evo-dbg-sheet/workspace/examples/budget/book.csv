@@ -1,0 +1,7 @@
+Category,Jan,Feb,Mar,Total,Avg,Bonus
+Rent,1200,1200,1200,=SUM(B2:D2),=E2/3,
+Food,310.5,288,342.25,=SUM(B3:D3),=E3/3,
+Travel,45,0,120,=SUM(B4:D4),=E4/3,
+Total,=SUM(B2:B4),=SUM(C2:C4),=SUM(D2:D4),=SUM(E2:E4),"=ROUND(E5/3,2)",
+Budget,,,,4800,,
+Left,,,,=E6-E5,"=IF(E7<0,""over"",""ok"")","=IF(E7>0,E7*0.1,0)"

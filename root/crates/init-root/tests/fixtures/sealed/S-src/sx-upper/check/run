@@ -1,0 +1,2 @@
+#!/bin/sh
+[ "$(cat upper.txt 2>/dev/null)" = "ADA LOVELACE" ] || { echo "FAIL upper"; exit 1; }

@@ -1,0 +1,25 @@
+# Charter fixture for RT-C* style tests: a day ceiling below one default reservation.
+schema_version = 1
+
+[purpose]
+text = "Test fixture: tiny money ceilings."
+
+[autonomy]
+max_level = 0
+
+[money]
+day_usd = "0.01"
+total_usd = "0.05"
+
+[actions.providers.models."deepseek-flash"]
+min_level = 0
+input_musd_per_mtok = 300000
+output_musd_per_mtok = 1200000
+reserve_output_tokens = 65536
+
+[mirror]
+url = ""
+
+[root]
+test_mode = true
+hb_interval_s = 1

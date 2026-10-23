@@ -1,0 +1,20 @@
+[package]
+name = "kernel-serve"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# The initctl server (kernel/initctl.md v0.3): std threads only, no async runtime.
+[dependencies]
+init-proto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+libc.workspace = true
+# `status.constitution_sha256` (initctl.md §4.1, awareness.md X3)
+sha2.workspace = true
+# `vendor` manifest checks (initctl.md §4.1 `vendor` steps 1–2)
+toml.workspace = true
+
+# K-FLAKE: the bounded test watchdog (init_testkit::watchdog) for the process-spawning tests.
+[dev-dependencies]
+init-testkit = { path = "../init-testkit" }

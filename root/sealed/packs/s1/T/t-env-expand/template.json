@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-env-expand",
+ "family": "T",
+ "lang": "sh",
+ "title": "Fix a launcher's layered env-file loading",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3", "sh", "sed", "sort"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: shell variable semantics; fix a seeded sh launcher that loads defaults.env, $APP_ENV.env and optional local.env, expands ${VAR}, ${VAR:-def} and $VAR once per line, honours caller overrides only for listed keys, and prints sorted KEY=value lines; checked by running print-config in copies with hidden env-file sets and environments; traps (seeded, knob = how many): cat | while losing variables, single quotes blocking expansion, cut -f2 cutting values at '=', ${APP_ENV-dev} vs empty, IFS= read keeping indented comments and trailing blanks, a last line without newline, reversed layers, duplicate keys printed, overrides missing or applied to every env var, caller env leaking into undefined references (L5), early binding and $NAME_suffix longest-name rule in the data; pass_guess_permille: 350"
+}

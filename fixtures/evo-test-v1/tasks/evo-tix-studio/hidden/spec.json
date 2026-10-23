@@ -1,0 +1,265 @@
+{
+ "items": [
+  {
+   "checks": [
+    [
+     "L = open('README.md').read().splitlines()\nprint(repr(L[L.index('    studiohub count FILE') + 1]))",
+     "'    studiohub export FILE'"
+    ]
+   ],
+   "name": "t01",
+   "ticket": "readme"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import Store\nfrom studiohub.models import Track\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, name='N%02d' % k, mood=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom studiohub.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Tracks inventory"
+    ]
+   ],
+   "name": "t02",
+   "ticket": "title"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import Store\nfrom studiohub.models import Track\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, name='N%02d' % k, mood=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nimport os, tempfile\nfrom studiohub.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').tags = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[-1], load_csv(p).get('k01').tags, load_csv(p).get('k00').tags)",
+     "tags ['a', 'b'] []"
+    ]
+   ],
+   "name": "t03",
+   "ticket": "csv_tags"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import Store\nfrom studiohub.models import Track\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, name='N%02d' % k, mood=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom studiohub.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Track(id='k01', name='z', mood='c'))\nexcept Invalid as e:\n    print(e, s.count())",
+     "duplicate id k01 2"
+    ]
+   ],
+   "name": "t04",
+   "ticket": "dup"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import Store\nfrom studiohub.models import Track\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, name='N%02d' % k, mood=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "t05",
+   "ticket": "page1"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.125"
+    ]
+   ],
+   "name": "t06",
+   "ticket": "tax"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.report import summary\nfrom studiohub.io import load_csv\nprint(list(summary(load_csv('data/sample.csv'))))",
+     "['Upbeat', 'calm', 'dark', 'epic']"
+    ]
+   ],
+   "name": "t07",
+   "ticket": "summary_sorted"
+  },
+  {
+   "checks": [
+    [
+     "import io, json, contextlib\nfrom studiohub.cli import main\nfrom studiohub.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'data/sample.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/sample.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))",
+     "True 1"
+    ]
+   ],
+   "name": "t08",
+   "ticket": "json_cmd"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-₩1,234.50 ₩7.00"
+    ]
+   ],
+   "name": "t09",
+   "ticket": "money_neg"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.errors import NotFound\nprint(str(NotFound('q7')))",
+     "track 'q7' not found"
+    ]
+   ],
+   "name": "t10",
+   "ticket": "notfound"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "9"
+    ]
+   ],
+   "name": "t11",
+   "ticket": "pagesize"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import Store\nfrom studiohub.models import Track\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, name='N%02d' % k, mood=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom studiohub.errors import Invalid\ntry:\n    mk(0).add(Track(id='a', name='b', mood='c', qty=-1))\nexcept Invalid as e:\n    print(e)",
+     "quantity cannot be negative"
+    ]
+   ],
+   "name": "t12",
+   "ticket": "qty_msg"
+  },
+  {
+   "checks": [
+    [
+     "L = open('CHANGELOG.md').read().splitlines()\nprint(L[L.index('## Changes') + 1])",
+     "- 0.5.0: ticket batch STU-9"
+    ]
+   ],
+   "name": "t13",
+   "ticket": "changelog"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.models import Track\nprint(Track(id='a', name='b', mood='c', qty=3, price=1.105).to_dict()['value'])",
+     "3.31"
+    ]
+   ],
+   "name": "t14",
+   "ticket": "value_field"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import Store\nfrom studiohub.models import Track\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, name='N%02d' % k, mood=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_mood('mIXED')))",
+     "4"
+    ]
+   ],
+   "name": "t15",
+   "ticket": "bycat_ci"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import Store\nfrom studiohub.models import Track\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, name='N%02d' % k, mood=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "t16",
+   "ticket": "remove_ret"
+  },
+  {
+   "checks": [
+    [
+     "import studiohub\nprint(studiohub.__version__, open('VERSION').read().strip())",
+     "0.5.0 0.5.0"
+    ]
+   ],
+   "name": "t17",
+   "ticket": "version"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import Store\nfrom studiohub.models import Track\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, name='N%02d' % k, mood=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom studiohub.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "t18",
+   "ticket": "low_sorted"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import Store\nfrom studiohub.models import Track\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, name='N%02d' % k, mood=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom studiohub.errors import Invalid\ntry:\n    mk(0).add(Track(id='a', name='b', mood='c', price=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "price cannot be negative"
+    ]
+   ],
+   "name": "t19",
+   "ticket": "price_msg"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom studiohub.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "6"
+    ]
+   ],
+   "name": "t20",
+   "ticket": "thr"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.models import Track\nprint(Track.from_dict({'id': 'a', 'name': 'b'}).mood)",
+     "neutral"
+    ]
+   ],
+   "name": "t21",
+   "ticket": "defcat"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.store import Store\nfrom studiohub.models import Track\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, name='N%02d' % k, mood=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "t22",
+   "ticket": "search_ci"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0"
+    ]
+   ],
+   "name": "t23",
+   "ticket": "discount_range"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.cli import main\nmain(['count', 'data/sample.csv', '--mood', 'calm'])\nmain(['count', 'data/sample.csv'])",
+     "8\n30"
+    ]
+   ],
+   "name": "t24",
+   "ticket": "count_cat"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.validate import MAX_NAME\nprint(MAX_NAME)",
+     "99"
+    ]
+   ],
+   "name": "t25",
+   "ticket": "maxname"
+  },
+  {
+   "checks": [
+    [
+     "from studiohub.io import load_csv\nfrom studiohub.pricing import subtotal\ns = load_csv('data/sample.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)",
+     "30 True"
+    ]
+   ],
+   "name": "regress",
+   "ticket": "regress"
+  }
+ ],
+ "pkg": "studiohub"
+}

@@ -1,0 +1,28 @@
+# for loops with break and continue; default values with `or`.
+let evens = [];
+for (let i = 0; i < 12; i += 1) {
+  if (i % 2 == 1) { continue; }
+  push(evens, i);
+}
+print("evens:", evens);
+let found = nil;
+for (let j = 1; j < 100; j += 1) {
+  if (j * j > 50) {
+    found = j;
+    break;
+  }
+}
+print("first square above 50:", found);
+fn greet(name) {
+  let shown = name or "stranger";
+  return "hi " + shown;
+}
+print(greet("ada"), greet(nil));
+let opts = [nil, 3, false, 0];
+for (let k = 0; k < len(opts); k += 1) {
+  print(k, opts[k] or 10);
+}
+let row = [0, 0];
+let grid = [row, row];
+grid[0][1] = 5;
+print("grid:", grid);

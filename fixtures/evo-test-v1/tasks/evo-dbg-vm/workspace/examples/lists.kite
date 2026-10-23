@@ -1,0 +1,23 @@
+# Lists: indexing, mutation, aliasing.
+let xs = [5, 3, 8];
+push(xs, 1);
+print(xs, len(xs), xs[0], xs[-1]);
+xs[1] = 30;
+xs[-2] += 2;
+print(xs);
+let ys = xs;
+push(ys, 99);
+print(xs == ys, xs, pop(ys), xs);
+let grid = [[1, 2], [3, 4]];
+grid[1][0] *= 10;
+print(grid, grid[1], [1, 2] + [3], [] == [], [1, [2]] == [1, [2]]);
+fn reverse(l) {
+  let out = [];
+  let i = len(l) - 1;
+  while (i >= 0) {
+    push(out, l[i]);
+    i -= 1;
+  }
+  return out;
+}
+print(reverse(["a", "b", "c"]));

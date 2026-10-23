@@ -1,0 +1,9 @@
+Hello, Kite!
+hello world 5 string
+42 -7 true false nil
+[1, "two", [3, nil], true]
+tab	here ["quote\"d", "back\\slash", "new\nline"]
+[1, 2]! list function nil
+
+<builtin print> <builtin len>
+exit 0

@@ -1,0 +1,253 @@
+#!/usr/bin/env python3
+"""e-rs-matching-brackets: Exercism `matching-brackets` (Rust) with a seeded semantic change (m7 §3.1.1, E).
+
+Seeded parameters: the active bracket pairs (2-4 of (), [], {}, <>, never exactly the original three; the
+characters of inactive pairs are plain text), at difficulty >= 3 a quote character whose sections are
+skipped, and at difficulty 4 a maximum nesting depth. Graded cases: 4 visible + 28 hidden calls.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "matching_brackets_variant"
+N_HIDDEN = 28
+ALL_PAIRS = [("(", ")"), ("[", "]"), ("{", "}"), ("<", ">")]
+ORIGINAL = [("(", ")"), ("[", "]"), ("{", "}")]
+QUOTES = ['"', "'", "`"]
+QUOTE_NAMES = {'"': "the double quote `\"`", "'": "the apostrophe `'`", "`": "the backtick `` ` ``"}
+FILL = "abcxyz019 +-*=,;:"
+
+STUB = '''/// Whether the active brackets in `string` are balanced under the task's rules.
+pub fn brackets_are_balanced(string: &str) -> bool {
+    todo!("check {string}")
+}
+'''
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    while True:
+        pairs = [pr for pr in ALL_PAIRS if rng.chance(1, 2)]
+        if len(pairs) >= 2 and pairs != ORIGINAL:
+            break
+    return {"pairs": pairs, "quote": rng.choice(QUOTES) if d >= 3 else None,
+            "depth": rng.randint(2, 4) if d >= 4 else None}
+
+
+def balanced_ok(s, p):
+    opens = {o: c for o, c in p["pairs"]}
+    closes = set(opens.values())
+    stack, quoted = [], False
+    for ch in s:
+        if quoted:
+            if ch == p["quote"]:
+                quoted = False
+            continue
+        if ch == p["quote"]:
+            quoted = True
+        elif ch in opens:
+            stack.append(opens[ch])
+            if p["depth"] is not None and len(stack) > p["depth"]:
+                return False
+        elif ch in closes:
+            if not stack or stack.pop() != ch:
+                return False
+    return not quoted and not stack
+
+
+def naive(s):
+    return balanced_ok(s, {"pairs": ORIGINAL, "quote": None, "depth": None})
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    pairs, quote = p["pairs"], p["quote"]
+    inactive = [ch for pr in ALL_PAIRS if pr not in pairs for ch in pr]
+    plain_quotes = [q for q in QUOTES if q != quote]
+    maxd = p["depth"] or 4
+
+    def filler():
+        k = rng.randint(1, 3)
+        s = "".join(rng.choice(FILL) for _ in range(k))
+        if inactive and rng.chance(1, 3):
+            s += rng.choice(inactive)
+        if rng.chance(1, 6):
+            s += rng.choice(plain_quotes)
+        return s
+
+    def quoted():
+        inner = "".join(rng.choice(FILL + "".join(o + c for o, c in ALL_PAIRS)) for _ in range(rng.randint(1, 5)))
+        return quote + inner + quote
+
+    def balanced(depth, groups):
+        parts = []
+        for _ in range(groups):
+            r = rng.below(10)
+            if r < 5 and depth < maxd:
+                o, c = rng.choice(pairs)
+                parts.append(o + balanced(depth + 1, rng.randint(0, 3)) + c)
+            elif r < 7 and quote:
+                parts.append(quoted())
+            else:
+                parts.append(filler())
+        return "".join(parts)
+
+    def active_positions(s):
+        """Indexes of active brackets outside quoted sections."""
+        out, q = [], False
+        actives = {ch for pr in pairs for ch in pr}
+        for i, ch in enumerate(s):
+            if q:
+                q = ch != quote
+                continue
+            if ch == quote:
+                q = True
+            elif ch in actives:
+                out.append(i)
+        return out
+
+    texts = []
+
+    def add(s):
+        if s not in texts:
+            texts.append(s)
+
+    def broken(s):
+        pos = active_positions(s)
+        if not pos:
+            return None
+        i = rng.choice(pos)
+        kind = rng.below(3)
+        if kind == 0:
+            return s[:i] + s[i + 1:]
+        if kind == 1:
+            closers = [c for _, c in pairs]
+            opens = [o for o, _ in pairs]
+            pool = closers if s[i] in closers else opens
+            others = [x for x in pool if x != s[i]]
+            return s[:i] + rng.choice(others) + s[i + 1:] if others else None
+        return s[:i] + rng.choice([c for _, c in pairs]) + s[i:]
+
+    # visible: a balanced string with inactive brackets, a wrong-type close, one using the newest rule, one more
+    add(balanced(0, 3) + rng.choice(inactive or ["x"]))
+    o, c = pairs[0]
+    o2, c2 = pairs[1]
+    add(o + filler() + o2 + filler() + c + c2)
+    if quote:
+        add(o + quote + c + c2 + quote + c)
+    elif p["depth"]:
+        add(o * (p["depth"] + 1) + c * (p["depth"] + 1))
+    else:
+        add(filler() + c2 + filler())
+    add(balanced(0, 4))
+    add("")
+    add(o + c)
+    add(c + o)
+    add(o2 * 3 + c2 * 2)
+    if inactive:
+        add(inactive[0] + filler() + o + c)
+        add(filler() + inactive[-1] + inactive[-1] + filler())
+    for pr in ALL_PAIRS:
+        if pr not in pairs:
+            add(pr[0] + o + c + pr[1] + pr[1])
+        elif pr not in ORIGINAL:
+            add("(" + pr[0] + ")" + pr[1] if ("(", ")") in pairs else pr[0] + "x")
+    if quote:
+        add(quote + o + quote)
+        add(o + quote + filler() + c)
+        add(quote + quote + o + quote + c2 + quote + c)
+        add(o + plain_quotes[0] + c)
+    if p["depth"]:
+        d = p["depth"]
+        add(o * d + filler() + c * d)
+        add(o2 * (d + 1) + c2 * (d + 1))
+        add((o + c) * (d + 2))
+        add(o + (o2 * (d - 1) + c2 * (d - 1)) + c)
+        add(o + o2 * d + c2 * d + c)
+    # targeted separators from the original: an ignored original bracket, or an unclosed new bracket
+    orig_inactive = [ch for pr in ORIGINAL if pr not in pairs for ch in pr]
+    new_active = [pr for pr in pairs if pr not in ORIGINAL]
+    for _ in range(3):
+        if orig_inactive:
+            add(filler() + rng.choice(orig_inactive) + filler() + o + c)
+        if new_active:
+            no, nc = rng.choice(new_active)
+            add(rng.choice([no + filler(), filler() + nc, no + o + nc + c]))
+    n_hand = len(texts)
+    tries = 0
+    while len(texts) < N_HIDDEN + 30 and tries < 800:
+        tries += 1
+        s = balanced(0, rng.randint(1, 5))
+        if rng.chance(1, 2):
+            b = broken(s)
+            if b is not None:
+                s = b
+        add(s)
+    vis = texts[:4]
+    # the hand-made edge cases first, then random ones, keeping the true/false mix near half and half
+    edge, rand = texts[4:n_hand][:N_HIDDEN], rng.shuffled(texts[n_hand:])
+    rest = list(edge)
+    n_true = sum(1 for s in rest if balanced_ok(s, p))
+    for s in rand:
+        if len(rest) == N_HIDDEN:
+            break
+        t = balanced_ok(s, p)
+        if (t and n_true >= N_HIDDEN // 2 + 2) or (not t and len(rest) - n_true >= N_HIDDEN // 2 + 2):
+            continue
+        rest.append(s)
+        n_true += t
+    for s in rand:
+        if len(rest) == N_HIDDEN:
+            break
+        if s not in rest:
+            rest.append(s)
+    rest = rng.shuffled(rest)
+    order = vis + rest
+    if sum(1 for s in order if balanced_ok(s, p) != naive(s)) < 4:
+        raise s1lib.GenError("too few cases separate the mutation from the original")
+    cases = []
+    for n, s in enumerate(order):
+        name = "visible_%d" % (n + 1) if n < 4 else "case_%02d" % (n - 3)
+        cases.append((name, "brackets_are_balanced(%s)" % ersgen.rs_str(s), ersgen.rs_bool(balanced_ok(s, p))))
+
+    active = ", ".join("`%s` with `%s`" % pr for pr in pairs)
+    plain = ("The characters %s are NOT brackets here: they are ordinary text and are ignored like letters."
+             % ", ".join("`%s`" % ch for ch in inactive)) if inactive else ""
+    rules = [
+        "1. The active bracket pairs are exactly: %s. %s" % (active, plain),
+        "2. The string is balanced when every active opening bracket is later closed by its own closing "
+        "bracket, with pairs properly nested. A closing bracket with no open bracket, a closing bracket of the "
+        "wrong type, or an opening bracket that is never closed makes the string unbalanced. Every character that "
+        "is not an active bracket is ignored. The empty string is balanced.",
+    ]
+    if quote:
+        rules.append(
+            "3. Quoted sections: %s opens a quoted section, which ends at the next occurrence of that same "
+            "character. Everything inside a "
+            "quoted section, brackets included, is ignored. A quoted section that is still open at the end of the "
+            "string makes it unbalanced. The quote character is not a bracket: for example `%s` is balanced "
+            "(the quoted `%s` is ignored). Other quote-like characters are ordinary text."
+            % (QUOTE_NAMES[quote], o + quote + c + quote + c, c))
+    if p["depth"]:
+        rules.append(
+            "%d. Depth limit: at most %d brackets may be open at the same time. Opening a bracket while %d are "
+            "already open makes the string unbalanced, even if everything is closed later."
+            % (len(rules) + 1, p["depth"], p["depth"]))
+    pairs_rs = ", ".join("(%s, %s)" % (ersgen.rs_char(a), ersgen.rs_char(b)) for a, b in pairs)
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {
+        "PAIRS": pairs_rs, "QUOTE": "Some(%s)" % ersgen.rs_char(quote) if quote else "None",
+        "MAX_DEPTH": p["depth"] if p["depth"] else "usize::MAX"})
+    return ersgen.finish(
+        ctx, crate=CRATE, api="pub fn brackets_are_balanced(string: &str) -> bool",
+        intro="A template engine must reject inputs whose brackets do not match. Write `brackets_are_balanced`.",
+        rules="\n".join(rules), stub=STUB, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::brackets_are_balanced;" % CRATE, cases=cases, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

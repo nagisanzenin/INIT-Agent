@@ -1,0 +1,31 @@
+{
+ "difficulty": 3,
+ "family": "e",
+ "id": "pool-e-py-word-search",
+ "labels": [
+  "exercise",
+  "py"
+ ],
+ "max_turns": 8,
+ "prompt": "Solve the Exercism exercise \"word-search\" in Python, in the current directory.\n\n- The specification is README.md. Write your solution in word_search.py (the stub is there).\n- word_search_test.py has 8 of the exercise's 24 tests. Run them with `python3 -m unittest word_search_test`.\n- A hidden test suite checks the full specification, including edge cases and exact error messages.\n- Do not modify word_search_test.py. Use only the Python standard library (python3 >= 3.9).",
+ "protected": [
+  "word_search_test.py"
+ ],
+ "source": {
+  "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706",
+  "kind": "exercism",
+  "path": "exercises/practice/word-search",
+  "repo": "exercism/python",
+  "slug": "word-search"
+ },
+ "steps": [
+  {
+   "kind": "py_unittest",
+   "tests": [
+    "hidden/word_search_test.py"
+   ],
+   "timeout_s": 10
+  }
+ ],
+ "title": "Exercism (Python): word-search"
+}

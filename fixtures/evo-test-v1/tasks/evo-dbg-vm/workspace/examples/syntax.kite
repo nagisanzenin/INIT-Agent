@@ -1,0 +1,6 @@
+# A syntax error is reported before anything runs.
+print("this line is never printed");
+let x = 1;
+if (x > 0) {
+  print("positive")
+}

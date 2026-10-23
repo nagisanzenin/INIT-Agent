@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-knapsack",
+ "family": "E",
+ "lang": "py",
+ "title": "Knapsack item selection with seeded tie-breaks and limits",
+ "difficulty": {"default": 3, "min": 2, "max": 4},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/knapsack", "exercise": "knapsack", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d2 return the chosen indices (not the value) with a seeded tie-break between equal-value sets (fewest items, lowest weight or most items, then the lexicographically smallest index list); d3 + a max_items cap; d4 + item groups (at most one item per group). Difficulty guess for deepseek-flash: medium (d3)."
+}

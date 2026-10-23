@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-find-commit",
+ "family": "T",
+ "lang": "any",
+ "title": "Find the commits that introduced and removed a string",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3", "git"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: git history forensics (pickaxe search over a history with a merged side branch, full shas, author vs committer) without changing the repository; traps: the string in an earlier commit message, a near-duplicate value decoy, introduction on the merged side branch (not the merge), the file renamed later (path-limited search misses it), the string removed and re-added (first introduction asked), a 'Remove R' commit that leaves the definition, root author differs from committer, a case-variant decoy, an unmerged branch with an earlier introduction, an older author date (knob); pass_guess_permille: 480"
+}

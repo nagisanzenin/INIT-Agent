@@ -1,0 +1,7 @@
+{"attempt":1,"purpose":"turn","req_id":"01a1580000000001","scope":"j-000001/run/c-t1-r1","session":"20261020-120001-a00001","t":"start","task":"t1","ts":"2026-10-20T12:00:01.000Z","vis":"agent"}
+{"finish":"tool_use","outcome":"ok","req_id":"01a1580000000001","status":200,"t":"end","tool_calls":[{"args":"{\"command\":\"pytest -q\"}","id":"call_1","name":"bash"}],"ts":"2026-10-20T12:00:02.000Z"}
+{"attempt":1,"purpose":"turn","req_id":"01a1580000000002","scope":"j-000001/run/c-h1-r1","session":"holdout","t":"start","task":"HOLDOUT-SENTINEL-DO-NOT-READ","ts":"2026-10-20T12:00:03.000Z","vis":"agent"}
+{"cap":"turns","note":"HOLDOUT-SENTINEL-DO-NOT-READ","outcome":"cap","req_id":"01a1580000000002","status":429,"t":"end","ts":"2026-10-20T12:00:04.000Z"}
+{"attempt":1,"purpose":"turn","req_id":"01a1580000000003","scope":"j-000001/run/c-t2-r1","session":"20261020-120003-a00003","t":"start","task":"t2","ts":"2026-10-20T12:00:05.000Z","vis":"agent"}
+{"cap":"turns","outcome":"cap","req_id":"01a1580000000003","status":429,"t":"end","ts":"2026-10-20T12:00:06.000Z"}
+{"attempt":1,"purpose":"turn","req_id":"01a1580000000004","scope":"live","session":"x","t":"start","task":"HOLDOUT-SENTINEL-DO-NOT-READ","ts":"2026-10-20T12:00:07.000Z","vis":"kernel"}

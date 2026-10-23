@@ -1,0 +1,31 @@
+{
+ "difficulty": 3,
+ "family": "e",
+ "id": "pool-e-py-rectangles",
+ "labels": [
+  "exercise",
+  "py"
+ ],
+ "max_turns": 8,
+ "prompt": "Solve the Exercism exercise \"rectangles\" in Python, in the current directory.\n\n- The specification is README.md. Write your solution in rectangles.py (the stub is there).\n- rectangles_test.py has 6 of the exercise's 14 tests. Run them with `python3 -m unittest rectangles_test`.\n- A hidden test suite checks the full specification, including edge cases and exact error messages.\n- Do not modify rectangles_test.py. Use only the Python standard library (python3 >= 3.9).",
+ "protected": [
+  "rectangles_test.py"
+ ],
+ "source": {
+  "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706",
+  "kind": "exercism",
+  "path": "exercises/practice/rectangles",
+  "repo": "exercism/python",
+  "slug": "rectangles"
+ },
+ "steps": [
+  {
+   "kind": "py_unittest",
+   "tests": [
+    "hidden/rectangles_test.py"
+   ],
+   "timeout_s": 10
+  }
+ ],
+ "title": "Exercism (Python): rectangles"
+}

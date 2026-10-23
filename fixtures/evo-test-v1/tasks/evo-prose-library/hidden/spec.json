@@ -1,0 +1,625 @@
+{
+ "items": [
+  {
+   "checks": [
+    [
+     "import libris\nprint(libris.__version__, open('VERSION').read().strip())",
+     "1.5.0 1.5.0"
+    ]
+   ],
+   "name": "r01",
+   "site": "version"
+  },
+  {
+   "checks": [
+    [
+     "L = open('CHANGELOG.md').read().splitlines()\nprint(L[L.index('## Changes') + 1])",
+     "- 1.5.0: design note LIB-7"
+    ]
+   ],
+   "name": "r02",
+   "site": "changelog"
+  },
+  {
+   "checks": [
+    [
+     "L = open('README.md').read().splitlines()\nprint(repr(L[L.index('    libris count CATALOG FILE') + 1]))",
+     "'    libris json CATALOG FILE'"
+    ]
+   ],
+   "name": "r03",
+   "site": "readme"
+  },
+  {
+   "checks": [
+    [
+     "import io, json, contextlib\nfrom libris.cli import main\nfrom libris.books.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'books', 'data/books.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/books.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))\nfrom libris.loans.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'loans', 'data/loans.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/loans.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))\n",
+     "True 1\nTrue 1"
+    ]
+   ],
+   "name": "r04",
+   "site": "json_cmd"
+  },
+  {
+   "checks": [
+    [
+     "from libris.cli import main\nmain(['count', 'books', 'data/books.csv', '--category', 'poetry'])\nmain(['count', 'members', 'data/members.csv', '--category', 'basic'])\nmain(['count', 'loans', 'data/loans.csv'])",
+     "8\n8\n30"
+    ]
+   ],
+   "name": "r05",
+   "site": "count_cat"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.0725"
+    ]
+   ],
+   "name": "r06",
+   "site": "tax/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.06"
+    ]
+   ],
+   "name": "r07",
+   "site": "tax/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.02"
+    ]
+   ],
+   "name": "r08",
+   "site": "tax/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-$1,234.50 $7.00"
+    ]
+   ],
+   "name": "r09",
+   "site": "money_neg/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-$1,234.50 $7.00"
+    ]
+   ],
+   "name": "r10",
+   "site": "money_neg/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-$1,234.50 $7.00"
+    ]
+   ],
+   "name": "r11",
+   "site": "money_neg/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100), discount(10, 0))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0 10.0"
+    ]
+   ],
+   "name": "r12",
+   "site": "discount_range/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100), discount(10, 0))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0 10.0"
+    ]
+   ],
+   "name": "r13",
+   "site": "discount_range/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import BookShelf\nfrom libris.books.models import Book\ndef mk(n, cat='x'):\n    s = BookShelf()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, title='N%02d' % k, genre=cat, copies=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r14",
+   "site": "page1/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.store import Roster\nfrom libris.members.models import Member\ndef mk(n, cat='x'):\n    s = Roster()\n    for k in range(n):\n        s.add(Member(id='k%02d' % k, name='N%02d' % k, tier=cat, visits=(k * 5) % 7, fee=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r15",
+   "site": "page1/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.store import LoanLedger\nfrom libris.loans.models import Loan\ndef mk(n, cat='x'):\n    s = LoanLedger()\n    for k in range(n):\n        s.add(Loan(id='k%02d' % k, ref='N%02d' % k, branch=cat, days=(k * 5) % 7, fine=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r16",
+   "site": "page1/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "12"
+    ]
+   ],
+   "name": "r17",
+   "site": "pagesize/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "15"
+    ]
+   ],
+   "name": "r18",
+   "site": "pagesize/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import BookShelf\nfrom libris.books.models import Book\ndef mk(n, cat='x'):\n    s = BookShelf()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, title='N%02d' % k, genre=cat, copies=(k * 5) % 7, price=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r19",
+   "site": "search_ci/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.store import Roster\nfrom libris.members.models import Member\ndef mk(n, cat='x'):\n    s = Roster()\n    for k in range(n):\n        s.add(Member(id='k%02d' % k, name='N%02d' % k, tier=cat, visits=(k * 5) % 7, fee=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r20",
+   "site": "search_ci/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.store import LoanLedger\nfrom libris.loans.models import Loan\ndef mk(n, cat='x'):\n    s = LoanLedger()\n    for k in range(n):\n        s.add(Loan(id='k%02d' % k, ref='N%02d' % k, branch=cat, days=(k * 5) % 7, fine=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r21",
+   "site": "search_ci/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.store import Roster\nfrom libris.members.models import Member\ndef mk(n, cat='x'):\n    s = Roster()\n    for k in range(n):\n        s.add(Member(id='k%02d' % k, name='N%02d' % k, tier=cat, visits=(k * 5) % 7, fee=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_tier('mIXED')), len(mk(3, 'lo').by_tier('LO')))",
+     "4 3"
+    ]
+   ],
+   "name": "r22",
+   "site": "bycat_ci/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.store import LoanLedger\nfrom libris.loans.models import Loan\ndef mk(n, cat='x'):\n    s = LoanLedger()\n    for k in range(n):\n        s.add(Loan(id='k%02d' % k, ref='N%02d' % k, branch=cat, days=(k * 5) % 7, fine=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_branch('mIXED')), len(mk(3, 'lo').by_branch('LO')))",
+     "4 3"
+    ]
+   ],
+   "name": "r23",
+   "site": "bycat_ci/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.errors import NotFound\nprint(str(NotFound('q7')))",
+     "book 'q7' not found"
+    ]
+   ],
+   "name": "r24",
+   "site": "notfound/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.errors import NotFound\nprint(str(NotFound('q7')))",
+     "member 'q7' not found"
+    ]
+   ],
+   "name": "r25",
+   "site": "notfound/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.errors import NotFound\nprint(str(NotFound('q7')))",
+     "loan 'q7' not found"
+    ]
+   ],
+   "name": "r26",
+   "site": "notfound/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import BookShelf\nfrom libris.books.models import Book\ndef mk(n, cat='x'):\n    s = BookShelf()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, title='N%02d' % k, genre=cat, copies=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom libris.books.validate import MAX_NAME\nfrom libris.books.errors import Invalid\ns = mk(0)\ns.add(Book(id='a', title='x' * 90, genre='c'))\ntry:\n    s.add(Book(id='b', title='x' * 91, genre='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "90 1"
+    ]
+   ],
+   "name": "r27",
+   "site": "maxname/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.store import Roster\nfrom libris.members.models import Member\ndef mk(n, cat='x'):\n    s = Roster()\n    for k in range(n):\n        s.add(Member(id='k%02d' % k, name='N%02d' % k, tier=cat, visits=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom libris.members.validate import MAX_NAME\nfrom libris.members.errors import Invalid\ns = mk(0)\ns.add(Member(id='a', name='x' * 64, tier='c'))\ntry:\n    s.add(Member(id='b', name='x' * 65, tier='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "64 1"
+    ]
+   ],
+   "name": "r28",
+   "site": "maxname/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import BookShelf\nfrom libris.books.models import Book\ndef mk(n, cat='x'):\n    s = BookShelf()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, title='N%02d' % k, genre=cat, copies=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom libris.books.errors import Invalid\ntry:\n    mk(0).add(Book(id='a', title='b', genre='c', copies=-1))\nexcept Invalid as e:\n    print(e)",
+     "copies cannot be negative"
+    ]
+   ],
+   "name": "r29",
+   "site": "qty_msg/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.store import Roster\nfrom libris.members.models import Member\ndef mk(n, cat='x'):\n    s = Roster()\n    for k in range(n):\n        s.add(Member(id='k%02d' % k, name='N%02d' % k, tier=cat, visits=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom libris.members.errors import Invalid\ntry:\n    mk(0).add(Member(id='a', name='b', tier='c', visits=-1))\nexcept Invalid as e:\n    print(e)",
+     "visits cannot be negative"
+    ]
+   ],
+   "name": "r30",
+   "site": "qty_msg/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.store import LoanLedger\nfrom libris.loans.models import Loan\ndef mk(n, cat='x'):\n    s = LoanLedger()\n    for k in range(n):\n        s.add(Loan(id='k%02d' % k, ref='N%02d' % k, branch=cat, days=(k * 5) % 7, fine=1.0 + k))\n    return s\nfrom libris.loans.errors import Invalid\ntry:\n    mk(0).add(Loan(id='a', ref='b', branch='c', days=-1))\nexcept Invalid as e:\n    print(e)",
+     "days cannot be negative"
+    ]
+   ],
+   "name": "r31",
+   "site": "qty_msg/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.store import Roster\nfrom libris.members.models import Member\ndef mk(n, cat='x'):\n    s = Roster()\n    for k in range(n):\n        s.add(Member(id='k%02d' % k, name='N%02d' % k, tier=cat, visits=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom libris.members.errors import Invalid\ntry:\n    mk(0).add(Member(id='a', name='b', tier='c', fee=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "fee cannot be negative"
+    ]
+   ],
+   "name": "r32",
+   "site": "price_msg/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.store import LoanLedger\nfrom libris.loans.models import Loan\ndef mk(n, cat='x'):\n    s = LoanLedger()\n    for k in range(n):\n        s.add(Loan(id='k%02d' % k, ref='N%02d' % k, branch=cat, days=(k * 5) % 7, fine=1.0 + k))\n    return s\nfrom libris.loans.errors import Invalid\ntry:\n    mk(0).add(Loan(id='a', ref='b', branch='c', fine=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "fine cannot be negative"
+    ]
+   ],
+   "name": "r33",
+   "site": "price_msg/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import BookShelf\nfrom libris.books.models import Book\ndef mk(n, cat='x'):\n    s = BookShelf()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, title='N%02d' % k, genre=cat, copies=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom libris.books.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Book(id='k01', title='z', genre='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').title)",
+     "duplicate book id k01 2 N01"
+    ]
+   ],
+   "name": "r34",
+   "site": "dup/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.store import Roster\nfrom libris.members.models import Member\ndef mk(n, cat='x'):\n    s = Roster()\n    for k in range(n):\n        s.add(Member(id='k%02d' % k, name='N%02d' % k, tier=cat, visits=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom libris.members.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Member(id='k01', name='z', tier='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').name)",
+     "duplicate member id k01 2 N01"
+    ]
+   ],
+   "name": "r35",
+   "site": "dup/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.store import LoanLedger\nfrom libris.loans.models import Loan\ndef mk(n, cat='x'):\n    s = LoanLedger()\n    for k in range(n):\n        s.add(Loan(id='k%02d' % k, ref='N%02d' % k, branch=cat, days=(k * 5) % 7, fine=1.0 + k))\n    return s\nfrom libris.loans.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Loan(id='k01', ref='z', branch='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').ref)",
+     "duplicate loan id k01 2 N01"
+    ]
+   ],
+   "name": "r36",
+   "site": "dup/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.models import Member\nprint(Member(id='a', name='b', tier='c', visits=3, fee=1.105).to_dict()['fees_due'])",
+     "3.31"
+    ]
+   ],
+   "name": "r37",
+   "site": "value_field/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.models import Loan\nprint(Loan(id='a', ref='b', branch='c', days=3, fine=1.105).to_dict()['exposure'])",
+     "3.31"
+    ]
+   ],
+   "name": "r38",
+   "site": "value_field/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.models import Book\nprint(Book.from_dict({'id': 'a', 'title': 'b'}).genre)",
+     "general"
+    ]
+   ],
+   "name": "r39",
+   "site": "defcat/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.models import Loan\nprint(Loan.from_dict({'id': 'a', 'ref': 'b'}).branch)",
+     "main"
+    ]
+   ],
+   "name": "r40",
+   "site": "defcat/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.models import Book\nprint(Book.from_dict({'id': 'a', 'title': 'b', 'genre': 'c', 'tags': ['x', 'y', 'x', 'z', 'y']}).tags)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "r41",
+   "site": "tags_dedupe/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.models import Member\nprint(Member.from_dict({'id': 'a', 'name': 'b', 'tier': 'c', 'interests': ['x', 'y', 'x', 'z', 'y']}).interests)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "r42",
+   "site": "tags_dedupe/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import BookShelf\nfrom libris.books.models import Book\ndef mk(n, cat='x'):\n    s = BookShelf()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, title='N%02d' % k, genre=cat, copies=(k * 5) % 7, price=1.0 + k))\n    return s\nimport os, tempfile\nfrom libris.books.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').tags = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[5:], load_csv(p).get('k01').tags, load_csv(p).get('k00').tags)",
+     "['tags'] ['a', 'b'] []"
+    ]
+   ],
+   "name": "r43",
+   "site": "csv_tags/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.store import LoanLedger\nfrom libris.loans.models import Loan\ndef mk(n, cat='x'):\n    s = LoanLedger()\n    for k in range(n):\n        s.add(Loan(id='k%02d' % k, ref='N%02d' % k, branch=cat, days=(k * 5) % 7, fine=1.0 + k))\n    return s\nimport os, tempfile\nfrom libris.loans.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').flags = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[5:], load_csv(p).get('k01').flags, load_csv(p).get('k00').flags)",
+     "['flags'] ['a', 'b'] []"
+    ]
+   ],
+   "name": "r44",
+   "site": "csv_tags/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import BookShelf\nfrom libris.books.models import Book\ndef mk(n, cat='x'):\n    s = BookShelf()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, title='N%02d' % k, genre=cat, copies=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom libris.books.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Books inventory"
+    ]
+   ],
+   "name": "r45",
+   "site": "title/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.store import Roster\nfrom libris.members.models import Member\ndef mk(n, cat='x'):\n    s = Roster()\n    for k in range(n):\n        s.add(Member(id='k%02d' % k, name='N%02d' % k, tier=cat, visits=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom libris.members.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Members roster"
+    ]
+   ],
+   "name": "r46",
+   "site": "title/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.store import LoanLedger\nfrom libris.loans.models import Loan\ndef mk(n, cat='x'):\n    s = LoanLedger()\n    for k in range(n):\n        s.add(Loan(id='k%02d' % k, ref='N%02d' % k, branch=cat, days=(k * 5) % 7, fine=1.0 + k))\n    return s\nfrom libris.loans.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Loans ledger"
+    ]
+   ],
+   "name": "r47",
+   "site": "title/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import BookShelf\nfrom libris.books.models import Book\ndef mk(n, cat='x'):\n    s = BookShelf()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, title='N%02d' % k, genre=cat, copies=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom libris.books.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "------------------------------"
+    ]
+   ],
+   "name": "r48",
+   "site": "sep/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.store import Roster\nfrom libris.members.models import Member\ndef mk(n, cat='x'):\n    s = Roster()\n    for k in range(n):\n        s.add(Member(id='k%02d' % k, name='N%02d' % k, tier=cat, visits=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom libris.members.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "~~~~~~~~~~~~~~~~~~~~~~~~"
+    ]
+   ],
+   "name": "r49",
+   "site": "sep/members"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom libris.members.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "2"
+    ]
+   ],
+   "name": "r50",
+   "site": "thr/members"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom libris.loans.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "7"
+    ]
+   ],
+   "name": "r51",
+   "site": "thr/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import BookShelf\nfrom libris.books.models import Book\ndef mk(n, cat='x'):\n    s = BookShelf()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, title='N%02d' % k, genre=cat, copies=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom libris.books.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "r52",
+   "site": "low_sorted/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.loans.store import LoanLedger\nfrom libris.loans.models import Loan\ndef mk(n, cat='x'):\n    s = LoanLedger()\n    for k in range(n):\n        s.add(Loan(id='k%02d' % k, ref='N%02d' % k, branch=cat, days=(k * 5) % 7, fine=1.0 + k))\n    return s\nfrom libris.loans.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "r53",
+   "site": "low_sorted/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.report import summary\nfrom libris.books.io import load_csv\nprint(list(summary(load_csv('data/books.csv'))))",
+     "['Science', 'fiction', 'history', 'poetry']"
+    ]
+   ],
+   "name": "r54",
+   "site": "summary_sorted/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.report import summary\nfrom libris.members.io import load_csv\nprint(list(summary(load_csv('data/members.csv'))))",
+     "['Silver', 'basic', 'gold', 'student']"
+    ]
+   ],
+   "name": "r55",
+   "site": "summary_sorted/members"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.store import BookShelf\nfrom libris.books.models import Book\ndef mk(n, cat='x'):\n    s = BookShelf()\n    for k in range(n):\n        s.add(Book(id='k%02d' % k, title='N%02d' % k, genre=cat, copies=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r56",
+   "site": "remove_ret/books"
+  },
+  {
+   "checks": [
+    [
+     "from libris.members.store import Roster\nfrom libris.members.models import Member\ndef mk(n, cat='x'):\n    s = Roster()\n    for k in range(n):\n        s.add(Member(id='k%02d' % k, name='N%02d' % k, tier=cat, visits=(k * 5) % 7, fee=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r57",
+   "site": "remove_ret/members"
+  },
+  {
+   "checks": [
+    [
+     "import libris.books\nfrom libris.books.errors import Invalid, NotFound\nprint(sorted(libris.books.__all__), libris.books.NotFound is NotFound, libris.books.Invalid is Invalid)",
+     "['Book', 'BookShelf', 'CATEGORY', 'Invalid', 'NAME_FIELD', 'NotFound', 'dump_csv', 'load_csv', 'render'] True True"
+    ]
+   ],
+   "name": "r58",
+   "site": "all_export/books"
+  },
+  {
+   "checks": [
+    [
+     "import libris.members\nfrom libris.members.errors import Invalid, NotFound\nprint(sorted(libris.members.__all__), libris.members.NotFound is NotFound, libris.members.Invalid is Invalid)",
+     "['CATEGORY', 'Invalid', 'Member', 'NAME_FIELD', 'NotFound', 'Roster', 'dump_csv', 'load_csv', 'render'] True True"
+    ]
+   ],
+   "name": "r59",
+   "site": "all_export/members"
+  },
+  {
+   "checks": [
+    [
+     "import libris.loans\nfrom libris.loans.errors import Invalid, NotFound\nprint(sorted(libris.loans.__all__), libris.loans.NotFound is NotFound, libris.loans.Invalid is Invalid)",
+     "['CATEGORY', 'Invalid', 'Loan', 'LoanLedger', 'NAME_FIELD', 'NotFound', 'dump_csv', 'load_csv', 'render'] True True"
+    ]
+   ],
+   "name": "r60",
+   "site": "all_export/loans"
+  },
+  {
+   "checks": [
+    [
+     "from libris.books.io import load_csv\nfrom libris.books.pricing import subtotal\ns = load_csv('data/books.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\nfrom libris.members.io import load_csv\nfrom libris.members.pricing import subtotal\ns = load_csv('data/members.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\nfrom libris.loans.io import load_csv\nfrom libris.loans.pricing import subtotal\ns = load_csv('data/loans.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\n",
+     "30 True\n30 True\n30 True"
+    ]
+   ],
+   "name": "regress-data",
+   "site": "regress"
+  },
+  {
+   "checks": [
+    [
+     "import io, contextlib\nfrom libris.cli import main\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'books', 'data/books.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'members', 'data/members.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'loans', 'data/loans.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\n",
+     "30 b01\n30 m101\n30 L-1"
+    ]
+   ],
+   "name": "regress-cli",
+   "site": "regress"
+  }
+ ],
+ "pkg": "libris"
+}

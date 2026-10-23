@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""e-py-change: Exercism `change` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d3 limited coin supply (a dict of available counts), a seeded tie-break between
+equally short answers and a seeded output order; d4 adds "fewest different coin values" as the first
+tie-break; d5 adds a seeded pair of coin values that may not be used together.
+Reference: ref/solution.py (parameterized by P). Dev fixture: ref/original.py (the unmutated exercise).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "change"
+STUB = '''def find_fewest_coins(coins, target):
+    raise NotImplementedError("find_fewest_coins")
+'''
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    p = {"order": rng.choice(["asc", "desc"]), "tie": rng.choice(["larger", "smaller"]), "distinct": d >= 4,
+         "forbid": None}
+    if d >= 5:
+        a = rng.randint(2, 12)
+        b = rng.randint(a + 1, 25)
+        p["forbid"] = [a, b]
+    return p
+
+
+def rules_text(p):
+    lines = [
+        "`coins` is a dict mapping each coin value (a positive `int`) to the number of coins of that value that "
+        "are available (an `int` >= 0). `target` is an `int`. Return a `list` of coin values whose sum is exactly "
+        "`target`, using each value at most as many times as it is available.",
+        "",
+        "Choose the answer by these rules, in order:",
+        "",
+    ]
+    rules = []
+    if p["forbid"]:
+        rules.append("An answer may never contain both a coin of value %d and a coin of value %d (either one alone "
+                     "is fine)." % tuple(p["forbid"]))
+    rules.append("Use as few coins as possible.")
+    if p["distinct"]:
+        rules.append("Among the answers with the fewest coins, use as few different coin values as possible.")
+    if p["tie"] == "larger":
+        rules.append("If several answers are still tied, prefer larger coins: sort each answer's coins from "
+                     "largest to smallest and pick the answer that has the larger coin at the first position "
+                     "where they differ.")
+    else:
+        rules.append("If several answers are still tied, prefer smaller coins: sort each answer's coins from "
+                     "smallest to largest and pick the answer that has the smaller coin at the first position "
+                     "where they differ.")
+    lines += ["%d. %s" % (i + 1, r) for i, r in enumerate(rules)]
+    lines += [
+        "",
+        "Return the chosen coins sorted in %s order. A `target` of `0` gives `[]`." % (
+            "ascending" if p["order"] == "asc" else "descending (largest first)"),
+        "",
+        "Raise `ValueError` when `target` is negative, or when no allowed combination of the available coins "
+        "sums to `target`.",
+    ]
+    return "\n".join(lines)
+
+
+def coin_set(rng, p, tie_rich=False):
+    if tie_rich:
+        vals = rng.sample(list(range(1, 13)), rng.randint(4, 6))
+    else:
+        vals = rng.sample([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 12, 15, 20, 25, 30, 40, 50], rng.randint(3, 6))
+    if p["forbid"] and rng.chance(2, 3):
+        for v in p["forbid"]:
+            if v not in vals:
+                vals.append(v)
+    return {v: rng.randint(0, 6) if rng.chance(1, 6) else rng.randint(1, 6) for v in sorted(vals)}
+
+
+def reachable_target(rng, coins):
+    total = 0
+    for v, k in coins.items():
+        total += v * rng.randint(0, k)
+    return total
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    ns = load_ref(ref)
+    exprs = []
+
+    def add(coins, target):
+        e = "find_fewest_coins(%r, %d)" % (coins, target)
+        if e not in exprs:
+            exprs.append(e)
+
+    def outcome(coins, target):
+        try:
+            return ns["find_fewest_coins"](coins, target)
+        except ValueError:
+            return None
+
+    def unlimited_differs(coins, target):
+        """The answer with unlimited supply has fewer coins than the limited one (supply binds)."""
+        res = outcome(coins, target)
+        if res is None:
+            return False
+        best = [0] + [None] * target  # fewest coins with unlimited supply (DP)
+        for amount in range(1, target + 1):
+            for v in coins:
+                if v <= amount and best[amount - v] is not None:
+                    if best[amount] is None or best[amount - v] + 1 < best[amount]:
+                        best[amount] = best[amount - v] + 1
+        return best[target] is not None and best[target] < len(res)
+
+    def tied(coins, target):
+        """At least two answers share the minimum coin count (the tie rules matter)."""
+        res = outcome(coins, target)
+        if res is None:
+            return False
+        alt = dict(coins)
+        flip = dict(ns["P"], tie="smaller" if ns["P"]["tie"] == "larger" else "larger")
+        save = ns["P"]
+        ns["P"] = flip
+        try:
+            other = outcome(alt, target)
+        finally:
+            ns["P"] = save
+        return other is not None and sorted(other) != sorted(res)
+
+    # visible examples (4): a tie, a binding supply, a plain case, an impossible target
+    for want in ("tie", "supply"):
+        for _ in range(400):
+            coins = coin_set(rng, p, tie_rich=(want == "tie"))
+            t = reachable_target(rng, coins)
+            if t > 0 and (tied(coins, t) if want == "tie" else unlimited_differs(coins, t)):
+                add(coins, t)
+                break
+    coins = coin_set(rng, p)
+    add(coins, max(1, reachable_target(rng, coins)))
+    while True:
+        coins = {v: rng.randint(1, 3) for v in sorted(rng.sample([2, 4, 6, 8, 10, 12, 20], 3))}
+        t = 2 * rng.randint(1, 20) + 1
+        add(coins, t)  # odd target, even coins: impossible
+        break
+    # hidden: ties, binding supplies, plain cases, edges
+    n_tie = n_sup = 0
+    for _ in range(3000):
+        if n_tie >= 8 and n_sup >= 6:
+            break
+        coins = coin_set(rng, p, tie_rich=rng.chance(1, 2))
+        t = reachable_target(rng, coins)
+        if t <= 0:
+            continue
+        if n_tie < 8 and tied(coins, t):
+            add(coins, t)
+            n_tie += 1
+        elif n_sup < 6 and unlimited_differs(coins, t):
+            add(coins, t)
+            n_sup += 1
+    if p["forbid"]:
+        a, b = p["forbid"]
+        n_fb = 0
+        for _ in range(3000):
+            if n_fb >= 4:
+                break
+            coins = coin_set(rng, p)
+            coins[a] = max(coins.get(a, 0), 1)
+            coins[b] = max(coins.get(b, 0), 1)
+            coins = dict(sorted(coins.items()))
+            t = reachable_target(rng, coins) + rng.choice([0, a + b])
+            if t <= 0:
+                continue
+            save = ns["P"]
+            ns["P"] = dict(save, forbid=None)
+            try:
+                free = outcome(coins, t)
+            finally:
+                ns["P"] = save
+            res = outcome(coins, t)
+            if free is not None and a in free and b in free and res != free:
+                add(coins, t)
+                n_fb += 1
+    for _ in range(4):
+        coins = coin_set(rng, p)
+        add(coins, reachable_target(rng, coins) or 1)
+    coins = coin_set(rng, p)
+    add(coins, 0)
+    add(coins, -rng.randint(1, 50))
+    big = sorted(coins)[-1]
+    add({big: 2, big * 2 + 1: 1}, big * 3)  # needs three coins of `big` but only two exist (or other combos)
+    add({1: rng.randint(2, 4), 5: 0, 10: 1}, rng.randint(12, 14))
+    dev = {"original": ctx.read("ref", "original.py")}
+    task = ("Implement `find_fewest_coins(coins, target)` in `%s.py`: make change for `target` from a limited "
+            "supply of coins." % MODULE)
+    return assemble(ctx, MODULE, task, rules_text(p), ref, exprs[:40], 4, dev, STUB)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

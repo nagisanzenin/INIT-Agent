@@ -1,0 +1,224 @@
+#!/usr/bin/env python3
+"""e-rs-rle: Exercism `run-length-encoding` (Rust) with a seeded semantic change (m7-design §3.1.1, family E).
+
+Seeded parameters: where the count goes (before or after the letter), the minimum run length that is
+compressed, and a maximum group length (long runs are split). Difficulty adds deltas; every difficulty
+differs from the original exercise. Hidden cases: 24 seeded encode/decode cases (incl. the 4 visible
+examples) as one #[test] each, scored by the shared runner's cargo_test step (partial credit).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "..", "..", "packs", "s1", "lib"))
+import s1lib  # noqa: E402
+
+UNLIMITED = None
+LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz"
+
+MANIFEST = '''[package]
+name = "rle"
+version = "0.1.0"
+edition = "2021"
+build = false
+publish = false
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+'''
+
+STUB = '''/// Run-length encode `source` (see the task statement for the exact rules).
+pub fn encode(source: &str) -> String {
+    todo!("encode {source}")
+}
+
+/// Decode a string produced by `encode`.
+pub fn decode(source: &str) -> String {
+    todo!("decode {source}")
+}
+'''
+
+REFERENCE = '''const COUNT_FIRST: bool = {count_first};
+const MIN_RUN: usize = {min_run};
+const MAX_GROUP: usize = {max_group};
+
+fn push_group(out: &mut String, c: char, n: usize) {{
+    if n >= MIN_RUN {{
+        if COUNT_FIRST {{
+            out.push_str(&n.to_string());
+            out.push(c);
+        }} else {{
+            out.push(c);
+            out.push_str(&n.to_string());
+        }}
+    }} else {{
+        for _ in 0..n {{
+            out.push(c);
+        }}
+    }}
+}}
+
+/// Run-length encode `source` (see the task statement for the exact rules).
+pub fn encode(source: &str) -> String {{
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {{
+        let c = chars[i];
+        let mut j = i;
+        while j < chars.len() && chars[j] == c {{
+            j += 1;
+        }}
+        let mut n = j - i;
+        while n > 0 {{
+            let g = n.min(MAX_GROUP);
+            push_group(&mut out, c, g);
+            n -= g;
+        }}
+        i = j;
+    }}
+    out
+}}
+
+fn read_count(chars: &[char], i: &mut usize) -> Option<usize> {{
+    let mut n: Option<usize> = None;
+    while *i < chars.len() && chars[*i].is_ascii_digit() {{
+        n = Some(n.unwrap_or(0) * 10 + chars[*i].to_digit(10).unwrap() as usize);
+        *i += 1;
+    }}
+    n
+}}
+
+/// Decode a string produced by `encode`.
+pub fn decode(source: &str) -> String {{
+    let chars: Vec<char> = source.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < chars.len() {{
+        let (c, n) = if COUNT_FIRST {{
+            let n = read_count(&chars, &mut i);
+            if i >= chars.len() {{
+                break;
+            }}
+            i += 1;
+            (chars[i - 1], n)
+        }} else {{
+            i += 1;
+            (chars[i - 1], read_count(&chars, &mut i))
+        }};
+        for _ in 0..n.unwrap_or(1) {{
+            out.push(c);
+        }}
+    }}
+    out
+}}
+'''
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    if d == 1:
+        return False, 2, UNLIMITED
+    count_first = rng.chance(1, 2)
+    if d == 2:
+        return count_first, rng.choice([3, 4]), UNLIMITED
+    if d == 3:
+        return count_first, rng.choice([2, 3, 4]), rng.randint(5, 9)
+    if d == 4:
+        return count_first, rng.choice([2, 3, 4]), rng.randint(4, 6)
+    return count_first, rng.choice([3, 4]), rng.randint(4, 6)
+
+
+def encode(s, count_first, min_run, max_group):
+    out, i = [], 0
+    while i < len(s):
+        j = i
+        while j < len(s) and s[j] == s[i]:
+            j += 1
+        n = j - i
+        while n > 0:
+            g = n if max_group is None else min(n, max_group)
+            if g >= min_run:
+                out.append("%d%s" % (g, s[i]) if count_first else "%s%d" % (s[i], g))
+            else:
+                out.append(s[i] * g)
+            n -= g
+        i = j
+    return "".join(out)
+
+
+def sample_text(rng):
+    alphabet = rng.sample(LETTERS + " ", rng.randint(3, 5))
+    out, prev = [], None
+    for _ in range(rng.randint(1, 6)):
+        c = rng.choice([a for a in alphabet if a != prev])
+        k = rng.choice([1, 1, 2, 3, 4, 5, 7, 9, 10, 12, 14])
+        out.append(c * k)
+        prev = c
+    return "".join(out)
+
+
+def rule_text(count_first, min_run, max_group):
+    pos = "before" if count_first else "after"
+    ex_run = "AAAA" if min_run <= 4 else "A" * min_run
+    rules = [
+        "- The input contains only ASCII letters and spaces (never digits). Split it into maximal runs of "
+        "the same character.",
+        "- A run is written in groups. %s" % (
+            "Each run is a single group." if max_group is None else
+            "A group holds at most %d characters: a longer run is split from the left into groups of %d, and "
+            "the last group holds the remainder." % (max_group, max_group)),
+        "- A group of n characters with n >= %d is written as the decimal count n %s the character "
+        "(so `%s` becomes `%s`)." % (min_run, pos, ex_run,
+                                    encode(ex_run, count_first, min_run, max_group)),
+        "- A group with fewer than %d characters is written out literally, character by character." % min_run,
+        "- `decode` is the exact inverse of `encode` for every string `encode` can produce.",
+    ]
+    return "\n".join(rules)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    count_first, min_run, max_group = params(ctx, rng)
+    cases, seen = [], set()
+    while len(cases) < 24:
+        text = sample_text(rng)
+        enc = encode(text, count_first, min_run, max_group)
+        kind = "encode" if len(cases) % 2 == 0 else "decode"
+        if (kind, text) in seen:
+            continue
+        seen.add((kind, text))
+        if kind == "encode":
+            cases.append(("case_%02d" % len(cases), "encode(%s)" % s1lib.rust_str(text), s1lib.rust_str(enc)))
+        else:
+            cases.append(("case_%02d" % len(cases), "decode(%s)" % s1lib.rust_str(enc), s1lib.rust_str(text)))
+    visible = cases[:4]
+    ref = REFERENCE.format(count_first="true" if count_first else "false", min_run=min_run,
+                           max_group="usize::MAX" if max_group is None else max_group)
+    inst = s1lib.Instance(ctx, prompt="")
+    inst.prompt = (
+        "The crate `rle` needs `encode` and `decode` in `src/lib.rs` for this run-length format. It differs "
+        "from the usual run-length-encoding exercise, so follow these rules exactly:\n\n"
+        + rule_text(count_first, min_run, max_group)
+        + "\n\nExamples (also in `tests/visible.rs`; run `cargo test`):\n"
+        + "\n".join("    %s == %s" % (expr, want) for _, expr, want in visible)
+        + "\n\nDo not edit the tests or Cargo.toml; your functions will also be checked on other inputs."
+    )
+    inst.workspace["Cargo.toml"] = MANIFEST
+    inst.workspace["src/lib.rs"] = STUB
+    inst.workspace["tests/visible.rs"] = s1lib.rust_tests_source("use rle::{decode, encode};", visible)
+    inst.notice()
+    inst.marker_files = ["src/lib.rs", "tests/visible.rs", "Cargo.toml"]
+    inst.protect("tests/visible.rs", "Cargo.toml")
+    inst.solution["src/lib.rs"] = ref
+    inst.hidden["hidden/Cargo.toml"] = MANIFEST
+    inst.hidden["hidden/hidden_s1.rs"] = s1lib.rust_tests_source("use rle::{decode, encode};", cases)
+    inst.step({"kind": "cargo_test", "name": "rle", "manifest": "hidden/Cargo.toml",
+               "tests": {"hidden_s1.rs": "hidden/hidden_s1.rs"}, "names": [name for name, _, _ in cases]})
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

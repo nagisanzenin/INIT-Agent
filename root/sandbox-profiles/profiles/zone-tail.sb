@@ -1,0 +1,40 @@
+; ==== Z. init-root zone tail (deny-only; always appended last) ====
+; Z1. the Root's home is invisible (connecting to the egress socket is a network operation; Z6 leaves it open)
+(deny file-read* file-write* (literal (param "Z_ROOT_HOME")) (subpath (param "Z_ROOT_HOME")))
+; Z2. the Root's paths outside ROOT_HOME (its service file, no writes in its directory) and the owner's secrets
+;     (the ADR-009 read deny list, also in full mode); every other read is the inner profile's (D9)
+(deny file-read* file-write* (literal (param "Z_ROOT_SVC")))
+(deny file-write* (literal (param "Z_ROOT_SVC_DIR")) (subpath (param "Z_ROOT_SVC_DIR")))
+; one line per read deny entry i: the built-in list, then the charter's sandbox.read_deny:
+(deny file-read* file-write* (literal (param "Z_DENY_<i>")) (subpath (param "Z_DENY_<i>")))
+; Z3. writes only inside INIT_HOME and the instance's write grant Z_WRITE (ADR-009: the live body's workspace, or the
+;     home in full mode; INIT_HOME for every other instance), plus the devices every profile needs
+(deny file-write*
+  (require-not (require-any
+    (subpath (param "Z_INIT_HOME")) (subpath (param "Z_WRITE")) (literal "/dev/null") (literal "/dev/zero")
+    (literal "/dev/dtracehelper") (literal "/dev/ptmx") (regex #"^/dev/ttys[0-9]+") (subpath "/dev/fd"))))
+; Z3a. never what the owner's own tools run or load unsandboxed (ADR-009 §9.3 Q5), in every mode: shell startup
+;     files, git's user config, INIT's launchers and PATH directories, login items; one line per write deny entry i:
+(deny file-write* (literal (param "Z_WDENY_<i>")) (subpath (param "Z_WDENY_<i>")))
+; Z3b. nor git's hooks and config in any repository outside INIT_HOME (the rest of .git stays writable, so the agent can commit)
+(deny file-write* (require-all (require-not (subpath (param "Z_INIT_HOME")))
+  (require-any (regex #"/\.git/hooks(/|$)") (regex #"/\.git/config$") (regex #"/\.git/modules/.+/hooks(/|$)") (regex #"/\.git/modules/.+/config$"))))
+; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced
+(deny file-write* (literal (param "Z_INIT_HOME")) (literal (param "Z_RUN")) (literal (param "Z_ZONE_MARK"))
+  (literal (param "Z_KERNEL")) (subpath (param "Z_KERNEL"))
+  (literal (param "Z_PUB")) (subpath (param "Z_PUB"))
+  (literal (param "Z_MARKS")) (subpath (param "Z_MARKS"))
+  (literal (param "Z_KGIT")) (subpath (param "Z_KGIT")))
+; Z5. an instance reads only its own mark (other marks and the decoy are denied)
+(deny file-read* (require-all (subpath (param "Z_MARKS")) (require-not (literal (param "Z_MARK")))))
+; Z6. no IP at all; Unix sockets only inside INIT_HOME, plus the Root egress socket
+(deny network-outbound
+  (require-not (require-any
+    (remote unix-socket (path-literal (param "Z_EGRESS_SOCK")))
+    (remote unix-socket (subpath (param "Z_INIT_HOME"))))))
+(deny network-bind (require-not (local unix-socket (subpath (param "Z_INIT_HOME")))))
+(deny network-inbound (require-not (local unix-socket (subpath (param "Z_INIT_HOME")))))
+; Z7. no XPC services; no signals or inspection outside the instance's own sandbox
+(deny mach-lookup (xpc-service-name-prefix ""))
+(deny signal (require-not (target same-sandbox)))
+(deny process-info* (require-not (target same-sandbox)))

@@ -1,0 +1,100 @@
+#!/usr/bin/env python3
+"""c-rfind-ends: CRUXEval sample_729 with a ret_extra change (family C, operator ret_extra; see C/_lib/s1c.py).
+
+The function finds non-overlapping occurrences of s2 from the right and lists their end indices. The seeded
+change makes it also return an extra value computed from the occurrences it found.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(s1,s2):
+    res = []
+    i = s1.rfind(s2)
+    while i != -1:
+        res.append(i+len(s2)-1)
+        i = s1.rfind(s2, 0, i)
+    return res
+'''
+
+HELPER = '''def end_of(start, pattern):
+    return start + len(pattern) - 1
+'''
+
+CORE = '''from .__HELPER__ import end_of
+
+
+def __FN__(s1, s2):
+    res = []
+    i = s1.rfind(s2)
+    while i != -1:
+        res.append(end_of(i, s2))
+        i = s1.rfind(s2, 0, i)
+    return res
+'''
+
+CRUX_INPUT = ("abcdefghabc", "abc")
+
+EXTRAS = {
+    "uncovered": ("the number of characters of `s1` that are not inside any of the occurrences the function "
+                  "found",
+                  CORE.replace("    return res\n", "    return res, len(s1) - len(res) * len(s2)\n")),
+    "leftmost": ("the start index of the leftmost occurrence the function found (the last one it finds), or `-1` "
+                 "when it found none",
+                 CORE.replace("    res = []\n", "    res = []\n    first = -1\n")
+                     .replace("        res.append(end_of(i, s2))\n",
+                              "        res.append(end_of(i, s2))\n        first = i\n")
+                     .replace("    return res\n", "    return res, first\n")),
+    "removed": ("`s1` with exactly the occurrences the function found removed (and no others)",
+                CORE.replace("    return res\n",
+                             "    out = s1\n    for e in res:\n        st = e - len(s2) + 1\n"
+                             "        out = out[:st] + out[st + len(s2):]\n    return res, out\n")),
+}
+
+TWISTS = [
+    ("Finally, the list in the returned pair must be in increasing order (it is decreasing today).",
+     "(r[0][::-1], r[1])"),
+    ("Finally, the function must return the pair's elements swapped: `(extra, ends)`.", "(r[1], r[0])"),
+]
+
+
+def variant(rng):
+    kind = rng.choice(sorted(EXTRAS))
+    desc, core = EXTRAS[kind]
+    change = ("The function must now return a pair `(ends, extra)` (a tuple) instead of a list: `ends` is the "
+              "list it returns today, unchanged, and `extra` is %s." % desc)
+    return {"change": change, "core": core, "state": kind,
+            "hint": "the occurrences found are exactly those whose end indices the function lists today."}
+
+
+def inputs(rng, state):
+    out = [CRUX_INPUT]
+    for _ in range(300):
+        r = rng.below(6)
+        if r == 0:
+            s1 = s1c.mutate_str(rng, CRUX_INPUT[0], "abcx")
+            s2 = "abc" if rng.chance(1, 2) else s1c.rand_str(rng, "abc", 1, 3)
+        else:
+            alpha = rng.choice(["ab", "aab", "abc", "abx"])
+            s1 = s1c.rand_str(rng, alpha, 0, 14)
+            if s1 and rng.chance(2, 3):
+                a = rng.below(len(s1))
+                s2 = s1[a:a + rng.randint(1, 3)]
+            else:
+                s2 = s1c.rand_str(rng, alpha, 1, 3)
+        out.append((s1, s2))   # s2 is never empty (an empty s2 never ends the loop)
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="ret_extra", original=ORIGINAL,
+                    fn_choices=["match_ends", "find_ends", "end_positions", "scan_back"],
+                    params="s1, s2", doc="finds where a pattern ends inside a text.", core=CORE, helper=HELPER,
+                    variant=variant, inputs=inputs, twists=TWISTS, vis_ok=lambda r: "[]" not in r)
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

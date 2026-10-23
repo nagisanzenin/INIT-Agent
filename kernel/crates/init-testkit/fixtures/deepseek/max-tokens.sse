@@ -1,0 +1,18 @@
+data: {"choices":[{"delta":{"content":"","role":"assistant"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"Partial ","reasoning_content":null},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"answer","reasoning_content":null},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"","name":"bash"},"id":"call_00_mock0","index":0,"type":"function"}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"comman"},"index":0}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"d\":\"echo"},"index":0}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"tool_calls":[{"function":{"arguments":" cut\"}"},"index":0}]},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"","reasoning_content":null},"finish_reason":"length","index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock","usage":{"completion_tokens":10,"completion_tokens_details":{"reasoning_tokens":0},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":101,"prompt_tokens":101,"prompt_tokens_details":{"cached_tokens":0},"total_tokens":111}}
+
+data: [DONE]
+

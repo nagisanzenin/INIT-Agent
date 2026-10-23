@@ -1,0 +1,169 @@
+#!/usr/bin/env python3
+"""e-py-knapsack: Exercism `knapsack` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d2 return the chosen indices with a seeded tie-break between equal-value sets
+(fewest items, lightest, or most items; then the lexicographically smallest index list); d3 adds a
+max_items cap; d4 adds item groups (at most one item per group).
+Reference: ref/solution.py (parameterized by P). Dev fixture: ref/original.py (the unmutated exercise).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "knapsack"
+STUB = '''def best_items(max_weight, items, max_items=None):
+    raise NotImplementedError("best_items")
+'''
+GROUPS = ["red", "blue", "green", "gold", "iron", "wood"]
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    return {"tie": rng.choice(["fewest", "lightest", "most"]), "cap": d >= 3, "groups": d >= 4}
+
+
+def rules_text(p):
+    item = "`items` is a `list` of dicts with the `int` keys `weight` and `value` (both > 0)"
+    if p["groups"]:
+        item += ", and optionally `group` (a `str`)"
+    lines = [
+        "%s. Choose a set of items, each item at most once, such that:" % item,
+        "",
+        "- the total weight is at most `max_weight`;",
+    ]
+    if p["cap"]:
+        lines.append("- the set has at most `max_items` items when `max_items` is not `None` (`None` means no "
+                     "limit);")
+    else:
+        lines.append("- (`max_items` is accepted for compatibility and ignored);")
+    if p["groups"]:
+        lines.append("- the set contains at most one item of each group (items without a `group` key are not "
+                     "restricted);")
+    tie = {"fewest": "the set with the fewest items",
+           "lightest": "the set with the lowest total weight",
+           "most": "the set with the most items"}[p["tie"]]
+    lines += [
+        "",
+        "Among the allowed sets, choose the one with the largest total value. If several sets have the largest "
+        "total value, choose %s. If several sets are still tied, choose the one whose ascending list of indices "
+        "is smallest in lexicographic order (compare element by element, so `[0, 3]` comes before `[1, 2]`; a "
+        "list that is a prefix of another comes first)." % tie,
+        "",
+        "Return the chosen items' indices (0-based positions in `items`) as an ascending `list` of `int`. When "
+        "no item fits, return `[]`. Raise `ValueError` when `max_weight` is negative%s." % (
+            " or `max_items` is negative" if p["cap"] else ""),
+    ]
+    return "\n".join(lines)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    ns = load_ref(ref)
+    exprs = []
+
+    def add(mw, items, mi=None):
+        e = "best_items(%d, %r)" % (mw, items) if mi is None else "best_items(%d, %r, %d)" % (mw, items, mi)
+        if e not in exprs:
+            exprs.append(e)
+
+    def items(n, grouped=False):
+        out = []
+        for _ in range(n):
+            it = {"weight": rng.randint(1, 9), "value": rng.randint(1, 12)}
+            if grouped and rng.chance(2, 3):
+                it["group"] = rng.choice(GROUPS[:3])
+            out.append(it)
+        return out
+
+    def tie_items(n, grouped=False):
+        """Items with planted equal-value alternatives: an item and a pair (or two copies) of the same value."""
+        out = items(max(1, n - 3), grouped)
+        w = rng.randint(2, 8)
+        v = rng.randint(4, 12)
+        a = rng.randint(1, v - 1)
+        out.append({"weight": w, "value": v})
+        out.append({"weight": rng.randint(1, w), "value": a})
+        out.append({"weight": rng.randint(1, w), "value": v - a})
+        if rng.chance(1, 2):
+            out.append(dict(out[rng.below(len(out))]))
+        return rng.shuffled(out)
+
+    def capacity(its):
+        total = sum(i["weight"] for i in its)
+        return rng.randint(max(1, total // 4), max(2, total * 2 // 3))
+
+    def differs_without_tie_rule(mw, its, mi=None):
+        """True when the seeded tie rule changes the answer (several optimal sets exist)."""
+        res = ns["best_items"](mw, its, mi)
+        save = ns["P"]
+        alt = {"fewest": "most", "most": "fewest", "lightest": "most"}[save["tie"]]
+        ns["P"] = dict(save, tie=alt)
+        try:
+            other = ns["best_items"](mw, its, mi)
+        finally:
+            ns["P"] = save
+        return res != other
+
+    # visible examples (4)
+    for _ in range(300):
+        its = tie_items(rng.randint(5, 7))
+        mw = capacity(its)
+        if differs_without_tie_rule(mw, its):
+            add(mw, its)
+            break
+    its = items(rng.randint(4, 6))
+    add(capacity(its), its)
+    if p["cap"]:
+        its = items(rng.randint(5, 7))
+        add(capacity(its), its, rng.randint(1, 2))
+    else:
+        add(rng.randint(1, 3), [{"weight": rng.randint(5, 9), "value": rng.randint(1, 9)}
+                                for _ in range(3)])
+    add(-rng.randint(1, 9), items(3))
+    # hidden: planted ties, random sets, caps, groups, edges
+    n_tie = 0
+    for _ in range(2000):
+        if n_tie >= 9:
+            break
+        its = tie_items(rng.randint(5, 11), grouped=p["groups"])
+        mw = capacity(its)
+        mi = rng.randint(1, 4) if p["cap"] and rng.chance(1, 3) else None
+        if differs_without_tie_rule(mw, its, mi):
+            add(mw, its, mi)
+            n_tie += 1
+    for _ in range(6):
+        its = items(rng.randint(3, 12), grouped=p["groups"])
+        add(capacity(its), its)
+    if p["cap"]:
+        for _ in range(5):
+            its = items(rng.randint(6, 12), grouped=p["groups"])
+            add(capacity(its) + 10, its, rng.randint(0, 3))
+        add(10, items(4), -1)
+    if p["groups"]:
+        for _ in range(4):
+            its = items(rng.randint(6, 10))
+            for it in its:
+                it["group"] = rng.choice(GROUPS[:2])
+            add(sum(i["weight"] for i in its), its)
+    add(0, items(3))
+    add(rng.randint(5, 20), [])
+    big = items(13, grouped=p["groups"])
+    add(capacity(big), big)
+    while len(exprs) < 22:
+        its = tie_items(rng.randint(4, 9), grouped=p["groups"])
+        add(capacity(its), its)
+    dev = {"original": ctx.read("ref", "original.py")}
+    task = ("Implement `best_items(max_weight, items, max_items=None)` in `%s.py`: choose which items to pack "
+            "so that their total value is as large as possible." % MODULE)
+    return assemble(ctx, MODULE, task, rules_text(p), ref, exprs[:40], 4, dev, STUB)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

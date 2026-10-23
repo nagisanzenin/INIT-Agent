@@ -1,0 +1,192 @@
+#!/usr/bin/env python3
+"""e-rs-clock: Exercism `clock` (Rust) with a seeded semantic change (m7-design §3.1.1, family E).
+
+Seeded parameters: hours per day H and minutes per hour M (never 24 x 60), the display separator, at
+difficulty >= 3 whether hour 0 is displayed as H, and at difficulty 4 inputs anywhere in the i32 range
+(hours * M overflows i32; chained additions near i32::MAX). Graded cases: 4 visible + 28 hidden tests (30 at difficulty 4).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "clock_variant"
+N_HIDDEN = 28
+I32_MIN, I32_MAX = -(1 << 31), (1 << 31) - 1
+SEPS = [":", ".", "h", "-"]
+
+STUB = '''use std::fmt;
+
+/// A time of day on this planet's clock; equal times compare equal.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Clock {
+    // choose your own fields
+}
+
+impl Clock {
+    pub fn new(hours: i32, minutes: i32) -> Self {
+        todo!("clock at {hours} h {minutes} min")
+    }
+
+    pub fn add_minutes(&self, minutes: i32) -> Self {
+        todo!("add {minutes} minutes")
+    }
+}
+
+impl fmt::Display for Clock {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        todo!("display the clock")
+    }
+}
+'''
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    if d == 2:
+        H, M = rng.choice([12, 20, 30]), rng.choice([50, 60, 100])
+    else:
+        while True:
+            H, M = rng.choice([10, 12, 16, 20, 30, 36]), rng.choice([40, 50, 60, 90, 100])
+            if (H, M) != (24, 60):
+                break
+    return {"H": H, "M": M, "sep": rng.choice(SEPS) if d >= 3 else rng.choice(SEPS[1:]),
+            "zero_as_h": rng.chance(1, 2) if d >= 3 else False, "big": d >= 4}
+
+
+def norm(total, p):
+    return total % (p["H"] * p["M"])
+
+
+def show(t, p):
+    h, m = divmod(t, p["M"])
+    if h == 0 and p["zero_as_h"]:
+        h = p["H"]
+    return "%02d%s%02d" % (h, p["sep"], m)
+
+
+def naive_show(total):
+    """The original 24 x 60 clock (ignores overflow: the naive Rust panics there, which also fails)."""
+    t = total % 1440
+    return "%02d:%02d" % divmod(t, 60)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    H, M = p["H"], p["M"]
+    day = H * M
+    cases = []
+    disagree = 0
+
+    def new(h, m):
+        return h * M + m
+
+    def lit(v):
+        return "i32::MIN" if v == I32_MIN else "i32::MAX" if v == I32_MAX else str(v)
+
+    def case_show(h, m, adds=()):
+        nonlocal disagree
+        t = new(h, m)
+        nt = h * 60 + m
+        expr = "Clock::new(%s, %s)" % (lit(h), lit(m))
+        for a in adds:
+            t += a
+            nt += a
+            expr += ".add_minutes(%s)" % lit(a)
+        want = show(norm(t, p), p)
+        disagree += want != naive_show(nt)
+        cases.append((None, "%s.to_string()" % expr, ersgen.rs_str(want)))
+
+    def case_eq(a, b):
+        nonlocal disagree
+        same = norm(new(*a), p) == norm(new(*b), p)
+        disagree += same != ((a[0] * 60 + a[1]) % 1440 == (b[0] * 60 + b[1]) % 1440)
+        body = "assert_%s!(Clock::new(%d, %d), Clock::new(%d, %d));" % ("eq" if same else "ne", a[0], a[1], b[0], b[1])
+        cases.append((None, None, body))
+
+    # visible: a plain time, a rollover past the day, a negative time, an addition across midnight
+    case_show(rng.randint(1, H - 1), rng.randint(1, M - 1))
+    case_show(H + rng.randint(1, H - 1), M + rng.randint(1, 9))
+    case_show(-rng.randint(1, H - 1), -rng.randint(1, M - 1))
+    case_show(H - 1, M - 3, [rng.randint(5, M)])
+    # hidden
+    case_show(0, 0)
+    case_show(H, 0)
+    case_show(0, M)
+    case_show(rng.randint(0, H - 1), M - 1)
+    case_show(rng.randint(2, 5) * H + 1, 0)
+    case_show(0, rng.randint(3, 9) * day + rng.randint(1, M - 1))
+    case_show(rng.randint(1, H), -rng.randint(1, 3) * M - rng.randint(1, M - 1))
+    case_show(-rng.randint(H + 1, 4 * H), -rng.randint(M + 1, 5 * M))
+    case_show(rng.randint(-50, 50), rng.randint(-5000, 5000))
+    case_show(rng.randint(-500, 500), rng.randint(-100000, 100000))
+    case_show(1, 1, [-rng.randint(day + 1, 3 * day)])
+    case_show(rng.randint(0, H - 1), rng.randint(0, M - 1), [rng.randint(1, 3) * day])
+    case_show(rng.randint(0, H - 1), rng.randint(0, M - 1), [rng.randint(-200, 200), rng.randint(-200, 200)])
+    case_show(0, 1, [-1])
+    case_show(0, 0, [-1])
+    case_show(23, 59)  # an ordinary earth time: means something else here
+    case_show(24, 0)
+    case_show(12, 60)
+    a = (rng.randint(0, H - 1), rng.randint(0, M - 1))
+    case_eq(a, (a[0] + H * rng.randint(1, 4), a[1]))
+    case_eq(a, (a[0] - H, a[1] + rng.choice([0, 1])))
+    case_eq((a[0], a[1] + M), (a[0] + 1, a[1]))
+    case_eq((0, 0), (24, 0))
+    case_eq((1, 0), (0, 60))
+    if p["big"]:
+        case_show(I32_MAX, I32_MAX)
+        case_show(I32_MIN, I32_MIN)
+        case_show(rng.randint(10 ** 8, 2 * 10 ** 9), rng.randint(-10 ** 9, 10 ** 9))
+        case_show(0, 0, [I32_MAX, I32_MAX, I32_MAX])
+        case_show(H - 1, M - 1, [I32_MIN, I32_MIN])
+        case_show(-rng.randint(10 ** 8, 2 * 10 ** 9), 7, [rng.randint(-10 ** 9, 10 ** 9)])
+    while len(cases) < N_HIDDEN + 4:
+        case_show(rng.randint(-3 * H, 3 * H), rng.randint(-3 * M, 3 * M),
+                  [rng.randint(-2 * day, 2 * day)] if rng.chance(1, 2) else [])
+    if disagree < 4:
+        raise s1lib.GenError("too few cases separate the mutation from the original")
+    vis = cases[:4]
+    rest = rng.shuffled(cases[4:])
+    named = []
+    for n, (_, e, w) in enumerate(vis + rest):
+        named.append(("visible_%d" % (n + 1) if n < 4 else "case_%02d" % (n - 3), e, w))
+
+    zero = ("Hour 0 is DISPLAYED as %d (so midnight shows as `%d%s00`), although it is still hour 0 for all "
+            "arithmetic." % (H, H, p["sep"])) if p["zero_as_h"] else "Hour 0 is displayed as `00`."
+    rules = [
+        "1. A day has exactly %d hours and an hour has exactly %d minutes, so a day has %d minutes. Valid times "
+        "run from hour 0, minute 0 to hour %d, minute %d." % (H, M, day, H - 1, M - 1),
+        "2. `Clock::new(hours, minutes)` is the time `hours * %d + minutes` minutes after midnight, wrapped "
+        "into a single day (towards the past for negative values, like a real clock running backwards: e.g. "
+        "`Clock::new(0, -1)` is one minute before midnight). Any hours/minutes values are allowed, also ones "
+        "far larger than a day or negative." % M,
+        "3. `add_minutes(m)` returns a new clock `m` minutes later (earlier when `m` is negative), wrapped the "
+        "same way.",
+        "4. Two clocks are equal (`==`, derived) exactly when they show the same time of day.",
+        "5. Display (`to_string()`): the hour and the minute, each as at least two digits with a leading zero, "
+        "joined by `%s` (no spaces). %s" % (p["sep"], zero),
+    ]
+    if p["big"]:
+        rules.append("6. Every `i32` argument must work, including `i32::MIN` and `i32::MAX`, also when "
+                     "`add_minutes` is chained: intermediate values exceed the `i32` range, so compute in a "
+                     "wider type and never overflow or panic.")
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {
+        "HOURS": H, "MINUTES": M, "SEPARATOR": ersgen.rs_char(p["sep"]), "ZERO_AS_H": ersgen.rs_bool(p["zero_as_h"])})
+    return ersgen.finish(
+        ctx, crate=CRATE,
+        api="#[derive(Debug, PartialEq, Eq)]\npub struct Clock { /* your fields */ }\n"
+            "impl Clock {\n    pub fn new(hours: i32, minutes: i32) -> Self;\n"
+            "    pub fn add_minutes(&self, minutes: i32) -> Self;\n}\nimpl std::fmt::Display for Clock",
+        intro="A colony on another planet keeps time with a clock that has its own day and hour lengths. "
+              "Implement the `Clock` type (no dates, only the time of day).",
+        rules="\n".join(rules), stub=STUB, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::Clock;" % CRATE, cases=named, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

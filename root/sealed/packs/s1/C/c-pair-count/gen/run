@@ -1,0 +1,88 @@
+#!/usr/bin/env python3
+"""c-pair-count: CRUXEval sample_793 with a cond change (family C, operator cond; see C/_lib/s1c.py).
+
+The function counts the position pairs (i, j), start <= i <= j < end, whose values differ. The seeded change
+replaces "differ" by another relation; some relations also hold for i == j, which the loops visit.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(list, start, end):
+    count = 0
+    for i in range(start, end):
+        for j in range(i, end):
+            if list[i] != list[j]:
+                count += 1
+    return count
+'''
+
+HELPER = '''def differ(a, b):
+    return a != b
+'''
+
+CORE = '''from .__HELPER__ import differ
+
+
+def __FN__(list, start, end):
+    count = 0
+    for i in range(start, end):
+        for j in range(i, end):
+            if differ(list[i], list[j]):
+                count += 1
+    return count
+'''
+
+CRUX_INPUT = ([1, 2, 4, 3, 2, 1], 0, 3)
+
+
+def variant(rng):
+    kind = rng.choice(["lt", "gt", "sum_mod", "close", "same_parity"])
+    if kind == "lt":
+        rel, expr = "the value at position `i` is strictly smaller than the value at position `j`", "a < b"
+    elif kind == "gt":
+        rel, expr = "the value at position `i` is strictly greater than the value at position `j`", "a > b"
+    elif kind == "sum_mod":
+        k = rng.choice([2, 3, 4, 5])
+        rel, expr = "the sum of the two values is divisible by %d" % k, "(a + b) %% %d == 0" % k
+    elif kind == "close":
+        w = rng.choice([1, 2, 3])
+        rel, expr = "the two values differ by at most %d (absolute difference)" % w, "abs(a - b) <= %d" % w
+    else:
+        rel, expr = "the two values are both even or both odd", "a % 2 == b % 2"
+    change = ("A visited pair of positions `(i, j)` must now be counted when %s (today: when the two values "
+              "differ). The pairs that are visited stay exactly the same as today, including the pairs with "
+              "`i == j`." % rel)
+    return {"change": change, "helper": HELPER.replace("    return a != b", "    return %s" % expr),
+            "hint": "only the comparison of the two values needs to change."}
+
+
+def inputs(rng, state):
+    out = [CRUX_INPUT]
+    for _ in range(300):
+        r = rng.below(6)
+        if r == 0:
+            xs = s1c.mutate_ints(rng, CRUX_INPUT[0], -3, 9)
+        else:
+            xs = s1c.rand_ints(rng, -4, 12, 1, 9)
+        n = len(xs)
+        start = rng.randint(0, n)
+        end = rng.randint(start, n)
+        if rng.below(10) == 0 and n >= 2:
+            start = -rng.randint(1, min(2, n))   # negative starts index from the end, as Python does
+        out.append((xs, start, end))
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="cond", original=ORIGINAL,
+                    fn_choices=["count_pairs", "pair_tally", "span_pairs", "window_pairs"],
+                    params="list, start, end", doc="counts pairs of positions inside a window.", core=CORE,
+                    helper=HELPER, variant=variant, inputs=inputs, kind="int")
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

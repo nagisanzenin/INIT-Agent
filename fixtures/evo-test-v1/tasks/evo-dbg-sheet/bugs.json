@@ -1,0 +1,112 @@
+{
+ "bugs": [
+  {
+   "id": "recalc-indegree",
+   "visible": true,
+   "what": "readiness counts a precedent once per reference: a formula reading the same recalculated cell twice (directly twice, or directly and through a range) never becomes ready; it and its dependents stay blank/stale",
+   "edits": [
+    [
+     "sheet/workbook.py",
+     "        waiting = {p: len(self._precedents_in(self.cells[p], live)) for p in live}\n",
+     "        waiting = {p: len(set(self._precedents_in(self.cells[p], live))) for p in live}\n"
+    ]
+   ]
+  },
+  {
+   "id": "unary-power",
+   "visible": true,
+   "what": "prefix minus binds tighter than ^ (UNARY_PREC above ^): -2^2 is 4; masked in the parabola example behind recalc-indegree",
+   "edits": [
+    [
+     "sheet/parser.py",
+     "UNARY_PREC = 7\n",
+     "UNARY_PREC = 5\n"
+    ]
+   ]
+  },
+  {
+   "id": "col-letters",
+   "visible": false,
+   "what": "column number -> letters drops the borrow for multiples of 26 (Z -> AZ, AZ -> BZ, ZZZ -> AAAZ): recalc names and every reference re-rendered by copy or insert/delete are wrong for such columns",
+   "edits": [
+    [
+     "sheet/refs.py",
+     "        if r == 0:\n            r = 26\n",
+     "        if r == 0:\n            n, r = n - 1, 26\n"
+    ]
+   ]
+  },
+  {
+   "id": "stale-deps",
+   "visible": false,
+   "what": "old dependency edges are unlinked after the new content is loaded (so the new references are unlinked): replaced formulas keep stale precedents (extra recalcs, early evaluation with stale values, false #CYCLE!); masked: needs a replacement and a later edit reaching the old precedent",
+   "edits": [
+    [
+     "sheet/workbook.py",
+     "        cell.load(text)\n        self._unlink(cell)\n        self._link(cell)\n",
+     "        self._unlink(cell)\n        cell.load(text)\n        self._link(cell)\n"
+    ]
+   ]
+  },
+  {
+   "id": "bool-number",
+   "visible": false,
+   "what": "is_number accepts bool: logical values in ranges are summed/counted/matched by numeric criteria and compare as numbers",
+   "edits": [
+    [
+     "sheet/values.py",
+     "    return isinstance(v, (int, float))\n",
+     "    return isinstance(v, (int, float)) and not isinstance(v, bool)\n"
+    ]
+   ]
+  },
+  {
+   "id": "zero-literal",
+   "visible": false,
+   "what": "content typing tests the parsed number for truth: a typed 0 (or -0, 0.0) becomes the string '0'; it displays the same and coerces in arithmetic, but COUNT/AVERAGE/MIN/MAX/COUNTIF/comparisons treat it as text (-0 displays as -0)",
+   "edits": [
+    [
+     "sheet/values.py",
+     "    x = parse_number(text)\n    if x:\n        return x\n",
+     "    x = parse_number(text)\n    if x is not None:\n        return x\n"
+    ]
+   ]
+  },
+  {
+   "id": "deep-recursion",
+   "visible": false,
+   "what": "cycle detection is a recursive DFS: dependency chains or cycles longer than ~1000 cells raise RecursionError (traceback, exit 1)",
+   "edits": [
+    [
+     "sheet/workbook.py",
+     "        succ = {v: sorted(d for d in self.dependents_of(v) if d in group) for v in group}\n        index, low, stack, on_stack, members = {}, {}, [], set(), set()\n\n        def visit(v):\n            index[v] = low[v] = len(index)\n            stack.append(v)\n            on_stack.add(v)\n            for w in succ[v]:\n                if w not in index:\n                    visit(w)\n                    low[v] = min(low[v], low[w])\n                elif w in on_stack:\n                    low[v] = min(low[v], index[w])\n            if low[v] == index[v]:\n                comp = []\n                while True:\n                    w = stack.pop()\n                    on_stack.discard(w)\n                    comp.append(w)\n                    if w == v:\n                        break\n                if len(comp) > 1 or v in succ[v]:\n                    members.update(comp)\n\n        for root in sorted(group):\n            if root not in index:\n                visit(root)\n        return members\n",
+     "        succ = {v: sorted(d for d in self.dependents_of(v) if d in group) for v in group}\n        index, low, stack, on_stack, members = {}, {}, [], set(), set()\n        for root in sorted(group):\n            if root in index:\n                continue\n            index[root] = low[root] = len(index)\n            stack.append(root)\n            on_stack.add(root)\n            work = [(root, 0)]\n            while work:\n                v, i = work[-1]\n                if i < len(succ[v]):\n                    work[-1] = (v, i + 1)\n                    w = succ[v][i]\n                    if w not in index:\n                        index[w] = low[w] = len(index)\n                        stack.append(w)\n                        on_stack.add(w)\n                        work.append((w, 0))\n                    elif w in on_stack:\n                        low[v] = min(low[v], index[w])\n                    continue\n                work.pop()\n                if work:\n                    u = work[-1][0]\n                    low[u] = min(low[u], low[v])\n                if low[v] == index[v]:\n                    comp = []\n                    while True:\n                        w = stack.pop()\n                        on_stack.discard(w)\n                        comp.append(w)\n                        if w == v:\n                            break\n                    if len(comp) > 1 or v in succ[v]:\n                        members.update(comp)\n        return members\n"
+    ]
+   ]
+  },
+  {
+   "id": "dep-cache",
+   "visible": false,
+   "what": "the dependents_of cache is cleared only when a formula with ranges is linked: a new formula with only single-cell references to a cell whose dependents were cached is missed by later edits (stale values, missing recalc entries, undetected cycles); masked by any later range formula, needs several edits",
+   "edits": [
+    [
+     "sheet/workbook.py",
+     "            self.watchers[cell.pos] = list(cell.rects)\n            self.reverse.clear()\n",
+     "            self.watchers[cell.pos] = list(cell.rects)\n        self.reverse.clear()\n"
+    ]
+   ]
+  },
+  {
+   "id": "delete-range",
+   "visible": false,
+   "what": "deleting row/column N moves a range's first row/column up also when it equals N (>= instead of >): the range then takes in the row/column before it (or becomes #REF! at row/column 1)",
+   "edits": [
+    [
+     "sheet/parser.py",
+     "        new_lo = lo - 1 if lo >= at else lo\n",
+     "        new_lo = lo - 1 if lo > at else lo\n"
+    ]
+   ]
+  }
+ ]
+}

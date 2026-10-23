@@ -1,0 +1,24 @@
+{
+ "v": 1,
+ "id": "e-rs-clock",
+ "family": "E",
+ "lang": "rust",
+ "title": "Clock with a seeded day length, hour length and display",
+ "difficulty": {
+  "default": 3,
+  "min": 2,
+  "max": 4
+ },
+ "toolchains": [
+  "python3",
+  "cargo"
+ ],
+ "licence": "Exercism-MIT",
+ "source": {
+  "repo": "exercism/rust",
+  "path": "exercises/practice/clock",
+  "exercise": "clock",
+  "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e"
+ },
+ "notes": "S1-E-RS. Mutation: seeded hours per day and minutes per hour, display separator, hour 0 shown as H (d3+), the full i32 input range with chained additions (d4). ref/naive.rs is the track's .meta/example.rs (unmutated behaviour; validator fixture, must fail)."
+}

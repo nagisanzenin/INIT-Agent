@@ -1,0 +1,17 @@
+{
+  "v": 1,
+  "id": "WP3-F",
+  "title": "INIT_FAULT under the fake Root: the kernel exits 78 at fakekernel.after_hello (config exit before ready)",
+  "env": "live",
+  "fixture": {"kernel": "fake"},
+  "steps": [
+    {"op": "start_kernel", "fault": "fakekernel.after_hello:exit78"},
+    {"op": "wait_root_log", "match": {"ev": "kernel_exit", "exit": {"code": 78, "class": "config"}}, "timeout_s": 20}
+  ],
+  "expect": {
+    "link_in_order": [{"dir": "in", "frame": {"cmd": "hello"}}],
+    "link_absent": [{"dir": "in", "frame": {"cmd": "ready"}}],
+    "r4": {"verify": true, "records_in_order": [{"kind": "genesis"}, {"kind": "zone_exit", "data": {"class": "config", "code": 78}}]},
+    "processes": {"bodies_running_at_end": 0, "agent_zone_running": false}
+  }
+}

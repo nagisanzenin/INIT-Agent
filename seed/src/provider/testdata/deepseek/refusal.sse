@@ -1,0 +1,16 @@
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"","role":"assistant"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"Mock rea"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"soning."},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"I can't ","reasoning_content":null},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"help wit","reasoning_content":null},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"h that.","reasoning_content":null},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"","reasoning_content":null},"finish_reason":"content_filter","index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock","usage":{"completion_tokens":10,"completion_tokens_details":{"reasoning_tokens":4},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":101,"prompt_tokens":101,"prompt_tokens_details":{"cached_tokens":0},"total_tokens":111}}
+
+data: [DONE]
+

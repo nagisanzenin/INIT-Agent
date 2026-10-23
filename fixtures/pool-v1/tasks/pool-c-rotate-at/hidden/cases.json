@@ -1,0 +1,122 @@
+[
+ {
+  "expect": "'kefp719'",
+  "expr": "rotate_after('19kefp7', '9')",
+  "name": "default_first"
+ },
+ {
+  "expect": "'abc'",
+  "expr": "rotate_after('abc', 'z')",
+  "name": "absent"
+ },
+ {
+  "expect": "'c-da-b-'",
+  "expr": "rotate_after('a-b-c-d', '-', 2)",
+  "name": "second"
+ },
+ {
+  "expect": "'da-b-c-'",
+  "expr": "rotate_after('a-b-c-d', '-', 3)",
+  "name": "third"
+ },
+ {
+  "expect": "'a-b'",
+  "expr": "rotate_after('a-b', '-', 2)",
+  "name": "too_many"
+ },
+ {
+  "expect": "'da-b-c-'",
+  "expr": "rotate_after('a-b-c-d', '-', -1)",
+  "name": "last"
+ },
+ {
+  "expect": "'c-da-b-'",
+  "expr": "rotate_after('a-b-c-d', '-', -2)",
+  "name": "second_last"
+ },
+ {
+  "expect": "'a-b'",
+  "expr": "rotate_after('a-b', '-', -2)",
+  "name": "too_many_negative"
+ },
+ {
+  "expect": "'abc-'",
+  "expr": "rotate_after('abc-', '-')",
+  "name": "mark_at_end"
+ },
+ {
+  "expect": "'abc-'",
+  "expr": "rotate_after('-abc', '-')",
+  "name": "mark_at_start"
+ },
+ {
+  "expect": "'-'",
+  "expr": "rotate_after('-', '-')",
+  "name": "only_mark"
+ },
+ {
+  "expect": "'k3k1::k2::'",
+  "expr": "rotate_after('k1::k2::k3', '::', 2)",
+  "name": "multichar"
+ },
+ {
+  "expect": "'k3k1::k2::'",
+  "expr": "rotate_after('k1::k2::k3', '::', -1)",
+  "name": "multichar_last"
+ },
+ {
+  "expect": "'abababX'",
+  "expr": "rotate_after('abababX', 'aba', 2)",
+  "name": "nonoverlap_count"
+ },
+ {
+  "expect": "'XaaXaaaa'",
+  "expr": "rotate_after('aaXaaXaa', 'aa', -3)",
+  "name": "nonoverlap_third_from_end"
+ },
+ {
+  "expect": "'babXaba'",
+  "expr": "rotate_after('abababX', 'aba', -1)",
+  "name": "nonoverlap_last"
+ },
+ {
+  "expect": "''",
+  "expr": "rotate_after('', 'x')",
+  "name": "empty_text"
+ },
+ {
+  "expr": "rotate_after('abc', '')",
+  "name": "empty_mark",
+  "raises": "ValueError"
+ },
+ {
+  "expr": "rotate_after('a-b', '-', 0)",
+  "name": "zero_occurrence",
+  "raises": "ValueError"
+ },
+ {
+  "expect": "['ba.', 'c']",
+  "expr": "rotate_all(['a.b', 'c'], '.')",
+  "name": "batch_default"
+ },
+ {
+  "expect": "['ca.b.', 'x.y']",
+  "expr": "rotate_all(['a.b.c', 'x.y'], '.', 2)",
+  "name": "batch_occurrence"
+ },
+ {
+  "expect": "['ca.b.', 'yx.', '']",
+  "expr": "rotate_all(['a.b.c', 'x.y', ''], '.', -1)",
+  "name": "batch_negative"
+ },
+ {
+  "expect": "[]",
+  "expr": "rotate_all([], '.', 3)",
+  "name": "batch_empty"
+ },
+ {
+  "expr": "rotate_all(['a'], '', 1)",
+  "name": "batch_bad",
+  "raises": "ValueError"
+ }
+]

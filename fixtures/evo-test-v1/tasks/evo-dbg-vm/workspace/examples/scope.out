@@ -1,0 +1,7 @@
+block global
+inner
+block
+global
+42
+changed
+exit 0

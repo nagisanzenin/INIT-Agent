@@ -1,0 +1,28 @@
+{
+ "check": {
+  "argv": [
+   "check/run"
+  ],
+  "timeout_s": 30
+ },
+ "created": "2026-10-20T00:00:00Z",
+ "id": "sx-calc-fix",
+ "labels": [
+  "standin"
+ ],
+ "limits": {
+  "max_cost_musd": 200000,
+  "wall_s": 60
+ },
+ "prompt": "calc.sh add A B must print A+B and calc.sh sub A B must print A-B. Fix calc.sh; test.sh runs two cases. (ref SX-5e8a31)",
+ "source": {
+  "kind": "maintainer"
+ },
+ "title": "sx-calc-fix",
+ "v": 2,
+ "workspace": {
+  "bytes": 0,
+  "file": "workspace.tar",
+  "sha256": ""
+ }
+}

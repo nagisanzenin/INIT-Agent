@@ -1,0 +1,625 @@
+{
+ "items": [
+  {
+   "checks": [
+    [
+     "from wardline.supplies.store import Cabinet\nfrom wardline.supplies.models import Supply\ndef mk(n, cat='x'):\n    s = Cabinet()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, stock=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom wardline.supplies.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "------------------------------"
+    ]
+   ],
+   "name": "r01",
+   "site": "sep/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.store import Registry\nfrom wardline.patients.models import Patient\ndef mk(n, cat='x'):\n    s = Registry()\n    for k in range(n):\n        s.add(Patient(id='k%02d' % k, fullname='N%02d' % k, team=cat, visits=(k * 5) % 7, balance=1.0 + k))\n    return s\nfrom wardline.patients.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "=========================="
+    ]
+   ],
+   "name": "r02",
+   "site": "sep/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import Schedule\nfrom wardline.visits.models import Visit\ndef mk(n, cat='x'):\n    s = Schedule()\n    for k in range(n):\n        s.add(Visit(id='k%02d' % k, reason='N%02d' % k, room=cat, minutes=(k * 5) % 7, charge=1.0 + k))\n    return s\nfrom wardline.visits.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "++++++++++++++++++++++++++++++++"
+    ]
+   ],
+   "name": "r03",
+   "site": "sep/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.report import summary\nfrom wardline.supplies.io import load_csv\nprint(list(summary(load_csv('data/supplies.csv'))))",
+     "['Pediatrics', 'icu', 'surgery', 'triage']"
+    ]
+   ],
+   "name": "r04",
+   "site": "summary_sorted/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.report import summary\nfrom wardline.visits.io import load_csv\nprint(list(summary(load_csv('data/visits.csv'))))",
+     "['Lab', 'room-a', 'room-b', 'xray']"
+    ]
+   ],
+   "name": "r05",
+   "site": "summary_sorted/visits"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom wardline.supplies.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "10"
+    ]
+   ],
+   "name": "r06",
+   "site": "thr/supplies"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom wardline.patients.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "2"
+    ]
+   ],
+   "name": "r07",
+   "site": "thr/patients"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom wardline.visits.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "15"
+    ]
+   ],
+   "name": "r08",
+   "site": "thr/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.store import Cabinet\nfrom wardline.supplies.models import Supply\ndef mk(n, cat='x'):\n    s = Cabinet()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, stock=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom wardline.supplies.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Supplies on hand"
+    ]
+   ],
+   "name": "r09",
+   "site": "title/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.store import Registry\nfrom wardline.patients.models import Patient\ndef mk(n, cat='x'):\n    s = Registry()\n    for k in range(n):\n        s.add(Patient(id='k%02d' % k, fullname='N%02d' % k, team=cat, visits=(k * 5) % 7, balance=1.0 + k))\n    return s\nfrom wardline.patients.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Patients registered"
+    ]
+   ],
+   "name": "r10",
+   "site": "title/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import Schedule\nfrom wardline.visits.models import Visit\ndef mk(n, cat='x'):\n    s = Schedule()\n    for k in range(n):\n        s.add(Visit(id='k%02d' % k, reason='N%02d' % k, room=cat, minutes=(k * 5) % 7, charge=1.0 + k))\n    return s\nfrom wardline.visits.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Visits booked"
+    ]
+   ],
+   "name": "r11",
+   "site": "title/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.store import Registry\nfrom wardline.patients.models import Patient\ndef mk(n, cat='x'):\n    s = Registry()\n    for k in range(n):\n        s.add(Patient(id='k%02d' % k, fullname='N%02d' % k, team=cat, visits=(k * 5) % 7, balance=1.0 + k))\n    return s\nfrom wardline.patients.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "r12",
+   "site": "low_sorted/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.store import Cabinet\nfrom wardline.supplies.models import Supply\ndef mk(n, cat='x'):\n    s = Cabinet()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, stock=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom wardline.supplies.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Supply(id='k01', name='z', ward='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').name)",
+     "duplicate supply id k01 2 N01"
+    ]
+   ],
+   "name": "r13",
+   "site": "dup/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.store import Registry\nfrom wardline.patients.models import Patient\ndef mk(n, cat='x'):\n    s = Registry()\n    for k in range(n):\n        s.add(Patient(id='k%02d' % k, fullname='N%02d' % k, team=cat, visits=(k * 5) % 7, balance=1.0 + k))\n    return s\nfrom wardline.patients.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Patient(id='k01', fullname='z', team='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').fullname)",
+     "duplicate patient id k01 2 N01"
+    ]
+   ],
+   "name": "r14",
+   "site": "dup/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import Schedule\nfrom wardline.visits.models import Visit\ndef mk(n, cat='x'):\n    s = Schedule()\n    for k in range(n):\n        s.add(Visit(id='k%02d' % k, reason='N%02d' % k, room=cat, minutes=(k * 5) % 7, charge=1.0 + k))\n    return s\nfrom wardline.visits.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Visit(id='k01', reason='z', room='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').reason)",
+     "duplicate visit id k01 2 N01"
+    ]
+   ],
+   "name": "r15",
+   "site": "dup/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.errors import NotFound\nprint(str(NotFound('q7')))",
+     "supply 'q7' not found"
+    ]
+   ],
+   "name": "r16",
+   "site": "notfound/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.errors import NotFound\nprint(str(NotFound('q7')))",
+     "patient 'q7' not found"
+    ]
+   ],
+   "name": "r17",
+   "site": "notfound/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.errors import NotFound\nprint(str(NotFound('q7')))",
+     "visit 'q7' not found"
+    ]
+   ],
+   "name": "r18",
+   "site": "notfound/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.store import Cabinet\nfrom wardline.supplies.models import Supply\ndef mk(n, cat='x'):\n    s = Cabinet()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, stock=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom wardline.supplies.validate import MAX_NAME\nfrom wardline.supplies.errors import Invalid\ns = mk(0)\ns.add(Supply(id='a', name='x' * 64, ward='c'))\ntry:\n    s.add(Supply(id='b', name='x' * 65, ward='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "64 1"
+    ]
+   ],
+   "name": "r19",
+   "site": "maxname/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.store import Registry\nfrom wardline.patients.models import Patient\ndef mk(n, cat='x'):\n    s = Registry()\n    for k in range(n):\n        s.add(Patient(id='k%02d' % k, fullname='N%02d' % k, team=cat, visits=(k * 5) % 7, balance=1.0 + k))\n    return s\nfrom wardline.patients.validate import MAX_NAME\nfrom wardline.patients.errors import Invalid\ns = mk(0)\ns.add(Patient(id='a', fullname='x' * 90, team='c'))\ntry:\n    s.add(Patient(id='b', fullname='x' * 91, team='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "90 1"
+    ]
+   ],
+   "name": "r20",
+   "site": "maxname/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import Schedule\nfrom wardline.visits.models import Visit\ndef mk(n, cat='x'):\n    s = Schedule()\n    for k in range(n):\n        s.add(Visit(id='k%02d' % k, reason='N%02d' % k, room=cat, minutes=(k * 5) % 7, charge=1.0 + k))\n    return s\nfrom wardline.visits.validate import MAX_NAME\nfrom wardline.visits.errors import Invalid\ns = mk(0)\ns.add(Visit(id='a', reason='x' * 60, room='c'))\ntry:\n    s.add(Visit(id='b', reason='x' * 61, room='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "60 1"
+    ]
+   ],
+   "name": "r21",
+   "site": "maxname/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.store import Cabinet\nfrom wardline.supplies.models import Supply\ndef mk(n, cat='x'):\n    s = Cabinet()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, stock=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom wardline.supplies.errors import Invalid\ntry:\n    mk(0).add(Supply(id='a', name='b', ward='c', price=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "price cannot be negative"
+    ]
+   ],
+   "name": "r22",
+   "site": "price_msg/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import Schedule\nfrom wardline.visits.models import Visit\ndef mk(n, cat='x'):\n    s = Schedule()\n    for k in range(n):\n        s.add(Visit(id='k%02d' % k, reason='N%02d' % k, room=cat, minutes=(k * 5) % 7, charge=1.0 + k))\n    return s\nfrom wardline.visits.errors import Invalid\ntry:\n    mk(0).add(Visit(id='a', reason='b', room='c', charge=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "charge cannot be negative"
+    ]
+   ],
+   "name": "r23",
+   "site": "price_msg/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.store import Cabinet\nfrom wardline.supplies.models import Supply\ndef mk(n, cat='x'):\n    s = Cabinet()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, stock=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom wardline.supplies.errors import Invalid\ntry:\n    mk(0).add(Supply(id='a', name='b', ward='c', stock=-1))\nexcept Invalid as e:\n    print(e)",
+     "stock cannot be negative"
+    ]
+   ],
+   "name": "r24",
+   "site": "qty_msg/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import Schedule\nfrom wardline.visits.models import Visit\ndef mk(n, cat='x'):\n    s = Schedule()\n    for k in range(n):\n        s.add(Visit(id='k%02d' % k, reason='N%02d' % k, room=cat, minutes=(k * 5) % 7, charge=1.0 + k))\n    return s\nfrom wardline.visits.errors import Invalid\ntry:\n    mk(0).add(Visit(id='a', reason='b', room='c', minutes=-1))\nexcept Invalid as e:\n    print(e)",
+     "minutes cannot be negative"
+    ]
+   ],
+   "name": "r25",
+   "site": "qty_msg/visits"
+  },
+  {
+   "checks": [
+    [
+     "import wardline\nprint(wardline.__version__, open('VERSION').read().strip())",
+     "3.1.0 3.1.0"
+    ]
+   ],
+   "name": "r26",
+   "site": "version"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.cli import main\nmain(['count', 'supplies', 'data/supplies.csv', '--category', 'icu'])\nmain(['count', 'patients', 'data/patients.csv', '--category', 'intake'])\nmain(['count', 'visits', 'data/visits.csv'])",
+     "8\n8\n30"
+    ]
+   ],
+   "name": "r27",
+   "site": "count_cat"
+  },
+  {
+   "checks": [
+    [
+     "L = open('README.md').read().splitlines()\nprint(repr(L[L.index('    wardline count CATALOG FILE') + 1]))",
+     "'    wardline json CATALOG FILE'"
+    ]
+   ],
+   "name": "r28",
+   "site": "readme"
+  },
+  {
+   "checks": [
+    [
+     "import io, json, contextlib\nfrom wardline.cli import main\nfrom wardline.supplies.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'supplies', 'data/supplies.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/supplies.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))\nfrom wardline.visits.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'visits', 'data/visits.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/visits.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))\n",
+     "True 1\nTrue 1"
+    ]
+   ],
+   "name": "r29",
+   "site": "json_cmd"
+  },
+  {
+   "checks": [
+    [
+     "L = open('CHANGELOG.md').read().splitlines()\nprint(L[L.index('## Changes') + 1])",
+     "- 3.1.0: design note CLN-40"
+    ]
+   ],
+   "name": "r30",
+   "site": "changelog"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-¥1,234.50 ¥7.00"
+    ]
+   ],
+   "name": "r31",
+   "site": "money_neg/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-¥1,234.50 ¥7.00"
+    ]
+   ],
+   "name": "r32",
+   "site": "money_neg/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-¥1,234.50 ¥7.00"
+    ]
+   ],
+   "name": "r33",
+   "site": "money_neg/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.08"
+    ]
+   ],
+   "name": "r34",
+   "site": "tax/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.03"
+    ]
+   ],
+   "name": "r35",
+   "site": "tax/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.05"
+    ]
+   ],
+   "name": "r36",
+   "site": "tax/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100), discount(10, 0))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0 10.0"
+    ]
+   ],
+   "name": "r37",
+   "site": "discount_range/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100), discount(10, 0))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0 10.0"
+    ]
+   ],
+   "name": "r38",
+   "site": "discount_range/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100), discount(10, 0))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0 10.0"
+    ]
+   ],
+   "name": "r39",
+   "site": "discount_range/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.store import Cabinet\nfrom wardline.supplies.models import Supply\ndef mk(n, cat='x'):\n    s = Cabinet()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, stock=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r40",
+   "site": "page1/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.store import Registry\nfrom wardline.patients.models import Patient\ndef mk(n, cat='x'):\n    s = Registry()\n    for k in range(n):\n        s.add(Patient(id='k%02d' % k, fullname='N%02d' % k, team=cat, visits=(k * 5) % 7, balance=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r41",
+   "site": "page1/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import Schedule\nfrom wardline.visits.models import Visit\ndef mk(n, cat='x'):\n    s = Schedule()\n    for k in range(n):\n        s.add(Visit(id='k%02d' % k, reason='N%02d' % k, room=cat, minutes=(k * 5) % 7, charge=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r42",
+   "site": "page1/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.store import Cabinet\nfrom wardline.supplies.models import Supply\ndef mk(n, cat='x'):\n    s = Cabinet()\n    for k in range(n):\n        s.add(Supply(id='k%02d' % k, name='N%02d' % k, ward=cat, stock=(k * 5) % 7, price=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r43",
+   "site": "search_ci/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.store import Registry\nfrom wardline.patients.models import Patient\ndef mk(n, cat='x'):\n    s = Registry()\n    for k in range(n):\n        s.add(Patient(id='k%02d' % k, fullname='N%02d' % k, team=cat, visits=(k * 5) % 7, balance=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r44",
+   "site": "search_ci/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "12"
+    ]
+   ],
+   "name": "r45",
+   "site": "pagesize/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "16"
+    ]
+   ],
+   "name": "r46",
+   "site": "pagesize/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import Schedule\nfrom wardline.visits.models import Visit\ndef mk(n, cat='x'):\n    s = Schedule()\n    for k in range(n):\n        s.add(Visit(id='k%02d' % k, reason='N%02d' % k, room=cat, minutes=(k * 5) % 7, charge=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_room('mIXED')), len(mk(3, 'lo').by_room('LO')))",
+     "4 3"
+    ]
+   ],
+   "name": "r47",
+   "site": "bycat_ci/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.store import Registry\nfrom wardline.patients.models import Patient\ndef mk(n, cat='x'):\n    s = Registry()\n    for k in range(n):\n        s.add(Patient(id='k%02d' % k, fullname='N%02d' % k, team=cat, visits=(k * 5) % 7, balance=1.0 + k))\n    return s\nimport os, tempfile\nfrom wardline.patients.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').alerts = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[5:], load_csv(p).get('k01').alerts, load_csv(p).get('k00').alerts)",
+     "['alerts'] ['a', 'b'] []"
+    ]
+   ],
+   "name": "r48",
+   "site": "csv_tags/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import Schedule\nfrom wardline.visits.models import Visit\ndef mk(n, cat='x'):\n    s = Schedule()\n    for k in range(n):\n        s.add(Visit(id='k%02d' % k, reason='N%02d' % k, room=cat, minutes=(k * 5) % 7, charge=1.0 + k))\n    return s\nimport os, tempfile\nfrom wardline.visits.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').codes = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[5:], load_csv(p).get('k01').codes, load_csv(p).get('k00').codes)",
+     "['codes'] ['a', 'b'] []"
+    ]
+   ],
+   "name": "r49",
+   "site": "csv_tags/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.models import Supply\nprint(Supply(id='a', name='b', ward='c', stock=3, price=1.105).to_dict()['value'])",
+     "3.31"
+    ]
+   ],
+   "name": "r50",
+   "site": "value_field/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.models import Patient\nprint(Patient(id='a', fullname='b', team='c', visits=3, balance=1.105).to_dict()['owed'])",
+     "3.31"
+    ]
+   ],
+   "name": "r51",
+   "site": "value_field/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.models import Visit\nprint(Visit(id='a', reason='b', room='c', minutes=3, charge=1.105).to_dict()['billed'])",
+     "3.31"
+    ]
+   ],
+   "name": "r52",
+   "site": "value_field/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.models import Supply\nprint(Supply.from_dict({'id': 'a', 'name': 'b', 'ward': 'c', 'tags': ['x', 'y', 'x', 'z', 'y']}).tags)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "r53",
+   "site": "tags_dedupe/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.models import Patient\nprint(Patient.from_dict({'id': 'a', 'fullname': 'b', 'team': 'c', 'alerts': ['x', 'y', 'x', 'z', 'y']}).alerts)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "r54",
+   "site": "tags_dedupe/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.models import Supply\nprint(Supply.from_dict({'id': 'a', 'name': 'b'}).ward)",
+     "general"
+    ]
+   ],
+   "name": "r55",
+   "site": "defcat/supplies"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.models import Patient\nprint(Patient.from_dict({'id': 'a', 'fullname': 'b'}).team)",
+     "intake"
+    ]
+   ],
+   "name": "r56",
+   "site": "defcat/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.patients.store import Registry\nfrom wardline.patients.models import Patient\ndef mk(n, cat='x'):\n    s = Registry()\n    for k in range(n):\n        s.add(Patient(id='k%02d' % k, fullname='N%02d' % k, team=cat, visits=(k * 5) % 7, balance=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r57",
+   "site": "remove_ret/patients"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.visits.store import Schedule\nfrom wardline.visits.models import Visit\ndef mk(n, cat='x'):\n    s = Schedule()\n    for k in range(n):\n        s.add(Visit(id='k%02d' % k, reason='N%02d' % k, room=cat, minutes=(k * 5) % 7, charge=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r58",
+   "site": "remove_ret/visits"
+  },
+  {
+   "checks": [
+    [
+     "import wardline.supplies\nfrom wardline.supplies.errors import Invalid, NotFound\nprint(sorted(wardline.supplies.__all__), wardline.supplies.NotFound is NotFound, wardline.supplies.Invalid is Invalid)",
+     "['CATEGORY', 'Cabinet', 'Invalid', 'NAME_FIELD', 'NotFound', 'Supply', 'dump_csv', 'load_csv', 'render'] True True"
+    ]
+   ],
+   "name": "r59",
+   "site": "all_export/supplies"
+  },
+  {
+   "checks": [
+    [
+     "import wardline.visits\nfrom wardline.visits.errors import Invalid, NotFound\nprint(sorted(wardline.visits.__all__), wardline.visits.NotFound is NotFound, wardline.visits.Invalid is Invalid)",
+     "['CATEGORY', 'Invalid', 'NAME_FIELD', 'NotFound', 'Schedule', 'Visit', 'dump_csv', 'load_csv', 'render'] True True"
+    ]
+   ],
+   "name": "r60",
+   "site": "all_export/visits"
+  },
+  {
+   "checks": [
+    [
+     "from wardline.supplies.io import load_csv\nfrom wardline.supplies.pricing import subtotal\ns = load_csv('data/supplies.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\nfrom wardline.patients.io import load_csv\nfrom wardline.patients.pricing import subtotal\ns = load_csv('data/patients.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\nfrom wardline.visits.io import load_csv\nfrom wardline.visits.pricing import subtotal\ns = load_csv('data/visits.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\n",
+     "30 True\n30 True\n30 True"
+    ]
+   ],
+   "name": "regress-data",
+   "site": "regress"
+  },
+  {
+   "checks": [
+    [
+     "import io, contextlib\nfrom wardline.cli import main\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'supplies', 'data/supplies.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'patients', 'data/patients.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'visits', 'data/visits.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\n",
+     "30 s500\n30 pt001\n30 vs001"
+    ]
+   ],
+   "name": "regress-cli",
+   "site": "regress"
+  }
+ ],
+ "pkg": "wardline"
+}

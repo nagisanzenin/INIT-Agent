@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-mirror-sync",
+ "family": "T",
+ "lang": "any",
+ "title": "Mirror a site tree with exclude and protect rules",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: one-way directory sync (rsync-like) with exclude/protect glob rules, deletions, empty-dir pruning and an action log; traps: same-size content changes (rsync quick-check with equal mtimes misses them), directory patterns, protected files that differ in src, excluded files left alone in dst (knob 4), anchored path patterns vs nested look-alikes and spaces (knob 5); pass_guess_permille: 400"
+}

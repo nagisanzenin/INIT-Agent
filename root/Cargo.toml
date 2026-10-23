@@ -1,0 +1,53 @@
+# The Root workspace: `init-root` (maintainer/owner-owned; never evolvable by the agent;
+# spec v0.3 §13, docs/root/root.md). Dependencies: root/root.md §4.8 (core) and
+# root/egress.md §6 (X6). Vendored in the repo-root vendor/; regenerate with ci/vendor.sh.
+[workspace]
+resolver = "3"
+members = ["crates/init-root", "sandbox-profiles"]
+
+[workspace.package]
+version = "0.2.0"
+edition = "2024"
+publish = false
+
+[workspace.dependencies]
+# core (root/root.md §4.8; serde_json never with `preserve_order`)
+serde = { version = "=1.0.229", features = ["derive"] }
+serde_json = "=1.0.154"
+toml = "=1.1.8"
+sha2 = "=0.11.1"
+ed25519-dalek = "=3.0.0"              # default features `fast`, `zeroize`
+libc = "=0.2.191"
+seccompiler = "=0.5.0"                # Linux only (root/root.md §3.4)
+# egress (root/egress.md §6): blocking HTTPS client, rustls with the `ring` provider; no tokio/hyper
+ureq = { version = "=3.4.2", default-features = false, features = ["rustls"] }
+httparse = "=1.10.1"
+
+# FIX4: the tuple hashing (tuple.rs: blob verify, store put, kernel_part; util::sha256_hex) runs sha2 over
+# the 154 MB debug kernel at every debug-Root start and install. At opt-level 0 sha2 hashes about 13 MB/s
+# (build/status/S1.md gap 4, WP21b "Needs"). Optimize the hashing crates only; the Root itself stays a
+# plain debug build. Quality guard: an optimization level changes no semantics, and every hash is still
+# checked against its expected value.
+[profile.dev.package.sha2]
+opt-level = 3
+[profile.dev.package.digest]
+opt-level = 3
+[profile.dev.package.block-buffer]
+opt-level = 3
+[profile.dev.package.crypto-common]
+opt-level = 3
+[profile.dev.package.hybrid-array]
+opt-level = 3
+[profile.dev.package.cpufeatures]
+opt-level = 3
+
+# Release profile (lane REL; scripts/release.sh, docs/release.md). Measured 2026-10-20 on init-root, back to back
+# under the same load (build/status/REL.md): lto = "thin" alone made the binary 1% larger and the build 24% slower;
+# lto = "thin" with codegen-units = 1 made it 12% smaller and the build 1.4-2x slower, and the kernel and the body
+# (Cranelift, wasmtime) would pay that most. Neither pays for binaries built once per install that are not
+# CPU-bound, so the profile states the defaults. Quality guard: release.sh runs `cargo test --release` (root, seed).
+[profile.release]
+opt-level = 3
+lto = false
+codegen-units = 16
+strip = "debuginfo"              # the default, stated: symbols stay, so panic backtraces keep function names

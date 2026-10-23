@@ -1,0 +1,372 @@
+#!/usr/bin/env python3
+"""e-rs-isbn-verifier: Exercism `isbn-verifier` (Rust) with a seeded semantic change (m7-design §3.1.1, family E).
+
+Seeded parameters: the number of symbols n (8..12), the weight scheme (descending n..1, ascending 1..n or
+an alternating pair), the modulus (11 or 13) with its check letters (the value 10, 11, 12 can be written
+as a letter, only as the last symbol), and one separator character. Difficulty 3 adds strict separator
+placement (only directly between two symbols) and case-sensitive check letters (lower case is invalid;
+at the lower difficulties a lower-case check letter means the same as its upper-case form).
+Every difficulty differs from the original (ISBN-10: n = 10, weights 10..1, modulus 11, letter X,
+hyphens): difficulty 1 changes one or two of these four axes, difficulties 2 and 3 at least three.
+Graded cases: 4 visible + 32 hidden `is_valid_code` calls, one #[test] each.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "isbn_verifier_variant"
+SEPS = ["-", " ", "."]
+SEP_NAMES = {"-": "the hyphen `'-'`", " ": "the space `' '`", ".": "the full stop `'.'`"}
+LETTER_POOL = list("XKTABCDEFGHJLMNPQRSUVWYZ")
+N_HIDDEN = 32
+
+STUB = '''/// Whether `code` is a valid code under the rules of the task.
+pub fn is_valid_code(code: &str) -> bool {
+    todo!("check {code}")
+}
+'''
+
+
+# ----------------------------------------------------------------------------------------- parameters
+
+def make_weights(kind, n, pair):
+    if kind == "desc":
+        return list(range(n, 0, -1))
+    if kind == "asc":
+        return list(range(1, n + 1))
+    return [pair[i % 2] for i in range(n)]
+
+
+def proportional(w1, w2, mod):
+    """Whether w1 and w2 differ only by a constant factor modulo the (prime) modulus: all 2x2 minors vanish."""
+    return all((w1[i] * w2[j] - w1[j] * w2[i]) % mod == 0 for i in range(len(w1)) for j in range(i + 1, len(w1)))
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    while True:
+        k = rng.choice([1, 2]) if d == 1 else rng.choice([3, 4])
+        axes = rng.sample(["length", "weights", "modulus", "sep"], k)
+        n, kind, pair, mod, letters, sep = 10, "desc", None, 11, ["X"], "-"
+        if "length" in axes:
+            n = rng.choice([8, 9, 11, 12])
+        if "weights" in axes:
+            kind = rng.choice(["asc", "alt"])
+            if kind == "alt":
+                pair = rng.sample([1, 3, 7, 9], 2)
+        if "modulus" in axes:
+            mod, nl = rng.choice([(11, 1), (11, 1), (13, 2), (13, 3)])
+            if mod == 11:
+                letters = [rng.choice(["K", "T"])]
+            else:
+                letters = rng.sample(LETTER_POOL, nl)
+        if "sep" in axes:
+            sep = rng.choice([" ", "."])
+        w = make_weights(kind, n, pair)
+        if any(x % mod == 0 for x in w):
+            continue  # a weight that vanishes modulo M would make a symbol irrelevant: reroll
+        if kind != "desc" and proportional(w, make_weights("desc", n, None), mod):
+            continue  # same validity set as the descending weights (e.g. 1..10 against 10..1 modulo 11): reroll
+        return {"n": n, "kind": kind, "pair": pair, "w": w, "mod": mod, "letters": {c: 10 + i for i, c in enumerate(letters)},
+                "letter_list": letters, "sep": sep, "strict": d >= 3}
+
+
+# ----------------------------------------------------------------------------------------- the oracle
+
+def upper_ascii(c):
+    return c.upper() if "a" <= c <= "z" else c
+
+
+def valid(code, p):
+    chars = list(code)
+    sep = p["sep"]
+    if p["strict"]:
+        for i, c in enumerate(chars):
+            if c == sep and (i == 0 or i == len(chars) - 1 or chars[i - 1] == sep or chars[i + 1] == sep):
+                return False
+    syms = [c for c in chars if c != sep]
+    if len(syms) != p["n"]:
+        return False
+    total = 0
+    for i, c in enumerate(syms):
+        if "0" <= c <= "9":
+            v = ord(c) - 48
+        elif i == p["n"] - 1:
+            cc = c if p["strict"] else upper_ascii(c)
+            if cc not in p["letters"]:
+                return False
+            v = p["letters"][cc]
+        else:
+            return False
+        total += p["w"][i] * v
+    return total % p["mod"] == 0
+
+
+def naive(code):
+    """The well-known ISBN-10 check: hyphens anywhere, 10 symbols, X only last, weights 10..1, mod 11."""
+    s = code.replace("-", "")
+    if len(s) != 10:
+        return False
+    total = 0
+    for i, c in enumerate(s):
+        if "0" <= c <= "9":
+            v = ord(c) - 48
+        elif c == "X" and i == 9:
+            v = 10
+        else:
+            return False
+        total += (10 - i) * v
+    return total % 11 == 0
+
+
+# ----------------------------------------------------------------------------------------- builders
+
+def make_syms(rng, p, kind="any", letter=None):
+    """n symbols (chars) that form a valid code; kind 'digit' / 'letter' constrains the last symbol."""
+    n, w, mod = p["n"], p["w"], p["mod"]
+    by_value = {v: c for c, v in p["letters"].items()}
+    inv = pow(w[-1], -1, mod)
+    for _ in range(20000):
+        body = [rng.randint(0, 9) for _ in range(n - 1)]
+        need = (-sum(a * b for a, b in zip(w, body)) * inv) % mod
+        if need <= 9:
+            last, is_letter = str(need), False
+        elif need in by_value:
+            last, is_letter = by_value[need], True
+        else:
+            continue
+        if kind == "digit" and is_letter:
+            continue
+        if kind == "letter" and (not is_letter or (letter is not None and last != letter)):
+            continue
+        return [str(x) for x in body] + [last]
+    raise s1lib.GenError("no valid symbol string found")
+
+
+def joined(rng, syms, p, num, den=10):
+    out = []
+    for i, s in enumerate(syms):
+        if i and rng.chance(num, den):
+            out.append(p["sep"])
+        out.append(s)
+    return "".join(out)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    n, sep, mod = p["n"], p["sep"], p["mod"]
+    letters = p["letter_list"]
+    foreign_seps = [c for c in SEPS if c != sep]
+    not_letters = [c for c in LETTER_POOL if c not in letters]
+    lower_ok = not p["strict"]
+    pool = []  # (category, code); order = priority (mandatory first)
+    seen = set()
+
+    def add(cat, code):
+        if code not in seen:
+            seen.add(code)
+            pool.append((cat, code))
+
+    def valid_syms(kind="any", letter=None):
+        return make_syms(rng, p, kind, letter)
+
+    # valid codes
+    add("valid-plain", "".join(valid_syms("digit")))
+    add("valid-sep", joined(rng, valid_syms("digit"), p, 4))
+    add("valid-full", sep.join(valid_syms("digit")))
+    add("valid-zeros", joined(rng, ["0"] * n, p, 5))
+    for c in letters:
+        add("valid-letter", joined(rng, valid_syms("letter", c), p, 3))
+    if len(letters) == 1:
+        add("valid-letter", "".join(valid_syms("letter", letters[0])))
+    ls = valid_syms("letter", letters[-1])
+    add("lower", joined(rng, ls[:-1] + [ls[-1].lower()], p, 3))
+    ls = valid_syms("letter", letters[0])
+    add("lower", "".join(ls[:-1] + [ls[-1].lower()]))
+    for k in range(5 if p["strict"] else 3):
+        add("valid-more", joined(rng, valid_syms("digit" if k % 2 == 0 else "any"), p, 3 + k % 3))
+    # checksum failures (a single changed symbol is never valid: weights and |delta| are below the modulus)
+    s = valid_syms("digit")
+    i = rng.below(n - 1)
+    s[i] = str((int(s[i]) + rng.randint(1, 9)) % 10)
+    add("checksum", joined(rng, s, p, 3))
+    s = valid_syms("digit")
+    s[-1] = str((int(s[-1]) + rng.randint(1, 9)) % 10)
+    add("checksum", joined(rng, s, p, 3))
+    s = valid_syms("digit")
+    for _ in range(50):
+        i = rng.below(n - 2)
+        if s[i] != s[i + 1]:
+            s[i], s[i + 1] = s[i + 1], s[i]
+            break
+    add("checksum", joined(rng, s, p, 3))
+    s = valid_syms("letter", letters[0])
+    if len(letters) > 1:
+        s[-1] = letters[1]  # a check letter with the wrong value
+    else:
+        s[-1] = str(rng.below(10))  # a digit where the letter was needed
+    add("checksum", joined(rng, s, p, 3))
+    s = valid_syms("digit")
+    s[-1] = rng.choice(letters)  # a digit check replaced by a letter
+    add("checksum", joined(rng, s, p, 3))
+    s = valid_syms("digit")
+    s[-1] = rng.choice(not_letters)  # a letter that is not a check letter, as the last symbol
+    add("badletter", joined(rng, s, p, 3))
+    # wrong length
+    s = valid_syms("digit")
+    add("length", joined(rng, [str(rng.below(10))] + s, p, 3))
+    s = valid_syms("any")
+    add("length", joined(rng, s[:-1], p, 3))
+    if n != 10:
+        body = [rng.randint(0, 9) for _ in range(9)]
+        need = (-sum((10 - i) * v for i, v in enumerate(body))) % 11
+        add("ten", joined(rng, [str(x) for x in body] + ["X" if need == 10 else str(need)], p, 3))
+    # a letter in a position other than the last
+    for pos in (rng.randint(0, 2), n - 2):
+        s = valid_syms("digit")
+        s[pos] = rng.choice(letters)
+        add("midletter", joined(rng, s, p, 3))
+    # foreign separators and other characters
+    s = valid_syms("digit")
+    j = rng.randint(1, n - 1)
+    add("foreign", "".join(s[:j]) + rng.choice(foreign_seps) + "".join(s[j:]))
+    s = valid_syms("digit")
+    add("foreign", rng.choice(foreign_seps).join(s))
+    s = valid_syms("digit")
+    j = rng.randint(1, n - 1)
+    add("foreign", "".join(s[:j]) + rng.choice(["/", "_", "\t"]) + "".join(s[j:]))
+    s = valid_syms("digit")
+    s[rng.below(n - 1)] = "٣"  # an Arabic-Indic digit is not an ASCII digit
+    add("nonascii", joined(rng, s, p, 2))
+    # empty / separators only
+    add("empty", "")
+    add("only-seps", sep * n)
+    # separator placement (invalid under strict placement, valid otherwise)
+    s = valid_syms("digit")
+    add("lead", sep + joined(rng, s, p, 3))
+    s = valid_syms("digit")
+    add("trail", joined(rng, s, p, 3) + sep)
+    s = valid_syms("digit")
+    j = rng.randint(1, n - 1)
+    add("double", "".join(s[:j]) + sep + sep + "".join(s[j:]))
+    s = valid_syms("letter", rng.choice(letters))
+    add("trail", sep.join(s) + sep)
+    # optional top-ups: extra valid codes and codes the original check gets wrong
+    for _ in range(2):
+        add("valid-extra", joined(rng, valid_syms("any"), p, 3))
+    for _ in range(40):
+        s = valid_syms("any")
+        if rng.chance(1, 2):
+            s[-1] = "X"
+        add("disagree", joined(rng, s, p, 3) if rng.chance(1, 2) else "-".join(s))
+    for _ in range(3):
+        add("valid-extra", joined(rng, valid_syms("any"), p, 5))
+
+    # visible: two valid (one with a separator, one with a check letter), one checksum failure, one more rule
+    want = ["valid-sep", "valid-letter", "checksum", "lead" if p["strict"] else "length"]
+    vis = []
+    for cat in want:
+        idx = next(i for i, (c, _) in enumerate(pool) if c == cat and i not in vis)
+        vis.append(idx)
+    rest = [i for i in range(len(pool)) if i not in vis]
+    # keep every mandatory category; optional ones (extra valid codes, codes the original gets wrong) fill up
+    optional = [i for i in rest if pool[i][0] in ("valid-extra", "disagree")]
+    chosen = [i for i in rest if i not in optional]
+    if len(chosen) > N_HIDDEN:
+        raise s1lib.GenError("too many mandatory cases (%d)" % len(chosen))
+
+    def differs(i):
+        return valid(pool[i][1], p) != naive(pool[i][1])
+
+    n_dis = sum(1 for i in vis + chosen if differs(i))
+    optional = rng.shuffled(optional)
+    # first the optional cases the original gets wrong, until at least 4 graded cases separate the two versions
+    for i in [i for i in optional if differs(i)]:
+        if n_dis >= 4 or len(chosen) >= N_HIDDEN:
+            break
+        chosen.append(i)
+        optional.remove(i)
+        n_dis += 1
+    for i in optional:
+        if len(chosen) >= N_HIDDEN:
+            break
+        chosen.append(i)
+    if len(chosen) < N_HIDDEN:
+        raise s1lib.GenError("too few hidden cases (%d)" % len(chosen))
+    order = vis + rng.shuffled(chosen)
+    codes = [pool[i][1] for i in order]
+    if sum(1 for c in codes if valid(c, p) != naive(c)) < 4:
+        raise s1lib.GenError("too few cases separate the mutation from the original")
+    cases = []
+    for k, code in enumerate(codes):
+        name = "visible_%d" % (k + 1) if k < 4 else "case_%02d" % (k - 3)
+        cases.append((name, "is_valid_code(%s)" % ersgen.rs_str(code), ersgen.rs_bool(valid(code, p))))
+
+    # ------------------------------------------------------------------------------- rules text
+    if p["strict"]:
+        placement = ("A separator is allowed only directly between two symbols: it may not be the first or the "
+                     "last character of the code, and it may not be next to another separator; a code that "
+                     "breaks this is invalid.")
+    else:
+        placement = ("Separators may appear anywhere and any number of times, also at the start, at the end "
+                     "or several in a row.")
+    wtxt = ", ".join(str(x) for x in p["w"])
+    if p["kind"] == "desc":
+        wdesc = "the weights go down from %d to 1" % n
+    elif p["kind"] == "asc":
+        wdesc = "the weights go up from 1 to %d" % n
+    else:
+        wdesc = "the two weights %d and %d alternate, starting with %d" % (p["pair"][0], p["pair"][1], p["pair"][0])
+    lt = ["`'%s'` has the value %d" % (c, p["letters"][c]) for c in letters]
+    if len(lt) == 1:
+        ltxt = "The only check letter is `'%s'`, with the value %d. No other letter has a value." % (letters[0], p["letters"][letters[0]])
+    else:
+        ltxt = "The check letters are: " + ", ".join(lt[:-1]) + " and " + lt[-1] + ". No other letter has a value."
+    if p["strict"]:
+        casetxt = ("Check letters are case-sensitive: only the upper-case letters above count, so a lower-case "
+                   "letter anywhere in the code (even a lower-case form of a check letter) makes the code invalid.")
+    else:
+        casetxt = ("A check letter may be written in upper or lower case; for example `'%s'` means the same as "
+                   "`'%s'`." % (letters[0].lower(), letters[0]))
+    ex = pool[vis[1]][1]
+    ex_syms = [c for c in ex if c != sep]
+    ex_vals = [p["letters"][upper_ascii(c)] if not ("0" <= c <= "9") else int(c) for c in ex_syms]
+    ex_total = sum(a * b for a, b in zip(p["w"], ex_vals))
+    ex_expr = " + ".join("%d*%d" % (a, b) for a, b in zip(p["w"], ex_vals))
+    rules = "\n".join([
+        "1. The only separator character is %s. Every separator is skipped: it carries no value and does not "
+        "count as a symbol. %s" % (SEP_NAMES[sep], placement),
+        "2. After skipping the separators the code must consist of exactly %d symbols; fewer or more (also none "
+        "at all, as for the empty string) make it invalid." % n,
+        "3. A symbol is an ASCII digit `0`-`9` (its value is the digit) or a check letter. %s A check letter is "
+        "allowed only as the last (%d-th) symbol; a letter in any other position makes the code invalid. %s" % (
+            ltxt, n, casetxt),
+        "4. Any other character makes the code invalid: in particular %s, any other whitespace, other letters, "
+        "signs and non-ASCII characters (also non-ASCII digits)." % " and ".join(SEP_NAMES[c] for c in foreign_seps),
+        "5. Weights: the symbols are numbered 1 to %d from the left (separators are not counted) and symbol i is "
+        "multiplied by the weight w_i; %s. In order, the weights are: %s." % (n, wdesc, wtxt),
+        "6. The code is valid exactly when w_1*v_1 + w_2*v_2 + ... + w_%d*v_%d (v_i is the value of symbol i) is "
+        "divisible by %d, that is, the sum is 0 modulo %d." % (n, n, mod, mod),
+        "Worked example: `%s` has the symbol values %s, so the sum is %s = %d = %d * %d and the code is valid."
+        % (ex, ", ".join(str(v) for v in ex_vals), ex_expr, ex_total, ex_total // mod, mod),
+    ])
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {
+        "SEPARATOR": ersgen.rs_char(sep), "STRICT": ersgen.rs_bool(p["strict"]),
+        "CASE_SENSITIVE": ersgen.rs_bool(p["strict"]), "LENGTH": n, "MODULUS": mod, "WEIGHTS": wtxt,
+        "LETTERS": ", ".join("(%s, %d)" % (ersgen.rs_char(c), p["letters"][c]) for c in letters)})
+    return ersgen.finish(
+        ctx, crate=CRATE, api="pub fn is_valid_code(code: &str) -> bool",
+        intro="A library catalogue labels its items with ISBN-style codes that use their own parameters (length, "
+              "weights, modulus, separator and check letters). Write `is_valid_code`, which says whether a code "
+              "passes the scheme.",
+        rules=rules, stub=STUB, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::is_valid_code;" % CRATE, cases=cases, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

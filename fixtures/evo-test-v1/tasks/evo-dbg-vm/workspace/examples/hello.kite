@@ -1,0 +1,10 @@
+# The first Kite program: values and their display forms.
+print("Hello, Kite!");
+let name = "world";
+print("hello " + name, len(name), type(name));
+print(42, -7, true, false, nil);
+print([1, "two", [3, nil], true]);
+print("tab\there", ["quote\"d", "back\\slash", "new\nline"]);
+print(str([1, 2]) + "!", type([]), type(print), type(nil));
+print();
+print(print, len);

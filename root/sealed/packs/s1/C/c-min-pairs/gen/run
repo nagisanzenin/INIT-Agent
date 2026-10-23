@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""c-min-pairs: CRUXEval sample_771 with an order change (family C, operator order; see C/_lib/s1c.py).
+
+Each round removes the smallest remaining item (first occurrence) and collects the item that followed it. The
+seeded change picks the item of each round differently.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(items):
+    items = list(items)
+    odd_positioned = []
+    while len(items) > 0:
+        position = items.index(min(items))
+        items.pop(position)
+        item = items.pop(position)
+        odd_positioned.append(item)
+    return odd_positioned
+'''
+
+HELPER = '''def pick(items):
+    return items.index(min(items))
+'''
+
+CORE = '''from .__HELPER__ import pick
+
+
+def __FN__(items):
+    items = list(items)
+    odd_positioned = []
+    while len(items) > 0:
+        position = pick(items)
+        items.pop(position)
+        item = items.pop(position)
+        odd_positioned.append(item)
+    return odd_positioned
+'''
+
+CRUX_INPUT = (1, 2, 3, 4, 5, 6, 7, 8)
+
+PICKS = [
+    ("the largest remaining item (its first occurrence when it appears more than once)",
+     "items.index(max(items))"),
+    ("the smallest remaining item, but its LAST occurrence when it appears more than once",
+     "len(items) - 1 - items[::-1].index(min(items))"),
+    ("the remaining item whose last decimal digit (of its absolute value) is smallest; when several items share "
+     "that digit, the first of them", "min(range(len(items)), key=lambda k: (abs(items[k]) % 10, k))"),
+    ("the largest remaining item, but its LAST occurrence when it appears more than once",
+     "len(items) - 1 - items[::-1].index(max(items))"),
+]
+
+
+def variant(rng):
+    desc, expr = rng.choice(PICKS)
+    change = ("Each round must now pick %s, instead of the first occurrence of the smallest item. The round "
+              "still removes the picked item and then removes and collects the item that followed it (the item "
+              "now at the same position)." % desc)
+    return {"change": change, "helper": HELPER.replace("    return items.index(min(items))", "    return " + expr),
+            "hint": "only the choice of the position in each round needs to change."}
+
+
+def inputs(rng, state):
+    out = [(CRUX_INPUT,)]
+    for _ in range(600):
+        n = 2 * rng.randint(1, 5)
+        if rng.below(5) == 0:
+            xs = list(CRUX_INPUT)
+            xs[rng.below(len(xs))] = rng.randint(0, 30)
+            xs = rng.shuffled(xs) if rng.chance(1, 2) else xs
+        else:
+            xs = s1c.rand_ints(rng, 0, 30, n, n)
+            if rng.chance(1, 3):
+                xs[rng.below(n)] = xs[rng.below(n)]   # a repeated value
+        out.append((tuple(xs) if rng.chance(1, 3) else xs,))
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="order", original=ORIGINAL,
+                    fn_choices=["pair_followers", "take_after", "collect_next", "follower_list"],
+                    params="items", doc="collects the items that follow chosen items.", core=CORE, helper=HELPER,
+                    variant=variant, inputs=inputs, kind="list", n_candidates=600)
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

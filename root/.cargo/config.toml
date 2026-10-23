@@ -1,0 +1,9 @@
+# Offline build against the single repo-root vendor/ (BUILD_PLAN.md "Shape").
+# Relative paths here resolve against the directory that holds .cargo/, i.e. this workspace.
+# vendor/ is not committed; regenerate it with ci/vendor.sh (syncs all four workspaces).
+[source.crates-io]
+replace-with = "vendored-sources"
+[source.vendored-sources]
+directory = "../vendor"
+[net]
+offline = true

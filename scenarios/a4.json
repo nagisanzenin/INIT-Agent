@@ -1,0 +1,196 @@
+{
+  "v": 1,
+  "id": "A4",
+  "title": "A4: a candidate that crashes at boot is a non-event. The real init-kernel under init-fakeroot; the body is WP8b's model-driven fixture (a G0 build of the real seed does not fit the disk budget); the model is init-mockllm --strict deepseek ($0).",
+  "env": "live",
+  "fixture": {
+    "kernel": "real",
+    "body": "fake",
+    "work": {
+      "..": "../target/t15/tm-fx",
+      "a4": "fixtures/a4"
+    }
+  },
+  "fakeroot": {
+    "mode": "ok",
+    "charter": "fixtures/charters/phase0.toml"
+  },
+  "mock": {
+    "script": "scenarios/scripts/a4.mock.jsonl",
+    "tasks": "scenarios/scripts/a3/tasks",
+    "flags": []
+  },
+  "steps": [
+    {
+      "op": "start_kernel",
+      "env": {
+        "INIT_TEST_SERVE_PEER": "same-uid"
+      }
+    },
+    {
+      "op": "wait_file",
+      "path": "state/run/ready",
+      "timeout_s": 90
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "boot",
+        "reason": "cold"
+      },
+      "timeout_s": 30,
+      "capture": {
+        "X": "sha"
+      }
+    },
+    {
+      "op": "send_user",
+      "text": "Apply work/a4/change.patch to your body, promote it, and if the promotion fails, find out why from the result and your log, and fix it."
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "boot",
+        "reason": "promote"
+      },
+      "timeout_s": 600,
+      "capture": {
+        "NEW_SHA": "sha"
+      }
+    },
+    {
+      "op": "send_user",
+      "text": "Which version are you running now?"
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "message",
+        "msg": {
+          "role": "assistant",
+          "content": "~fixed commit"
+        }
+      },
+      "timeout_s": 120
+    },
+    {
+      "op": "stop_kernel",
+      "expect_exit": 0
+    }
+  ],
+  "expect": {
+    "events_in_order": [
+      {
+        "type": "boot",
+        "reason": "cold"
+      },
+      {
+        "type": "message",
+        "msg": {
+          "role": "user",
+          "content": "~change.patch"
+        }
+      },
+      {
+        "type": "message",
+        "msg": {
+          "role": "tool",
+          "content": "~gate.g2.probe_exit"
+        }
+      },
+      {
+        "type": "message",
+        "msg": {
+          "role": "tool",
+          "content": "~A4 injected boot crash"
+        }
+      },
+      {
+        "type": "message",
+        "msg": {
+          "role": "tool",
+          "content": "~awaiting_boundary"
+        }
+      },
+      {
+        "type": "boot",
+        "reason": "promote",
+        "sha": "$NEW_SHA"
+      },
+      {
+        "type": "message",
+        "msg": {
+          "role": "assistant",
+          "content": "~fixed commit"
+        }
+      }
+    ],
+    "events_absent": [
+      {
+        "type": "boot",
+        "reason": "crash"
+      },
+      {
+        "type": "boot",
+        "reason": "rollback"
+      }
+    ],
+    "files": [
+      {
+        "path": "bin/init-body.prev",
+        "exists": true
+      },
+      {
+        "path": "state/kernel/supervisor.json",
+        "json": {
+          "current": {
+            "sha": "$NEW_SHA"
+          },
+          "counters": {
+            "crashes_total": 0,
+            "swaps_failed": 0,
+            "swaps_ok": 1
+          }
+        }
+      }
+    ],
+    "git": [
+      {
+        "repo": "lineage/body.git",
+        "ref": "refs/init/archive/$NEW_SHA",
+        "exists": true
+      },
+      {
+        "repo": "lineage/body.git",
+        "notes": "gate",
+        "on": "$NEW_SHA",
+        "jsonl_contains": {
+          "gate_kind": "promote"
+        }
+      }
+    ],
+    "mock": {
+      "expect_failures": 0,
+      "protocol_errors": 0,
+      "exhausted": false,
+      "prefix_constant": true
+    },
+    "processes": {
+      "bodies_running_at_end": 0,
+      "agent_zone_running": false
+    }
+  },
+  "kernel_config": {
+    "gate": {
+      "g4": {
+        "pool_k": 2,
+        "min_pool": 2,
+        "holdout_h": 1,
+        "min_holdout": 1,
+        "canaries": 1,
+        "min_canaries": 1,
+        "repeats": 2
+      }
+    }
+  }
+}

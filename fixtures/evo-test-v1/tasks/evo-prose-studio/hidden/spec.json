@@ -1,0 +1,615 @@
+{
+ "items": [
+  {
+   "checks": [
+    [
+     "L = open('README.md').read().splitlines()\nprint(repr(L[L.index('    mixroom count CATALOG FILE') + 1]))",
+     "'    mixroom json CATALOG FILE'"
+    ]
+   ],
+   "name": "r01",
+   "site": "readme"
+  },
+  {
+   "checks": [
+    [
+     "import io, json, contextlib\nfrom mixroom.cli import main\nfrom mixroom.tracks.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'tracks', 'data/tracks.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/tracks.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))\nfrom mixroom.sessions.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'sessions', 'data/sessions.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/sessions.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))\n",
+     "True 1\nTrue 1"
+    ]
+   ],
+   "name": "r02",
+   "site": "json_cmd"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.cli import main\nmain(['count', 'tracks', 'data/tracks.csv', '--category', 'calm'])\nmain(['count', 'artists', 'data/artists.csv', '--category', 'local'])\nmain(['count', 'sessions', 'data/sessions.csv'])",
+     "8\n8\n30"
+    ]
+   ],
+   "name": "r03",
+   "site": "count_cat"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.store import Crate\nfrom mixroom.tracks.models import Track\ndef mk(n, cat='x'):\n    s = Crate()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, title='N%02d' % k, mood=cat, plays=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom mixroom.tracks.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Tracks catalog"
+    ]
+   ],
+   "name": "r04",
+   "site": "title/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom mixroom.artists.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Artists signed"
+    ]
+   ],
+   "name": "r05",
+   "site": "title/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom mixroom.sessions.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Sessions booked"
+    ]
+   ],
+   "name": "r06",
+   "site": "title/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.report import summary\nfrom mixroom.tracks.io import load_csv\nprint(list(summary(load_csv('data/tracks.csv'))))",
+     "['Upbeat', 'calm', 'dark', 'epic']"
+    ]
+   ],
+   "name": "r07",
+   "site": "summary_sorted/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.report import summary\nfrom mixroom.artists.io import load_csv\nprint(list(summary(load_csv('data/artists.csv'))))",
+     "['Jazz', 'indie', 'local', 'metal']"
+    ]
+   ],
+   "name": "r08",
+   "site": "summary_sorted/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom mixroom.artists.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "r09",
+   "site": "low_sorted/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom mixroom.sessions.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "r10",
+   "site": "low_sorted/sessions"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom mixroom.tracks.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "6"
+    ]
+   ],
+   "name": "r11",
+   "site": "thr/tracks"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom mixroom.sessions.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "8"
+    ]
+   ],
+   "name": "r12",
+   "site": "thr/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom mixroom.artists.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "============================"
+    ]
+   ],
+   "name": "r13",
+   "site": "sep/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom mixroom.sessions.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "~~~~~~~~~~~~~~~~~~~~"
+    ]
+   ],
+   "name": "r14",
+   "site": "sep/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.store import Crate\nfrom mixroom.tracks.models import Track\ndef mk(n, cat='x'):\n    s = Crate()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, title='N%02d' % k, mood=cat, plays=(k * 5) % 7, price=1.0 + k))\n    return s\nimport os, tempfile\nfrom mixroom.tracks.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').tags = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[5:], load_csv(p).get('k01').tags, load_csv(p).get('k00').tags)",
+     "['tags'] ['a', 'b'] []"
+    ]
+   ],
+   "name": "r15",
+   "site": "csv_tags/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nimport os, tempfile\nfrom mixroom.sessions.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').gear = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[5:], load_csv(p).get('k01').gear, load_csv(p).get('k00').gear)",
+     "['gear'] ['a', 'b'] []"
+    ]
+   ],
+   "name": "r16",
+   "site": "csv_tags/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.models import Track\nprint(Track(id='a', title='b', mood='c', plays=3, price=1.105).to_dict()['value'])",
+     "3.31"
+    ]
+   ],
+   "name": "r17",
+   "site": "value_field/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.models import Artist\nprint(Artist(id='a', name='b', scene='c', releases=3, fee=1.105).to_dict()['earnings'])",
+     "3.31"
+    ]
+   ],
+   "name": "r18",
+   "site": "value_field/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.models import Session\nprint(Session(id='a', label='b', room='c', hours=3, rate=1.105).to_dict()['invoice'])",
+     "3.31"
+    ]
+   ],
+   "name": "r19",
+   "site": "value_field/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.models import Artist\nprint(Artist.from_dict({'id': 'a', 'name': 'b'}).scene)",
+     "local"
+    ]
+   ],
+   "name": "r20",
+   "site": "defcat/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.models import Session\nprint(Session.from_dict({'id': 'a', 'label': 'b'}).room)",
+     "a-room"
+    ]
+   ],
+   "name": "r21",
+   "site": "defcat/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.models import Artist\nprint(Artist.from_dict({'id': 'a', 'name': 'b', 'scene': 'c', 'genres': ['x', 'y', 'x', 'z', 'y']}).genres)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "r22",
+   "site": "tags_dedupe/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.store import Crate\nfrom mixroom.tracks.models import Track\ndef mk(n, cat='x'):\n    s = Crate()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, title='N%02d' % k, mood=cat, plays=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom mixroom.tracks.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Track(id='k01', title='z', mood='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').title)",
+     "duplicate track id k01 2 N01"
+    ]
+   ],
+   "name": "r23",
+   "site": "dup/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom mixroom.artists.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Artist(id='k01', name='z', scene='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').name)",
+     "duplicate artist id k01 2 N01"
+    ]
+   ],
+   "name": "r24",
+   "site": "dup/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom mixroom.sessions.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Session(id='k01', label='z', room='c'))\nexcept Invalid as e:\n    print(e, s.count(), s.get('k01').label)",
+     "duplicate session id k01 2 N01"
+    ]
+   ],
+   "name": "r25",
+   "site": "dup/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.errors import NotFound\nprint(str(NotFound('q7')))",
+     "track 'q7' not found"
+    ]
+   ],
+   "name": "r26",
+   "site": "notfound/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.errors import NotFound\nprint(str(NotFound('q7')))",
+     "artist 'q7' not found"
+    ]
+   ],
+   "name": "r27",
+   "site": "notfound/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.errors import NotFound\nprint(str(NotFound('q7')))",
+     "session 'q7' not found"
+    ]
+   ],
+   "name": "r28",
+   "site": "notfound/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.store import Crate\nfrom mixroom.tracks.models import Track\ndef mk(n, cat='x'):\n    s = Crate()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, title='N%02d' % k, mood=cat, plays=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom mixroom.tracks.errors import Invalid\ntry:\n    mk(0).add(Track(id='a', title='b', mood='c', plays=-1))\nexcept Invalid as e:\n    print(e)",
+     "plays cannot be negative"
+    ]
+   ],
+   "name": "r29",
+   "site": "qty_msg/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom mixroom.artists.errors import Invalid\ntry:\n    mk(0).add(Artist(id='a', name='b', scene='c', releases=-1))\nexcept Invalid as e:\n    print(e)",
+     "releases cannot be negative"
+    ]
+   ],
+   "name": "r30",
+   "site": "qty_msg/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom mixroom.sessions.errors import Invalid\ntry:\n    mk(0).add(Session(id='a', label='b', room='c', hours=-1))\nexcept Invalid as e:\n    print(e)",
+     "hours cannot be negative"
+    ]
+   ],
+   "name": "r31",
+   "site": "qty_msg/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.store import Crate\nfrom mixroom.tracks.models import Track\ndef mk(n, cat='x'):\n    s = Crate()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, title='N%02d' % k, mood=cat, plays=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom mixroom.tracks.errors import Invalid\ntry:\n    mk(0).add(Track(id='a', title='b', mood='c', price=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "price cannot be negative"
+    ]
+   ],
+   "name": "r32",
+   "site": "price_msg/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom mixroom.artists.errors import Invalid\ntry:\n    mk(0).add(Artist(id='a', name='b', scene='c', fee=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "fee cannot be negative"
+    ]
+   ],
+   "name": "r33",
+   "site": "price_msg/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nfrom mixroom.sessions.errors import Invalid\ntry:\n    mk(0).add(Session(id='a', label='b', room='c', rate=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "rate cannot be negative"
+    ]
+   ],
+   "name": "r34",
+   "site": "price_msg/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.store import Crate\nfrom mixroom.tracks.models import Track\ndef mk(n, cat='x'):\n    s = Crate()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, title='N%02d' % k, mood=cat, plays=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom mixroom.tracks.validate import MAX_NAME\nfrom mixroom.tracks.errors import Invalid\ns = mk(0)\ns.add(Track(id='a', title='x' * 99, mood='c'))\ntry:\n    s.add(Track(id='b', title='x' * 100, mood='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "99 1"
+    ]
+   ],
+   "name": "r35",
+   "site": "maxname/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\nfrom mixroom.artists.validate import MAX_NAME\nfrom mixroom.artists.errors import Invalid\ns = mk(0)\ns.add(Artist(id='a', name='x' * 75, scene='c'))\ntry:\n    s.add(Artist(id='b', name='x' * 76, scene='c'))\nexcept Invalid:\n    print(MAX_NAME, s.count())",
+     "75 1"
+    ]
+   ],
+   "name": "r36",
+   "site": "maxname/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.store import Crate\nfrom mixroom.tracks.models import Track\ndef mk(n, cat='x'):\n    s = Crate()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, title='N%02d' % k, mood=cat, plays=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r37",
+   "site": "page1/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r38",
+   "site": "page1/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "r39",
+   "site": "page1/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "9"
+    ]
+   ],
+   "name": "r40",
+   "site": "pagesize/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "14"
+    ]
+   ],
+   "name": "r41",
+   "site": "pagesize/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_scene('mIXED')), len(mk(3, 'lo').by_scene('LO')))",
+     "4 3"
+    ]
+   ],
+   "name": "r42",
+   "site": "bycat_ci/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_room('mIXED')), len(mk(3, 'lo').by_room('LO')))",
+     "4 3"
+    ]
+   ],
+   "name": "r43",
+   "site": "bycat_ci/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.store import Crate\nfrom mixroom.tracks.models import Track\ndef mk(n, cat='x'):\n    s = Crate()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, title='N%02d' % k, mood=cat, plays=(k * 5) % 7, price=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r44",
+   "site": "search_ci/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r45",
+   "site": "search_ci/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "r46",
+   "site": "search_ci/sessions"
+  },
+  {
+   "checks": [
+    [
+     "L = open('CHANGELOG.md').read().splitlines()\nprint(L[L.index('## Changes') + 1])",
+     "- 0.5.0: design note STU-9"
+    ]
+   ],
+   "name": "r47",
+   "site": "changelog"
+  },
+  {
+   "checks": [
+    [
+     "import mixroom\nprint(mixroom.__version__, open('VERSION').read().strip())",
+     "0.5.0 0.5.0"
+    ]
+   ],
+   "name": "r48",
+   "site": "version"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.125"
+    ]
+   ],
+   "name": "r49",
+   "site": "tax/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.033"
+    ]
+   ],
+   "name": "r50",
+   "site": "tax/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.0"
+    ]
+   ],
+   "name": "r51",
+   "site": "tax/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-₩1,234.50 ₩7.00"
+    ]
+   ],
+   "name": "r52",
+   "site": "money_neg/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-₩1,234.50 ₩7.00"
+    ]
+   ],
+   "name": "r53",
+   "site": "money_neg/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-₩1,234.50 ₩7.00"
+    ]
+   ],
+   "name": "r54",
+   "site": "money_neg/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.pricing import discount\nfor p in (-1, 101):\n    try:\n        discount(10, p)\n    except ValueError as e:\n        print(e)\nprint(discount(10, 100), discount(10, 0))",
+     "percent must be between 0 and 100\npercent must be between 0 and 100\n0.0 10.0"
+    ]
+   ],
+   "name": "r55",
+   "site": "discount_range/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.store import Crate\nfrom mixroom.tracks.models import Track\ndef mk(n, cat='x'):\n    s = Crate()\n    for k in range(n):\n        s.add(Track(id='k%02d' % k, title='N%02d' % k, mood=cat, plays=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r56",
+   "site": "remove_ret/tracks"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.artists.store import Lineup\nfrom mixroom.artists.models import Artist\ndef mk(n, cat='x'):\n    s = Lineup()\n    for k in range(n):\n        s.add(Artist(id='k%02d' % k, name='N%02d' % k, scene=cat, releases=(k * 5) % 7, fee=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r57",
+   "site": "remove_ret/artists"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.sessions.store import Calendar\nfrom mixroom.sessions.models import Session\ndef mk(n, cat='x'):\n    s = Calendar()\n    for k in range(n):\n        s.add(Session(id='k%02d' % k, label='N%02d' % k, room=cat, hours=(k * 5) % 7, rate=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "r58",
+   "site": "remove_ret/sessions"
+  },
+  {
+   "checks": [
+    [
+     "import mixroom.sessions\nfrom mixroom.sessions.errors import Invalid, NotFound\nprint(sorted(mixroom.sessions.__all__), mixroom.sessions.NotFound is NotFound, mixroom.sessions.Invalid is Invalid)",
+     "['CATEGORY', 'Calendar', 'Invalid', 'NAME_FIELD', 'NotFound', 'Session', 'dump_csv', 'load_csv', 'render'] True True"
+    ]
+   ],
+   "name": "r59",
+   "site": "all_export/sessions"
+  },
+  {
+   "checks": [
+    [
+     "from mixroom.tracks.io import load_csv\nfrom mixroom.tracks.pricing import subtotal\ns = load_csv('data/tracks.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\nfrom mixroom.artists.io import load_csv\nfrom mixroom.artists.pricing import subtotal\ns = load_csv('data/artists.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\nfrom mixroom.sessions.io import load_csv\nfrom mixroom.sessions.pricing import subtotal\ns = load_csv('data/sessions.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)\n",
+     "30 True\n30 True\n30 True"
+    ]
+   ],
+   "name": "regress-data",
+   "site": "regress"
+  },
+  {
+   "checks": [
+    [
+     "import io, contextlib\nfrom mixroom.cli import main\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'tracks', 'data/tracks.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'artists', 'data/artists.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['list', 'sessions', 'data/sessions.csv'])\nprint(len(b.getvalue().splitlines()), b.getvalue().split()[0])\n",
+     "30 t31\n30 a001\n30 se01"
+    ]
+   ],
+   "name": "regress-cli",
+   "site": "regress"
+  }
+ ],
+ "pkg": "mixroom"
+}

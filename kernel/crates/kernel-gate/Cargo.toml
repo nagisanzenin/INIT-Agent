@@ -1,0 +1,18 @@
+[package]
+name = "kernel-gate"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[dependencies]
+# init-proto is not needed yet: the gate core has no wire types. Re-add it with the G2/G3 + job glue
+# (WP8 rest), so this lane's tests never break on another lane's work in progress.
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+# kernel/gate.md §3.1 (lockfiles) and §3.3 step 2 (`.cargo/config.toml` policy) parse TOML with toml 1.1.8.
+toml.workspace = true
+
+# K-FLAKE: the bounded test watchdog (init_testkit::watchdog) for the process-spawning tests.
+[dev-dependencies]
+init-testkit = { path = "../init-testkit" }

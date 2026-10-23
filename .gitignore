@@ -1,0 +1,14 @@
+/target/
+**/target/
+/vendor
+.DS_Store
+*.wasm
+.init/
+/.vendor.lock/
+/.build-slots/
+__pycache__/
+
+# local CI and run logs (may hold home paths)
+build/ci/*.log
+build/ci/*.guard
+build/real-artifacts/m7/mock/

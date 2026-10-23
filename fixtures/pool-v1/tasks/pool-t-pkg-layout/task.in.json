@@ -1,0 +1,32 @@
+{
+ "id": "pool-t-pkg-layout",
+ "title": "Make a Python package runnable with python3 -m",
+ "family": "t",
+ "difficulty": 2,
+ "labels": [
+  "terminal"
+ ],
+ "max_turns": 10,
+ "prompt": "The Python package invtool in the current directory should run as README.md shows, from this directory:\n\n    python3 -m invtool report data/inventory.csv\n    python3 -m invtool total data/inventory.csv --category tools\n\nRight now it does not run at all, and once it runs it reads the CSV from the wrong place. Fix the package (its layout, imports and path handling) so that both commands work exactly as README.md describes, for a relative or an absolute CSV path. Keep the output format of report and total as it is. Use only the Python standard library; do not modify data/inventory.csv.",
+ "source": {
+  "kind": "fresh"
+ },
+ "protected": [
+  "data/inventory.csv"
+ ],
+ "steps": [
+  {
+   "kind": "sh",
+   "script": "hidden/check.sh",
+   "names": [
+    "report_visible",
+    "total_visible",
+    "total_category",
+    "report_hidden_absolute",
+    "total_hidden_relative",
+    "total_hidden_absolute"
+   ],
+   "timeout_s": 20
+  }
+ ]
+}

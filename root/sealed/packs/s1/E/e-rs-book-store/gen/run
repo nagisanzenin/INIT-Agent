@@ -1,0 +1,174 @@
+#!/usr/bin/env python3
+"""e-rs-book-store: Exercism `book-store` (Rust) with a seeded semantic change (m7-design §3.1.1, family E).
+
+Seeded parameters: the number of titles T (4-6), the unit price and the discount table per group size.
+The table is rerolled until "largest groups first" (the greedy approach) is wrong on several baskets, so
+an exact search over groupings is needed; at difficulty >= 4 the table may be non-monotone, at 5 baskets
+are larger. Graded cases: 4 visible + 28 hidden `lowest_price` calls.
+"""
+import os
+import sys
+from functools import lru_cache
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "book_store_variant"
+N_HIDDEN = 28
+
+STUB = '''/// The lowest price, in cents, of the basket (each entry is a title number).
+pub fn lowest_price(books: &[u32]) -> u32 {
+    todo!("price of {books:?}")
+}
+'''
+
+
+def make_solver(T, price, disc):
+    def group(g):
+        return g * price * (100 - disc[g]) // 100
+
+    @lru_cache(maxsize=None)
+    def best(counts):
+        if not counts:
+            return 0
+        n = len(counts)
+        res = None
+        for mask in range(1, 1 << n):
+            nxt = [c - 1 if mask >> i & 1 else c for i, c in enumerate(counts)]
+            nxt = tuple(sorted((c for c in nxt if c), reverse=True))
+            cost = group(bin(mask).count("1")) + best(nxt)
+            res = cost if res is None or cost < res else res
+        return res
+
+    def price_of(books):
+        counts = [books.count(t) for t in range(1, T + 1)]
+        return best(tuple(sorted((c for c in counts if c), reverse=True)))
+
+    def greedy(books):
+        counts = [books.count(t) for t in range(1, T + 1)]
+        total = 0
+        while any(counts):
+            g = sum(1 for c in counts if c)
+            total += group(g)
+            counts = [c - 1 if c else 0 for c in counts]
+        return total
+
+    return price_of, greedy, group
+
+
+def naive_price(books):
+    """The original exercise: 800 cents, 0/5/10/20/25 percent for 1..5 titles (a 6th title: no discount)."""
+    t0 = max(books + [5])
+    return make_solver(t0, 800, [0, 0, 5, 10, 20, 25, 0][:t0 + 1])[0](books)
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    T = rng.choice([4, 5] if d == 3 else [4, 5, 6] if d == 4 else [5, 6])
+    for _ in range(500):
+        price = rng.randint(25, 75) * 20
+        disc = [0, 0]
+        for g in range(2, T + 1):
+            if d == 3:
+                lo = disc[-1]
+                disc.append(min(60, lo + rng.choice([0, 5, 5, 10, 10, 15])))
+            else:
+                disc.append(rng.choice(range(0, 45, 5)))
+        if disc[2:] == [5, 10, 20, 25][:T - 1] and price == 800:
+            continue
+        if max(disc[2:]) == 0:
+            continue
+        price_of, greedy, _ = make_solver(T, price, disc)
+        probe = []
+        r2 = rng.fork("probe")
+        for _ in range(40):
+            probe.append([r2.randint(1, T) for _ in range(r2.randint(4, 14))])
+        if sum(1 for b in probe if greedy(b) != price_of(b)) >= 8:
+            return T, price, disc
+    raise s1lib.GenError("no greedy-defeating discount table found")
+
+
+def build(ctx):
+    rng = ctx.rng()
+    d = ctx.difficulty
+    T, price, disc = params(ctx, rng)
+    price_of, greedy, group = make_solver(T, price, disc)
+    maxn = 28 if d >= 5 else 18
+    baskets = []
+
+    def add(b):
+        b = list(b)
+        if b not in baskets:
+            baskets.append(b)
+
+    def basket(n):
+        return [rng.randint(1, T) for _ in range(n)]
+
+    # visible: a single book, one full set, a basket where greedy is wrong, a mixed basket
+    add([rng.randint(1, T)])
+    add(rng.shuffled(range(1, T + 1)))
+    for _ in range(300):
+        b = basket(rng.randint(5, 10))
+        if greedy(b) != price_of(b):
+            add(sorted(b))
+            break
+    while len(baskets) < 4:
+        add(basket(rng.randint(7, 11)))
+    # hidden: edge cases, then greedy-breaking baskets, then random ones
+    add([])
+    t = rng.randint(1, T)
+    add([t, t, t])
+    add([1, 2])
+    add([t2 for t2 in range(1, T + 1) for _ in range(2)])
+    add([t2 for t2 in range(1, T + 1) for _ in range(3)] + [1, 2])
+    counts = [rng.randint(1, 4) for _ in range(T)]
+    add([t2 for t2, c in zip(range(1, T + 1), counts) for _ in range(c)])
+    breakers = 0
+    for _ in range(600):
+        if breakers >= 10:
+            break
+        b = basket(rng.randint(5, maxn))
+        if greedy(b) != price_of(b) and sorted(b) not in baskets:
+            add(sorted(b) if rng.chance(1, 2) else b)
+            breakers += 1
+    while len(baskets) < N_HIDDEN + 4:
+        add(basket(rng.randint(2, maxn)))
+    vis, rest = baskets[:4], rng.shuffled(baskets[4:])[:N_HIDDEN]
+    order = vis + rest
+    if sum(1 for b in order if greedy(b) != price_of(b)) < 4:
+        raise s1lib.GenError("too few cases defeat the greedy grouping")
+    if sum(1 for b in order if naive_price(b) != price_of(b)) < 4:
+        raise s1lib.GenError("too few cases separate the mutation from the original")
+    cases = []
+    for n, b in enumerate(order):
+        name = "visible_%d" % (n + 1) if n < 4 else "case_%02d" % (n - 3)
+        cases.append((name, "lowest_price(&[%s])" % ", ".join(str(x) for x in b), str(price_of(b))))
+
+    table = "\n".join("   - %d different title%s: %d%% off -> the group costs %d cents"
+                      % (g, "" if g == 1 else "s", disc[g], group(g)) for g in range(1, T + 1))
+    rules = "\n".join([
+        "1. The series has exactly %d titles, numbered 1 to %d; `books` lists one entry per copy in the basket "
+        "(any order, repeats allowed, possibly empty; every entry is in 1..=%d). Every copy costs %d cents "
+        "before discounts." % (T, T, T, price),
+        "2. The copies are split into groups; a group never contains two copies of the same title, and every "
+        "copy is in exactly one group (a group may have a single copy). A group of g different titles gets the "
+        "discount below on its books; its price is `g * %d * (100 - discount) / 100` cents (always a whole "
+        "number here):\n%s" % (price, table),
+        "3. Return the LOWEST possible total price, in cents, over all ways of splitting the basket into groups. "
+        "Always making the largest possible groups is NOT optimal in general. Baskets have at most %d books; "
+        "each call must finish quickly (well under a second)." % maxn,
+    ])
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {"TITLES": T, "UNIT_PRICE": price,
+                                                    "DISCOUNT": ", ".join(str(x) for x in disc)})
+    return ersgen.finish(
+        ctx, crate=CRATE, api="pub fn lowest_price(books: &[u32]) -> u32",
+        intro="A bookshop sells a %d-book series and discounts sets of different titles bought together. "
+              "Compute the cheapest price for a basket." % T,
+        rules=rules, stub=STUB, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::lowest_price;" % CRATE, cases=cases, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

@@ -1,0 +1,48 @@
+event: response.created
+data: {"response":{"id":"resp_mock0","model":"gpt-mock","object":"response","output":[],"status":"in_progress"},"sequence_number":0,"type":"response.created"}
+
+event: response.output_item.added
+data: {"item":{"encrypted_content":"mock-enc-0","id":"rs_mock0","summary":[],"type":"reasoning"},"output_index":0,"sequence_number":1,"type":"response.output_item.added"}
+
+event: response.output_item.done
+data: {"item":{"encrypted_content":"mock-enc-0","id":"rs_mock0","summary":[{"text":"plan","type":"summary_text"}],"type":"reasoning"},"output_index":0,"sequence_number":2,"type":"response.output_item.done"}
+
+event: response.output_item.added
+data: {"item":{"content":[],"id":"msg_mock0","role":"assistant","status":"in_progress","type":"message"},"output_index":1,"sequence_number":3,"type":"response.output_item.added"}
+
+event: response.content_part.added
+data: {"content_index":0,"item_id":"msg_mock0","output_index":1,"part":{"annotations":[],"text":"","type":"output_text"},"sequence_number":4,"type":"response.content_part.added"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"Listing ","item_id":"msg_mock0","output_index":1,"sequence_number":5,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"now.","item_id":"msg_mock0","output_index":1,"sequence_number":6,"type":"response.output_text.delta"}
+
+event: response.output_text.done
+data: {"content_index":0,"item_id":"msg_mock0","output_index":1,"sequence_number":7,"text":"Listing now.","type":"response.output_text.done"}
+
+event: response.content_part.done
+data: {"content_index":0,"item_id":"msg_mock0","output_index":1,"part":{"annotations":[],"text":"Listing now.","type":"output_text"},"sequence_number":8,"type":"response.content_part.done"}
+
+event: response.output_item.done
+data: {"item":{"content":[{"annotations":[],"text":"Listing now.","type":"output_text"}],"id":"msg_mock0","role":"assistant","status":"completed","type":"message"},"output_index":1,"sequence_number":9,"type":"response.output_item.done"}
+
+event: response.output_item.added
+data: {"item":{"arguments":"","call_id":"call_mock0_0","id":"fc_mock0_0","name":"bash","status":"in_progress","type":"function_call"},"output_index":2,"sequence_number":10,"type":"response.output_item.added"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"{\"comman","item_id":"fc_mock0_0","output_index":2,"sequence_number":11,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.delta
+data: {"delta":"d\":\"ls\"}","item_id":"fc_mock0_0","output_index":2,"sequence_number":12,"type":"response.function_call_arguments.delta"}
+
+event: response.function_call_arguments.done
+data: {"arguments":"{\"command\":\"ls\"}","item_id":"fc_mock0_0","output_index":2,"sequence_number":13,"type":"response.function_call_arguments.done"}
+
+event: response.output_item.done
+data: {"item":{"arguments":"{\"command\":\"ls\"}","call_id":"call_mock0_0","id":"fc_mock0_0","name":"bash","status":"completed","type":"function_call"},"output_index":2,"sequence_number":14,"type":"response.output_item.done"}
+
+event: response.completed
+data: {"response":{"id":"resp_mock0","model":"gpt-mock","object":"response","output":[{"encrypted_content":"mock-enc-0","id":"rs_mock0","summary":[{"text":"plan","type":"summary_text"}],"type":"reasoning"},{"content":[{"annotations":[],"text":"Listing now.","type":"output_text"}],"id":"msg_mock0","role":"assistant","status":"completed","type":"message"},{"arguments":"{\"command\":\"ls\"}","call_id":"call_mock0_0","id":"fc_mock0_0","name":"bash","status":"completed","type":"function_call"}],"status":"completed","usage":{"input_tokens":61,"input_tokens_details":{"cached_tokens":0},"output_tokens":9,"output_tokens_details":{"reasoning_tokens":1},"total_tokens":70}},"sequence_number":15,"type":"response.completed"}
+

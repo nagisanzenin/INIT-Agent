@@ -1,0 +1,207 @@
+{
+  "v": 1,
+  "id": "A5-fake",
+  "title": "A5-fake (kernel half, under init-fakeroot): a crash loop on LKG enters body safe mode with backoff, reports body_safe{on:true} and safe_entered, refuses promote with E_SAFE_MODE, and leaves safe mode on the Root's normal-mode restart with body_safe{on:false}. No owner step.",
+  "env": "live",
+  "fixture": {
+    "kernel": "real",
+    "body": "fake",
+    "work": {
+      "..": "../target/t15/tm-fake",
+      "../bin/init-body.mode": "fixtures/a5/fakebody.mode",
+      "../bin/init-body.lkg.mode": "fixtures/a5/fakebody.mode"
+    }
+  },
+  "fakeroot": {
+    "mode": "ok",
+    "charter": "fixtures/charters/phase0.toml"
+  },
+  "kernel_config": {
+    "supervise": {
+      "backoff_initial_ms": 50,
+      "backoff_max_ms": 400,
+      "crash_window_s": 60
+    }
+  },
+  "steps": [
+    {
+      "op": "start_kernel",
+      "env": {
+        "INIT_TEST_SERVE_PEER": "same-uid",
+        "INIT_TEST_FAKEBODY_HB_MS": "500"
+      }
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "boot",
+        "reason": "cold",
+        "mode": "normal"
+      },
+      "timeout_s": 60
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "boot",
+        "reason": "crash",
+        "mode": "safe"
+      },
+      "timeout_s": 60,
+      "capture": {
+        "SAFE_BOOT": "boot_id"
+      }
+    },
+    {
+      "op": "wait_file",
+      "path": "work/a5/promote.json",
+      "json": {
+        "error": {
+          "code": "E_SAFE_MODE"
+        }
+      },
+      "timeout_s": 300
+    },
+    {
+      "op": "root_request",
+      "cmd": "status",
+      "expect_ok": true,
+      "capture": {
+        "BODIES_IN_SAFE": "result.bodies"
+      }
+    },
+    {
+      "op": "stop_kernel",
+      "expect_exit": 0
+    },
+    {
+      "op": "root_cmd",
+      "argv": [
+        "start"
+      ],
+      "expect_ok": true
+    },
+    {
+      "op": "wait_event",
+      "match": {
+        "type": "boot",
+        "reason": "cold",
+        "mode": "normal"
+      },
+      "timeout_s": 60
+    },
+    {
+      "op": "wait_file",
+      "path": "state/run/ready",
+      "timeout_s": 30
+    },
+    {
+      "op": "stop_kernel",
+      "expect_exit": 0
+    }
+  ],
+  "expect": {
+    "events_in_order": [
+      {
+        "type": "boot",
+        "reason": "cold",
+        "mode": "normal"
+      },
+      {
+        "type": "boot",
+        "reason": "crash",
+        "mode": "normal"
+      },
+      {
+        "type": "boot",
+        "reason": "crash",
+        "mode": "normal"
+      },
+      {
+        "type": "boot",
+        "reason": "crash",
+        "mode": "normal"
+      },
+      {
+        "type": "boot",
+        "reason": "crash",
+        "mode": "normal"
+      },
+      {
+        "type": "boot",
+        "reason": "crash",
+        "mode": "safe",
+        "boot_id": "$SAFE_BOOT"
+      },
+      {
+        "type": "boot",
+        "reason": "cold",
+        "mode": "normal"
+      }
+    ],
+    "r4": {
+      "verify": true,
+      "records_in_order": [
+        {
+          "kind": "genesis"
+        },
+        {
+          "kind": "kernel_start",
+          "data": {
+            "reason": "cold"
+          }
+        },
+        {
+          "kind": "body_safe",
+          "data": {
+            "on": true
+          }
+        },
+        {
+          "kind": "zone_exit",
+          "data": {
+            "class": "stop",
+            "code": 0
+          }
+        },
+        {
+          "kind": "body_safe",
+          "data": {
+            "on": false
+          }
+        },
+        {
+          "kind": "zone_start",
+          "data": {
+            "mode": "normal"
+          }
+        },
+        {
+          "kind": "zone_exit",
+          "data": {
+            "class": "stop",
+            "code": 0
+          }
+        }
+      ]
+    },
+    "files": [
+      {
+        "path": "state/kernel/alerts.jsonl",
+        "contains": "safe_entered"
+      },
+      {
+        "path": "work/a5/promote.json",
+        "json": {
+          "error": {
+            "code": "E_SAFE_MODE"
+          }
+        }
+      }
+    ],
+    "processes": {
+      "bodies_running_at_end": 0,
+      "agent_zone_running": false
+    }
+  }
+}

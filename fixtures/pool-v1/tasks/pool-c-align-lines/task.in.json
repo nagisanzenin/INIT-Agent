@@ -1,0 +1,12 @@
+{
+ "id": "pool-c-align-lines",
+ "title": "Add layout.align_lines next to center_lines",
+ "family": "c",
+ "difficulty": 3,
+ "labels": ["repair", "py"],
+ "max_turns": 8,
+ "prompt": "The package layout in the current directory has `center_lines(text, width)` (layout/lines.py). Add, next to it,\n\n    align_lines(text, width, align=\"center\", fill=\" \")\n\nand export it from the package (`from layout import align_lines`). Behaviour:\n- `text` is split on \"\\n\"; every line first loses its trailing spaces and tabs, then is aligned in `width` columns with the one-character `fill`: \"left\" as str.ljust, \"right\" as str.rjust, \"center\" exactly as str.center does it. Lines that are already `width` or longer are kept as they are.\n- width=None means the length of the longest line (after the stripping).\n- The lines are joined with \"\\n\" (no trailing newline is added; a text ending in \"\\n\" therefore ends with an aligned empty line).\n- ValueError when `align` is not one of the three names, when `fill` is not exactly one character, or when `width` is negative.\n\n`center_lines` and `pad_cell` must keep their current behaviour. tests/test_lines.py has a few examples (run `python3 -m unittest discover -s tests`); a hidden suite checks the full behaviour. Do not modify tests/test_lines.py.",
+ "source": {"kind": "cruxeval", "repo": "facebookresearch/cruxeval", "commit": "190faf16d175b5847b0af05d937872b1fb395942", "sample": 749, "path": "data/cruxeval.jsonl"},
+ "protected": ["tests/test_lines.py"],
+ "steps": [{"kind": "py_cases", "import": "layout", "cases": "hidden/cases.json", "timeout_s": 2}]
+}

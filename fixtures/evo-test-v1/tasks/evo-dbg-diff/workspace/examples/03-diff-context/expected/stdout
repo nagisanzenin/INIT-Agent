@@ -1,0 +1,14 @@
+--- checklist.md
++++ checklist.new.md
+@@ -5,4 +5,5 @@
+ - run the full test suite
+-- update the changelog
+ - bump the version number
++- update the changelog
++- check the documentation build
+ 
+@@ -16,3 +17,3 @@
+ 
+-- announce the release
+ - close the milestone
++- announce the release

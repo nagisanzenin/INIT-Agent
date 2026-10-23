@@ -1,0 +1,10 @@
+; ---- 5. read-only view of the agent's repositories; no writes anywhere ----
+(allow file-read-metadata (path-ancestors (param "INIT_HOME")))
+(allow file-read* (subpath (param "BODY")) (subpath (param "WORK")))
+; ---- 6. network: none ----
+; ---- 7. instance mark ----
+(allow file-read-data (literal (param "MARK")))
+; ---- 8. hard denies ----
+(deny file-read* file-write* (literal (param "VAULT")) (subpath (param "VAULT")))
+(deny file-read* file-write* (literal (param "CACHE")) (subpath (param "CACHE")))
+(deny mach-lookup (xpc-service-name-prefix ""))

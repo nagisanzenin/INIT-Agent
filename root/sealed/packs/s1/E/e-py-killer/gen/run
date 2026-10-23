@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""e-py-killer: Exercism `killer-sudoku-helper` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d2 a seeded digit range lo..hi (never 1..9), a seeded digit order inside each
+combination and a seeded lexicographic order of the result, ValueError on a bad cage (the `include` argument is
+specified but not exercised); d3 exercises `include` (every combination contains all its digits); d4 lets a
+digit appear at most twice in one combination (multisets).
+Reference: ref/solution.py (parameterized by P). Dev fixtures: ref/original.py (distinct digits 1..9,
+ascending, include ignored) and naive (the reference without the newest delta).
+"""
+import ast
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "killer_sudoku_helper"
+STUB = '''def combinations(target, size, exclude, include=()):
+    raise NotImplementedError("combinations")
+'''
+
+
+def outcome(ns, expr):
+    """What the check would see for expr against a namespace: ("ok", repr) or ("exc", name)."""
+    try:
+        return "ok", repr(eval(expr, dict(ns)))  # noqa: S307 - our own expressions against our own code
+    except Exception as e:  # noqa: BLE001
+        return "exc", type(e).__name__
+
+
+def cover(ns, exprs, n_visible, rivals, candidate, need=3, cap=40, tries=800):
+    """Adds candidate expressions until every rival (the original exercise, or the reference without one
+    delta) differs from the reference on >= need hidden cases, so each active delta is exercised."""
+    for label, rival in rivals:
+        hits = sum(1 for e in exprs[n_visible:] if outcome(ns, e) != outcome(rival, e))
+        for _ in range(tries):
+            if hits >= need:
+                break
+            e = candidate(label)
+            if e in exprs or outcome(ns, e) == outcome(rival, e):
+                continue
+            if len(exprs) >= cap:
+                raise s1lib.GenError("case cap reached while covering %s" % label)
+            exprs.append(e)
+            hits += 1
+        if hits < need:
+            raise s1lib.GenError("could not cover %s" % label)
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    while True:
+        lo, hi = rng.choice([0, 1, 2]), rng.randint(7, 12)
+        if (lo, hi) != (1, 9):
+            break
+    return {"lo": lo, "hi": hi, "inner": rng.choice(["asc", "desc"]), "outer": rng.choice(["asc", "desc"]),
+            "use_include": True, "repeat": 2 if d >= 4 else 1}
+
+
+def rules_text(p):
+    lo, hi = p["lo"], p["hi"]
+    digits = ", ".join("`%d`" % d for d in range(lo, hi + 1))
+    if p["repeat"] == 1:
+        multi = "All digits in one combination are different."
+    else:
+        multi = ("A digit may appear at most twice in one combination (never three or more times), so `[4, 4, 7]` "
+                 "can be a combination but `[4, 4, 4]` cannot. Combinations are multisets: two combinations that "
+                 "contain the same digits, each the same number of times, are the same combination and are "
+                 "returned only once.")
+    ex = [2, 5, 9] if p["inner"] == "asc" else [9, 5, 2]
+    lines = [
+        "**Digits.** The allowed digits are the integers from %d to %d inclusive: %s. (In this puzzle every one "
+        "of these values counts as a digit, also those above 9.)" % (lo, hi, digits),
+        "",
+        "**Combinations.** A combination is a list of exactly `size` allowed digits whose sum is `target`, which "
+        "contains no digit listed in `exclude` and contains every digit listed in `include` (at least once). "
+        + multi,
+        "",
+        "**Order.** Inside each combination the digits are written in %s order (for example `%r`). The returned "
+        "list is sorted in %s lexicographic order of the combinations as written: compare the first digits; if "
+        "they are equal compare the second digits, and so on. This is the order Python's `sorted(...)` gives "
+        "for lists of ints%s." % (
+            "ascending" if p["inner"] == "asc" else "descending", ex,
+            "ascending" if p["outer"] == "asc" else "descending",
+            "" if p["outer"] == "asc" else " with `reverse=True`"),
+        "",
+        "**combinations(target, size, exclude, include=())** returns every combination exactly once, as a list "
+        "of lists of `int`, in the order above. It returns the empty list `[]` when no combination exists (for "
+        "example when a digit is in both `include` and `exclude`, or when `include` contains a value that is "
+        "not an allowed digit). `exclude` and `include` are lists of distinct ints in any order; `include` "
+        "defaults to the empty tuple (no required digits). Values in `exclude` that are not allowed digits "
+        "have no effect.",
+        "",
+        "**Errors.** `combinations` raises `ValueError` when `size` is less than 1 or `target` is negative, "
+        "whatever the other arguments are.",
+    ]
+    return "\n".join(lines)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    ns = load_ref(ref)
+    lo, hi, rep = p["lo"], p["hi"], p["repeat"]
+    digits = list(range(lo, hi + 1))
+    orig = ctx.read("ref", "original.py")
+    flip = {"asc": "desc", "desc": "asc"}
+    rivals = [("original", load_ref(orig)),
+              ("range", load_ref(ref_with_params(ctx, dict(p, lo=1, hi=9)))),
+              ("inner", load_ref(ref_with_params(ctx, dict(p, inner=flip[p["inner"]])))),
+              ("outer", load_ref(ref_with_params(ctx, dict(p, outer=flip[p["outer"]]))))]
+    naive = ref_with_params(ctx, dict(p, lo=1, hi=9))
+    use_inc = ctx.difficulty >= 3
+    if use_inc:
+        naive = ref_with_params(ctx, dict(p, use_include=False))
+        rivals.append(("include", load_ref(naive)))
+    if rep == 2:
+        naive = ref_with_params(ctx, dict(p, repeat=1))
+        rivals.append(("repeat", load_ref(naive)))
+
+    def results(e):
+        kind, val = outcome(ns, e)
+        return ast.literal_eval(val) if kind == "ok" else None
+
+    def expr(t, s, excl, incl=None):
+        if incl is None:
+            return "combinations(%d, %d, %r)" % (t, s, excl)
+        return "combinations(%d, %d, %r, %r)" % (t, s, excl, incl)
+
+    def rand_case(size_lo=2, size_hi=None, inc=False, n_lo=1, n_hi=14, n_ex=(0, 3), tries=60):
+        size_hi = size_hi or (4 if rep == 1 else 5)
+        e = None
+        for _ in range(tries):
+            s = rng.randint(size_lo, size_hi)
+            excl = rng.sample(digits, rng.randint(*n_ex))
+            pool = sorted([d for d in digits if d not in excl] * rep)
+            if len(pool) < s:
+                continue
+            t = rng.randint(sum(pool[:s]), sum(pool[-s:]))
+            incl = None
+            if inc:
+                incl = rng.sample([d for d in digits if d not in excl], rng.randint(1, min(2, s)))
+            e = expr(t, s, excl, incl)
+            r = results(e)
+            if r is not None and n_lo <= len(r) <= n_hi:
+                return e
+        return e
+
+    exprs = []
+
+    def add(e):
+        if e is not None and e not in exprs:
+            exprs.append(e)
+
+    # visible examples (4): several combinations, an exclude, an include (d3+) or a range edge, an error
+    add(rand_case(2, 2, n_lo=3, n_hi=6, n_ex=(0, 0)))
+    add(rand_case(3, 3, n_lo=2, n_hi=6, n_ex=(1, 2)))
+    if use_inc:
+        add(rand_case(2, 3, inc=True, n_lo=2, n_hi=6, n_ex=(0, 1)))
+    else:  # a cage whose answer shows the seeded digit range
+        rng_rival = rivals[1][1]
+        e = rand_case(2, 3, n_lo=1, n_hi=6, n_ex=(0, 1))
+        for _ in range(40):
+            if e not in exprs and outcome(ns, e) != outcome(rng_rival, e):
+                break
+            e = rand_case(2, 3, n_lo=1, n_hi=6, n_ex=(0, 1))
+        add(e)
+    add(expr(rng.randint(3, 20), 0, rng.sample(digits, 1)))
+    n_visible = len(exprs)
+    # hidden: edges and errors
+    add(expr(lo, 1, []))
+    add(expr(hi, 1, []))
+    add(expr(hi + 1, 1, []))
+    add(expr(0, 2, []))
+    if rep == 1:
+        add(expr(sum(digits), len(digits), []))
+        add(expr(sum(digits) - lo - hi, len(digits) - 2, [lo, hi]))
+    else:
+        add(expr(2 * hi, 2, []))
+        x = rng.choice(digits)
+        add(expr(3 * x, 3, [], [x]) if use_inc else expr(3 * x, 3, []))
+    add(expr(-1, 2, []))
+    add(expr(rng.randint(5, 15), -rng.randint(1, 2), []))
+    add(expr(-rng.randint(2, 9), 0, rng.sample(digits, 2), rng.sample(digits, 1)))
+    # hidden: random cages
+    for _ in range(10):
+        add(rand_case())
+    if use_inc:
+        for _ in range(5):
+            add(rand_case(2, None, inc=True))
+        e = rand_case(2, 3, n_ex=(1, 2))
+        t, s, excl = ast.literal_eval(e[len("combinations("):-1])
+        add(expr(t, s, excl, [excl[0]]))
+        add(expr(rng.randint(10, 20), 2, [], [hi + 1 + rng.below(3)]))
+        add(expr(rng.randint(10, 20), 3, [], []))
+
+    def candidate(label):
+        return rand_case(inc=use_inc and rng.chance(1, 2))
+
+    cover(ns, exprs, n_visible, rivals, candidate)
+    while len(exprs) < 28:
+        add(candidate("pad"))
+    dev = {"original": orig, "naive": naive}
+    task = ("Implement `combinations(target, size, exclude, include=())` in `%s.py`: list every way to fill a "
+            "cage of `size` cells with digits that add up to `target`." % MODULE)
+    return assemble(ctx, MODULE, task, rules_text(p), ref, exprs, n_visible, dev, STUB)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

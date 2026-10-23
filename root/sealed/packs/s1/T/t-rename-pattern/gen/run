@@ -1,0 +1,268 @@
+#!/usr/bin/env python3
+"""t-rename-pattern: file media from inbox/ into library/ by the date in their names (family T, pack s1;
+INIT licence)."""
+import calendar
+import os
+import re
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+TRIPS = ["lisbon", "harz", "dolomites", "skye", "lofoten", "kyoto", "atacama", "tatra"]
+
+
+class Kinds:
+    def __init__(self, level):
+        self.screenshot = level >= 2
+        self.jpeg = level >= 2
+        self.pxl = level >= 3
+        self.scan = level >= 3
+        self.invalid = level >= 4
+        self.dotfiles = level >= 4
+        self.subdirs = level >= 5
+
+
+PATTERNS = [
+    # (kind, regex, groups -> (Y, M, D, h, m, s), extensions)
+    ("photo", re.compile(r"^IMG_([0-9]{4})([0-9]{2})([0-9]{2})_([0-9]{2})([0-9]{2})([0-9]{2})\.([A-Za-z0-9]+)$"),
+     "ymdhms", ("jpg", "jpeg", "heic")),
+    ("photo", re.compile(r"^PXL_([0-9]{4})([0-9]{2})([0-9]{2})_([0-9]{2})([0-9]{2})([0-9]{2})[0-9]{3}\.([A-Za-z0-9]+)$"),
+     "ymdhms", ("jpg",)),
+    ("video", re.compile(r"^VID_([0-9]{4})([0-9]{2})([0-9]{2})_([0-9]{2})([0-9]{2})([0-9]{2})\.([A-Za-z0-9]+)$"),
+     "ymdhms", ("mp4", "mov")),
+    ("screenshot", re.compile(r"^Screenshot ([0-9]{4})-([0-9]{2})-([0-9]{2}) at ([0-9]{2})\.([0-9]{2})\.([0-9]{2})"
+                              r"\.([A-Za-z0-9]+)$"), "ymdhms", ("png",)),
+    ("scan", re.compile(r"^scan_([0-9]{2})-([0-9]{2})-([0-9]{4})_([0-9]{2})([0-9]{2})\.([A-Za-z0-9]+)$"),
+     "dmyhm", ("pdf",)),
+]
+
+
+def classify(name, kinds):
+    """-> (kind, Y, M, D, h, m, s, ext) or None (the reference rules)."""
+    if name.startswith("."):
+        return None
+    for kind, rx, order, exts in PATTERNS:
+        if kind == "screenshot" and not kinds.screenshot:
+            continue
+        if kind == "scan" and not kinds.scan:
+            continue
+        if rx.pattern.startswith("^PXL") and not kinds.pxl:
+            continue
+        m = rx.match(name)
+        if not m:
+            continue
+        g = m.groups()
+        if order == "ymdhms":
+            y, mo, d, h, mi, s, ext = g
+        else:
+            d, mo, y, h, mi, ext = g
+            s = "00"
+        e = ext.lower()
+        allowed = [x for x in exts if kinds.jpeg or x != "jpeg"]
+        if e not in allowed:
+            return None
+        ext = "jpg" if e == "jpeg" else e
+        Y, M, D, H, MI, S = int(y), int(mo), int(d), int(h), int(mi), int(s)
+        if not (1 <= M <= 12 and 1 <= D <= calendar.monthrange(Y, M)[1] and H < 24 and MI < 60 and S < 60):
+            return None
+        return kind, y, mo, d, h, mi, s, ext
+    return None
+
+
+def plan(files, kinds):
+    """files: {inbox-relative path: bytes} -> (moves {old: new}, leftovers [old])."""
+    targets = {}
+    left = []
+    for old in sorted(files, key=lambda p: p.encode("utf-8")):
+        base = old.rsplit("/", 1)[-1]
+        c = classify(base, kinds)
+        if c is None:
+            left.append(old)
+            continue
+        kind, y, mo, d, h, mi, s, ext = c
+        stem = "library/%s/%s/%s-%s-%s_%s%s%s_%s" % (y, mo, y, mo, d, h, mi, s, kind)
+        targets.setdefault((stem, ext), []).append(old)
+    moves = {}
+    for (stem, ext), olds in targets.items():
+        for i, old in enumerate(olds):  # already in byte order of the old path
+            moves[old] = "%s%s.%s" % (stem, "" if i == 0 else "-%d" % (i + 1), ext)
+    return moves, left
+
+
+def stamp(rng, year_lo=2021, year_hi=2025):
+    y = rng.randint(year_lo, year_hi)
+    mo = rng.randint(1, 12)
+    d = rng.randint(1, calendar.monthrange(y, mo)[1])
+    return y, mo, d, rng.randint(0, 23), rng.randint(0, 59), rng.randint(0, 59)
+
+
+def name_for(rng, kind, t, kinds):
+    y, mo, d, h, mi, s = t
+    if kind == "img":
+        ext = rng.choice(["jpg", "JPG", "heic"] + (["jpeg", "JPEG"] if kinds.jpeg else []))
+        return "IMG_%04d%02d%02d_%02d%02d%02d.%s" % (y, mo, d, h, mi, s, ext)
+    if kind == "pxl":
+        return "PXL_%04d%02d%02d_%02d%02d%02d%03d.%s" % (y, mo, d, h, mi, s, rng.randint(0, 999),
+                                                         rng.choice(["jpg", "jpg", "JPG"]))
+    if kind == "vid":
+        return "VID_%04d%02d%02d_%02d%02d%02d.%s" % (y, mo, d, h, mi, s, rng.choice(["mp4", "mov", "MOV"]))
+    if kind == "shot":
+        return "Screenshot %04d-%02d-%02d at %02d.%02d.%02d.png" % (y, mo, d, h, mi, s)
+    if kind == "scan":
+        return "scan_%02d-%02d-%04d_%02d%02d.%s" % (d, mo, y, h, mi, rng.choice(["pdf", "PDF"]))
+    raise ValueError(kind)
+
+
+def decoys(rng, kinds):
+    y, mo, d, h, mi, s = stamp(rng)
+    out = [
+        "notes.txt",
+        "IMG_%04d%02d%02d_%02d%02d.jpg" % (y, mo, d, h, mi),            # time has 4 digits
+        "IMG-%04d%02d%02d_%02d%02d%02d.jpg" % (y, mo, d, h, mi, s),       # dash, not underscore
+        "VID_%04d%02d%02d_%02d%02d%02d.avi" % (y, mo, d, h, mi, s),       # unsupported extension
+        "img_%04d%02d%02d_%02d%02d%02d.jpg" % (y, mo, d, (h + 1) % 24, mi, s),  # prefix is case-sensitive
+        "IMG_%04d%02d%02d_%02d%02d%02d.jpg.bak" % (y, mo, d, h, mi, s),
+    ]
+    if kinds.screenshot:
+        out.append("Screenshot %04d-%02d-%02d at %d.%02d.%02d.png" % (y, mo, d, h % 10, mi, s))  # 1-digit hour
+    if kinds.invalid:
+        out.append("IMG_%04d13%02d_%02d%02d%02d.jpg" % (y, d % 28 + 1, h, mi, s))   # month 13
+        out.append("VID_%04d0230_%02d%02d%02d.mp4" % (y, h, mi, s))               # 30 February
+        if kinds.scan:
+            out.append("scan_31-04-%04d_%02d%02d.pdf" % (y, h, mi))                # 31 April
+    if kinds.dotfiles:
+        out.append(".DS_Store")
+        out.append("._IMG_%04d%02d%02d_%02d%02d%02d.jpg" % (y, mo, d, h, mi, s))
+    return out
+
+
+SPEC = """\
+Every file under `inbox/`{sub} whose name matches one of these patterns is moved to
+`library/<YYYY>/<MM>/<YYYY>-<MM>-<DD>_<hh><mm><ss>_<kind>.<ext>`:
+
+| pattern (exact; prefixes and separators are case-sensitive) | kind | example |
+|---|---|---|
+| `IMG_<YYYYMMDD>_<hhmmss>.<ext>`, ext jpg{jpeg} or heic | photo | `IMG_20230714_081502.jpg` |
+{pxl}| `VID_<YYYYMMDD>_<hhmmss>.<ext>`, ext mp4 or mov | video | `VID_20220102_235959.mov` |
+{shot}{scan}
+Rules:
+1. `<ext>` is the extension in lower case{jpegrule}. Extensions match case-insensitively; nothing else does.
+2. If several files get the same target path, the file whose original path sorts first (byte order) keeps
+   the plain name and the others get `-2`, `-3`, ... before the extension, in that same order
+   (e.g. `..._photo.jpg`, `..._photo-2.jpg`).
+3. Files whose names match no pattern stay where they are, unchanged.{invalid}{dot}
+4. File contents never change (move or rename, do not rewrite).
+5. Write `renames.tsv` in the top directory: one line `<old path><TAB><new path>` per moved file, paths
+   relative to the top directory (e.g. `inbox/IMG_20230714_081502.jpg`), sorted by old path in byte order,
+   each line ending with a newline. No header.{empty}
+"""
+
+
+def build(ctx):
+    rng = ctx.rng()
+    kinds = Kinds(ctx.difficulty)
+    files = {}
+    pool = ["img", "img", "img", "vid"] + (["shot"] if kinds.screenshot else []) + \
+        (["pxl", "scan"] if kinds.pxl else [])
+    subdirs = rng.sample(TRIPS, 3) if kinds.subdirs else []
+    emptied = subdirs.pop() if subdirs else None  # holds only matching files: removed after the moves
+    n = rng.randint(16, 24)
+    used = set()
+
+    def put(name, sub=None):
+        rel = (sub + "/" + name) if sub else name
+        if rel.lower() in used:  # macOS file systems are case-insensitive
+            return False
+        used.add(rel.lower())
+        files[rel] = ("%s %s\n" % (rel, rng.hex(8))).encode("utf-8")
+        return True
+
+    for _ in range(n):
+        k = rng.choice(pool)
+        put(name_for(rng, k, stamp(rng), kinds), rng.choice(subdirs) if subdirs and rng.chance(1, 3) else None)
+    # collisions: same second, same kind and extension
+    t = stamp(rng)
+    y, mo, d, h, mi, s = t
+    put("IMG_%04d%02d%02d_%02d%02d%02d.jpg" % t)
+    if kinds.jpeg:
+        put("IMG_%04d%02d%02d_%02d%02d%02d.jpeg" % t, subdirs[-1] if subdirs else None)
+    if kinds.pxl:
+        put("PXL_%04d%02d%02d_%02d%02d%02d%03d.jpg" % (y, mo, d, h, mi, s, rng.randint(0, 499)))
+        put("PXL_%04d%02d%02d_%02d%02d%02d%03d.jpg" % (y, mo, d, h, mi, s, rng.randint(500, 999)))
+    if subdirs:
+        put("IMG_%04d%02d%02d_%02d%02d%02d.JPG" % t, subdirs[0])
+    if kinds.scan:
+        y2, mo2, d2, h2, mi2, _ = stamp(rng)
+        put("scan_%02d-%02d-%04d_%02d%02d.pdf" % (d2, mo2, y2, h2, mi2))
+        if subdirs:
+            put("scan_%02d-%02d-%04d_%02d%02d.PDF" % (d2, mo2, y2, h2, mi2), subdirs[0])
+        # a day-first date that would also be a valid (different) month-first date
+        dd = rng.randint(1, 12)
+        mm = rng.choice([m for m in range(1, 13) if m != dd])
+        put("scan_%02d-%02d-%04d_%02d%02d.pdf" % (dd, mm, y2, h2, (mi2 + 7) % 60))
+    if emptied:
+        put(name_for(rng, "vid", stamp(rng), kinds), emptied)
+        put(name_for(rng, "img", stamp(rng), kinds), emptied)
+    for dname in decoys(rng, kinds):
+        put(dname, rng.choice(subdirs) if subdirs and rng.chance(1, 4) else None)
+    rel = {"inbox/" + k: v for k, v in files.items()}
+    moves, left = plan(rel, kinds)
+    if len(moves) < 10 or not left:
+        raise s1lib.GenError("degenerate instance")
+    log = "".join("%s\t%s\n" % (o, moves[o]) for o in sorted(moves, key=lambda p: p.encode("utf-8")))
+    colliding = sorted(o for o, nw in moves.items() if re.search(r"-[0-9]+\.[a-z0-9]+$", nw))
+    groups = set()
+    for o in colliding:
+        stem = re.sub(r"-[0-9]+(\.[a-z0-9]+)$", r"\1", moves[o])
+        groups.add(stem)
+    coll = {o: nw for o, nw in moves.items() if re.sub(r"-[0-9]+(\.[a-z0-9]+)$", r"\1", nw) in groups}
+    if not coll and kinds.jpeg:
+        raise s1lib.GenError("no collision")
+    # directories expected to remain under inbox/ (level 5: empty ones are removed)
+    left_dirs = sorted({p.rsplit("/", 1)[0] for p in left if p.count("/") > 1})
+    spec_text = SPEC.format(
+        sub=" (including its subdirectories)" if kinds.subdirs else "",
+        jpeg=", jpeg" if kinds.jpeg else "",
+        pxl="| `PXL_<YYYYMMDD>_<hhmmss><mmm>.<ext>` (`<mmm>` = 3 digits of milliseconds, dropped), ext jpg | "
+            "photo | `PXL_20240229_120000250.jpg` |\n" if kinds.pxl else "",
+        shot="| `Screenshot <YYYY>-<MM>-<DD> at <hh>.<mm>.<ss>.png` (with the spaces) | screenshot | "
+             "`Screenshot 2021-11-03 at 09.07.45.png` |\n" if kinds.screenshot else "",
+        scan="| `scan_<DD>-<MM>-<YYYY>_<hh><mm>.pdf` (day first; seconds are `00`) | scan | "
+             "`scan_03-11-2021_0907.pdf` |\n" if kinds.scan else "",
+        jpegrule=", and `jpeg` becomes `jpg`" if kinds.jpeg else "",
+        invalid=(" A name with an impossible date or time (month 13, 30 February, hour 24, ...) matches no "
+                 "pattern." if kinds.invalid else ""),
+        dot=(" Names starting with `.` are never moved." if kinds.dotfiles else ""),
+        empty=("\n6. A subdirectory of `inbox/` that is empty after the moves is removed (`inbox/` itself stays)."
+               if kinds.subdirs else ""))
+    prompt = ("Sort the files in `inbox/` into a dated `library/`. Apply these rules exactly:\n\n" + spec_text +
+              "\nThe same text is in README.md. Do not change README.md.")
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = "# Filing the inbox\n\n" + spec_text
+    inst.marker_files = ["README.md"]
+    inst.protect("README.md")
+    for p, data in rel.items():
+        inst.workspace[p] = data
+    for o, nw in moves.items():
+        inst.solution[o] = None
+        inst.solution[nw] = rel[o]
+    inst.solution["renames.tsv"] = log
+    sha = __import__("hashlib").sha256
+    spec = {
+        "library": {nw: sha(rel[o]).hexdigest() for o, nw in moves.items()},
+        "left": {p: sha(rel[p]).hexdigest() for p in left},
+        "left_dirs": left_dirs,
+        "collisions": {nw: sha(rel[o]).hexdigest() for o, nw in coll.items()},
+        "log": log,
+        "subdirs": kinds.subdirs,
+    }
+    tgen.finish(inst, ctx, spec=spec, names=["layout", "contents", "collisions", "leftovers", "log"])
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

@@ -1,0 +1,8 @@
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"","role":"assistant"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"Mock rea"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"soning."},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"This is ","reasoning_content":null},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+

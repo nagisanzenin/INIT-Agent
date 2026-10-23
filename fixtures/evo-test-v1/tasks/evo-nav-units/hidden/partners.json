@@ -1,0 +1,637 @@
+{
+ "markets": [
+  {
+   "company": "Bazaar Online",
+   "delimiter": ",",
+   "fields": [
+    "location",
+    "quantity",
+    "category",
+    "name",
+    "price",
+    "sku"
+   ],
+   "headers": [
+    "Bin",
+    "Stock",
+    "Category",
+    "Title",
+    "Price",
+    "SKU"
+   ],
+   "kind": "csv",
+   "name": "bazaar",
+   "upper": false
+  },
+  {
+   "company": "Cartwheel Market",
+   "delimiter": ",",
+   "fields": [
+    "name",
+    "quantity",
+    "sku",
+    "location",
+    "price"
+   ],
+   "headers": [
+    "name",
+    "qty",
+    "sku",
+    "location",
+    "price"
+   ],
+   "kind": "csv",
+   "name": "cartwheel",
+   "upper": false
+  },
+  {
+   "company": "Dockside B2B",
+   "kind": "text",
+   "name": "dockside",
+   "template": "{sku}  {name}  ({quantity} available)"
+  },
+  {
+   "company": "Emporium",
+   "delimiter": ",",
+   "fields": [
+    "name",
+    "sku",
+    "category",
+    "quantity",
+    "price",
+    "location"
+   ],
+   "headers": [
+    "item_title",
+    "seller_sku",
+    "product_type",
+    "inventory_count",
+    "sale_price",
+    "warehouse_bin"
+   ],
+   "kind": "csv",
+   "name": "emporium",
+   "upper": false
+  },
+  {
+   "company": "Fairground Shops",
+   "delimiter": ";",
+   "fields": [
+    "price",
+    "quantity",
+    "sku",
+    "name"
+   ],
+   "headers": [
+    "PREIS",
+    "MENGE",
+    "ARTNR",
+    "BEZ"
+   ],
+   "kind": "csv",
+   "name": "fairground",
+   "upper": true
+  },
+  {
+   "company": "Gallery Retail",
+   "kind": "text",
+   "name": "gallery",
+   "template": "{name} ({sku}): {quantity} on hand @ {price}"
+  },
+  {
+   "company": "Hub Wholesale",
+   "delimiter": ",",
+   "fields": [
+    "category",
+    "quantity",
+    "sku",
+    "price",
+    "name"
+   ],
+   "headers": [
+    "Category",
+    "Stock",
+    "SKU",
+    "Price",
+    "Title"
+   ],
+   "kind": "csv",
+   "name": "hub",
+   "upper": false
+  },
+  {
+   "company": "Isle Direct",
+   "delimiter": ",",
+   "fields": [
+    "name",
+    "price",
+    "sku",
+    "quantity"
+   ],
+   "headers": [
+    "name",
+    "price",
+    "sku",
+    "qty"
+   ],
+   "kind": "csv",
+   "name": "isle",
+   "upper": false
+  },
+  {
+   "company": "Jetty Trade",
+   "kind": "text",
+   "name": "jetty",
+   "template": "- {sku} x{quantity} {name}"
+  },
+  {
+   "company": "Kiosk POS",
+   "delimiter": ",",
+   "fields": [
+    "name",
+    "quantity",
+    "price",
+    "sku"
+   ],
+   "headers": [
+    "item_title",
+    "inventory_count",
+    "sale_price",
+    "seller_sku"
+   ],
+   "kind": "csv",
+   "name": "kiosk",
+   "upper": false
+  },
+  {
+   "company": "Ledger Shop",
+   "delimiter": ",",
+   "fields": [
+    "category",
+    "quantity",
+    "location",
+    "sku",
+    "name",
+    "price"
+   ],
+   "headers": [
+    "GRUPPE",
+    "MENGE",
+    "LAGER",
+    "ARTNR",
+    "BEZ",
+    "PREIS"
+   ],
+   "kind": "csv",
+   "name": "ledger-shop",
+   "upper": true
+  },
+  {
+   "company": "Market Row",
+   "kind": "text",
+   "name": "market-row",
+   "template": "{sku}: {name}, {quantity} in stock"
+  }
+ ],
+ "reports": [
+  {
+   "column": "aisle",
+   "key": "aisle",
+   "name": "by-aisle"
+  },
+  {
+   "column": "family",
+   "key": "family",
+   "name": "by-family"
+  },
+  {
+   "column": "initial",
+   "key": "initial",
+   "name": "by-initial"
+  },
+  {
+   "column": "shelf",
+   "key": "shelf",
+   "name": "by-shelf"
+  },
+  {
+   "column": "band",
+   "key": "cost_band",
+   "name": "by-cost-band"
+  },
+  {
+   "column": "status",
+   "key": "status",
+   "name": "by-status"
+  }
+ ],
+ "vendors": [
+  {
+   "category": "hardware",
+   "company": "Kestrel Trading",
+   "decimal_comma": false,
+   "delimiter": ";",
+   "header": {
+    "cost": "Price",
+    "name": "Description",
+    "qty": "on_hand",
+    "sku": "product_id",
+    "uom": "unit_code"
+   },
+   "name": "kestrel",
+   "prefix": "",
+   "style": "common",
+   "var": "uom"
+  },
+  {
+   "category": "food",
+   "company": "Lark & Sons",
+   "decimal_comma": false,
+   "delimiter": "\t",
+   "header": {
+    "cost": "net_price",
+    "name": "item_name",
+    "qty": "stock",
+    "sku": "Item Code",
+    "uom": "uom"
+   },
+   "name": "lark",
+   "prefix": "LAR:",
+   "style": "set",
+   "var": "measure"
+  },
+  {
+   "category": "garden",
+   "company": "Maple Provisions",
+   "decimal_comma": false,
+   "delimiter": ",",
+   "header": {
+    "cost": "net_price",
+    "name": "Product",
+    "qty": "on_hand",
+    "sku": "code",
+    "uom": "UOM"
+   },
+   "name": "maple",
+   "prefix": "MAP:",
+   "style": "regex",
+   "var": "raw_unit"
+  },
+  {
+   "category": "cleaning",
+   "company": "Nimbus Electrical",
+   "decimal_comma": false,
+   "delimiter": ";",
+   "header": {
+    "cost": "cost",
+    "name": "name",
+    "qty": "Menge",
+    "sku": "product_id"
+   },
+   "name": "nimbus",
+   "prefix": "",
+   "style": "cell",
+   "var": "raw_unit"
+  },
+  {
+   "category": "office",
+   "company": "Orchid Florals",
+   "decimal_comma": true,
+   "delimiter": ";",
+   "header": {
+    "cost": "list_price",
+    "name": "name",
+    "qty": "cases",
+    "size": "pack_size",
+    "sku": "ref",
+    "uom": "UOM"
+   },
+   "name": "orchid",
+   "prefix": "",
+   "style": "packs",
+   "var": "measure"
+  },
+  {
+   "category": "marine",
+   "company": "Pelican Marine",
+   "decimal_comma": false,
+   "delimiter": "|",
+   "header": {
+    "cost": "rate",
+    "name": "title",
+    "qty": "stock",
+    "sku": "product_id",
+    "uom": "Unit"
+   },
+   "name": "pelican",
+   "prefix": "PEL:",
+   "style": "common",
+   "var": "uom"
+  },
+  {
+   "category": "paint",
+   "company": "Quarry Stoneworks",
+   "decimal_comma": false,
+   "delimiter": "\t",
+   "header": {
+    "cost": "Price",
+    "name": "desc",
+    "qty": "level",
+    "sku": "code",
+    "uom": "uom_code"
+   },
+   "name": "quarry",
+   "prefix": "",
+   "style": "set",
+   "var": "measure"
+  },
+  {
+   "category": "textiles",
+   "company": "Raven Chemicals",
+   "decimal_comma": false,
+   "delimiter": ",",
+   "header": {
+    "cost": "rate",
+    "name": "desc",
+    "qty": "stock",
+    "sku": "ref",
+    "uom": "uom"
+   },
+   "name": "raven",
+   "prefix": "RAV:",
+   "style": "regex",
+   "var": "uom"
+  },
+  {
+   "category": "drinks",
+   "company": "Sierra Outdoor",
+   "decimal_comma": false,
+   "delimiter": ";",
+   "header": {
+    "cost": "Price",
+    "name": "item_name",
+    "qty": "level",
+    "sku": "part_no"
+   },
+   "name": "sierra",
+   "prefix": "SIE:",
+   "style": "cell",
+   "var": "code"
+  },
+  {
+   "category": "tools",
+   "company": "Tundra Frozen Foods",
+   "decimal_comma": false,
+   "delimiter": "\t",
+   "header": {
+    "cost": "unit_price",
+    "name": "title",
+    "qty": "cases",
+    "size": "case_qty",
+    "sku": "part_no",
+    "uom": "ME"
+   },
+   "name": "tundra",
+   "prefix": "",
+   "style": "packs",
+   "var": "raw_unit"
+  },
+  {
+   "category": "hardware",
+   "company": "Umber Paints",
+   "decimal_comma": false,
+   "delimiter": "|",
+   "header": {
+    "cost": "list_price",
+    "name": "Product",
+    "qty": "Quantity",
+    "sku": "Artikelnummer",
+    "uom": "Unit"
+   },
+   "name": "umber",
+   "prefix": "",
+   "style": "common",
+   "var": "code"
+  },
+  {
+   "category": "food",
+   "company": "Vale Dairy",
+   "decimal_comma": true,
+   "delimiter": ";",
+   "header": {
+    "cost": "Price",
+    "name": "Product",
+    "qty": "Menge",
+    "sku": "Artikelnummer",
+    "uom": "uom"
+   },
+   "name": "vale",
+   "prefix": "VAL:",
+   "style": "set",
+   "var": "code"
+  },
+  {
+   "category": "garden",
+   "company": "Willow Crafts",
+   "decimal_comma": true,
+   "delimiter": ";",
+   "header": {
+    "cost": "net_price",
+    "name": "name",
+    "qty": "count",
+    "sku": "Item Code",
+    "uom": "UOM"
+   },
+   "name": "willow",
+   "prefix": "",
+   "style": "regex",
+   "var": "code"
+  },
+  {
+   "category": "cleaning",
+   "company": "Xenia Textiles",
+   "decimal_comma": false,
+   "delimiter": "\t",
+   "header": {
+    "cost": "list_price",
+    "name": "Product",
+    "qty": "stock",
+    "sku": "item"
+   },
+   "name": "xenia",
+   "prefix": "XEN:",
+   "style": "cell",
+   "var": "unit_code"
+  },
+  {
+   "category": "office",
+   "company": "Yarrow Herbs",
+   "decimal_comma": true,
+   "delimiter": ";",
+   "header": {
+    "cost": "rate",
+    "name": "item_name",
+    "qty": "packs",
+    "size": "case_qty",
+    "sku": "article",
+    "uom": "uom_code"
+   },
+   "name": "yarrow",
+   "prefix": "YAR:",
+   "style": "packs",
+   "var": "code"
+  },
+  {
+   "category": "marine",
+   "company": "Zephyr Cleaning",
+   "decimal_comma": false,
+   "delimiter": "\t",
+   "header": {
+    "cost": "rate",
+    "name": "title",
+    "qty": "available",
+    "sku": "Artikelnummer",
+    "uom": "mu"
+   },
+   "name": "zephyr",
+   "prefix": "",
+   "style": "common",
+   "var": "uom"
+  },
+  {
+   "category": "paint",
+   "company": "Alder Timber",
+   "decimal_comma": false,
+   "delimiter": "\t",
+   "header": {
+    "cost": "rate",
+    "name": "item_name",
+    "qty": "available",
+    "sku": "part_no",
+    "uom": "uom_code"
+   },
+   "name": "alder",
+   "prefix": "ALD:",
+   "style": "set",
+   "var": "code"
+  },
+  {
+   "category": "textiles",
+   "company": "Birch Bakery Supply",
+   "decimal_comma": false,
+   "delimiter": ",",
+   "header": {
+    "cost": "cost",
+    "name": "item_name",
+    "qty": "Menge",
+    "sku": "Artikelnummer",
+    "uom": "Unit"
+   },
+   "name": "birch",
+   "prefix": "",
+   "style": "regex",
+   "var": "measure"
+  },
+  {
+   "category": "drinks",
+   "company": "Cedar Garden",
+   "decimal_comma": false,
+   "delimiter": "\t",
+   "header": {
+    "cost": "cost",
+    "name": "label",
+    "qty": "on_hand",
+    "sku": "item"
+   },
+   "name": "cedar",
+   "prefix": "",
+   "style": "cell",
+   "var": "unit_code"
+  },
+  {
+   "category": "tools",
+   "company": "Dune Beverages",
+   "decimal_comma": false,
+   "delimiter": "\t",
+   "header": {
+    "cost": "net_price",
+    "name": "Description",
+    "qty": "packs",
+    "size": "Inhalt",
+    "sku": "ref",
+    "uom": "ME"
+   },
+   "name": "dune",
+   "prefix": "",
+   "style": "packs",
+   "var": "uom"
+  },
+  {
+   "category": "hardware",
+   "company": "Ember Fuels",
+   "decimal_comma": true,
+   "delimiter": ";",
+   "header": {
+    "cost": "cost",
+    "name": "item_name",
+    "qty": "level",
+    "sku": "SKU",
+    "uom": "mu"
+   },
+   "name": "ember",
+   "prefix": "",
+   "style": "common",
+   "var": "raw_unit"
+  },
+  {
+   "category": "food",
+   "company": "Flint Tools",
+   "decimal_comma": false,
+   "delimiter": ",",
+   "header": {
+    "cost": "rate",
+    "name": "title",
+    "qty": "available",
+    "sku": "Item Code",
+    "uom": "Einheit"
+   },
+   "name": "flint",
+   "prefix": "",
+   "style": "set",
+   "var": "measure"
+  },
+  {
+   "category": "garden",
+   "company": "Gale Packaging",
+   "decimal_comma": true,
+   "delimiter": ";",
+   "header": {
+    "cost": "cost",
+    "name": "Description",
+    "qty": "amount",
+    "sku": "SKU",
+    "uom": "unit_code"
+   },
+   "name": "gale",
+   "prefix": "",
+   "style": "regex",
+   "var": "measure"
+  },
+  {
+   "category": "cleaning",
+   "company": "Heron Seafood",
+   "decimal_comma": false,
+   "delimiter": ";",
+   "header": {
+    "cost": "cost",
+    "name": "name",
+    "qty": "stock",
+    "sku": "part_no"
+   },
+   "name": "heron",
+   "prefix": "",
+   "style": "cell",
+   "var": "code"
+  }
+ ]
+}

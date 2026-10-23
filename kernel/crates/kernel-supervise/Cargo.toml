@@ -1,0 +1,57 @@
+[package]
+name = "kernel-supervise"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+[features]
+# testing.md §3.8.1: `INIT_FAULT` is honoured only with this feature (never in release builds).
+fault-injection = []
+
+[dependencies]
+init-proto.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+sha2.workspace = true
+libc.workspace = true
+# WP8b: the promote pipeline (`promote/`) drives the gate core (G0-G4 rules, statistics, records).
+kernel-gate.workspace = true
+# EVO-LITE: the validator's `trace:` lookup and the boot.json engine summary.
+kernel-evo.workspace = true
+
+[dev-dependencies]
+# WP8b tests: the real kernel proxy (lanes, head hashes, tools hash, traces) in front of
+# init-testkit's fake-Root egress and `init-mockllm` (probe, G3 and task responders), in process.
+kernel-proxy.workspace = true
+init-testkit = { path = "../init-testkit" }
+# WP8b: tests/serve_seam.rs drives the pipeline through kernel-serve's real `JobCtl` (WP7), so the
+# `promote::Job` seam is proven against the `Backend` it will be wired into.
+kernel-serve.workspace = true
+# K-GATE: tests/promote_seatbelt.rs renders every instance exactly as `init-root` does (the Root's
+# compiled-in profile texts, V1-V5 and the class rules, `compose`), so the pipeline is tested
+# under the real Seatbelt profiles. Test-only; libc and serde_json, both already in this lock.
+init-sandbox-profiles = { path = "../../../root/sandbox-profiles" }
+
+# Test fixtures (supervise.md §8). Not shipped: `init-kernel install` copies only init-kernel and
+# initctl. `sv-testbody` is a scripted body speaking stdio-jsonl/1 (§4.4, §4.5); `sv-kernel` runs
+# `supervise --under-root` exactly as `init-kernel` does, so process-level tests need not build
+# the whole kernel binary (which links every lane crate).
+[[bin]]
+name = "sv-testbody"
+path = "tests/fixtures/testbody.rs"
+test = false
+doc = false
+
+[[bin]]
+name = "sv-kernel"
+path = "tests/fixtures/kernel.rs"
+test = false
+doc = false
+
+# WP8b: a minimal model-driven body (proxy, SSE, bash, probe mode, `--manifest`) for G2-G4 tests.
+[[bin]]
+name = "sv-agentbody"
+path = "tests/fixtures/agentbody.rs"
+test = false
+doc = false

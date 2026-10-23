@@ -1,0 +1,12 @@
+{
+ "id": "pool-c-value-counts",
+ "title": "Change tally.value_counts to sorted (value, count) pairs",
+ "family": "c",
+ "difficulty": 3,
+ "labels": ["repair", "py"],
+ "max_turns": 8,
+ "prompt": "The package tally in the current directory has `value_counts(bag)` (tally/counts.py), which counts how often each value 0..99 occurs among the values of a dict, and `format_counts(tbl)` (tally/report.py). Change them:\n\n    value_counts(bag, min_count=1) -> list of (value, count) tuples\n\n- Count every value of the dict `bag` that is an int, in any range (negative and large values too). bool values are not counted, and neither are floats, strings, None or anything else that is not an int.\n- Return (value, count) tuples sorted by count, highest first; equal counts are ordered by value, smallest first.\n- Only pairs with count >= min_count are returned; min_count < 1 raises ValueError.\n\n    format_counts(pairs) -> str\n\n- One \"value: count\" line per pair, in the given order, joined with \"\\n\" (no trailing newline); an empty list gives \"\".\n\ntests/test_tally.py has a few examples (run `python3 -m unittest discover -s tests`); a hidden suite checks the full behaviour. Do not modify tests/test_tally.py.",
+ "source": {"kind": "cruxeval", "repo": "facebookresearch/cruxeval", "commit": "190faf16d175b5847b0af05d937872b1fb395942", "sample": 753, "path": "data/cruxeval.jsonl"},
+ "protected": ["tests/test_tally.py"],
+ "steps": [{"kind": "py_cases", "import": "tally", "cases": "hidden/cases.json", "timeout_s": 2}]
+}

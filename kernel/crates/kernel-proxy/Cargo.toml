@@ -1,0 +1,25 @@
+[package]
+name = "kernel-proxy"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# kernel/proxy.md v0.3: no keys, no TLS, no hard ceilings in the kernel. The only upstream is the
+# Root's egress socket (plain HTTP/1.1 over a Unix socket), so the v0.2 rustls / hyper-rustls /
+# rustls-platform-verifier stack is gone (proxy.md §3.1 step 3, §3.7, Q-CV1). tokio-tungstenite is
+# dropped too: WebSocket mode stays a config error until the egress forwards upgrades (§3.15).
+[dependencies]
+init-proto.workspace = true
+serde.workspace = true
+# proxy.md §3.6: one borrowed parse with `RawValue` (byte offsets for the trace split).
+serde_json = { workspace = true, features = ["raw_value"] }
+sha2.workspace = true
+tokio.workspace = true
+hyper.workspace = true
+hyper-util.workspace = true
+http-body-util.workspace = true
+
+[dev-dependencies]
+# init-mockllm (WP2) is the upstream behind an in-test fake egress socket.
+init-testkit = { path = "../init-testkit" }
+toml.workspace = true

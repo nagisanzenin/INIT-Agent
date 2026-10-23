@@ -1,0 +1,109 @@
+#!/usr/bin/env python3
+"""c-vowel-stretch: CRUXEval sample_601 with a param change (family C, operator param; see C/_lib/s1c.py).
+
+The function repeats every character 5 times (vowels upper-cased) and joins the pieces with spaces. The seeded
+change lifts two of the hard-coded values (the repeat count, the vowel set, the joiner) into new required
+parameters; the hidden calls always pass them.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(text):
+    t = 5
+    tab = []
+    for i in text:
+        if i.lower() in 'aeiouy':
+            tab.append(i.upper() * t)
+        else:
+            tab.append(i * t)
+    return ' '.join(tab)
+'''
+
+HELPER = '''REPEAT = 5
+VOWELS = 'aeiouy'
+JOINER = ' '
+'''
+
+CORE = '''from .__HELPER__ import JOINER, REPEAT, VOWELS
+
+
+def __FN__(text):
+    t = REPEAT
+    tab = []
+    for i in text:
+        if i.lower() in VOWELS:
+            tab.append(i.upper() * t)
+        else:
+            tab.append(i * t)
+    return JOINER.join(tab)
+'''
+
+CRUX_INPUT = "csharp"
+WORDS = ["csharp", "python", "Rust", "yes", "Echo", "sky", "a-b", "Q1", "", "e", "bYte", "Ion", "x y"]
+
+FORMS = {
+    # name: (parameter list, new core, description)
+    "times": ("text, times",
+              CORE.replace("def __FN__(text):\n    t = REPEAT", "def __FN__(text, times):\n    t = times"),
+              "a new required parameter `times` (an int) replaces the fixed repeat count 5: every piece is now "
+              "the character (upper-cased for vowels, as today) repeated `times` times, using Python's string "
+              "repetition (so `times <= 0` gives empty pieces)"),
+    "times_joiner": ("text, times, joiner",
+                     CORE.replace("def __FN__(text):\n    t = REPEAT",
+                                  "def __FN__(text, times, joiner):\n    t = times")
+                     .replace("return JOINER.join(tab)", "return joiner.join(tab)"),
+                     "two new required parameters: `times` (an int) replaces the fixed repeat count 5 (Python's "
+                     "string repetition, so `times <= 0` gives empty pieces), and `joiner` (a string) replaces the "
+                     "single space placed between the pieces"),
+    "vowels_times": ("text, vowels, times",
+                     CORE.replace("def __FN__(text):\n    t = REPEAT",
+                                  "def __FN__(text, vowels, times):\n    t = times")
+                     .replace("if i.lower() in VOWELS:", "if i.lower() in vowels:"),
+                     "two new required parameters: `vowels` (a string of lower-case letters) replaces the fixed "
+                     "vowel set `'aeiouy'`, so a character is treated as a vowel when its lower-case form occurs in "
+                     "`vowels`; and `times` (an int) replaces the fixed repeat count 5 (Python's string repetition, "
+                     "so `times <= 0` gives empty pieces)"),
+}
+
+
+def variant(rng):
+    form = rng.choice(sorted(FORMS))
+    sig, core, text = FORMS[form]
+    return {"change": "`__FN__` gets " + text + ".", "core": core, "sig": sig, "state": form,
+            "hint": "the hard-coded values live in the helper module; turn them into parameters of the function."}
+
+
+def text_of(rng):
+    if rng.below(4) == 0:
+        return s1c.mutate_str(rng, rng.choice(WORDS), "aeiouyAEIbcdkrsT -")
+    return s1c.rand_str(rng, "aeiouyAEOUYbcdfgkmnrstBDKRT -.1", 0, 7)
+
+
+def inputs(rng, state):
+    out = []
+    for k in range(300):
+        text = CRUX_INPUT if k == 0 else text_of(rng)
+        times = rng.choice([1, 2, 2, 3, 3, 4, 0, -1]) if k else 2
+        if state == "times":
+            out.append((text, times))
+        elif state == "times_joiner":
+            out.append((text, times, rng.choice(["-", "", " ", ", ", "|", "  "])))
+        else:
+            vow = "".join(sorted(set(s1c.rand_str(rng, "aeiouybcrst", 0, 5))))
+            out.append((text, vow, times))
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="param", original=ORIGINAL,
+                    fn_choices=["stretch_letters", "echo_chars", "repeat_chars", "loud_vowels"],
+                    params="text", doc="stretches the characters of a text.", core=CORE, helper=HELPER,
+                    variant=variant, inputs=inputs, kind="str")
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

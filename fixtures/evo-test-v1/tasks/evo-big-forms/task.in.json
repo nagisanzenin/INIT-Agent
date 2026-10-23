@@ -1,0 +1,92 @@
+{
+ "id": "evo-big-forms",
+ "title": "Migrate an 8,000-line generated form-widget registry to its v2 tokens, widget by widget",
+ "family": "t",
+ "difficulty": 5,
+ "labels": [
+  "py",
+  "bigfile"
+ ],
+ "max_turns": 60,
+ "prompt": "widgets.py in the current directory is our generated form-widget registry (about 8,000 lines: 240 widget functions, each registered with @widget). The generator is gone, so the file has to be migrated in place to the v2 tokens that MIGRATION.md describes: every widget function, with the key table, the deprecated widgets and the per-widget exceptions it lists. Behaviour the document does not change must stay exactly as it is.\n\ntests/test_widgets.py has examples of the v2 behaviour for a few widgets; run them from this directory with `/usr/bin/python3 -m unittest discover -s tests -v`. More tests than these check every widget.\n\nCode must run on /usr/bin/python3 (Python 3.9), the interpreter the checks use; standard library only. Do not modify MIGRATION.md or tests/test_widgets.py.",
+ "source": {
+  "kind": "fresh"
+ },
+ "protected": [
+  "MIGRATION.md",
+  "tests/test_widgets.py"
+ ],
+ "steps": [
+  {
+   "kind": "sh",
+   "script": "hidden/check.sh",
+   "names": [
+    "attrs/account",
+    "attrs/billing",
+    "attrs/shipping",
+    "attrs/profile",
+    "attrs/search",
+    "attrs/admin",
+    "attrs/survey",
+    "attrs/support",
+    "bools/account",
+    "bools/billing",
+    "bools/shipping",
+    "bools/profile",
+    "bools/search",
+    "bools/admin",
+    "bools/survey",
+    "bools/support",
+    "defaults/account",
+    "defaults/billing",
+    "defaults/shipping",
+    "defaults/profile",
+    "defaults/search",
+    "defaults/admin",
+    "defaults/survey",
+    "defaults/support",
+    "names/account",
+    "names/billing",
+    "names/shipping",
+    "names/profile",
+    "names/search",
+    "names/admin",
+    "names/survey",
+    "names/support",
+    "deprecated/account",
+    "deprecated/billing",
+    "deprecated/shipping",
+    "deprecated/profile",
+    "deprecated/search",
+    "deprecated/admin",
+    "deprecated/survey",
+    "deprecated/support",
+    "theme/account",
+    "theme/billing",
+    "theme/shipping",
+    "theme/profile",
+    "theme/search",
+    "theme/admin",
+    "theme/survey",
+    "theme/support",
+    "unchanged/account",
+    "unchanged/billing",
+    "unchanged/shipping",
+    "unchanged/profile",
+    "unchanged/search",
+    "unchanged/admin",
+    "unchanged/survey",
+    "unchanged/support",
+    "exceptions/legacy-keys",
+    "exceptions/bare-bools"
+   ],
+   "timeout_s": 30
+  }
+ ],
+ "evo": {
+  "group": "heldout",
+  "kind": "bigfile",
+  "spare": true,
+  "pair": "evo-big-client"
+ }
+}

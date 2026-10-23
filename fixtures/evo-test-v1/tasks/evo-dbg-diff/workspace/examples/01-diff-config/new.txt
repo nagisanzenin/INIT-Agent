@@ -1,0 +1,10 @@
+[server]
+host = localhost
+port = 9090
+workers = 4
+timeout = 30
+keepalive = on
+
+[logging]
+level = info
+file = /var/log/app.log

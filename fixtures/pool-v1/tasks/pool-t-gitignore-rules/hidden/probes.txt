@@ -1,0 +1,26 @@
+# <expected: I = ignored, T = tracked> <name> <path>   (directories are created for paths ending in /x)
+I build_dir build/out.o
+I build_nested src/app/build/lib.o
+T build_script scripts/build
+I dist_dir dist/pkg.whl
+I log_root server.log
+I log_nested src/app/debug.log
+T log_kept logs/important.log
+I log_other logs/today.log
+I env_plain .env
+I env_local .env.local
+I env_nested src/app/.env
+T env_example .env.example
+I pyc_nested src/app/main.cpython-39.pyc
+I pycache_dir src/app/__pycache__/main.cpython-39.pyc
+I tmp_root tmp/scratch.txt
+T tmp_nested src/tmp/README.md
+I csv_data data/export.csv
+T csv_schema data/schema.csv
+T csv_raw data/raw/2026-10.csv
+I node_modules_root node_modules/left-pad/index.js
+I node_modules_nested docs/node_modules/x/index.js
+I swp_file src/app/.main.py.swp
+I ds_store docs/.DS_Store
+T source_file src/app/main.py
+T docs_file docs/index.md

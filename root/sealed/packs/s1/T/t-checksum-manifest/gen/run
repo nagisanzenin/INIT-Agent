@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""t-checksum-manifest: sha256 manifest of release/ plus a verify report of a stale SHA256SUMS (family T,
+pack s1; INIT licence)."""
+import hashlib
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+STEMS = ["app", "core", "cli", "agent", "relay", "vault", "probe", "index"]
+DOCS = ["INSTALL", "README", "CHANGES", "Licence", "upgrade-notes", "faq", "Quick Start", "api_ref", "Zeta",
+        "alpha", "_overview", "Beta-plan"]
+UNI = ["café menu.txt", "naïve-notes.md", "Ærø map.txt", "über.cfg"]
+
+
+class Lv:
+    def __init__(self, level):
+        self.subdirs = level >= 2
+        self.sig = level >= 2
+        self.missing = level >= 2
+        self.comments = level >= 2
+        self.spaces = level >= 3
+        self.mixed_case = level >= 3
+        self.star = level >= 3
+        self.dot = level >= 4
+        self.tmp = level >= 4
+        self.crlf = level >= 4
+        self.unicode = level >= 5
+        self.upper_hex = level >= 5
+        self.dot_slash = level >= 5
+
+
+def blob(rng, n):
+    if rng.chance(1, 3):
+        return rng.bytes(n)
+    words = ["alpha", "beta", "gamma", "delta", "release", "build", "notes", "line", "data", "value"]
+    return (" ".join(rng.choice(words) for _ in range(max(1, n // 6))) + "\n").encode("utf-8")
+
+
+def excluded(path, lv):
+    base = path.rsplit("/", 1)[-1]
+    if path in ("MANIFEST.sha256", "SHA256SUMS", "VERIFY.txt"):
+        return True
+    if lv.sig and base.endswith(".sig"):
+        return True
+    if lv.dot and any(part.startswith(".") for part in path.split("/")):
+        return True
+    if lv.tmp and (path.startswith("tmp/")):
+        return True
+    return False
+
+
+def build(ctx):
+    rng = ctx.rng()
+    lv = Lv(ctx.difficulty)
+    files = {}
+    stems = rng.sample(STEMS, 3)
+    ver = "%d.%d.%d" % (rng.randint(1, 4), rng.randint(0, 19), rng.randint(0, 9))
+    pre = "bin/" if lv.subdirs else ""
+    for s in stems:
+        files["%s%s-%s" % (pre, s, ver)] = blob(rng, rng.randint(40, 300))
+        if lv.sig:
+            files["%s%s-%s.sig" % (pre, s, ver)] = blob(rng, 64)
+    docs = [d for d in DOCS if (lv.spaces or " " not in d) and (lv.mixed_case or d == d.lower())]
+    for d in rng.sample(docs, min(len(docs), rng.randint(4, 6))):
+        files[("docs/" if lv.subdirs else "") + d + rng.choice([".txt", ".md", ""])] = blob(rng, rng.randint(20, 200))
+    if lv.subdirs:
+        files["conf/default.toml"] = blob(rng, 80)
+        files["conf/profiles/%s.toml" % rng.choice(["prod", "edge", "lab"])] = blob(rng, 60)
+    if lv.unicode:
+        files["docs/" + rng.choice(UNI)] = blob(rng, 50)
+    if lv.dot:
+        files[".DS_Store"] = rng.bytes(32)
+        files["docs/.draft-notes.txt"] = blob(rng, 40)
+    if lv.tmp:
+        files["tmp/build.log"] = blob(rng, 90)
+        files["tmp/cache/part-%d" % rng.randint(1, 9)] = rng.bytes(40)
+    if lv.spaces:
+        files["%s %s notes.txt" % (rng.choice(["Release", "release"]), ver)] = blob(rng, 70)
+    # the stale SHA256SUMS: written for an older state of the tree
+    manifest_paths = sorted((p for p in files if not excluded(p, lv)), key=lambda p: p.encode("utf-8"))
+    listed = rng.sample(manifest_paths, max(4, len(manifest_paths) * 2 // 3))
+    entries = []  # (path, hash in the file, written form)
+    n_bad = 0
+    for p in listed:
+        h = hashlib.sha256(files[p]).hexdigest()
+        if n_bad < 2 and rng.chance(1, 3):
+            h = hashlib.sha256(files[p] + b"old").hexdigest()  # the file changed since
+            n_bad += 1
+        entries.append((p, h))
+    if n_bad == 0:
+        p, _ = entries[0]
+        entries[0] = (p, hashlib.sha256(files[p] + b"v0").hexdigest())
+    if lv.missing:
+        for gone in ("%s%s-%s" % (pre, rng.choice(STEMS), "0.9.%d" % rng.randint(0, 9)),
+                     ("docs/" if lv.subdirs else "") + "OLD-NOTES.txt"):
+            if gone not in files:
+                entries.insert(rng.below(len(entries) + 1), (gone, hashlib.sha256(gone.encode()).hexdigest()))
+    lines = []
+    if lv.comments:
+        lines.append("# checksums for release %s (generated before the last rebuild)" % ver)
+    report = []
+    counts = {"OK": 0, "FAILED": 0, "MISSING": 0}
+    for i, (p, h) in enumerate(entries):
+        hh = h.upper() if (lv.upper_hex and i % 4 == 1) else h
+        star = "*" if (lv.star and i % 3 == 2) else " "
+        pp = ("./" + p) if (lv.dot_slash and i % 5 == 3) else p
+        lines.append("%s %s%s" % (hh, star, pp))
+        if lv.comments and i == len(entries) // 2:
+            lines.append("")
+            lines.append("# config")
+        if p not in files:
+            st = "MISSING"
+        elif hashlib.sha256(files[p]).hexdigest() == h:
+            st = "OK"
+        else:
+            st = "FAILED"
+        counts[st] += 1
+        report.append("%s: %s" % (p, st))
+    report.append("ok=%d failed=%d missing=%d" % (counts["OK"], counts["FAILED"], counts["MISSING"]))
+    nl = "\r\n" if lv.crlf else "\n"
+    sums = nl.join(lines) + nl
+    manifest = "".join("%s  %s\n" % (hashlib.sha256(files[p]).hexdigest(), p) for p in manifest_paths)
+    verify = "".join(x + "\n" for x in report)
+    rules = [
+        "1. `release/MANIFEST.sha256` lists every regular file under `release/` (subdirectories included) with its "
+        "SHA-256, one line per file in the format `shasum -a 256` prints: 64 lower-case hex digits, two spaces, "
+        "the path relative to `release/` (no `./` prefix, e.g. `%s`)." % manifest_paths[0],
+        "2. Lines are sorted by path in byte order (as `LC_ALL=C sort` orders them; upper case sorts before lower "
+        "case). Every line ends with a newline.",
+        "3. Left out of the manifest: `MANIFEST.sha256`, `SHA256SUMS` and `VERIFY.txt` themselves%s%s%s." % (
+            ", every `*.sig` file" if lv.sig else "",
+            ", every file or directory whose name starts with `.`" if lv.dot else "",
+            ", and everything under `release/tmp/`" if lv.tmp else ""),
+        "4. `release/VERIFY.txt` checks the old `release/SHA256SUMS` against the files as they are now. For each "
+        "entry, in the order of SHA256SUMS: one line `<path>: OK` (the file exists and its SHA-256 matches), "
+        "`<path>: FAILED` (it exists but differs)%s. Then one last line `ok=<n> failed=<n> missing=<n>`." % (
+            " or `<path>: MISSING` (no such file)" if lv.missing else ""),
+        "5. SHA256SUMS lines are `<hash> <mark><path>`: one space, then a mark that is a space (text mode)%s, then "
+        "the path relative to `release/`.%s%s%s%s" % (
+            " or `*` (binary mode; not part of the path)" if lv.star else "",
+            " Blank lines and lines starting with `#` are not entries." if lv.comments else "",
+            " Lines may end with CRLF." if lv.crlf else "",
+            " A hash may be written in upper-case hex." if lv.upper_hex else "",
+            " A path may start with `./`, which is not part of it: write the path without it in VERIFY.txt."
+            if lv.dot_slash else ""),
+        "6. Do not modify, add or delete anything else under `release/` (keep helper scripts outside it).",
+    ]
+    spec_text = "\n".join(rules) + "\n"
+    prompt = ("The directory `release/` is about to be published. Write two files, exactly as specified:\n\n" +
+              spec_text + "\nThe same text is in README.md.")
+    inst = s1lib.Instance(ctx, prompt=prompt)
+    inst.workspace["README.md"] = "# Release checksums\n\n" + spec_text
+    inst.marker_files = ["README.md"]
+    for p, data in files.items():
+        inst.workspace["release/" + p] = data
+    inst.workspace["release/SHA256SUMS"] = sums
+    inst.protect("README.md", "release/SHA256SUMS", *sorted("release/" + p for p in files))
+    inst.solution["release/MANIFEST.sha256"] = manifest
+    inst.solution["release/VERIFY.txt"] = verify
+    spec = {"manifest": manifest, "verify": verify, "paths": manifest_paths,
+            "hashes": {p: hashlib.sha256(files[p]).hexdigest() for p in manifest_paths}}
+    tgen.finish(inst, ctx, spec=spec, names=["manifest_paths", "manifest_hashes", "manifest_exact", "verify",
+                                             "verify_summary"])
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

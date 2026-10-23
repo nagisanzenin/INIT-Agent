@@ -1,0 +1,23 @@
+{
+ "v": 1,
+ "id": "c-rise-runs",
+ "family": "C",
+ "lang": "py",
+ "title": "Rising-run counter with a seeded extra result",
+ "difficulty": {
+  "default": 3,
+  "min": 1,
+  "max": 5
+ },
+ "toolchains": [
+  "python3"
+ ],
+ "licence": "CRUXEval-MIT",
+ "source": {
+  "repo": "facebookresearch/cruxeval",
+  "path": "data/cruxeval.jsonl",
+  "sample": "sample_223",
+  "commit": "190faf16d175b5847b0af05d937872b1fb395942"
+ },
+ "notes": "Family C (S1-C): CRUXEval sample_223 under a seeded name in a 3-file package; operator ret_extra; pass-rate guess at the default difficulty (deepseek-flash, 8 turns): 45%. See C/_lib/s1c.py for the operators and the difficulty knob."
+}

@@ -1,0 +1,461 @@
+#!/usr/bin/env python3
+"""t-find-commit: answer history questions (which commit introduced / removed a string, first author) about a
+seeded git repository (family T, pack s1; INIT licence)."""
+import copy
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared"))
+import tgen  # noqa: E402
+
+s1lib = tgen.s1lib
+
+PEOPLE = [("Ilse Marten", "ilse.marten"), ("Tomas Reyes", "t.reyes"), ("Noor Haddad", "noor"),
+          ("Kenji Arai", "kenji.arai"), ("Maren Solberg", "msolberg"), ("Ola Brandvik", "ola.b"),
+          ("Priya Venkat", "priya.v"), ("Luca Ferri", "lferri"), ("Ada Okafor", "ada.okafor"),
+          ("Sven Lind", "sven")]
+S_CONSTS = ["BACKOFF_CAP_MS", "RETRY_CEILING_MS", "IDLE_CUTOFF_MS", "FLUSH_DEADLINE_MS", "HANDSHAKE_WAIT_MS",
+            "LEASE_RENEW_MS"]
+NET_CONSTS = ["CONNECT_TIMEOUT_MS", "READ_TIMEOUT_MS", "MAX_REDIRECTS", "POOL_SIZE", "KEEPALIVE_S",
+              "DNS_CACHE_S", "MAX_HEADER_BYTES", "SEND_BUFFER_KB", "PROBE_PORT"]
+VERBS = ["parse", "format", "merge", "clamp", "split", "count", "scale", "pick", "check", "normalize", "trim",
+         "group"]
+NOUNS = ["header", "batch", "record", "window", "token", "label", "range", "path", "entry", "quota", "chunk",
+         "field"]
+CONFIG_KEYS = ["workers", "queue_size", "log_level", "data_dir", "flush_every", "max_payload", "region",
+               "retention_days", "metrics_port", "heartbeat_s", "spool_dir", "tls_mode", "user_agent",
+               "batch_limit"]
+NOTES = ["Run the integration suite before tagging.", "The spool directory must be on local disk.",
+         "Heartbeats are sent every few seconds by default.", "Metrics are exposed on a separate port.",
+         "Batches larger than the limit are split, not rejected.", "Old spool files are removed after retention.",
+         "The client retries idempotent requests only.", "TLS is required outside the test network.",
+         "Region names are lower case.", "Workers share one connection pool.",
+         "Payloads are compressed above 4 KiB.", "The queue drops nothing; it blocks when full."]
+README_LINES = ["Install with `pip install -e .`.", "Configuration lives in `config/defaults.ini`.",
+                "See `docs/notes.md` for operating notes.", "Run the tests with `python3 -m unittest`.",
+                "Report bugs in the issue tracker.", "The command-line entry point is `run()`.",
+                "Python 3.9 or newer is required.", "Releases follow semantic versioning."]
+PROJECTS = ["harborline", "relaykit", "spoolman", "tidewater", "beaconry", "courierd", "pipewright", "dockhand"]
+
+T0 = 1735732800  # 2025-01-01 12:00 UTC
+
+CHECK_FORMAT = r"""#!/bin/sh
+# Checks the FORMAT of answers.txt only; it does not tell whether the answers are right.
+cd "$(dirname "$0")/.." || exit 2
+f=answers.txt
+[ -f "$f" ] || { echo "answers.txt is missing"; exit 1; }
+bad=0
+for key in introduced removed author; do
+  n=$(grep -c "^$key=" "$f")
+  [ "$n" = 1 ] || { echo "$key: expected exactly one line '$key=...'"; bad=1; }
+done
+for key in introduced removed; do
+  v=$(sed -n "s/^$key=//p" "$f" | head -n 1)
+  if ! printf '%s\n' "$v" | grep -Eq '^[0-9a-f]{40}$'; then
+    echo "$key: not a full 40-character lowercase sha"; bad=1
+  elif ! git -C repo cat-file -e "$v^{commit}" 2>/dev/null; then
+    echo "$key: no such commit in repo/"; bad=1
+  fi
+done
+v=$(sed -n 's/^author=//p' "$f" | head -n 1)
+printf '%s\n' "$v" | grep -Eq '^[^<> @]+@[^<> @]+$' || { echo "author: expected a bare e-mail address"; bad=1; }
+[ "$bad" = 0 ] && echo "answers.txt: format OK"
+exit "$bad"
+"""
+
+
+def commit2(g, tree, parents, message, author, a_when, committer, c_when):
+    """A commit whose author and committer (and their dates) differ."""
+    body = "tree %s\n" % tree
+    for p in parents:
+        body += "parent %s\n" % p
+    body += "author %s <%s> %d +0000\n" % (author[0], author[1], a_when)
+    body += "committer %s <%s> %d +0000\n" % (committer[0], committer[1], c_when)
+    body += "\n" + message.rstrip("\n") + "\n"
+    return g.obj("commit", body.encode("utf-8"))
+
+
+class Project:
+    """The project's content as a few structured fields; render() gives the file snapshot."""
+
+    def __init__(self, pkg, proj, rng):
+        self.pkg = pkg
+        self.proj = proj
+        self.version = 1
+        self.readme = ["A small client library that ships records to a collector."]
+        self.core_fns = []        # [(name, [lines])]
+        self.run_calls = []       # lines inside run()
+        self.net_path = "src/%s/net.py" % pkg
+        self.net_consts = ["CONNECT_TIMEOUT_MS = %d" % rng.choice([1500, 2000, 2500, 3000])]
+        self.net_fns = [("ping", ["def ping(host):", '    """True when the host answers."""',
+                                  "    return bool(host)"])]
+        self.config = ["workers = 2"]
+        self.notes = []
+        self.tests = [("test_run_empty", ["    def test_run_empty(self):",
+                                          "        self.assertEqual(core.run([]), [])"])]
+
+    def render(self):
+        p = self.pkg
+        core = ['"""%s.core: entry points."""' % p, "", "from . import net", "", "",
+                "def run(args):", '    """Runs one cycle and returns the processed arguments."""']
+        core += self.run_calls
+        core += ["    out = []", "    for a in args:", "        out.append(a)", "    return out"]
+        for _, lines in self.core_fns:
+            core += ["", ""] + lines
+        net = ['"""%s.net: connection settings and helpers."""' % p, ""] + self.net_consts
+        for _, lines in self.net_fns:
+            net += ["", ""] + lines
+        tests = ["import unittest", "", "from %s import core" % p, "", "", "class CoreTests(unittest.TestCase):"]
+        for i, (_, lines) in enumerate(self.tests):
+            tests += ([""] if i else []) + lines
+        tests += ["", "", 'if __name__ == "__main__":', "    unittest.main()"]
+        files = {
+            "README.md": "\n".join(["# %s" % self.proj, ""] + self.readme) + "\n",
+            "src/%s/__init__.py" % p: '"""%s."""\n\n__version__ = "0.%d.0"\n' % (self.proj, self.version),
+            "src/%s/core.py" % p: "\n".join(core) + "\n",
+            self.net_path: "\n".join(net) + "\n",
+            "config/defaults.ini": "[%s]\n" % p + "\n".join(self.config) + "\n",
+            "docs/notes.md": "\n".join(["# Operating notes", ""] + ["- " + n for n in self.notes]) + "\n",
+            "tests/test_core.py": "\n".join(tests) + "\n",
+        }
+        return files
+
+
+def build(ctx):
+    rng = ctx.rng()
+    L = ctx.difficulty
+    proj = rng.choice(PROJECTS) + "-" + rng.word(3)
+    pkg = proj.split("-")[0]
+    people = [(n, "%s@%s" % (e, rng.choice(["%s.example" % pkg, "mail.example", "dev.example"])))
+              for n, e in rng.sample(PEOPLE, 6)]
+    root_author = people[0]
+    bot = ("Import Bot", "import-bot@%s.example" % pkg)
+    const = rng.choice(S_CONSTS)
+    digits = rng.sample("123456789", 4)
+    sval = "".join(digits)
+    perm = sval
+    while perm == sval:
+        perm = "".join(rng.shuffled(digits))
+    S = "%s = %s" % (const, sval)
+    decoy = "%s = %s" % (const, perm)
+    other = "%s = %d" % (const, int(sval) + rng.choice([500, 1000, 1500, 2000]))
+    rword = rng.word(4)
+    R = "legacy_%s_probe" % rword
+    side_name = rng.choice(["retry-tuning", "backoff-work", "net-hardening", "client-timeouts"])
+    traps = []
+
+    st = Project(pkg, proj, rng)
+    used = set()
+    nr = rng.fork("noise")
+
+    def fn_name():
+        while True:
+            n = "%s_%s" % (nr.choice(VERBS), nr.choice(NOUNS))
+            if n not in used:
+                used.add(n)
+                return n
+
+    # ---------------------------------------------------------------- noise operations
+    def op_core(s):
+        n = fn_name()
+        k = nr.randint(2, 9)
+        s.core_fns.append((n, ["def %s(value):" % n, '    """Helper for %s."""' % n.replace("_", " "),
+                               "    return value * %d" % k]))
+        return nr.choice(["Add %s() helper" % n, "core: add %s" % n, "Introduce %s()" % n])
+
+    def op_config(s):
+        left = [k for k in CONFIG_KEYS if not any(c.startswith(k + " ") for c in s.config)]
+        if not left:
+            return op_readme(s)
+        k = nr.choice(left)
+        s.config.append("%s = %d" % (k, nr.randint(1, 900)))
+        return nr.choice(["Add %s default" % k, "config: set %s" % k, "Make %s configurable" % k])
+
+    def op_note(s):
+        left = [n for n in NOTES if n not in s.notes]
+        if not left:
+            return op_readme(s)
+        s.notes.append(nr.choice(left))
+        return nr.choice(["Docs: operating note", "Update operating notes", "notes: add a hint"])
+
+    def op_test(s):
+        n = "test_%s" % fn_name()
+        s.tests.append((n, ["    def %s(self):" % n, "        self.assertEqual(core.run([%d]), [%d])" % (
+            len(s.tests), len(s.tests))]))
+        return nr.choice(["Add %s" % n, "tests: cover another input", "More tests for run()"])
+
+    def op_version(s):
+        s.version += 1
+        return nr.choice(["Release 0.%d.0" % s.version, "Bump version to 0.%d.0" % s.version])
+
+    def op_netconst(s):
+        left = [c for c in NET_CONSTS if not any(x.startswith(c + " ") for x in s.net_consts)]
+        if not left:
+            return op_nettweak(s)
+        c = nr.choice(left)
+        s.net_consts.append("%s = %d" % (c, nr.randint(2, 64) * 10))
+        return nr.choice(["net: add %s" % c, "Add %s setting" % c])
+
+    def op_nettweak(s):
+        i = nr.below(len(s.net_fns))
+        name, lines = s.net_fns[i]
+        s.net_fns[i] = (name, lines[:-1] + ["    return bool(host) and host != %r" % nr.choice(
+            ["0.0.0.0", "invalid", "none", "-"])])
+        return "net: harden %s()" % name
+
+    def op_netfn(s):
+        n = fn_name()
+        s.net_fns.append((n, ["def %s(host, port=%d):" % (n, nr.randint(1000, 9999)),
+                              '    """Address string for %s."""' % n.replace("_", " "),
+                              '    return "%s:%d" % (host, port)']))
+        return nr.choice(["net: add %s()" % n, "Add %s helper to net" % n])
+
+    def op_readme(s):
+        left = [x for x in README_LINES if x not in s.readme]
+        if left:
+            s.readme.append(nr.choice(left))
+        else:
+            s.readme[0] = s.readme[0].rstrip(".") + " (stable)."
+        return nr.choice(["README: more usage notes", "Polish README", "Docs: README tweak"])
+
+    MAIN_OPS = [op_core, op_config, op_note, op_test, op_version, op_netconst, op_readme, op_netfn]
+    MAIN_ONLY_OPS = [op_core, op_config, op_note, op_version, op_readme]   # never touch net or tests
+    SIDE_OPS = [op_netconst, op_netfn, op_test, op_nettweak]               # only net and tests
+
+    # ---------------------------------------------------------------- history writer
+    g = tgen.Git(prefix="repo", user=("Repo Owner", "owner@%s.example" % pkg))
+    hr = rng.fork("history")
+    clock = [T0 + hr.randint(0, 86400 * 30)]
+    snaps = {}      # sha -> files
+    parents = {}    # sha -> [shas]
+
+    def tick():
+        clock[0] += hr.randint(1800, 86400 * 2)
+        return clock[0]
+
+    def author():
+        return hr.choice(people[1:] + people[1:3])
+
+    def commit(s, par, msg, who=None, committer=None, a_when=None):
+        files = s.render()
+        tree = g.tree_of(files)
+        when = tick()
+        a = who or author()
+        if committer is not None or a_when is not None:
+            sha = commit2(g, tree, par, msg, a, a_when if a_when is not None else when, committer or a, when)
+        else:
+            sha = g.commit(tree, par, msg, when, author=a)
+        snaps[sha] = files
+        parents[sha] = list(par)
+        return sha
+
+    def noise(s, tip, n, ops):
+        for _ in range(n):
+            msg = nr.choice(ops)(s)
+            tip = commit(s, [tip], msg)
+        return tip
+
+    def set_const(s, line):
+        for i, x in enumerate(s.net_consts):
+            if x.startswith(const + " "):
+                s.net_consts[i] = line
+                return
+        s.net_consts.append(line)
+
+    target = {1: (25, 28), 2: (28, 32), 3: (32, 37), 4: (36, 42), 5: (42, 48)}[L]
+    n_target = hr.randint(*target)
+    n_side = hr.randint(2, 3)
+    s_pos = hr.below(n_side) if L >= 3 else -1
+    n_main_b = hr.randint(2, 3)
+    # commits on main that are not filler: root, R, side+main during the branch, merge, R removal, then by level
+    fixed = 3 + n_side + n_main_b + 1 + {1: 1, 2: 3, 3: 6, 4: 7, 5: 9}[L]
+    used_gaps = [0, 1, 2, 3, 6, 7] if L <= 2 else list(range(8))
+    gaps = [0] * 8
+    for i in used_gaps:
+        gaps[i] = 1
+    for _ in range(max(0, n_target - fixed - len(used_gaps))):
+        gaps[used_gaps[hr.below(len(used_gaps))]] += 1
+
+    # root
+    root_when = clock[0]
+    if L >= 4:
+        root = commit2(g, g.tree_of(st.render()), [], "Initial import of %s" % proj, root_author, root_when,
+                       bot, root_when + 3600)
+        traps.append("root commit: author differs from committer")
+    else:
+        root = g.commit(g.tree_of(st.render()), [], "Initial import of %s" % proj, root_when, author=root_author)
+    snaps[root] = st.render()
+    parents[root] = []
+    tip = root
+    # R appears (definition, call, note)
+    st.core_fns.append((R, ["def %s(host):" % R, '    """Old-style reachability check for v1 agents."""',
+                            "    return net.ping(host)"]))
+    st.run_calls.append('    %s("localhost")' % R)
+    st.notes.append("`%s` is kept for old v1 agents." % R)
+    tip = commit(st, [tip], "Add a reachability probe for v1 agents")
+    tip = noise(st, tip, gaps[0], MAIN_OPS)
+    if L >= 4:  # a case-variant of S in the docs, before the real introduction
+        st.notes.append("Proposal: `%s` (see the load-test report)." % S.lower())
+        tip = commit(st, [tip], "notes: record the backoff proposal")
+        traps.append("case-variant decoy in docs before the introduction")
+    if L >= 2:  # S in a commit message only
+        st.notes.append("Backoff tuning is planned after the load test.")
+        tip = commit(st, [tip], "Plan to set %s after the load test" % S)
+        set_const(st, decoy)
+        tip = commit(st, [tip], "net: add %s" % const)
+        traps += ["S in an earlier commit message", "near-duplicate value decoy %s" % decoy]
+    tip = noise(st, tip, gaps[1], MAIN_OPS)
+
+    # side branch, merged back
+    fork = tip
+    side = copy.deepcopy(st)
+    side_tip = fork
+    wip_sha = None
+    if L >= 5:  # an unmerged branch that has S earlier than main does
+        wip = copy.deepcopy(st)
+        set_const(wip, S)
+        wip_sha = commit(wip, [fork], "WIP: try a new backoff cap")
+        traps.append("unmerged branch introduces S earlier")
+    order = hr.shuffled(["s"] * n_side + ["m"] * n_main_b)
+    intro = None
+    si = 0
+    for who_ in order:
+        if who_ == "s":
+            if si == s_pos:
+                set_const(side, S)
+                side_tip = commit(side, [side_tip], nr.choice(["Tune the retry backoff", "net: retune backoff"]))
+                intro = side_tip
+            else:
+                side_tip = commit(side, [side_tip], nr.choice(SIDE_OPS)(side))
+            si += 1
+        else:
+            tip = commit(st, [tip], nr.choice(MAIN_ONLY_OPS)(st))
+    for f in ("net_consts", "net_fns", "tests"):
+        setattr(st, f, copy.deepcopy(getattr(side, f)))
+    tip = commit(st, [tip, side_tip], "Merge branch '%s'" % side_name)
+    if L >= 3:
+        traps.append("S introduced on the merged side branch")
+    tip = noise(st, tip, gaps[2], MAIN_OPS)
+    if intro is None:  # L1-2: S introduced on main
+        set_const(st, S)
+        tip = commit(st, [tip], nr.choice(["Tune the retry backoff", "net: retune backoff"]))
+        intro = tip
+        tip = noise(st, tip, gaps[3], MAIN_OPS)
+    if L >= 3:  # the file holding S moves
+        new_path = "src/%s/transport/%s.py" % (pkg, hr.choice(["retry", "backoff", "client"]))
+        st.net_path = new_path
+        tip = commit(st, [tip], "Move net.py into the transport package")
+        traps.append("file renamed after the introduction")
+        tip = noise(st, tip, gaps[3], MAIN_OPS)
+        # partial removal of R under a message that claims all of it
+        st.run_calls = [c for c in st.run_calls if R not in c]
+        st.notes = [n for n in st.notes if R not in n]
+        tip = commit(st, [tip], "Remove %s" % R)
+        traps.append("'Remove R' commit leaves the definition")
+        tip = noise(st, tip, gaps[4], MAIN_OPS)
+        set_const(st, other)
+        tip = commit(st, [tip], "Raise the backoff cap for slow links")
+        tip = noise(st, tip, gaps[5], MAIN_OPS)
+    if L == 5:  # a commit whose author date is older than the root's
+        msg = nr.choice(MAIN_OPS[:5])(st)
+        tip = commit(st, [tip], msg, a_when=root_when - 86400 * hr.randint(20, 90))
+        traps.append("a later commit with an author date older than the root")
+    # R removed for good, under an unrelated message
+    st.core_fns = [f for f in st.core_fns if f[0] != R]
+    st.run_calls = [c for c in st.run_calls if R not in c]
+    st.notes = [n for n in st.notes if R not in n]
+    tip = commit(st, [tip], nr.choice(["Tidy the core module", "core: clean up old helpers"]))
+    removed = tip
+    tip = noise(st, tip, gaps[6], MAIN_OPS)
+    if L >= 3:  # S comes back
+        set_const(st, S)
+        tip = commit(st, [tip], "Restore the previous backoff cap")
+        traps.append("S removed and re-added later")
+    tip = noise(st, tip, gaps[7], MAIN_OPS)
+    if L == 5:
+        st.notes.append("Probing now goes through net.ping only.")
+        tip = commit(st, [tip], "Follow-up to the %s removal: notes" % R)
+    g.refs["refs/heads/main"] = tip
+    if wip_sha:
+        g.refs["refs/heads/wip/backoff-%s" % rng.word(3)] = wip_sha
+
+    # ---------------------------------------------------------------- verify the answers from the trees
+    reach = []
+    seen = set()
+    stack = [tip]
+    while stack:
+        c = stack.pop()
+        if c in seen:
+            continue
+        seen.add(c)
+        reach.append(c)
+        stack += parents[c]
+    if not 25 <= len(reach) <= 50:
+        raise s1lib.GenError("history has %d commits" % len(reach))
+
+    def has(c, s):
+        return any(s in v for v in snaps[c].values())
+
+    intros = [c for c in reach if has(c, S) and not any(has(p, S) for p in parents[c])]
+    removals = [c for c in reach if not has(c, R) and any(has(p, R) for p in parents[c])]
+    if intro not in intros or len(intros) != (2 if L >= 3 else 1):
+        raise s1lib.GenError("S introductions do not match the plan")
+    if removals != [removed]:
+        raise s1lib.GenError("R removals do not match the plan")
+    anc = {}
+
+    def ancestors(c):
+        if c not in anc:
+            out, stk = set(), list(parents[c])
+            while stk:
+                x = stk.pop()
+                if x not in out:
+                    out.add(x)
+                    stk += parents[x]
+            anc[c] = out
+        return anc[c]
+    for c in intros:
+        if c != intro and intro not in ancestors(c):
+            raise s1lib.GenError("the first introduction is not an ancestor of the later one")
+    if has(tip, R) or not has(tip, S):
+        raise s1lib.GenError("unexpected tip content")
+
+    ws_repo = g.files(worktree=snaps[tip])
+    q = (
+        "`repo/` is a git repository of a small project, with `main` checked out. Answer three questions about "
+        "the history of `main` (the commits reachable from `main`; other branches do not count) and write the "
+        "answers to `answers.txt` in this directory (next to README.md, not inside `repo/`), as exactly these "
+        "three lines:\n\n"
+        "```\nintroduced=<sha>\nremoved=<sha>\nauthor=<email>\n```\n\n"
+        "1. `introduced`: the commit that FIRST introduced the exact string `{S}` (case-sensitive, spaces "
+        "included) into a tracked file. A commit introduces the string when some file in that commit contains "
+        "it and no file in any of its parents does, so a merge commit that only brings it in from a parent does "
+        "not count. If the string was introduced, later removed and introduced again, give the earliest "
+        "introduction. Commit messages do not count; only file contents do.\n"
+        "2. `removed`: the commit after which the exact string `{R}` no longer occurs in any tracked file "
+        "(it occurs in the commit's parent and nowhere in the commit itself).\n"
+        "3. `author`: the author e-mail (not the committer e-mail) of the root commit of `main` (the commit "
+        "without a parent), without angle brackets.\n\n"
+        "Every sha must be the full 40-character lowercase hex id; abbreviated ids are wrong. Do not change the "
+        "repository: when you finish, `main` must point at the same commit as now and still be checked out "
+        "(use read-only git commands, or restore the checkout).\n\n"
+        "`sh tests/check_answers.sh` checks the format of `answers.txt` (not whether the answers are right). "
+        "Do not modify `tests/`.\n"
+    ).format(S=S, R=R)
+    inst = s1lib.Instance(ctx, prompt=q)
+    inst.workspace["README.md"] = "# History questions\n\n" + q
+    inst.workspace.update(ws_repo)
+    inst.workspace["tests/check_answers.sh"] = CHECK_FORMAT
+    inst.executable.add("tests/check_answers.sh")
+    inst.protect("tests/check_answers.sh")
+    inst.marker_files = ["README.md"]
+    answers = {"introduced": intro, "removed": removed, "author": root_author[1]}
+    inst.solution["answers.txt"] = "introduced=%s\nremoved=%s\nauthor=%s\n" % (intro, removed, root_author[1])
+    spec = {"answers": answers, "main_tip": tip, "traps": traps, "S": S, "R": R}
+    tgen.finish(inst, ctx, spec=spec, names=["introduced", "removed", "author", "repo_untouched"])
+    return inst
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

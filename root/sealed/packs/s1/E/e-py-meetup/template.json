@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-meetup",
+ "family": "E",
+ "lang": "py",
+ "title": "Monthly meetup dates with seeded descriptors and format",
+ "difficulty": {"default": 4, "min": 3, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/meetup", "exercise": "meetup", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d3 a seeded string date format and a seeded 7-day window descriptor replacing teenth (teenth now raises); d4 + a seeded name for the second-to-last weekday; d5 + integer weeks (negative from the end, 0 raises) and a seeded skip day that moves the meetup a week later. Difficulty guess for deepseek-flash: hard (d4)."
+}

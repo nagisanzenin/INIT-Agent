@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-cron-next",
+ "family": "T",
+ "lang": "any",
+ "title": "Compute the next run of crontab jobs",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: write ./cronnext --now T < crontab that prints each job's next run strictly after T (5-field syntax with lists, ranges, steps, names, @keywords, comment and variable lines skipped, command spacing kept), save next_runs.txt for the visible crontab, run on hidden crontabs; traps: day-of-month/day-of-week OR rule when both are restricted, steps counted from the range start (10-50/20, */10 days = 1,11,21,31, */3 months = 1,4,7,10), a job due exactly at --now, dow 7 = Sunday, mixed-case names; knob adds never-running jobs (Feb 30) and month/year rollovers (4), '*/n' day fields counting as unrestricted (AND), tabs and indented jobs (5); pass_guess_permille: 450"
+}

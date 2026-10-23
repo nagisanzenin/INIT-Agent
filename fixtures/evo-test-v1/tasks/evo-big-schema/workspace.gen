@@ -1,0 +1,2 @@
+# evo-big-schema: generate models.py, MIGRATION.md and tests/ (deterministic, seeded)
+exec /usr/bin/python3 -I -S -B "$(dirname "$0")/hidden/sgen.py" "$1"

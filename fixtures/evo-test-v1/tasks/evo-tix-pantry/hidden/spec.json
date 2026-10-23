@@ -1,0 +1,265 @@
+{
+ "items": [
+  {
+   "checks": [
+    [
+     "L = open('CHANGELOG.md').read().splitlines()\nprint(L[L.index('## Changes') + 1])",
+     "- 2.4.0: ticket batch PAN-12"
+    ]
+   ],
+   "name": "t01",
+   "ticket": "changelog"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.errors import NotFound\nprint(str(NotFound('q7')))",
+     "ingredient 'q7' not found"
+    ]
+   ],
+   "name": "t02",
+   "ticket": "notfound"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(25)\nprint([x.id for x in s.page(1, 10)][0], [x.id for x in s.page(3, 10)])",
+     "k00 ['k20', 'k21', 'k22', 'k23', 'k24']"
+    ]
+   ],
+   "name": "t03",
+   "ticket": "page1"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nimport os, tempfile\nfrom pantryline.io import dump_csv, load_csv\ns = mk(2)\ns.get('k01').tags = ['a', 'b']\np = os.path.join(tempfile.mkdtemp(), 'o.csv')\ndump_csv(s, p)\nprint(open(p).readline().strip().split(',')[-1], load_csv(p).get('k01').tags, load_csv(p).get('k00').tags)",
+     "tags ['a', 'b'] []"
+    ]
+   ],
+   "name": "t04",
+   "ticket": "csv_tags"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom pantryline.report import render\nprint(render(mk(2)).splitlines()[0])",
+     "Ingredients inventory"
+    ]
+   ],
+   "name": "t05",
+   "ticket": "title"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom pantryline.errors import Invalid\ns = mk(2)\ntry:\n    s.add(Ingredient(id='k01', name='z', aisle='c'))\nexcept Invalid as e:\n    print(e, s.count())",
+     "duplicate id k01 2"
+    ]
+   ],
+   "name": "t06",
+   "ticket": "dup"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.pricing import TAX_RATE\nprint(TAX_RATE)",
+     "0.0"
+    ]
+   ],
+   "name": "t07",
+   "ticket": "tax"
+  },
+  {
+   "checks": [
+    [
+     "L = open('README.md').read().splitlines()\nprint(repr(L[L.index('    pantryline count FILE') + 1]))",
+     "'    pantryline export FILE'"
+    ]
+   ],
+   "name": "t08",
+   "ticket": "readme"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom pantryline.report import low_stock\nprint(low_stock(mk(9), threshold=3))",
+     "['k00', 'k07', 'k03', 'k06']"
+    ]
+   ],
+   "name": "t09",
+   "ticket": "low_sorted"
+  },
+  {
+   "checks": [
+    [
+     "import io, json, contextlib\nfrom pantryline.cli import main\nfrom pantryline.io import load_csv\nb = io.StringIO()\nwith contextlib.redirect_stdout(b):\n    main(['json', 'data/sample.csv'])\ngot = json.loads(b.getvalue())\nwant = [x.to_dict() for x in load_csv('data/sample.csv').all()]\nprint(got == want, len(b.getvalue().strip().splitlines()))",
+     "True 1"
+    ]
+   ],
+   "name": "t10",
+   "ticket": "json_cmd"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom pantryline.errors import Invalid\ntry:\n    mk(0).add(Ingredient(id='a', name='b', aisle='c', qty=-1))\nexcept Invalid as e:\n    print(e)",
+     "quantity cannot be negative"
+    ]
+   ],
+   "name": "t11",
+   "ticket": "qty_msg"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.pricing import fmt_money\nprint(fmt_money(-1234.5), fmt_money(7))",
+     "-£1,234.50 £7.00"
+    ]
+   ],
+   "name": "t12",
+   "ticket": "money_neg"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.report import summary\nfrom pantryline.io import load_csv\nprint(list(summary(load_csv('data/sample.csv'))))",
+     "['Produce', 'bakery', 'dairy', 'spices']"
+    ]
+   ],
+   "name": "t13",
+   "ticket": "summary_sorted"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint([x.id for x in mk(12).search('n1')])",
+     "['k10', 'k11']"
+    ]
+   ],
+   "name": "t14",
+   "ticket": "search_ci"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.models import Ingredient\nprint(Ingredient(id='a', name='b', aisle='c', qty=3, price=1.105).to_dict()['value'])",
+     "3.31"
+    ]
+   ],
+   "name": "t15",
+   "ticket": "value_field"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import PAGE_SIZE\nprint(PAGE_SIZE)",
+     "15"
+    ]
+   ],
+   "name": "t16",
+   "ticket": "pagesize"
+  },
+  {
+   "checks": [
+    [
+     "import pantryline\nprint(pantryline.__version__, open('VERSION').read().strip())",
+     "2.4.0 2.4.0"
+    ]
+   ],
+   "name": "t17",
+   "ticket": "version"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom pantryline.report import render\nprint(render(mk(2)).splitlines()[1])",
+     "------------------------------"
+    ]
+   ],
+   "name": "t18",
+   "ticket": "sep"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nfrom pantryline.errors import Invalid\ntry:\n    mk(0).add(Ingredient(id='a', name='b', aisle='c', price=-2.0))\nexcept Invalid as e:\n    print(e)",
+     "price cannot be negative"
+    ]
+   ],
+   "name": "t19",
+   "ticket": "price_msg"
+  },
+  {
+   "checks": [
+    [
+     "import inspect\nfrom pantryline.report import low_stock\nprint(inspect.signature(low_stock).parameters['threshold'].default)",
+     "4"
+    ]
+   ],
+   "name": "t20",
+   "ticket": "thr"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.cli import main\nmain(['count', 'data/sample.csv', '--aisle', 'dairy'])\nmain(['count', 'data/sample.csv'])",
+     "8\n30"
+    ]
+   ],
+   "name": "t21",
+   "ticket": "count_cat"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.models import Ingredient\nprint(Ingredient.from_dict({'id': 'a', 'name': 'b', 'aisle': 'c', 'tags': ['x', 'y', 'x', 'z', 'y']}).tags)",
+     "['x', 'y', 'z']"
+    ]
+   ],
+   "name": "t22",
+   "ticket": "tags_dedupe"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\nprint(len(mk(4, 'Mixed').by_aisle('mIXED')))",
+     "4"
+    ]
+   ],
+   "name": "t23",
+   "ticket": "bycat_ci"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.store import Store\nfrom pantryline.models import Ingredient\ndef mk(n, cat='x'):\n    s = Store()\n    for k in range(n):\n        s.add(Ingredient(id='k%02d' % k, name='N%02d' % k, aisle=cat, qty=(k * 5) % 7, price=1.0 + k))\n    return s\ns = mk(3)\nprint(s.remove('k01').id, s.count())",
+     "k01 2"
+    ]
+   ],
+   "name": "t24",
+   "ticket": "remove_ret"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.models import Ingredient\nprint(Ingredient.from_dict({'id': 'a', 'name': 'b'}).aisle)",
+     "dry goods"
+    ]
+   ],
+   "name": "t25",
+   "ticket": "defcat"
+  },
+  {
+   "checks": [
+    [
+     "from pantryline.io import load_csv\nfrom pantryline.pricing import subtotal\ns = load_csv('data/sample.csv')\nprint(s.count(), round(subtotal(s.all()), 2) > 0)",
+     "30 True"
+    ]
+   ],
+   "name": "regress",
+   "ticket": "regress"
+  }
+ ],
+ "pkg": "pantryline"
+}

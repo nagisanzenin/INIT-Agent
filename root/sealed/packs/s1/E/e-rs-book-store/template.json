@@ -1,0 +1,24 @@
+{
+ "v": 1,
+ "id": "e-rs-book-store",
+ "family": "E",
+ "lang": "rust",
+ "title": "Series discount with a seeded catalogue and discount table",
+ "difficulty": {
+  "default": 4,
+  "min": 3,
+  "max": 5
+ },
+ "toolchains": [
+  "python3",
+  "cargo"
+ ],
+ "licence": "Exercism-MIT",
+ "source": {
+  "repo": "exercism/rust",
+  "path": "exercises/practice/book-store",
+  "exercise": "book-store",
+  "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e"
+ },
+ "notes": "S1-E-RS. Mutation: seeded number of titles (4-6), unit price and discount table (greedy-defeating; non-monotone at d4+), larger baskets at d5. ref/naive.rs is the track's .meta/example.rs (unmutated behaviour; validator fixture, must fail)."
+}

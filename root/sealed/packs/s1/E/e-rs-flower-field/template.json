@@ -1,0 +1,24 @@
+{
+ "v": 1,
+ "id": "e-rs-flower-field",
+ "family": "E",
+ "lang": "rust",
+ "title": "Garden annotation with seeded neighbourhoods and symbols",
+ "difficulty": {
+  "default": 3,
+  "min": 2,
+  "max": 4
+ },
+ "toolchains": [
+  "python3",
+  "cargo"
+ ],
+ "licence": "Exercism-MIT",
+ "source": {
+  "repo": "exercism/rust",
+  "path": "exercises/practice/flower-field",
+  "exercise": "flower-field",
+  "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e"
+ },
+ "notes": "S1-E-RS. Mutation: seeded symbols (flower, empty, zero display), neighbourhood (orthogonal, diagonal, Moore, knight, radius-2 cross) and toroidal wrap at d4. ref/naive.rs is the track's .meta/example.rs (unmutated behaviour; validator fixture, must fail)."
+}

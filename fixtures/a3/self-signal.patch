@@ -1,0 +1,16 @@
+diff --git a/src/main.rs b/src/main.rs
+index d810694..fbf650c 100644
+--- a/src/main.rs
++++ b/src/main.rs
+@@ -5,7 +5,11 @@ use std::os::unix::process::CommandExt;
+ 
+ const AGENT: &str = include_str!("../agent-path.txt");
+ 
++/// A3: the self-signal this body adds to its tail: the number of turns in the current task.
++const SELF_SIGNAL: &str = "turns_this_task";
++
+ fn main() {
++    eprintln!("self-signal: {SELF_SIGNAL}");
+     let agent = AGENT.trim();
+     let err = std::process::Command::new(agent)
+         .args(std::env::args_os().skip(1))

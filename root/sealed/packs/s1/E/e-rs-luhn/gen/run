@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""e-rs-luhn: Exercism `luhn` (Rust) with a seeded semantic change (m7-design §3.1.1, family E).
+
+Seeded parameters: the separator set (and, at difficulty 3, strict separator placement), the doubling
+period, the multiplier, the modulus and the minimum number of digits. Every difficulty differs from the
+original exercise (period 2, multiplier 2, modulus 10, spaces anywhere, at least 2 digits).
+Graded cases: 4 visible + 28 hidden `is_valid` calls, one #[test] each.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_rs"))
+import ersgen  # noqa: E402
+
+s1lib = ersgen.s1lib
+CRATE = "luhn_variant"
+SEPS = [" ", "-", ".", "/", "_"]
+SEP_NAMES = {" ": "the space `' '`", "-": "the hyphen `'-'`", ".": "the full stop `'.'`",
+             "/": "the slash `'/'`", "_": "the underscore `'_'`"}
+DIGITS = "0123456789"
+N_HIDDEN = 28
+
+STUB = '''/// Whether `code` passes the check-digit rules of the task.
+pub fn is_valid(code: &str) -> bool {
+    todo!("check {code}")
+}
+'''
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    if d == 1:
+        return {"k": 3, "m": 2, "mod": 10, "min": 2, "seps": [" "], "strict": False}
+    while True:
+        p = {"k": rng.choice([2, 3]), "m": rng.choice([2, 3]), "mod": rng.choice([10, 10, 11, 7, 9]),
+             "min": rng.choice([2, 3] if d == 2 else [2, 3, 4]),
+             "seps": sorted(rng.sample(SEPS, rng.randint(1, 2))), "strict": d >= 3}
+        deltas = (p["k"] != 2) + (p["m"] != 2) + (p["mod"] != 10) + (p["min"] != 2) + (p["seps"] != [" "])
+        if deltas >= 3:
+            return p
+
+
+def valid(code, p):
+    for i, c in enumerate(code):
+        if c in DIGITS:
+            continue
+        if c not in p["seps"]:
+            return False
+        if p["strict"] and not (0 < i < len(code) - 1 and code[i - 1] in DIGITS and code[i + 1] in DIGITS):
+            return False
+    digits = [int(c) for c in code if c in DIGITS]
+    if len(digits) < p["min"]:
+        return False
+    return checksum(digits, p) % p["mod"] == 0
+
+
+def checksum(digits, p):
+    total = 0
+    for pos, d in enumerate(reversed(digits), start=1):
+        v = d
+        if pos % p["k"] == 0:
+            v = d * p["m"]
+            if v > 9:
+                v = v // 10 + v % 10
+        total += v
+    return total
+
+
+def naive(code):
+    """The original exercise: spaces anywhere, period 2, doubling, mod 10, more than one digit."""
+    if any(c not in DIGITS and c != " " for c in code):
+        return False
+    digits = [int(c) for c in code if c in DIGITS]
+    if len(digits) <= 1:
+        return False
+    return checksum(digits, {"k": 2, "m": 2}) % 10 == 0
+
+
+def make_valid_digits(rng, n, p):
+    """n digits whose checksum is 0 mod p["mod"] (retries the body until a last digit fits)."""
+    while True:
+        body = [rng.randint(0, 9) for _ in range(n - 1)]
+        for last in rng.shuffled(range(10)):
+            ds = body + [last]
+            if checksum(ds, p) % p["mod"] == 0:
+                return ds
+
+
+def join(rng, digits, seps, density):
+    """Digits as text with separators only between digits (the strict-safe form)."""
+    out = []
+    for i, d in enumerate(digits):
+        if i and seps and rng.chance(density, 10):
+            out.append(rng.choice(seps))
+        out.append(str(d))
+    return "".join(out)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    seps = p["seps"]
+    foreign = [c for c in SEPS if c not in seps]
+    pool = []  # (category, code)
+
+    def add(cat, code):
+        if code not in [c for _, c in pool]:
+            pool.append((cat, code))
+
+    for _ in range(9):
+        add("valid", join(rng, make_valid_digits(rng, rng.randint(max(p["min"], 4), 18), p), seps, 3))
+    for _ in range(6):
+        ds = make_valid_digits(rng, rng.randint(max(p["min"], 4), 16), p)
+        i = rng.below(len(ds))
+        for delta in rng.shuffled(range(1, 10)):
+            bad = list(ds)
+            bad[i] = (bad[i] + delta) % 10
+            if checksum(bad, p) % p["mod"] != 0:
+                break
+        add("checksum", join(rng, bad, seps, 3))
+    for _ in range(3):
+        code = join(rng, make_valid_digits(rng, rng.randint(max(p["min"], 5), 14), p), [], 0)
+        j = rng.randint(1, len(code) - 1)
+        bad_char = rng.choice(foreign + ["a", "X", "+", "\t"])
+        add("badchar", code[:j] + bad_char + code[j:])
+    add("short", "0" * (p["min"] - 1) if p["min"] > 1 else "")
+    add("minimal", join(rng, [0] * p["min"], seps, 5))
+    add("empty", "")
+    add("only-seps", "".join(rng.choice(seps) for _ in range(rng.randint(1, 3))))
+    # placement edge cases: invalid under strict placement, valid otherwise
+    base = join(rng, make_valid_digits(rng, rng.randint(max(p["min"], 5), 12), p), [], 0)
+    add("lead-sep", rng.choice(seps) + base)
+    base = join(rng, make_valid_digits(rng, rng.randint(max(p["min"], 5), 12), p), [], 0)
+    add("trail-sep", base + rng.choice(seps))
+    base = join(rng, make_valid_digits(rng, rng.randint(max(p["min"], 5), 12), p), [], 0)
+    j = rng.randint(1, len(base) - 1)
+    add("double-sep", base[:j] + rng.choice(seps) + rng.choice(seps) + base[j:])
+    # top up with random codes that the original exercise gets wrong
+    tries = 0
+    while len(pool) < N_HIDDEN + 4 + 4 and tries < 400:
+        tries += 1
+        ds = [rng.randint(0, 9) for _ in range(rng.randint(p["min"], 16))]
+        code = join(rng, ds, seps + ([" "] if rng.chance(1, 4) else []), 2)
+        if valid(code, p) != naive(code):
+            add("disagree", code)
+    while len(pool) < N_HIDDEN + 4:
+        add("valid", join(rng, make_valid_digits(rng, rng.randint(p["min"] + 1, 18), p), seps, 3))
+
+    # visible: two valid (one with separators), one checksum failure, one other invalid
+    vis, used = [], set()
+    for want_cat, want in (("valid", True), ("checksum", False), ("valid", True), (None, False)):
+        for idx, (cat, code) in enumerate(pool):
+            if idx in used or valid(code, p) != want or (want_cat and cat != want_cat):
+                continue
+            if want_cat is None and cat in ("valid", "checksum", "empty"):
+                continue
+            vis.append(idx)
+            used.add(idx)
+            break
+        else:
+            idx = next(i for i, (_, c) in enumerate(pool) if i not in used and valid(c, p) == want)
+            vis.append(idx)
+            used.add(idx)
+    rest = [i for i in range(len(pool)) if i not in used]
+    keep = [i for i in rest if pool[i][0] not in ("valid", "checksum", "disagree")]  # every edge case
+    rest = rng.shuffled(keep + rng.shuffled([i for i in rest if i not in keep])[:N_HIDDEN - len(keep)])
+    order = vis + rest
+    codes = [pool[i][1] for i in order]
+    if sum(1 for c in codes if valid(c, p) != naive(c)) < 4:
+        raise s1lib.GenError("too few cases separate the mutation from the original")
+    cases = []
+    for n, code in enumerate(codes):
+        name = "visible_%d" % (n + 1) if n < 4 else "case_%02d" % (n - 3)
+        cases.append((name, "is_valid(%s)" % ersgen.rs_str(code), ersgen.rs_bool(valid(code, p))))
+
+    names = " and ".join(SEP_NAMES[s] for s in seps)
+    if p["strict"]:
+        placement = ("A separator is allowed only directly between two digits: a separator at the start or "
+                     "at the end of the code, or next to another separator, makes the code invalid.")
+    else:
+        placement = "Separators may appear anywhere and any number of times, also at the start or the end."
+    prod = 8 * p["m"] if 8 * p["m"] > 9 else 9 * p["m"]
+    ex_d = 8 if 8 * p["m"] > 9 else 9
+    rules = "\n".join([
+        "1. Separators: %s %s skipped and carry no value. %s" % (names, "is" if len(seps) == 1 else "are", placement),
+        "2. Any other character that is not an ASCII digit `0`-`9` (any other whitespace, letters, signs, "
+        "non-ASCII characters) makes the code invalid.",
+        "3. After skipping separators the code must contain at least %d digits; otherwise it is invalid." % p["min"],
+        "4. Number the digits from the right, starting at 1. Each digit whose position is a multiple of %d "
+        "(positions %d, %d, %d, ...) is multiplied by %d; if that product is greater than 9 it is replaced by "
+        "the sum of its two decimal digits (for example %d * %d = %d counts as %d). Every other digit counts as "
+        "itself." % (p["k"], p["k"], 2 * p["k"], 3 * p["k"], p["m"], ex_d, p["m"], prod, prod // 10 + prod % 10),
+        "5. The code is valid exactly when the sum of all these values is divisible by %d." % p["mod"],
+    ])
+    ref = ersgen.render(ctx.read("ref", "lib.rs"), {
+        "SEPARATORS": ", ".join(ersgen.rs_char(s) for s in seps), "STRICT": ersgen.rs_bool(p["strict"]),
+        "MIN_DIGITS": p["min"], "PERIOD": p["k"], "MULTIPLIER": p["m"], "MODULUS": p["mod"]})
+    return ersgen.finish(
+        ctx, crate=CRATE, api="pub fn is_valid(code: &str) -> bool",
+        intro="A records system protects its account codes with a Luhn-style check-digit scheme that uses its "
+              "own parameters. Write `is_valid`, which says whether a code passes the scheme.",
+        rules=rules, stub=STUB, reference=ref, naive=ctx.read("ref", "naive.rs"),
+        uses="use %s::is_valid;" % CRATE, cases=cases, n_visible=4)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

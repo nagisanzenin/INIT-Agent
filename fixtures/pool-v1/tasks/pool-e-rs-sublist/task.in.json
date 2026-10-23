@@ -1,0 +1,32 @@
+{
+ "difficulty": 3,
+ "family": "e",
+ "id": "pool-e-rs-sublist",
+ "labels": [
+  "exercise",
+  "rust"
+ ],
+ "max_turns": 8,
+ "prompt": "Solve the Exercism exercise \"sublist\" in Rust: the crate in the current directory.\n\n- The specification is README.md. Implement it in src/lib.rs (the stub is there; keep its public API).\n- tests/sublist.rs has 6 of the exercise's 18 tests. Run them with `cargo test`.\n- A hidden test suite checks the full specification, including edge cases.\n- Do not modify the tests and do not add dependencies (the check builds offline).",
+ "protected": [
+  "tests/sublist.rs"
+ ],
+ "source": {
+  "commit": "cc099ae090a6acbe6f53f1e36325263046ba333e",
+  "kind": "exercism",
+  "path": "exercises/practice/sublist",
+  "repo": "exercism/rust",
+  "slug": "sublist"
+ },
+ "steps": [
+  {
+   "kind": "cargo_test",
+   "manifest": "hidden/Cargo.toml",
+   "tests": {
+    "sublist.rs": "hidden/sublist.rs"
+   },
+   "timeout_s": 30
+  }
+ ],
+ "title": "Exercism (Rust): sublist"
+}

@@ -1,0 +1,10 @@
+#!/bin/sh
+# 10 cases, 100 permille each: line k of sorted.txt must be the k-th expected value.
+ok=0
+k=1
+for want in apple banana cherry date fig grape kiwi lime mango pear; do
+  got=$(sed -n "${k}p" sorted.txt 2>/dev/null)
+  [ "$got" = "$want" ] && ok=$((ok + 1))
+  k=$((k + 1))
+done
+echo "{\"score_permille\":$((ok * 100))}"

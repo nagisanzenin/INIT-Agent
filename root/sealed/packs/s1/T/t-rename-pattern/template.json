@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-rename-pattern",
+ "family": "T",
+ "lang": "any",
+ "title": "File media by the date in their names",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: bulk rename/move by filename pattern (regex capture, date validation, extension normalisation, collision suffixes in a stated order, rename log); traps: names with spaces, day-first scan dates, millisecond names colliding with plain ones, near-miss decoys, impossible dates and dotfiles (knob 4), subdirectories and empty-dir removal (knob 5); pass_guess_permille: 450"
+}

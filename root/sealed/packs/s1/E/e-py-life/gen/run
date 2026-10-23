@@ -1,0 +1,291 @@
+#!/usr/bin/env python3
+"""e-py-life: Exercism `game-of-life` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d2 seeded cell characters and a seeded Birth/Survival rule other than B3/S23 on a
+bounded board with the 8-cell neighbourhood; d3 adds a wrapping (torus) board; d4 adds the 4-cell (von
+Neumann) neighbourhood with birth/survival counts drawn from 1..4.
+Reference: ref/solution.py (parameterized by P). Dev fixtures: ref/original.py (B3/S23, bounded, 8 neighbours,
+with the seeded cell characters) and, from d3, naive (the reference without the newest delta).
+"""
+import ast
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "game_of_life"
+STUB = '''def evolve(grid, steps):
+    raise NotImplementedError("evolve")
+'''
+CHARS = [("#", "."), ("O", "-"), ("@", "_"), ("X", "o"), ("*", "."), ("1", "0"), ("+", "~")]
+OTHER = "#.O-@_Xxo*10+~ "
+# named Life-like rules (8 neighbours): HighLife, Maze, 2x2, 34 Life, Diamoeba, Live Free or Die, Replicator,
+# Morley, Day & Night, and two mild variants
+NAMED = [([3, 6], [2, 3]), ([3], [1, 2, 3, 4, 5]), ([3, 6], [1, 2, 5]), ([3, 4], [3, 4]),
+         ([3, 5, 6, 7, 8], [5, 6, 7, 8]), ([2], [0]), ([1, 3, 5, 7], [1, 3, 5, 7]), ([3, 6, 8], [2, 4, 5]),
+         ([3, 6, 7, 8], [3, 4, 6, 7, 8]), ([3], [2, 3, 4]), ([2, 3], [2, 3])]
+PATTERNS = {
+    "block": ["##", "##"], "beehive": [".##.", "#..#", ".##."], "blinker": ["###"], "toad": [".###", "###."],
+    "beacon": ["##..", "##..", "..##", "..##"], "glider": [".#.", "..#", "###"], "boat": ["##.", "#.#", ".#."],
+    "loaf": [".##.", "#..#", ".#.#", "..#."], "tub": [".#.", "#.#", ".#."], "pole": ["#", "#", "#"],
+}
+
+
+def outcome(ns, expr):
+    """What the check would see for expr against a namespace: ("ok", repr) or ("exc", name)."""
+    try:
+        return "ok", repr(eval(expr, dict(ns)))  # noqa: S307 - our own expressions against our own code
+    except Exception as e:  # noqa: BLE001
+        return "exc", type(e).__name__
+
+
+def cover(ns, exprs, n_visible, rivals, candidate, need=3, cap=40, tries=800):
+    """Adds candidate expressions until every rival (the original exercise, or the reference without one
+    delta) differs from the reference on >= need hidden cases, so each active delta is exercised."""
+    for label, rival in rivals:
+        hits = sum(1 for e in exprs[n_visible:] if outcome(ns, e) != outcome(rival, e))
+        for _ in range(tries):
+            if hits >= need:
+                break
+            e = candidate(label)
+            if e in exprs or outcome(ns, e) == outcome(rival, e):
+                continue
+            if len(exprs) >= cap:
+                raise s1lib.GenError("case cap reached while covering %s" % label)
+            exprs.append(e)
+            hits += 1
+        if hits < need:
+            raise s1lib.GenError("could not cover %s" % label)
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    live, dead = rng.choice(CHARS)
+    p = {"live": live, "dead": dead, "wrap": d >= 3, "hood": "vn" if d >= 4 else "moore"}
+    if d >= 4:
+        p["birth"] = sorted(rng.sample([1, 2, 3, 4], rng.randint(1, 2)))
+        p["survive"] = sorted(rng.sample([1, 2, 3, 4], rng.randint(1, 3)))
+    elif rng.chance(1, 2):
+        b, s = rng.choice(NAMED)
+        p["birth"], p["survive"] = list(b), list(s)
+    else:
+        while True:  # random rules that keep small boards busy: a birth count and a survival count in 1..4
+            b = sorted(rng.sample(list(range(1, 9)), rng.randint(1, 3)))
+            s = sorted(rng.sample(list(range(0, 9)), rng.randint(1, 4)))
+            if (b, s) != ([3], [2, 3]) and set(b) & {2, 3, 4} and set(s) & {1, 2, 3, 4}:
+                break
+        p["birth"], p["survive"] = b, s
+    return p
+
+
+def counts(xs):
+    xs = [str(x) for x in xs]
+    if len(xs) == 1:
+        return "exactly " + xs[0]
+    return "exactly " + ", ".join(xs[:-1]) + " or " + xs[-1]
+
+
+def rules_text(p):
+    live, dead = p["live"], p["dead"]
+    rule = "B%s/S%s" % ("".join(str(x) for x in p["birth"]), "".join(str(x) for x in p["survive"]))
+    if p["hood"] == "moore":
+        hood = ("The neighbours of a cell are the 8 cells around it: the cells directly above, below, left and "
+                "right of it and the 4 diagonally adjacent cells.")
+        maxn = 8
+    else:
+        hood = ("The neighbours of a cell are only the 4 cells directly above, below, left and right of it. "
+                "Diagonally adjacent cells are NOT neighbours.")
+        maxn = 4
+    if p["wrap"]:
+        offs = "8 offsets (dr, dc) with dr, dc in -1, 0, 1, not both 0" if maxn == 8 else \
+            "4 offsets (dr, dc) = (-1, 0), (1, 0), (0, -1), (0, 1)"
+        edge = ("**Edges.** The board wraps around at its edges (it is a torus). For a board with H rows and W "
+                "columns, the neighbour of the cell in row r, column c at offset (dr, dc) is the cell in row "
+                "(r + dr) mod H, column (c + dc) mod W, for each of the %s. So the row above the top row is the "
+                "bottom row and the column left of the first column is the last column%s. In the tests, every "
+                "board on which generations are computed has at least 3 rows and at least 3 columns." % (
+                    offs, "; a corner cell's diagonal neighbours include the opposite corner" if maxn == 8 else ""))
+    else:
+        edge = ("**Edges.** The board does not wrap: positions outside the board count as dead cells, so cells on "
+                "the edge simply have fewer neighbours on the board.")
+    if p["survive"]:
+        surv = "A live cell stays alive when it has %s live neighbours." % counts(p["survive"])
+    else:
+        surv = "A live cell never stays alive: every live cell dies in the next generation."
+    lines = [
+        "**Board.** The board is a list of strings of equal length; each string is one row and each character "
+        "one cell. A live cell is the character `%s` and a dead cell is the character `%s`. Rows are never "
+        "empty strings." % (live, dead),
+        "",
+        "**Neighbours.** " + hood,
+        "",
+        edge,
+        "",
+        "**Rule %s.** All cells change at the same time: every generation is computed only from the previous "
+        "one. A dead cell becomes alive when it has %s live neighbours. %s Every other cell is dead in the next "
+        "generation." % (rule, counts(p["birth"]), surv),
+        "",
+        "**evolve(grid, steps)** returns a new list of strings: the board after `steps` generations, with the "
+        "same size and the same two characters. `steps` = 0 returns the board unchanged (as a list of "
+        "strings). The empty board `[]` returns `[]`. The input list must not be modified.",
+        "",
+        "**Errors.** `evolve` raises `ValueError` when `steps` is negative (also for the empty board), when the "
+        "rows do not all have the same length, or when any character is neither `%s` nor `%s` (other characters "
+        "and other letter cases are invalid). These checks happen before any generation is computed, also when "
+        "`steps` is 0." % (live, dead),
+    ]
+    return "\n".join(lines)
+
+
+def build(ctx):
+    for attempt in range(20):
+        try:
+            return build_once(ctx, ctx.rng("main" if attempt == 0 else "retry%d" % attempt))
+        except s1lib.GenError as e:
+            if "could not cover" not in str(e) and "cap reached" not in str(e):
+                raise
+    raise s1lib.GenError("no coverable parameter draw")
+
+
+def build_once(ctx, rng):
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    ns = load_ref(ref)
+    live, dead = p["live"], p["dead"]
+    orig = ref_with_params(ctx, {"live": live, "dead": dead}, "original.py")
+    rivals = [("original", load_ref(orig))]
+    naive = None
+    if p["wrap"]:
+        naive = ref_with_params(ctx, dict(p, wrap=False))
+        rivals.append(("bounded", load_ref(naive)))
+    if p["hood"] == "vn":
+        naive = ref_with_params(ctx, dict(p, hood="moore"))
+        rivals.append(("moore", load_ref(naive)))
+    lo = 3 if p["wrap"] else 1
+
+    def cell(alive):
+        return live if alive else dead
+
+    def rand_grid(h=None, w=None, dens=None):
+        h = h or rng.randint(lo, 8)
+        w = w or rng.randint(lo, 10)
+        dens = dens or rng.randint(25, 50)
+        return ["".join(cell(rng.below(100) < dens) for _ in range(w)) for _ in range(h)]
+
+    def edge_grid():
+        h, w = rng.randint(3, 8), rng.randint(3, 10)
+        rows = []
+        for r in range(h):
+            rows.append("".join(cell(rng.below(100) < (50 if r in (0, h - 1) or c in (0, w - 1) else 12))
+                                for c in range(w)))
+        return rows
+
+    def pattern_grid():
+        pat = PATTERNS[rng.choice(sorted(PATTERNS))]
+        ph, pw = len(pat), len(pat[0])
+        h, w = rng.randint(max(lo, ph), 8), rng.randint(max(lo, pw), 10)
+        if p["wrap"]:
+            r0, c0 = rng.below(h), rng.below(w)
+        else:
+            r0, c0 = rng.below(h - ph + 1), rng.below(w - pw + 1)
+        cells = [[False] * w for _ in range(h)]
+        for i in range(ph):
+            for j in range(pw):
+                if pat[i][j] == "#":
+                    cells[(r0 + i) % h][(c0 + j) % w] = True
+        return ["".join(cell(x) for x in row) for row in cells]
+
+    def ev(g, steps):
+        return "evolve(%r, %d)" % (g, steps)
+
+    def lively(e):
+        """A board that is not empty, really evolves (steps >= 1), changes and keeps a live cell."""
+        g, steps = ast.literal_eval(e[len("evolve("):-1])
+        kind, val = outcome(ns, e)
+        if kind != "ok" or not g or steps < 1:
+            return False
+        out = ast.literal_eval(val)
+        return out != g and any(live in row for row in out)
+
+    exprs = []
+
+    def add(e):
+        if e not in exprs:
+            exprs.append(e)
+
+    def pick(make, tries=10):
+        """make() -> expr; prefer a lively expression that is not already a case."""
+        e = make()
+        for _ in range(tries):
+            if lively(e) and e not in exprs:
+                break
+            e = make()
+        return e
+
+    # visible examples (4): one step, two steps, an edge-sensitive or one-row board, and an error
+    add(pick(lambda: ev(rand_grid(rng.randint(4, 5), rng.randint(5, 6), rng.randint(35, 45)), 1)))
+    add(pick(lambda: ev(pattern_grid(), 2)))
+    if p["wrap"]:
+        add(pick(lambda: ev(edge_grid(), 1)))
+    else:
+        add(pick(lambda: ev(rand_grid(1, rng.randint(5, 8), 60), 1)))
+    bad = rng.choice([ch for ch in OTHER if ch not in (live, dead)])
+    g = rand_grid(rng.randint(max(lo, 2), 4), rng.randint(3, 5))
+    r = rng.below(len(g))
+    k = rng.below(len(g[r]))
+    g[r] = g[r][:k] + bad + g[r][k + 1:]
+    add(ev(g, 1))
+    n_visible = len(exprs)
+    # hidden: edge cases and errors
+    add(ev([], rng.randint(0, 3)))
+    add(ev(rand_grid(), 0))
+    add(ev(rand_grid(), -1))
+    add(ev([], -rng.randint(1, 3)))
+    g = rand_grid(rng.randint(2, 6))
+    r = rng.below(len(g))
+    g[r] = g[r][:-1] if len(g[r]) > lo and rng.chance(1, 2) else g[r] + dead
+    add(ev(g, rng.randint(0, 2)))
+    g = rand_grid()
+    r = rng.below(len(g))
+    k = rng.below(len(g[r]))
+    g[r] = g[r][:k] + rng.choice([ch for ch in OTHER if ch not in (live, dead)]) + g[r][k + 1:]
+    add(ev(g, 0))
+    if not p["wrap"]:
+        add(ev([live], rng.randint(1, 2)))
+        add(pick(lambda: ev([live * rng.randint(2, 4)], 1)))
+        add(pick(lambda: ev([cell(rng.chance(1, 2)) for _ in range(rng.randint(3, 6))], rng.randint(1, 3))))
+    # hidden: random boards, patterns (still lifes, oscillators, gliders) and edge-heavy boards
+    for _ in range(8):
+        add(pick(lambda: ev(rand_grid(), rng.randint(1, 4))))
+    for _ in range(4):
+        add(pick(lambda: ev(pattern_grid(), rng.randint(1, 4)), 3))
+    if p["wrap"]:
+        for _ in range(4):
+            add(pick(lambda: ev(edge_grid(), rng.randint(1, 3))))
+
+    def candidate(label):
+        if label in ("bounded", "moore") and rng.chance(2, 3):
+            return pick(lambda: ev(edge_grid(), rng.randint(1, 3)), 3)
+        return pick(lambda: ev(rand_grid() if rng.chance(1, 2) else pattern_grid(), rng.randint(1, 4)), 3)
+
+    cover(ns, exprs, n_visible, rivals, candidate)
+    while len(exprs) < 28:
+        add(candidate("pad"))
+    runs = [e for e in exprs if outcome(ns, e)[0] == "ok" and ast.literal_eval(e[len("evolve("):-1])[1] >= 1
+            and ast.literal_eval(e[len("evolve("):-1])[0]]
+    if 10 * sum(1 for e in runs if lively(e)) < 6 * len(runs):
+        raise s1lib.GenError("could not cover liveliness: the drawn rule empties or freezes too many boards")
+    dev = {"original": orig}
+    if naive is not None:
+        dev["naive"] = naive
+    task = ("Implement `evolve(grid, steps)` in `%s.py`: a Life-like cellular automaton on a rectangular "
+            "board of cells that are either alive or dead." % MODULE)
+    return assemble(ctx, MODULE, task, rules_text(p), ref, exprs, n_visible, dev, STUB)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

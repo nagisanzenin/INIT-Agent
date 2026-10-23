@@ -1,0 +1,12 @@
+# A runtime error stops the program after the output printed so far.
+fn average(xs) {
+  let total = 0;
+  for (let i = 0; i < len(xs); i += 1) { total += xs[i]; }
+  return total / len(xs);
+}
+print(average([4, 8, 12]));
+print(average([10]));
+/* an empty list
+   has no average */
+print(average([]));
+print("not reached");

@@ -1,0 +1,110 @@
+#!/usr/bin/env python3
+"""c-chunk-levels: CRUXEval sample_667 with a param change (family C, operator param; see C/_lib/s1c.py).
+
+The function cuts a text into pieces of 3 characters and tags each as `< piece level=i >`, always adding a
+final (possibly empty) piece. The seeded change adds a required `width` parameter, plus either a first level
+number or a replacement for the word `level`.
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_lib"))
+import s1c  # noqa: E402
+
+ORIGINAL = '''def f(text):
+    new_text = []
+    for i in range(len(text) // 3):
+        new_text.append(f"< {text[i * 3: i * 3 + 3]} level={i} >")
+    last_item = text[len(text) // 3 * 3:]
+    new_text.append(f"< {last_item} level={len(text) // 3} >")
+    return new_text
+'''
+
+HELPER = '''WIDTH = 3
+
+
+def tag(piece, level):
+    return f"< {piece} level={level} >"
+'''
+
+CORE = '''from .__HELPER__ import WIDTH, tag
+
+
+def __FN__(text):
+    new_text = []
+    for i in range(len(text) // WIDTH):
+        new_text.append(tag(text[i * WIDTH: i * WIDTH + WIDTH], i))
+    last_item = text[len(text) // WIDTH * WIDTH:]
+    new_text.append(tag(last_item, len(text) // WIDTH))
+    return new_text
+'''
+
+CRUX_INPUT = "C7"
+
+REF_CORE = '''from .__HELPER__ import tag
+
+
+def __FN__(text, width%(extra)s):
+    new_text = []
+    for i in range(len(text) // width):
+        new_text.append(tag(text[i * width: i * width + width], %(lvl_i)s%(lab)s))
+    last_item = text[len(text) // width * width:]
+    new_text.append(tag(last_item, %(lvl_last)s%(lab)s))
+    return new_text
+'''
+
+REF_HELPER = '''def tag(piece, level, label="level"):
+    return f"< {piece} {label}={level} >"
+'''
+
+
+def variant(rng):
+    form = rng.choice(["width", "width_first", "width_label"])
+    extra, lvl_i, lvl_last, lab = "", "i", "len(text) // width", ""
+    text = ("a new required parameter `width` (an int >= 1), which replaces the fixed piece length 3: the text is cut "
+            "into pieces of `width` characters, and the final piece (the remaining characters, possibly none) "
+            "is still always added")
+    if form == "width_first":
+        extra, lvl_i, lvl_last = ", first", "first + i", "first + len(text) // width"
+        text += ("; and a second new required parameter `first` (an int), which gives the level number of the "
+                 "first piece, the following pieces counting up from it (today the levels start at 0)")
+    elif form == "width_label":
+        extra, lab = ", label", ", label"
+        text += ("; and a second new required parameter `label` (a string), which replaces the word `level` in "
+                 "every tag, so a tag reads `< piece LABEL=n >` with LABEL being the value of `label`")
+    core = REF_CORE % {"extra": extra, "lvl_i": lvl_i, "lvl_last": lvl_last, "lab": lab}
+    sig = "text, width" + extra
+    return {"change": "`__FN__` gets " + text + ". The tag format stays otherwise as it is today.", "core": core,
+            "helper": REF_HELPER, "sig": sig, "state": form,
+            "hint": "keep the final, possibly empty, piece that the function always adds."}
+
+
+def inputs(rng, state):
+    out = []
+    for k in range(300):
+        if k == 0:
+            text = CRUX_INPUT
+        elif rng.below(5) == 0:
+            text = s1c.mutate_str(rng, CRUX_INPUT, "abcXYZ019 ")
+        else:
+            text = s1c.rand_str(rng, "abcdefXYZ0189 -", 0, 11)
+        width = rng.choice([1, 2, 2, 3, 4, 4, 5, 6])
+        if state == "width":
+            out.append((text, width))
+        elif state == "width_first":
+            out.append((text, width, rng.choice([1, 1, 2, 5, 10, -1])))
+        else:
+            out.append((text, width, rng.choice(["lvl", "n", "depth", "part", "L"])))
+    return out
+
+
+def build(ctx):
+    return s1c.make(ctx, operator="param", original=ORIGINAL,
+                    fn_choices=["tag_chunks", "chunk_levels", "label_pieces", "split_tagged"],
+                    params="text", doc="cuts a text into tagged pieces.", core=CORE, helper=HELPER,
+                    variant=variant, inputs=inputs, kind="list")
+
+
+if __name__ == "__main__":
+    s1c.s1lib.main(build)

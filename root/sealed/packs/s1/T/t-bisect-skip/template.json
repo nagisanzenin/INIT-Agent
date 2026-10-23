@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-bisect-skip",
+ "family": "T",
+ "lang": "any",
+ "title": "Bisect a regression past untestable commits",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3", "git"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: git bisect (or a scripted scan) with a probe that exits 0/1/125, then restoring the repository (HEAD on main at the old tip, clean tree, no bisect state); traps: untestable commits (config missing, syntax error) near but not adjacent to the boundary, an earlier transient failure across the history's midpoint so a plain root..tip bisect converges on the wrong commit, misleading fix/break commit messages, a second transient and a skip span inside the transient window (knob); pass_guess_permille: 400"
+}

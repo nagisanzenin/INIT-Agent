@@ -1,0 +1,2 @@
+# evo-big-forms: generate widgets.py, MIGRATION.md and tests/ (deterministic, seeded)
+exec /usr/bin/python3 -I -S -B "$(dirname "$0")/hidden/fgen.py" "$1"

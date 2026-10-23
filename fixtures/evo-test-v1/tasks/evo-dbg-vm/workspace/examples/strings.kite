@@ -1,0 +1,20 @@
+# Strings: concatenation, indexing, comparison, character codes.
+fn caesar(text, shift) {
+  let out = "";
+  let i = 0;
+  while (i < len(text)) {
+    let c = text[i];
+    if (c >= "a" and c <= "z") {
+      out = out + chr((ord(c) - 97 + shift) % 26 + 97);
+    } else {
+      out = out + c;
+    }
+    i += 1;
+  }
+  return out;
+}
+print(caesar("hello, world", 3));
+print(caesar("xyz", 4));
+let word = "kite";
+print(word[0] + word[-1], len(word + word), "a" + "b" == "ab");
+print(int("123") + 1, int("-8") * 2, str(7) + str(true));

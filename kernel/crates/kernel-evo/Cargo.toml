@@ -1,0 +1,22 @@
+[package]
+name = "kernel-evo"
+version.workspace = true
+edition.workspace = true
+publish.workspace = true
+
+# Lane EVO-LITE (build/specs/PROOF-LEAN.md D-L5; docs/evolution-v2.md §3.4, §3.5.1, §4): the
+# evolution engine's Reflect stage and its minimal propose path. The trace reader uses
+# kernel-proxy's store reader; the commit-message dry run and the screen's go/no-go use
+# kernel-gate.
+[dependencies]
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+libc.workspace = true
+kernel-proxy.workspace = true
+kernel-gate.workspace = true
+
+# Development gate: modules still being written are compiled only with `--features wip`, so the
+# kernel workspace builds at every moment (orchestrator rule, 2026-10-20).
+[features]
+wip = []

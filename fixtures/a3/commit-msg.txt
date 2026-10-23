@@ -1,0 +1,6 @@
+feat(loop): add turns_this_task self-signal
+
+Why: the agent cannot see how many turns the current task has taken.
+Predicts: turns <= parent; body_tokens <= parent+2%
+Compensates-for: none (self-signal)
+Prefix-change: no

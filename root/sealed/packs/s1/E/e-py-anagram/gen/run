@@ -1,0 +1,168 @@
+#!/usr/bin/env python3
+"""e-py-anagram: Exercism `anagram` with a seeded semantic change (m7-design §3.1.1, family E).
+
+Deltas by difficulty: d1 seeded ignored characters and a seeded output order; d2 adds a seeded case rule and
+de-duplication; d3 adds "near anagrams" with exactly one extra character.
+Reference: ref/solution.py (parameterized by P). Dev fixture: ref/original.py (the unmutated exercise).
+"""
+import os
+import sys
+
+sys.dont_write_bytecode = True
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "lib"))
+import s1lib  # noqa: E402
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "_shared_py"))
+from epy import assemble, load_ref, ref_with_params  # noqa: E402,F401
+
+MODULE = "anagram"
+STUB = '''def find_anagrams(word, candidates):
+    raise NotImplementedError("find_anagrams")
+'''
+WORDS = ["listen", "stone", "master", "dormitory", "evil", "angel", "night", "brag", "elbow", "state", "inch",
+         "below", "save", "earth", "heart", "pots", "spot", "secure", "rescue", "silent", "tinsel", "garden",
+         "danger", "ranged", "meteor", "remote", "staple", "petals", "plates", "trace", "crate", "cater"]
+IGNORABLE = [" ", "-", "'", "."]
+NAMES = {" ": "the space character", "-": "`-` (hyphen)", "'": "`'` (apostrophe)", ".": "`.` (dot)"}
+
+
+def params(ctx, rng):
+    d = ctx.difficulty
+    k = 1 if d == 1 else rng.randint(1, 2)
+    p = {"ignore": "".join(sorted(rng.sample(IGNORABLE, k))), "case": "insensitive",
+         "order": rng.choice(["input", "alpha", "length"]), "dedupe": False, "plus_one": False}
+    if d >= 2:
+        p["case"] = rng.choice(["insensitive", "sensitive"])
+        p["dedupe"] = True
+    if d >= 3:
+        p["plus_one"] = True
+    return p
+
+
+def rules_text(p):
+    ign = " and ".join(NAMES[c] for c in p["ignore"])
+    norm = "remove every occurrence of %s" % ign
+    if p["case"] == "insensitive":
+        norm += ", then convert the rest to lower case"
+    lines = [
+        "To compare two strings, first **normalize** each one: %s. All other characters (letters, digits and "
+        "any other punctuation) are kept and count as ordinary characters." % norm,
+    ]
+    if p["case"] == "sensitive":
+        lines.append("Upper and lower case letters are different characters: `A` and `a` do not match.")
+    lines += [
+        "",
+        "A candidate **qualifies** when its normalized form uses exactly the same characters as the normalized "
+        "`word`, each the same number of times%s. A candidate whose normalized form is identical to the "
+        "normalized `word` never qualifies (a word is not its own anagram)." % (
+            ", or when it has exactly one extra character: removing one character from its normalized form "
+            "gives exactly the characters of the normalized `word`" if p["plus_one"] else ""),
+        "",
+        "`find_anagrams(word, candidates)` returns the qualifying candidates exactly as given (not normalized), "
+        "as a `list` of `str`.",
+    ]
+    if p["dedupe"]:
+        lines.append("If the same candidate string (exactly equal) qualifies more than once, it appears only "
+                     "once in the result.")
+    lines.append({
+        "input": "The result keeps the order of `candidates`.",
+        "alpha": "The result is sorted with Python's default string ordering (character by character by code "
+                 "point, so `'Z' < 'a'` and `'-' < 'a'`).",
+        "length": "The result is ordered by the length of each candidate as given (shortest first); candidates "
+                  "of equal length keep their order from `candidates`.",
+    }[p["order"]])
+    return "\n".join(lines)
+
+
+def build(ctx):
+    rng = ctx.rng()
+    p = params(ctx, rng)
+    ref = ref_with_params(ctx, p)
+    letters = "abcdefghijklmnopqrstuvwxyz"
+    exprs = []
+
+    def recase(s):
+        k = rng.below(4)
+        if k == 0:
+            return s.upper()
+        if k == 1:
+            return s.capitalize()
+        if k == 2:
+            i = rng.below(len(s))
+            return s[:i] + s[i].upper() + s[i + 1:]
+        return s
+
+    def sprinkle(s, chars, n):
+        for _ in range(n):
+            i = rng.randint(1, len(s) - 1) if len(s) > 1 else 0
+            s = s[:i] + rng.choice(chars) + s[i:]
+        return s
+
+    def shuffled(w):
+        for _ in range(20):
+            s = "".join(rng.shuffled(w))
+            if s != w:
+                return s
+        return w[::-1]
+
+    def candidate(w):
+        kind = rng.below(9)
+        if kind <= 2:
+            c = shuffled(w)
+        elif kind == 3:
+            c = w  # the word itself, perhaps re-cased or with ignored characters
+        elif kind == 4:
+            i = rng.below(len(w))
+            c = w[:i] + rng.choice(letters) + w[i + 1:]
+            c = "".join(rng.shuffled(c))
+        elif kind == 5:
+            c = "".join(rng.shuffled(w + rng.choice(letters)))  # one extra letter
+        elif kind == 6:
+            c = "".join(rng.shuffled(w[1:]))  # one letter missing
+        elif kind == 7:
+            others = [x for x in IGNORABLE if x not in p["ignore"]]
+            c = sprinkle(shuffled(w), others, 1)  # a character that is not ignored
+        else:
+            c = rng.choice(WORDS)
+        if rng.chance(1, 2):
+            c = sprinkle(c, p["ignore"], rng.randint(1, 2))
+        if rng.chance(1, 3):
+            c = recase(c)
+        return c
+
+    def case_expr(n):
+        w = rng.choice(WORDS)
+        if rng.chance(1, 4):
+            w = recase(w)
+        cands = [candidate(w.lower() if p["case"] == "insensitive" else w) for _ in range(n)]
+        if p["dedupe"] and rng.chance(1, 2):
+            cands.insert(rng.below(len(cands) + 1), cands[rng.below(len(cands))])
+        return "find_anagrams(%r, %r)" % (w, cands)
+
+    def add(e):
+        if e not in exprs:
+            exprs.append(e)
+
+    ns = load_ref(ref)
+
+    def interesting(e):
+        """The case has at least one qualifying candidate that the unmutated rules would reject or reorder."""
+        res = eval(e, ns)  # noqa: S307 - our own reference on our own expression
+        return len(res) >= 1
+
+    while len(exprs) < 4:
+        e = case_expr(rng.randint(5, 7))
+        if interesting(e):
+            add(e)
+    while len(exprs) < 26:
+        add(case_expr(rng.randint(4, 9)))
+    add("find_anagrams(%r, [])" % rng.choice(WORDS))
+    w = rng.choice(WORDS)
+    add("find_anagrams(%r, %r)" % (w, [sprinkle(w, p["ignore"], 2), w.upper(), shuffled(w)]))
+    dev = {"original": ctx.read("ref", "original.py")}
+    task = ("Implement `find_anagrams(word, candidates)` in `%s.py`: return the candidates that are anagrams of "
+            "`word` under the rules below." % MODULE)
+    return assemble(ctx, MODULE, task, rules_text(p), ref, exprs, 4, dev, STUB)
+
+
+if __name__ == "__main__":
+    s1lib.main(build)

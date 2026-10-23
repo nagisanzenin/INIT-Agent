@@ -1,0 +1,112 @@
+[
+ {
+  "expect": "'pichiwa'",
+  "expr": "replace_ws('pi wa', 'chi')",
+  "name": "replace_kept"
+ },
+ {
+  "expect": "'a--b'",
+  "expr": "replace_ws('a\\t\\tb', '-')",
+  "name": "replace_kept_runs"
+ },
+ {
+  "expect": "'a b'",
+  "expr": "squeeze_ws('a   b')",
+  "name": "basic"
+ },
+ {
+  "expect": "'a b'",
+  "expr": "squeeze_ws('  a b  ')",
+  "name": "trim"
+ },
+ {
+  "expect": "'a b'",
+  "expr": "squeeze_ws('a \\t\\r\\n\\x0b\\x0c b')",
+  "name": "mixed_runs"
+ },
+ {
+  "expect": "'x | y | z'",
+  "expr": "squeeze_ws('x  y z', ' | ')",
+  "name": "insert_multi"
+ },
+ {
+  "expect": "'xy'",
+  "expr": "squeeze_ws(' x  y ', '')",
+  "name": "insert_empty"
+ },
+ {
+  "expect": "''",
+  "expr": "squeeze_ws(' \\t\\n ')",
+  "name": "all_ws"
+ },
+ {
+  "expect": "''",
+  "expr": "squeeze_ws('')",
+  "name": "empty"
+ },
+ {
+  "expect": "'abc'",
+  "expr": "squeeze_ws('abc', '_')",
+  "name": "no_ws"
+ },
+ {
+  "expect": "'a\\xa0 b\\xa0'",
+  "expr": "squeeze_ws('a\\xa0 b\\xa0')",
+  "name": "nbsp_kept"
+ },
+ {
+  "expect": "'a\\u2003b'",
+  "expr": "squeeze_ws(' a\\u2003b ')",
+  "name": "em_space_kept"
+ },
+ {
+  "expect": "'a\\x1fb c'",
+  "expr": "squeeze_ws('a\\x1fb  c')",
+  "name": "unit_sep_kept"
+ },
+ {
+  "expect": "'a\\nb'",
+  "expr": "squeeze_ws('a\\nb', keep_newlines=True)",
+  "name": "keep_nl_basic"
+ },
+ {
+  "expect": "'a\\nb'",
+  "expr": "squeeze_ws('a  \\n \\n  b', keep_newlines=True)",
+  "name": "keep_nl_run"
+ },
+ {
+  "expect": "'a\\nb'",
+  "expr": "squeeze_ws('a\\r\\nb\\r\\n', keep_newlines=True)",
+  "name": "keep_nl_crlf"
+ },
+ {
+  "expect": "'one_two\\nthree_four'",
+  "expr": "squeeze_ws('one two\\t\\nthree   four', '_', True)",
+  "name": "keep_nl_mixed"
+ },
+ {
+  "expect": "'a'",
+  "expr": "squeeze_ws('\\n\\n a \\n', keep_newlines=True)",
+  "name": "keep_nl_trim"
+ },
+ {
+  "expect": "'a-b'",
+  "expr": "squeeze_ws('a\\n\\nb', '-')",
+  "name": "keep_nl_off"
+ },
+ {
+  "expect": "'a+b+c'",
+  "expr": "squeeze_ws('a  b\\nc', '+', False)",
+  "name": "positional"
+ },
+ {
+  "expect": "3",
+  "expr": "count_words(' a b  c ')",
+  "name": "count_words_kept"
+ },
+ {
+  "expect": "'a.b'",
+  "expr": "squeeze_ws('a\\x0b\\x0cb', '.')",
+  "name": "vt_ff_only"
+ }
+]

@@ -1,0 +1,41 @@
+# Charter fixture: the owner's template values (v03-decisions D13; root/root.md §3.12.2) in test mode.
+# Used by init-fakeroot scenarios (WP3) and, later, the real init-root scenarios (WP15).
+schema_version = 1
+
+[purpose]
+text = "Test fixture: an agent that improves itself under the owner's charter."
+
+[autonomy]
+max_level = 4
+
+[money]
+day_usd = "5.00"
+total_usd = "25.00"
+day_starts_at_utc_offset = "+00:00"
+
+[quotas]
+max_instances = 12
+parallel_bodies = 4
+
+[actions.providers]
+kind = "model"
+min_level = 0
+destinations = ["api.deepseek.com:443"]
+methods = ["GET", "POST"]
+paths = ["chat/completions", "beta/chat/completions", "models", "user/balance"]
+requests_per_day = 100000
+bytes_per_day = 8000000000
+rate_per_min = 600
+
+[actions.providers.models."deepseek-flash"]
+min_level = 0
+input_musd_per_mtok = 300000
+output_musd_per_mtok = 1200000
+reserve_output_tokens = 65536
+
+[mirror]
+url = ""
+
+[root]
+test_mode = true
+hb_interval_s = 1

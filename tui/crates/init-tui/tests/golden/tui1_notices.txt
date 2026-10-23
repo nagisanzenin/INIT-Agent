@@ -1,0 +1,19 @@
+== 80x24 ==
+▲ [kernel] promoted                                                             |ggggggggggggggggggg                                                             
+▲ [root] level L0→L1: 20 promotions, audit clean                                |gggggggggggggggggggggggggggggggggggggggggggggggg                                
+▼ [root] kernel crash loop: rolling back to the LKG tuple                       |yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy                       
+▼ [root] demoted L1→L0 (ceiling_hit)                                            |rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr                                            
+■ [root] ceiling reached: day (root.ceiling)                                    |rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr                                    
+PANIC at 2026-10-20T21:00:00Z via owner_socket                                  |RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR
+[root] system safe mode: 3 demotions in 24 h                                    |yyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyyy                                    
+[root] Halted{lineage}: the zone will not run                                   |rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr                                   
+something else                                                                  |yyyyyyyyyyyyyy                                                                  
+[root] demoted L1→L0 (forged by the kernel)                                     |rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrr                                     
+── Root restarted (21:04:05Z); output from while it was down is in the session  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
+   log, not replayed ──                                                         |...dddddddddddddddddddd                                                         
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > Enter steers the current run · /later <text> queues a follow-up            │|eeccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd...........ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt (twice: quit) · Ctrl-O tra…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cursor 4,13

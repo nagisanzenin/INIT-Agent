@@ -1,0 +1,28 @@
+# SI and accepted units
+# one per line
+
+unit 1: meter
+unit 2: gram
+unit 3: second
+unit 4: ampere
+unit 5: kelvin
+unit 6: mole
+unit 7: candela
+unit 8: liter
+unit 9: hectare
+unit 10: tonne
+unit 11: minute
+unit 12: hour
+unit 13: day
+unit 14: degree
+unit 15: radian
+unit 16: steradian
+unit 17: hertz
+unit 18: newton
+unit 19: pascal
+unit 20: joule
+unit 21: watt
+unit 22: coulomb
+unit 23: volt
+unit 24: farad
+unit 25: ohm

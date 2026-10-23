@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "e-py-atbash",
+ "family": "E",
+ "lang": "py",
+ "title": "Grouped substitution cipher with seeded rules",
+ "difficulty": {"default": 2, "min": 1, "max": 4},
+ "toolchains": ["python3"],
+ "licence": "Exercism-MIT",
+ "source": {"repo": "exercism/python", "path": "exercises/practice/atbash-cipher", "exercise": "atbash-cipher", "commit": "6105f6d9d3ef66ce3d5c8f529d2882af3d76b706"},
+ "notes": "S1-E-PY. EvoEval-style mutation: d1 seeded group size and separator; d2 + shifted (still self-inverse) table and a digit rule (keep, complement, drop); d3 + alternating group sizes; d4 + strict decode (ValueError on unexpected characters). Difficulty guess for deepseek-flash: easy (d2)."
+}

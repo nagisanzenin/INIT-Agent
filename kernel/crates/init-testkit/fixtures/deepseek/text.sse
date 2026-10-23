@@ -1,0 +1,22 @@
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"","role":"assistant"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"The user"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":" wants a"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":" listing"},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":null,"reasoning_content":"."},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"Here are","reasoning_content":null},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":" the fil","reasoning_content":null},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"es: a.rs","reasoning_content":null},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":", b.rs.","reasoning_content":null},"finish_reason":null,"index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock"}
+
+data: {"choices":[{"delta":{"content":"","reasoning_content":null},"finish_reason":"stop","index":0,"logprobs":null}],"created":0,"id":"mock-turn-0","model":"deepseek-flash","object":"chat.completion.chunk","system_fingerprint":"fp_mock","usage":{"completion_tokens":14,"completion_tokens_details":{"reasoning_tokens":7},"prompt_cache_hit_tokens":0,"prompt_cache_miss_tokens":101,"prompt_tokens":101,"prompt_tokens_details":{"cached_tokens":0},"total_tokens":115}}
+
+data: [DONE]
+

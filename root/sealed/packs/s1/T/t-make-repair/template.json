@@ -1,0 +1,12 @@
+{
+ "v": 1,
+ "id": "t-make-repair",
+ "family": "T",
+ "lang": "any",
+ "title": "Repair a broken Makefile",
+ "difficulty": {"default": 3, "min": 1, "max": 5},
+ "toolchains": ["python3", "make", "sh", "awk", "sed"],
+ "licence": "INIT",
+ "source": null,
+ "notes": "skill: GNU make repair; hard bugs (spaces for tab, $^ for $<, unescaped $ in a recipe loop, missing build dir, wrong patsubst) plus latent ones only seen in incremental builds or other targets (toc missing page prerequisites, render rule missing its tool prerequisite, test not .PHONY while test/ exists, clean leaving build/); checked by fresh/up-to-date/edit/new-page/tool-change/clean/test scenarios with explicit mtimes; pass_guess_permille: 400"
+}
