@@ -75,6 +75,15 @@ INIT is the scaffolding for that moment: everything open to the model except the
    - Ones that keep coinciding with trouble are quarantined.
    - The harness does not bloat; it evolves by use.
 
+6. **It knows itself from evidence, not from introspection.** Models are poor at introspecting: the best published results detect an injected thought about 20% of the time. So INIT does not ask the model to "feel" what it is. It hands it verified files instead:
+   - `SELF.md`, its own map, which it maintains;
+   - `self.json`, an inventory of its own code and capabilities that the kernel regenerates and checks byte for byte at every change (gate G1);
+   - a boot block that says why it just woke up (a fresh start, a hot-swap, a rollback, a crash) and what changed in its environment;
+   - live self-signals: how full its context is, its cache rate and spend, its autonomy level and what the next level needs;
+   - its full history in git and in the session log, including outputs that were cut from its context.
+
+   A mind that is going to rebuild itself first needs an accurate picture of what it is.
+
 ## How it works
 
 ### Three zones, one wall
@@ -158,6 +167,7 @@ For the curious. Every item links to its design doc.
 | **Snapshots and lineage** | APFS clones before every change and before the agent can touch your folder; every promotion, rollback, grant and panic is Ed25519-signed into an append-only lineage (`init-root audit verify --full`). | Undo is a filesystem operation, and history cannot be rewritten. |
 | **Memory and disk watchdog** | The Root polls every workload each second and kills a runaway process tree by PID; below the disk floor it refuses new work. | Added after a sandboxed process reached 43.9 GB of compressed memory in testing. |
 | **Wasm tools** | T1 capabilities are WebAssembly components against a WIT interface, run by Wasmtime inside the body. | New tools without recompiling the core. |
+| **Self-awareness as files** | `GENESIS.md`, the constitution and `SELF.md` sit in a cached, never-changing head; volatile facts (time, spend, cache rate, level) arrive as separate signals so the cache stays warm ([awareness.md](docs/awareness.md)). | Long sessions on DeepSeek showed 99%+ prompt-cache hits per request. |
 | **Context** | Old tool output is masked first; then an anchored summary compaction; a full record stays on disk. | Long tasks without losing the log. |
 
 About 200,000 lines of Rust in four workspaces (Root, kernel, body, TUI), plain `std` threads with no async runtime ([ADR-003](docs/adr/003-std-threads-no-async.md)), and a red-team suite against the real Root.
