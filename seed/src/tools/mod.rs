@@ -1,5 +1,6 @@
-//! The five tools (body/tools.md): `read`, `write`, `edit` run in-process, `bash` spawns one process
-//! group per call, `ext` routes to the Wasm extension host (ext/host.md; stubbed until WP14).
+//! The six tools (body/tools.md): `read`, `write`, `edit` run in-process, `bash` spawns one process
+//! group per call, `ext` routes to the Wasm extension host (ext/host.md), and `delegate` runs one
+//! sub-task in a fresh context (loop/delegate.rs; this file only parses and frames it).
 //!
 //! The common pipeline (§3.1): typed argument parsing that rejects unknown fields, lexical path
 //! resolution with no filesystem access and no policy (the OS sandbox enforces), and output
@@ -7,6 +8,7 @@
 
 pub mod args;
 pub mod bash;
+pub mod delegate;
 pub mod edit;
 pub mod ext;
 pub mod memcap;
@@ -37,12 +39,12 @@ pub use ext::{
     CallCtx, ExtHostApi, ExtOutcome, OutcomeKind, ReloadKind, ReloadReport, Snapshot, StubHost,
 };
 
-/// tools.md §4.1, minified with sorted keys (3,405 bytes). The single source of the tool bytes in
+/// tools.md §4.1, minified with sorted keys (4,986 bytes). The single source of the tool bytes in
 /// every request, the head and `--manifest`. Changing it is a `Prefix-change: yes` commit.
 pub const REGISTRY_JSON: &str = include_str!("registry.json");
 
 /// Tool names, sorted byte-wise (the registry order).
-pub const NAMES: [&str; 5] = ["bash", "edit", "ext", "read", "write"];
+pub const NAMES: [&str; 6] = ["bash", "delegate", "edit", "ext", "read", "write"];
 
 /// Body mode (boot.md §3.14). Safe mode disables `ext`. `Check` (ADR-011 §2.1, the Root's A4 rollback probe):
 /// boot, rehydrate `INIT_SESSION`, write `ready`, exit 0; no model call, no kernel socket, no serving.
@@ -306,6 +308,8 @@ pub struct Tools {
     pub limits: Limits,
     /// MEM-RUNAWAY (§3.5.8): the Root's memory cap and the events file its watchdog writes.
     pub mem: memcap::Config,
+    /// `delegate` sub-task bounds (`INIT_DELEGATE_*`, tools/delegate.rs).
+    pub delegate: delegate::Bounds,
 }
 
 /// Per-call context (§3.1). `reg` is the batch's ext registry snapshot (None in safe mode).
@@ -360,6 +364,9 @@ pub enum Job {
     Edit(edit::EditArgs),
     Bash(bash::BashArgs),
     Ext(ext::ExtArgs),
+    /// Parsed here, executed by the loop (it owns the model call): `Prepared::Ready` with this job
+    /// never reaches `Tools::run`.
+    Delegate(delegate::Args),
 }
 
 /// A finished call: the result plus the one-line `tool_end` text (loop.md §4.1).
@@ -415,6 +422,7 @@ impl Tools {
         {
             limits.bash_default_timeout_s = t;
         }
+        let delegate = delegate::Bounds::from_lookup(lookup);
         let mem = memcap::Config::from_lookup(lookup);
         Tools {
             specs: specs(),
@@ -424,6 +432,7 @@ impl Tools {
             base_env: cfg.base_env,
             limits,
             mem,
+            delegate,
         }
     }
 
@@ -467,6 +476,7 @@ impl Tools {
             "write" => write::parse(&c.input, cx).map(Job::Write),
             "edit" => edit::parse(&c.input, cx, &self.limits).map(Job::Edit),
             "bash" => bash::parse(&c.input, &self.limits).map(Job::Bash),
+            "delegate" => delegate::parse(&c.input).map(Job::Delegate),
             _ => ext::parse(&c.input).map(Job::Ext),
         };
         match job {
@@ -507,6 +517,13 @@ impl Tools {
                     if e.edits.len() == 1 { "" } else { "s" }
                 ),
                 Job::Ext(x) => format!("ext {}", x.name),
+                // The row already shows the name `delegate`: the text is the task.
+                Job::Delegate(a) => match a.mode {
+                    delegate::Access::Read => delegate::summary_line(&a.task),
+                    delegate::Access::Write => {
+                        format!("(write) {}", delegate::summary_line(&a.task))
+                    }
+                },
             },
             Prepared::Done { name, .. } => name.clone(),
         }
@@ -529,6 +546,11 @@ impl Tools {
             Job::Edit(a) => edit::run(a, cx, &self.limits),
             Job::Bash(a) => return bash::run(self, a, cx),
             Job::Ext(a) => ext::run(self.ext.as_deref(), a, cx),
+            // The loop runs this one (it owns the model call); reaching here is a bug.
+            Job::Delegate(_) => Err(ToolError::new(
+                "not_available",
+                "delegate is run by the loop, not by the tool layer",
+            )),
         };
         let mut ran = match ran {
             Ok(r) => r,

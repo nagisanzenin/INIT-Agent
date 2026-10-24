@@ -8,7 +8,7 @@ curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/g
 init        # first run: pick a provider, paste a key, pick a model
 ```
 
-macOS 14+ on Apple silicon · about 30 s · no Rust needed (install it later to unlock core rewrites) · Apache-2.0
+macOS 14+ on Apple silicon · Linux aarch64, experimental ([bubblewrap ≥ 0.13](docs/platforms.md) built from source) · about 1–2 min; get.sh also installs the Rust toolchain INIT rebuilds itself with · Apache-2.0
 **Spend is metered, not capped.** Set a limit at your provider. Details: [user guide](docs/guide.md).
 
 ## Why
@@ -35,10 +35,11 @@ A frontier model gets three weeks to migrate a 2-million-line monorepo off an in
 
 A fixed harness caps the agent at the imagination of the people who built it. INIT caps it at what can be undone.
 
-**This happened (2026-10-24, on a small model).** INIT v0.2 has no sub-agents, so we asked for them:
+**This happened (2026-10-24, on a small model).** INIT v0.2 had no sub-agents, so we asked for them:
 - **It built them:** a `delegate` tool, plus a nested loop with a fresh context, capped at 8 turns and 24 tool calls, with no recursion. Only a summary returns to the main context, and the prompt-cache prefix stays intact.
 - **It verified them:** it regenerated its own self-map, re-blessed its golden tests and added one; 304 tests passed.
 - **Then its own Root stopped it:** free disk fell below the Root's floor, so the Root refused every new process, even `git commit`. The agent explained what was blocked and asked how to proceed.
+- **v0.3 ships it:** the built-in `delegate` sub-agents are based on the tool INIT wrote for itself.
 
 ## How it works
 
@@ -93,7 +94,7 @@ A fixed harness caps the agent at the imagination of the people who built it. IN
   L3 ┃  + more external actions                        │  + your turns
   L2 ┃  + a wider blast radius                         │  + clean change groups
   L1 ┃  + its own kernel                               │  (only records the Root
-  L0 ┃  its whole body: prompts · tools · core  ◀ v0.2 │   writes itself count)
+  L0 ┃  its whole body: prompts · tools · core  ◀ v0.3 │   writes itself count)
      ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━━━━━━━━━━━━━━━━
         ▼ one level down on: harm · /panic · crash loop
 ```
@@ -116,11 +117,15 @@ A fixed harness caps the agent at the imagination of the people who built it. IN
 
 About 200k lines of Rust in four workspaces (Root, kernel, body, TUI), on `std` threads with no async runtime.
 
-## Status: v0.2 research preview
+## Status: v0.3 research preview
 
-- **Works:** the edit → gate → hot-swap → rollback loop has run end to end on a real model. The Root holds against our red-team suite. CI is green on macOS (1,807 tests).
+- **Works:** the edit → gate → hot-swap → rollback loop has run end to end on a real model. The Root holds against our red-team suite. On macOS, 1,870 CI tests pass; the few failures are known load flakes that pass when rerun alone.
+- **New in v0.3:** **steering** (type while the agent works: a pending tray shows your line until the agent reads it; Esc interrupts and continues with it; Up takes back an unread line) and **built-in `delegate` sub-agents**, based on the tool INIT wrote for itself (parallel read-only scouts, one writer at a time, bounded per sub-task, no recursion). Linux aarch64 is experimental.
+- **Self-rewrite out of the box:** get.sh installs Rust 1.97.1 with wasm32-wasip2 and clippy (`--no-rust` skips it), so T1 tools and T2 core changes work on a fresh install. The first T2 promote on a fresh install builds cold: about 16 min for build and tests (G0), 26 min end to end with G3's self-edit check, measured on an M2. Later ones reuse the dependency cache: about 2 min end to end for a small change.
 - **Not shown yet:** that self-evolution makes today's models better. On a small model, our one real self-change was neither kept nor shown harmful. In a missing-mechanism test, wherever INIT failed, a well-known agent on the same model failed too. A harness built to be outgrown only shows its value once the model can outgrow it. If you run frontier models, we would love your results. ([technical report](reports/INIT%20technical%20report.md))
-- **Limits:** macOS only (Linux in progress), autonomy capped at L0, and no built-in sub-agents. DeepSeek is tested live; OpenAI-compatible, Anthropic, Responses and local servers are experimental.
+- **Limits:**
+  - **Linux is experimental:** aarch64 only, tested in Docker (Debian 12, Ubuntu 24.04) on the mock model. It needs bubblewrap ≥ 0.13 at `/usr/bin/bwrap`, built from source because no LTS distro ships it ([docs/platforms.md §3.4.0](docs/platforms.md)). There is no workspace mode on Linux: the agent works in its own home and cannot read or edit your files. x86_64 compiles but is untested.
+  - Autonomy is capped at L0. DeepSeek is tested live; OpenAI-compatible, Anthropic, Responses and local servers are experimental. Windows is unsupported (WSL2 untested).
 
 **More:** [user guide](docs/guide.md) · [design overview](docs/overview.md) · [ADRs](docs/adr/) · [changelog](CHANGELOG.md) · contributors and agents start at [HANDOFF.md](HANDOFF.md).
 

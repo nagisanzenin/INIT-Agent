@@ -3,7 +3,7 @@
 
 use super::live::SPINNER;
 use super::{Color, Line, Style, sanitize, usd};
-use crate::model::{Conn, Info};
+use crate::model::{Conn, Info, tok};
 use serde_json::Value;
 use std::time::{Duration, Instant};
 
@@ -33,7 +33,16 @@ pub fn usage_summary(info: &Info) -> String {
         .map(|m| format!("evolution checks today {} estimated (gate/probe only)", usd(m)))
         .unwrap_or_else(|| "evolution checks cost unknown".into());
     let policy = if egress.is_some_and(observe_only) { "Monetary caps off." } else { "Monetary policy is reported by Root." };
-    format!("Root live ledger: {} total settled estimate, {} today (USD estimated from usage/tariffs, not an invoice); pending upper bound {} (separate from settled cost; interrupted requests may still be billed); {tokens}; {evo}. Free-evolution reasoning cost is not attributed. {policy} /stop stops the current run; /panic stops all agent activity; Ctrl-C interrupts.", amount("total_spent_musd"), amount("day_spent_musd"), amount("total_reserved_musd"))
+    let seen = if info.session.requests == 0 {
+        "This TUI has seen no token lines yet".to_string()
+    } else {
+        let s = &info.session;
+        format!(
+            "This TUI saw {} requests: input {} ({} cached), output {}; cache hit {} (token-weighted: cached / input; ? when the provider reports no cache field); last turn {} requests: {}",
+            s.requests, s.input, s.cached, s.output, s.cache().show(), info.turn.requests, info.turn_line()
+        )
+    };
+    format!("Root live ledger: {} total settled estimate, {} today (USD estimated from usage/tariffs, not an invoice); pending upper bound {} (separate from settled cost; interrupted requests may still be billed); {tokens}; {evo}. Free-evolution reasoning cost is not attributed. {policy} /stop stops the current run; /panic stops all agent activity; Ctrl-C interrupts. {seen}.", amount("total_spent_musd"), amount("day_spent_musd"), amount("total_reserved_musd"))
 }
 
 fn observe_only(egress: &Value) -> bool {
@@ -124,6 +133,19 @@ pub fn bar(info: &Info, width: usize, now: Instant, now_ms: i64, spin: usize, no
         }
     };
     fields.push(Field { drop: 6, line: model });
+    // tokens this turn, the cache-hit rate (turn and session, token-weighted) and the turn's
+    // estimated cost: one live segment instead of a token line per request (§3.9)
+    if info.session.requests > 0 {
+        let t = &info.turn;
+        let mut l = Line::from_span("turn ", Style::dim());
+        l.push(format!("in {} out {}", tok(t.input), tok(t.output)), Style::PLAIN);
+        l.push(" · cache ", Style::dim());
+        l.push(t.cache().show(), Style::PLAIN);
+        l.push(" · ", Style::dim());
+        l.push(info.turn_musd().map_or_else(|| "$?".into(), super::usd_fine), Style::PLAIN);
+        fields.push(Field { drop: 3, line: l });
+        fields.push(Field { drop: 4, line: Line::from_span(format!("session cache {}", info.session.cache().show()), Style::dim()) });
+    }
     if egress.is_some_and(observe_only) {
         let total = egress.and_then(|e| money(e, "total_spent_musd")).filter(|m| *m >= 0)
             .map(usd).unwrap_or_else(|| "$?".into());

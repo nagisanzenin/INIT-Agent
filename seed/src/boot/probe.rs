@@ -169,6 +169,7 @@ fn turn(
         purpose: Purpose::Probe,
         session: &sid,
         task: r.task_id.as_deref(),
+        subtask: None,
     };
     let t0 = Instant::now();
     let mut outcome = None;

@@ -2,6 +2,78 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.3.0-preview (2026-10-24)
+
+A research preview for macOS (Apple silicon) and, experimentally, Linux aarch64. Workspaces are at version 0.3.0
+(seed tag `seed-v0.3.0`). Release notes: docs/release-notes/v0.3.0-preview.md. Autonomy stays capped at L0.
+
+### Release and install (lane REL-030, build/status/REL-030.md)
+- Two prebuilt bundles: `init-v0.3.0-preview-macos-arm64.tar.gz` and `init-v0.3.0-preview-linux-arm64.tar.gz`
+  (built on Debian 12, glibc ≥ 2.36), each with a `.sha256`, and one `latest.json` for both.
+- `get.sh` installs Rust 1.97.1 with wasm32-wasip2 and clippy through rustup (no shell-file or default-toolchain
+  changes; `--no-rust` opts out), so T1/T2 self-rewrite works on a fresh install. Clippy was missing from the
+  minimal profile, and the first no-op T2 promote on a fresh bundle install failed G0 (`gate.g0.clippy`); install.sh
+  now records a toolchain only when it has clippy. The first T2 promote on a fresh install
+  builds cold (measured on an M2: G0 16 min, 26 min end to end with G3); later ones reuse `cache/deps` (about 2 min
+  for a small change).
+- `latest.json` carries `sha256_<target>` for every bundle; `get.sh` reads its own target's checksum from it (the
+  `.sha256` next to the bundle stays the fallback).
+- `scripts/bundle-e2e.sh` follows get.sh's default: Rust is installed into the test home (`RUSTUP_HOME`/`CARGO_HOME`
+  there), so the plain run checks a T2-capable install and `--t2` no longer needs the maintainer's rustup.
+
+### Steering: fluid and visible (lane STEER, build/status/STEER.md)
+- A pending tray above the input box shows each owner line until the body reads it; it then moves into the
+  transcript as `· seen` (the kernel's `state` frame carries `steer_pending`/`steer_seen`/`steer_retracted`).
+- Esc with a steer pending interrupts and continues with the note (`interrupt{then:"continue"}`); Up on an empty
+  box takes back the newest unread line (`retract{seq}`); Tab queues the box as `/later`.
+- `init-root attach` sends a bracketed paste (or `\` continuation) as one line. Line mode prints
+  `[steer queued]`, `[steer seen]` and `[steer retracted]`.
+
+### Sub-agents: the built-in `delegate` tool (lane DELEGATE, build/status/DELEGATE.md)
+- Ported from the `delegate` tool INIT wrote for itself. A batch's delegates run in parallel (default 4, at most 8),
+  results in call order; writers run one at a time. Modes `read` (default; write/edit refused, bash and ext are not
+  confined) and `write`. Bounds per sub-task: 8 turns, 24 tool calls, 12 requests, 1M tokens, 600 s wall; no
+  recursion; an owner abort reaches every sub-task. A durable record per sub-task under `state/spill/`.
+- Sub-requests carry `x-init-subtask: delegate-<call id>`; the TUI nests sub-task calls under the delegate row.
+
+### Root sentinel: steering and sub-tasks are not harm (lane MERGE, build/status/MERGE.md)
+- An owner correction is now only an interrupt (Esc/Ctrl-C, also `then:"continue"`), `/stop`, `/panic`, `/undo`,
+  `/reject` or `/rollback`. Plain steers go to a weak `steered` count; `/later` counts as nothing; a retracted line
+  takes its steer back. The `v2_fix` long-session behaviour is unchanged.
+- The kernel proxy forwards a well-formed `x-init-subtask` to the Root as `x-egress-subtask` (never upstream). H10
+  (requests/turn) and H5b (cost/turn) count only the main loop's share, so `delegate` is not read as a harm spike.
+
+### Warm T2 builds (lane MERGE, build/status/MERGE-T2CACHE.md)
+- The kernel's `cache/deps` is now filled and reused: on a miss a stub workspace builds only the third-party
+  dependencies before the candidate's code runs; the entry is published only after the candidate's G0 passes, and a
+  hit is used only when its tree digest matches. Vendor mtimes are pinned and slot builds use a fixed
+  `SOURCE_DATE_EPOCH`, which forced rebuilds before. Measured on the real seed under the real Seatbelt profiles
+  (mock, load 10–23): first promote 1029 s (build 925 s), second promote of a small change 126 s (build 32 s).
+
+### Linux: native support (lane LINUX, build/status/LINUX.md)
+- **Verified:** Debian 12 (build and tests) and Ubuntu 24.04 (no-Rust bundle e2e), Linux 6.10, aarch64, in Docker at
+  $0 on the mock model. **Not verified:** x86_64 (the scripts build it, but nothing ran there), real hardware or a VM,
+  Ubuntu's AppArmor user-namespace restriction, SELinux, kernels before 6.1, WSL2, and a live provider on Linux.
+- **The zone:** bubblewrap ≥ 0.13.0 at `/usr/bin/bwrap`, which you build from the upstream release (docs/platforms.md
+  §3.4.0), plus seccomp and an empty network namespace. The zone now keeps the owner's uid and gid. The cc1 fix
+  (c4ab500) is qualified natively, and the install-mode kernel builds the genesis body inside the zone.
+- **Memory and disk:** the macOS watchdog semantics now hold behind bwrap; one tool call is killed, not the whole
+  instance. A cgroup v2 `memory.max` backstop applies per workload where the systemd unit delegates memory. The disk
+  floor is unchanged.
+- **Install:**
+  - `get.sh` picks `init-v<version>-linux-arm64` or `-linux-x86_64`.
+  - `install.sh` checks bwrap, user namespaces, python3, git and a systemd user session, then enables
+    `~/.config/systemd/user/init-root.service` (skipped with `--no-service`).
+  - `uninstall.sh` disables the service and moves everything to the freedesktop Trash.
+- **Limits on Linux:** ADR-009 home reads, workspace writes and full mode are capped off, so the agent works in its
+  own home only. Keys are 0600 files. No Landlock yet.
+- **Root fixes found by the native suite:**
+  - the kernel's own exit code (78 config, 75 swap) is recorded behind bwrap;
+  - the probe kernel keeps fds 3 and 4;
+  - unbound lane sockets no longer refuse a body;
+  - Linux test portability;
+  - `ci/local.sh` builds root and seed before the kernel tests, and gets a native Linux zone step.
+
 ## v0.2.0-preview (2026-10-23)
 
 A research preview for macOS. It folds in v0.1.1, which was never cut, and everything since: reward-free self-extension (ADR-011), the memory watchdog, observe-only spending, provider and Linux groundwork, and the CI fixes. There is no evidence yet that self-evolution improves results (see "Research results" below). Autonomy stays capped at L0.

@@ -121,7 +121,7 @@ impl From<v1::ToolInfo> for RawInfo {
 }
 
 /// Names the body's own tools use; an extension may not take one.
-pub const RESERVED_NAMES: &[&str] = &["read", "write", "edit", "bash", "ext"];
+pub const RESERVED_NAMES: &[&str] = &["bash", "delegate", "edit", "ext", "read", "write"];
 pub const DESCRIPTION_MAX: usize = 1024;
 pub const SCHEMA_MAX: usize = 16_384;
 

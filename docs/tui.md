@@ -3,6 +3,7 @@
 ```
 Status: v0.1, built (WP26, build/status/WP26.md; as-built differences in §10) · 2026-10-20 · Area: tui (owner client; owner decision CONVENTIONS §6 OW-TUI)
         + v0.1.1 ADR-009 (workspace = `init`'s cwd, `--full`, `/full`, `/undo`, the `FULL` badge; lane WIRE-009)
+        + 2026-10-24 TUI-UX: tool activity blocks, the token/cache/cost segment, the heartbeat, `/details` (§3.6, §3.9, §3.12)
 Depends on: CONVENTIONS.md (§1 live-system safety, §2, §5), root/root.md (§3.1, §3.9, §3.15, §4.2, §4.3),
             kernel/supervise.md (§3.10, §4.5, §4.6), body/loop.md (§3.5, §4.1), body/log-context.md (§4.5),
             root/egress.md (§3.3, §4.2), awareness.md, testing.md (§3.1a, §3.5b), roadmap.md (WP26)
@@ -117,21 +118,21 @@ The conversation is written to the terminal's **main screen**, so it goes into t
 ```
 › add a pty tool                                                  ← owner line (confirmed by its echo)
 I'll check SELF.md first, then write the tool.                    ← assistant text
-▸ bash   cat SELF.md                                  ✓ exit 0, 96 lines · 0.3 s
-▸ edit   src/tools/pty.rs (2 edits)                   ✗ error: no_match · 0.0 s
+▸ ran 2 tools in 1.8 s · bash · edit                  ✗ 1 failed  ← a frozen tool activity (§3.6)
+  ▸ edit   src/tools/pty.rs (2 edits)                 ✗ error: no_match · 0.0 s   ← failures stay visible
 ▲ [kernel] promoted                                               ← notice, styled by class
-· tokens: in 12345 (cached 11002), out 321                        ← turn end (dim)
 ──────────────────────────────────────────────────────────────── live region starts here
 The anchor moved, so I'll read the file again and retry…           ← streaming text
-⠹ bash   cargo test -p init-body pty                  running · 12 s
+⠹ bash cargo test -p init-body pty            1 tool call · 1 running · 0 failed · 12 s   ← running activity
+    running 12 s · still working… no output yet
 ╭──────────────────────────────────────────────────────────────────────────────╮
 │ > also add a timeout flag▏                                                   │
 ╰──────────────────────────────────────────────────────────────────────────────╯
- L0 · deepseek-flash · $0.04 run · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg · busy 41 s
- Enter send · Shift-Enter newline · Ctrl-C interrupt (twice: quit) · Ctrl-O transcript · ? keys
+ L0 · turn in 238k out 1.0k · cache 99.6% · $0.004 · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys
 ```
 
-- **Committing.** A finished block (an owner line, a finished tool batch, a notice, a turn end, a completed paragraph of text) is printed once above the live region and never redrawn. While a reply streams, complete lines are committed as soon as the live region would exceed `rows − input − 3`, so the live region always fits the screen.
+- **Committing.** A finished block (an owner line, a frozen tool activity, a notice, a completed paragraph of text) is printed once above the live region and never redrawn. While a reply streams, complete lines are committed as soon as the live region would exceed `rows − input − 3`, so the live region always fits the screen.
 - **Retry.** When the body reports a retry (`display{kind:"info", text:"retrying …"}`), the partial text still in the live region is discarded (body/loop.md §3.6). If part of it was already committed, a dim line `↺ retry: the partial reply above was discarded` is printed.
 - **Redraw.** Each render moves to the top of the live region, rewrites only the rows that changed, and clears below. Output is wrapped in synchronized-update brackets (`BeginSynchronizedUpdate`, ignored by terminals that lack them). On resize the live region's top row is found again with one cursor-position query (`crossterm::cursor::position`) and the region is redrawn; committed text is the terminal's to reflow.
 - **No mouse capture**, so native selection and wheel scrolling keep working.
@@ -143,9 +144,10 @@ The anchor moved, so I'll read the file again and retry…           ← streami
 |---|---|---|
 | `text` | appended to the streaming paragraph; rendered with the Markdown subset below | printed as it arrives |
 | `thinking` | `✻ thinking…` with a spinner, one per block; full text when verbose (Ctrl-T or `--verbose`) | `[thinking…]` once per block; full text with `--verbose` |
-| `tool_start` | a running row: spinner, `name`, `text` (the body's one-line summary: the bash command up to 200 characters, `read <path>`, `edit <path> (n edits)`, `ext <name>`), elapsed time; keyed by `call_id` | newline, then `» <name>: <text>` |
-| `tool_end` | the row becomes `✓` or `✗` (`ok`), with the body's summary (`exit 0, 96 lines`, `error: no_match`) and the duration the TUI measured; the batch is committed collapsed when its last call ends or the next text arrives | `  « ok <text>` or `  « error <text>` |
-| `turn_end` | a dim `· <text>` line (token counts and dropped deltas) | newline; the text with `--verbose` |
+| `tool_start` | a call in the turn's **tool activity** (§3.6), keyed by `call_id`: the activity's header shows its `name` and `text` (the body's one-line summary: the bash command up to 200 characters, `read <path>`, `edit <path> (n edits)`, `ext <name>`) while it runs | newline, then `» <name>: <text>` |
+| `tool_end` | the call becomes `✓` or `✗` (`ok`), with the body's summary (`exit 0, 96 lines`, `error: no_match`) and the duration the TUI measured | `  « ok <text>` or `  « error <text>`; when the activity ends, `[tools] ran 3 calls (2 bash, 1 read), 1 failed` (only for 2+ calls) |
+| `tool_progress` (proposed, §9 Q4) | the call's newest non-empty output line, dim, under the activity header; it also resets the heartbeat | not printed; it resets the heartbeat |
+| `turn_end` | **not shown** in the main screen: its token counts go to the status bar's turn segment (§3.9) and the line is kept in the activity (or as a hidden block) for the transcript view and `/details`; a `; n display deltas dropped` tail stays visible as a `· n display deltas dropped` line | newline; the text with `--verbose`; when the run ends (`state{busy:false}`), `[turn] 3 requests: in 8.0k out 35 · cache 95.0% · $0.004 (session cache 97.1%)` |
 | `info`, `error` | `· <text>` dim, or `✗ <text>` red | `[info] <text>`, `[error] <text>` |
 | a `boot_seq` different from the previous display frame's | a divider `── body restarted (boot <n>) ──` before the frame | the same divider as text |
 
@@ -155,7 +157,26 @@ Parallel tool calls: the body sends every `tool_start` of a batch before the bat
 
 ### 3.6 Tool calls: collapsed and expanded
 
-In the main screen every tool call is one collapsed line. Scrollback cannot be redrawn, so expanding happens in the **transcript view** (Ctrl-O, alternate screen), which shows every block of this TUI process:
+**Tool activity (TUI-UX, 2026-10-24).** Agents make many calls per turn, and one line per call (plus a token line per request) flooded the screen. The consecutive calls between two assistant messages are one **activity block** that updates in place in the live region:
+
+```
+⠸ bash cd wt-delegate && cargo build --offline 2>…  8 tool calls · 1 running · 1 failed · 1 min 16 s
+    running 1 min 6 s · │ Compiling init-root v0.2.0 (/x/root/c… · still working… no output for 15 s
+  … +3 more
+  ▸ edit   src/delegate.rs (2 edits)                                       ✗ error: no_match · 0.4 s
+  ▸ read   read src/delegate.rs                                                   ✓ 96 lines · 0.4 s
+  ▸ edit   src/delegate.rs (1 edit)                                                     ✓ ok · 0.4 s
+  ▸ bash   rg -n 'fn spawn' src                                            ✓ exit 0, 4 lines · 0.4 s
+```
+
+- **Header:** a spinner, the current action (the newest running call's name and text, truncated first; `thinking…` or `waiting for the model…` between calls), and on the right the counters and the activity's elapsed time (`8 calls · 1 failed · 1 min` when narrow).
+- **The current call** gets a line under the header: its running time, its newest output line (dim, from `tool_progress`), and `still working… no output for 15 s` (or `no output yet`) once it has been silent for more than 10 s, so a long `cargo build` never looks hung.
+- **Finished calls** shrink to one row each; only the last 3 show, older ones fold into `… +N more`. **Failed calls (red) and calls with no result are never folded.** Other running calls of a parallel batch keep their own rows.
+- **Thinking** between calls folds into the activity (the header says `thinking…`; Ctrl-T shows its last 3 lines); its text is in the details.
+- **Freezing.** When the reply's text arrives (non-blank `text`), the run ends (`state{busy:false}`), the owner sends a line, an error arrives or the body restarts, the block freezes and is printed once: one summary line `▸ ran 8 tools in 1 min 22 s · bash ×4 · read ×2 · edit ×2` with `✓ all ok`, `✗ 1 failed` or `? 1 no result` on the right, then one row per failed or unfinished call. A single call freezes to its own row, as before. Calls still running at the freeze end as `? no result`. **STEER (v0.2.1):** an owner line never freezes an activity while one of its calls is still running (the call keeps running in the body and its result still arrives); a line typed during a run waits in the pending tray (§3.7.1) and enters the transcript only once the body has read it, after the batch.
+- **Details.** Ctrl-O opens the transcript view on the last activity, already expanded: every call with its fields (below), each request's token line, and each thought. `/details` prints the same expansion of the last frozen activity into the main screen (and so into the terminal's scrollback); while an activity is still running it says to use Ctrl-O. The session log keeps everything for the agent either way; the TUI only folds the view.
+
+Scrollback cannot be redrawn, so expanding happens in the **transcript view** (Ctrl-O, alternate screen), which shows every block of this TUI process:
 
 - `j`/`k` or the arrow keys move the selection; PgUp/PgDn and `g`/`G` scroll; Enter or Space toggles the selected block; `e` expands all and `c` collapses all; `q`, Esc or Ctrl-O returns.
 - An expanded tool call shows `name`, `call_id`, the full `tool_start` text wrapped, `ok`, the `tool_end` summary, the start time (UTC) and the duration. Thinking blocks expand to their full text.
@@ -173,19 +194,38 @@ The input box is editable at all times, including while a reply streams. It grow
 | paste | bracketed paste (`EnableBracketedPaste`): inserted verbatim, CRLF → LF, never sent by itself |
 | **Ctrl-C** | send `interrupt` (the body aborts the current turn and keeps partial output, body/loop.md §3.5; harmless while idle). The draft in the box is kept. The hint shows `interrupt sent · Ctrl-C again within 2 s quits init (the agent keeps running)`. |
 | **Ctrl-C again within 2 s** | send `detach`, restore the terminal, exit 0. The agent is not touched. |
-| Esc | while busy and no popup is open: send `interrupt` (it does not arm quitting); otherwise close the popup |
+| Esc | while busy and no popup is open: send `interrupt` (it does not arm quitting); otherwise close the popup. **STEER:** with a steer still in the pending tray, Esc sends `{"t":"interrupt","then":"continue"}` (interrupt and steer: the body aborts as for a plain interrupt, then continues the run with the steer instead of going idle; hint `interrupting · your note goes in now (Esc again: just stop)`); a second Esc within 1 s, or Esc with no steer pending, is a plain `interrupt` |
+| Tab (STEER) | while busy, with text in the box and no popup: send the box as `/later <text>`, the next task after this run (Codex's Tab); the tray shows it as `next task` |
+| Up on an empty box with lines in the tray (STEER) | take back the newest line the body has not read: `{"t":"retract","seq"}` with the kernel echo's `seq`. On success its text returns to the box (or to the history if the box is not empty); if the agent already read it, the hint says so and it shows as seen. A line still unconfirmed or held by the Root cannot be taken back yet (the hint says why) |
 | Ctrl-D on an empty box | detach and exit 0 |
 | Up / Down | move between lines; on the first line, Up recalls earlier messages from this process's history |
 | Left, Right, Home, End, Ctrl-A, Ctrl-E, Alt-Left, Alt-Right, Backspace, Delete, Ctrl-W, Ctrl-U, Ctrl-K | the usual line-editing moves and deletions |
 | `/` at the start of an empty box | a completion popup of the owner commands (§3.8) with one-line descriptions; Tab completes |
 | `?` on an empty box | the key list overlay (as in Claude Code); `?` anywhere else is text |
-| Ctrl-O | the transcript view (§3.6) |
+| Ctrl-O | the transcript view (§3.6), opened on the last tool activity, expanded |
 | Ctrl-T | show or hide thinking text |
 | Ctrl-L | redraw |
 
 - Ctrl-Z (suspend) is not supported in v0.1; it is ignored.
 - **Size cap.** A `line` frame whose ICJ encoding exceeds 900 KiB is not sent. The box keeps the text and shows `too long to send (n KiB > 900 KiB); split it`. Both the Root and the kernel stop at 1 MiB per line, and the Root closes a connection that sends more (`FRAME_MAX`).
-- While the agent is busy, the box's placeholder says `Enter steers the current run · /later <text> queues a follow-up` (CONVENTIONS §6: a plain line during a run is a steer).
+- While the agent is busy, the box's placeholder says `Enter steers · Tab queues the next task · Esc interrupts` (CONVENTIONS §6: a plain line during a run is a steer; v0.2.1 STEER).
+
+#### 3.7.1 The pending tray (STEER, v0.2.1)
+
+Steering is meant to feel like Claude Code and Codex: the owner keeps typing, and each line is picked up safely at the next turn boundary (after the running tool batch, before the next model request; body/loop.md §3.4) and visibly.
+
+```
+› fix the test name too                    after bash: cargo test -p ini… · 41 s
+› then update the changelog                                            next task
+› also run clippy …                                                     sending…
+╭──────────────────────────────────────────────────────────────────────────────╮
+```
+
+- **Into the tray.** A line sent while the agent is busy (an input, not a Root or kernel command) is not pushed into the transcript: it waits in the tray, directly above the input box, one row per line (newest last, at most 4 rows, older ones fold into `… +N more waiting`; a multi-line message shows its first line and `…`).
+- **When it will be read** (right-aligned, dim): `sending…` (no echo yet); `queued while INIT restarts` (a Root echo); `held while INIT updates` (`state.slot` is not `running`); `after <tool>: <call> · <elapsed>` (the oldest call still running: the whole batch's results come back first); `after this reply` (the model is writing or thinking); `starting a run` (the run ended first: a leftover steer starts the next run); `next task` (a follow-up); `taking back…` (a retract is in flight).
+- **Seen.** The kernel's `state` frame carries `steer_pending`, `steer_seen` and `steer_retracted` (kernel/supervise.md §4.6), sent after every body ack. When a line's `seq` (from its kernel echo) is in `steer_seen`, or is no longer pending, it leaves the tray and is pushed into the transcript as `› <text> · seen` (a follow-up as a plain owner line), which is exactly where the model sees it. In `steer_retracted` it leaves the tray as taken back.
+- **Older kernels** send no steer lists: a tray line then leaves at its kernel echo as delivered, as before v0.2.1, and the rest of the tray is flushed when the run ends.
+- While lines wait, the hint line reads `Esc interrupt and send it now · ↑ take back the newest · Tab queue the next task`. The kernel's `[kernel] taken back: …` / `[kernel] not taken back: …` notices become hints, not transcript lines.
 
 ### 3.8 Owner commands
 
@@ -200,6 +240,7 @@ The TUI sends every line unchanged; the Root and the kernel parse them as for `i
 | `/new` · `/compact [focus]` · `/branch <id> [note]` · `/label <id> <text>` | body (body/log-context.md §4.5) | line; when the echo of `/new` arrives, a divider `── new session ──` |
 | `/clear` (v0.2.0, UX-KEYMODEL) | body, as `/new` | the TUI sends `/new` (TTY and line mode); the kernel never sees `/clear` |
 | `/key [provider]` · `/model [n\|provider/model]` · `/setup` (v0.2.0, UX-KEYMODEL) | Root requests `providers.list`, `keys.set`, `providers.add`, `model.use` on their own connection | `/key`: a hidden field (the box shows `•`; never in the history, the transcript, a `line` frame or a log), sent once to the Root, which stores it 0600; the TUI zeroes its buffers. `/model`: the configured models, then a number picks; the Root rewrites `kernel/config.toml` and restarts the kernel. `/setup`: the first-run flow again. First run: when `providers.list` says the selected model has no usable key, `init` asks provider → key → model before the first chat. In line mode on a terminal the key cannot be hidden, so the TUI points to `init-root keys set <provider>` instead |
+| `/usage` · `/details` (TUI-UX) | the TUI itself | not sent. `/usage`: the Root's ledger and token totals plus what this TUI saw (requests, cache rate, the last turn). `/details`: the last tool activity in full (§3.6); in line mode, this turn's per-request token lines |
 | anything else | body, as an input (a steer while busy) | line |
 
 **v0.1.1 (ADR-009): Root lines for the workspace** (root/root.md §4.2, §3.17):
@@ -239,13 +280,14 @@ The TUI still opens no file and holds no secret (T-1, T-2): reading its own cwd 
 | body | kernel `state.sha12` and `mode`; Root `status.tuples` | each `state` frame; 2 s poll | `body <sha12>` plus `lkg` when `tuples.current == tuples.lkg`, `provisional` or `safe` from the kernel's mode |
 | busy | kernel `state.busy` | each `state` frame | `busy 41 s` (elapsed by the TUI's clock), spinner at 10 Hz |
 | queued | Root `status.queued` and kernel `state.queued` | as above | only when > 0 |
+| turn tokens (TUI-UX) | the body's `turn_end` lines (`tokens: in N (cached C), out M`; `in` counts every prompt token, cached ones included) and Root `egress.stats.money.total_spent_musd` | each `turn_end`; egress after each `turn_end` | `turn in 238k out 1.0k · cache 99.6% · $0.004`, then `session cache 97.1%`. Shown once a token line has been seen. A turn starts when the run starts (`state{busy:true}`) or an owner line is delivered while idle (a steer is the same turn). The **cache rate is token-weighted**: Σ cached / Σ input over the turn's (or the session's) requests, not a mean of per-request rates; one request's `119424/119586` is 99.86%, shown as `99.8%` (rounded down, never overstated). A request whose line has no cache field makes the rate `~` (computed over the requests that reported one); with none it is `cache ?`, never `0%`. The cost is the change in the Root's ledger total since the turn began (an estimate from usage and tariffs; it includes any other spend in that time, e.g. gate checks), shown to a tenth of a cent; `$?` without the ledger. Observe-only: no cap or ceiling is implied. "Session" means every token line this TUI process saw, the attach replay included |
 | access (v0.1.1, ADR-009) | Root `status.access` | 2 s poll, and at once after a notice with `code:"access"` | the workspace with the home shown as `~` (`~/code/app`), or `no workspace` (dim) when there is none; `FULL` in red reverse video while `access.full` is true; a trailing `↻` while `restart_pending` (the agent picks up the change at its next idle boundary). Placed right after the level. |
 
 ```
  L0 · FULL ~/code/app · deepseek-flash · $0.04 run · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg
 ```
 
-- When the terminal is narrow, fields are dropped from the right in this order: queued, busy, model, run cost, body, today, the workspace path, level. The Root state and `FULL` are never dropped.
+- When the terminal is narrow, fields are dropped from the right in this order: queued, busy, model, run cost, body, the session cache rate, the turn tokens, today, the workspace path, level. The Root state and `FULL` are never dropped.
 - **Authority.** The level, money, access and Root state come from Root requests, which no zone process can forge. The body, mode, busy and model fields come from the kernel, which is maintainer code at L0–L2 and agent code from L3; they are informative, not authoritative.
 - `NO_COLOR` set: no colours; states are shown with reverse video and words.
 - **Times.** std has no local time zone, and the TUI adds no crate for one, so it shows relative times (`3 min ago`, `resets in 5 h 12 min`) and, where an absolute time is needed, UTC with a `Z` (`21:04:05Z`).
@@ -282,7 +324,7 @@ As built, notices carry only `level`, `text` and `ts`. The TUI classifies them b
 
 **Owner input, never resent.**
 - The TUI never resends a `line` by itself, so it cannot create a duplicate input. Exactly-once delivery into the log already follows from the Root's durable queue, its redelivery after each `ready`, the kernel's `qid` dedup and the body's `input_id` dedup (kernel/supervise.md §3.10 item 3).
-- A sent line is shown at once as a dim pending line `› text`. It is confirmed by its echo, matched first-in first-out by text: an echo `E` matches a pending line `P` when `E == P.text`, or when `P.text.trim()` is `/later ` followed by `E` (the kernel echoes a follow-up without the prefix).
+- A sent line is shown at once as a dim pending line `› text` (while the agent is busy: in the pending tray instead, §3.7.1). It is confirmed by its echo, matched first-in first-out by text: an echo `E` matches a pending line `P` when `E == P.text`, or when `P.text.trim()` is `/later ` followed by `E` (the kernel echoes a follow-up without the prefix).
 - A Root echo (with `qid`) marks the line `· queued` (no kernel was running). The later kernel echo (with `seq`) for the same text marks it delivered. The two become one transcript line, not two (§10, D8).
 - An echo that matches no pending line (another client, or the replay) is shown as an ordinary owner line.
 - Lines the Root or kernel handle as commands (§3.8) produce no echo and are shown at once as command lines, never pending.
@@ -295,6 +337,8 @@ As built, notices carry only `level`, `text` and `ts`. The TUI classifies them b
 
 Line mode is chosen when stdin or stdout is not a TTY, when `TERM=dumb`, or with `--plain` or `--raw`. It behaves like `init-root attach` should per the v0.2 rules (the as-built attach differs, §10 D1):
 - one owner line per stdin line, sent as a `line` frame; rendering per the line-mode column of §3.5; echoes as `> <text>` (not `» `, which v0.2 uses for tool starts); notices as their text;
+- **STEER (v0.2.1):** a kernel echo that arrives while the agent is busy prints `[steer queued] <text>` (`[next task queued] <text>` for a `/later` line) instead of `> <text>`; once the kernel's `state.steer_seen` reports the body's ack it prints `[steer seen] <text>` (`[next task started] <text>`), and `[steer retracted] <text>` when it was taken back. Plain, non-animated lines; an older kernel prints neither of the last two;
+- **no animation** (this is also the screen-reader mode): one line per tool start and finish, a `[tools] …` summary line when an activity of 2+ calls ends, a `[turn] …` line with the turn's tokens, cache rate and cost when the run ends, and `  … <name> still working (1 min)` for a call silent for 30 s (then every 30 s); per-request token lines only with `--verbose` or `/details`;
 - the sanitizer of §3.13 applies; ANSI styling only if stdout is a TTY and `NO_COLOR` is unset;
 - a `> ` prompt only when stdin is a TTY and the body is idle;
 - SIGINT sends `interrupt`; a second SIGINT within 2 s detaches and exits 0;
@@ -506,6 +550,9 @@ New ids, proposed to testing.md. Every test runs at $0 with the mock LLM. Live-e
 | TUI-12 | TTY end to end through a pty (`python3 -I`, stdlib `pty` and `os.forkpty`) on the TUI-11 stack: type, stream, Ctrl-O and expand a tool call, resize 80 → 120 → 60, Ctrl-C twice | the screen matches golden snapshots; `stty -a` is identical before and after | live |
 | TUI-13 | latency and load: keystroke and frame latencies, a 60 s flood at 5,000 frames/s with the Root's write timeout and buffer sizes, first paint with a full replay, idle CPU, memory | the §6 targets | live |
 | TUI-14 | confinement: run TUI-5's and TUI-11's sessions with the TUI under `sandbox-exec` with a profile that allows only its binary, system libraries, the pty, `/dev/null` and a connection to the test socket, and denies every `file-write*`, every read under the scratch `ROOT_HOME` except the socket, and all network | both sessions pass unchanged, which shows T-1, T-2 and "writes no files"; this runs against the fixture server and `init-fakeroot`, because the real Root rejects sandboxed peers | live |
+| TUI-UX1 | activity goldens (`tuiux_activity`, `tuiux_failed`): running with the heartbeat (no output 52 s), with a fresh and a stale output line, narrow (40 cols); frozen summary with the failure row; expanded in the transcript view; `/details` with the first request's token line; failures never folded; thinking between calls (plain and verbose); an interrupted call as `no result`; a single call | golden text grids and style masks match | live, unit |
+| TUI-UX2 | token math (`model.rs` tests, `tuiux_status`): parsing with and without the cache field and with the dropped tail; token-weighted turn and session rates (not the mean of rates); a missing cache field gives `?` or `~`, never `0%`; the turn boundary (busy, idle delivery, steer); the turn cost from the ledger and `$?` without it; the segment at 140/100/80/40 cols | as stated | live, unit |
+| TUI-UX3 | line mode (`tests/proto.rs`): an activity of 3 calls with a failure and a `tool_progress`, three requests (one without a cache field), the run's end | `[tools] ran 3 calls (2 bash, 1 read), 1 failed` before the reply; one `[turn] 3 requests: … cache ~95.0% …` line; no `tokens:` line without `--verbose`, which prints them; no progress text | live |
 | TUI-R1 | the real Root in test mode with the mock: a session, `/panic`, `/resume`, a scripted demotion and a level change (test ledgers, root/root.md §3.16) | the status bar shows PANICKED within 1 s of `/panic`; the demotion notice and the new level appear | disposable, or owner-machine for v0.1 |
 | TUI-R2 | Root restart: the runner kills its own test Root by held PID with three lines queued, then restarts it | the TUI re-attaches; each line appears exactly once in the session log; no `line` frame is resent | disposable, or owner-machine for v0.1 |
 | TUI-R3 | ceiling: a test charter with `day_usd = "0.01"` and mock prices | the status bar turns red; the ceiling notice appears once | disposable, or owner-machine for v0.1 |
@@ -522,6 +569,8 @@ New ids, proposed to testing.md. Every test runs at $0 with the mock LLM. Live-e
 **Cross-doc**
 1. **→ root/root.md §3.15, §4.2: three small additive fields on the owner channel.** (a) `rseq`, a u64 counted per Root process, on every frame the Root emits, plus `attach{since}`, which replays only frames with a larger `rseq` and ends with `replay_end{epoch, gap}`; (b) `src` (`root` or `kernel`), set by the Root on every frame and overwriting any `src` from the kernel; (c) `code` on alert notices (the code it already writes to `alerts.jsonl`), and a notice for each `ceiling_hit`. **Recommended: yes, in WP26 by the Root lane**, about 30 lines in `link.rs` and `egress.rs`, with no new command, thread or file. It makes §3.11's dedup exact and makes Root notices unforgeable from L3. The TUI works without it.
 2. **→ kernel/supervise.md §4.6: the `state` frame and the display relay.** (a) `state` gains `model` (the live scope's model) and `task_musd` (today's spend booked to the current task), and is also sent after each `turn_end`; (b) the display relay keeps fields it does not know, within the 1 MiB line. **Recommended: yes to both**, about 20 lines in `init-proto` and `kernel-supervise`. (a) fills the status bar's model and run cost; (b) is what lets the agent extend what the owner sees through body changes alone (§3.15). The TUI ignores fields it does not know, so nothing breaks either way.
+
+4. **→ body/loop.md §4.1, kernel/supervise.md §4.6 (TUI-UX, open): `display{kind:"tool_progress", call_id, name, text}`.** While a call runs, the body sends its newest output (at most one frame a second per call, the text capped at one line of 200 characters). **Recommended:** yes, in the body's bash tool; it goes through the kernel's relay unchanged (Q2(b)). The TUI already renders it (the dim line under the activity header, §3.6) and falls back to the heartbeat without it, so nothing breaks either way.
 
 **Internal**
 3. **→ lane REL (`scripts/release.sh`, `scripts/install.sh`, `scripts/init`): building and installing `init-tui`.** **Recommended:** `release.sh` builds `tui/` (`cargo build --release --offline` inside `tui/`, so its `.cargo/config.toml` applies) and puts `init-tui` in the release directory; `install.sh` installs it next to the launcher in `INIT_BIN_DIR` (a new file, then a rename into place); the launcher ignores an `$INIT_TUI` inside `INIT_HOME` (T-4). `init-root install` does not change; `ROOT_HOME/bin/init-tui` stays a lookup location only.

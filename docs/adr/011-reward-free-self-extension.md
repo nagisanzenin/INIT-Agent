@@ -240,9 +240,11 @@ All signals come from the Root's own observations: the egress ledger and tap, th
   - `cost`: zone egress spend in the turn;
   - `wall`;
   - `requests`;
+  - `sub_requests`, `sub_cost` (v0.3.0, MERGE): the part of `requests` and `cost` that `delegate` sub-tasks made (the kernel forwards the body's `x-init-subtask` as `x-egress-subtask`, body/tools.md §3.7). H10 and H5b test the main loop's share (`requests − sub_requests`, `cost − sub_cost`), so using `delegate` is not read as a per-turn spike. H5a, H8, H9, H11 and zone spend still count every request;
   - `req_bytes`: request bytes sent upstream;
   - `provider_errors`;
-  - `correction` (0/1, owner turns only): any of an `interrupt` frame, a line relayed while the turn is in progress (a steer), `/undo`, `/stop`, `/reject`, `/rollback`, `/panic`;
+  - `correction` (0/1, owner turns only): an owner interrupt, meaning an `interrupt` frame (Esc or Ctrl-C, also `then:"continue"`), `/stop` alone on its line, `/undo`, `/reject`, `/rollback` or `/panic`. Several in one turn count once. A plain steer (a line relayed while the turn is in progress), a `/later …` follow-up or a retracted line is **not** a correction (v0.3.0, MERGE: smoother steering must not inflate H7 or the corrections trend);
+  - `steered` (owner turns only; a weak signal that gates nothing): the plain steers of the turn. A relayed `retract{seq}` takes its line back (the kernel echo's `seq` names the line);
   - `crash`;
   - `kill` (a `mem_cap` or `disk_floor` event of a live-zone unit);
   - `refusal` (a demoting Root refusal).

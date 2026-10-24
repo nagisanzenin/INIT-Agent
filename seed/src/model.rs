@@ -8,7 +8,7 @@ use std::collections::BTreeSet;
 use std::fmt;
 use std::os::unix::net::UnixStream;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Condvar, Mutex};
+use std::sync::{Arc, Condvar, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use serde_json::{Map, Value};
@@ -160,7 +160,7 @@ pub struct ToolMeta {
 pub struct ToolSpec {
     pub name: String, // ^[a-z][a-z0-9_]{0,63}$
     pub description: String,
-    pub input_schema: Value, // JSON Schema object; body/tools.md owns the five seed schemas
+    pub input_schema: Value, // JSON Schema object; body/tools.md owns the seed schemas
 }
 
 impl ToolSpec {
@@ -404,10 +404,15 @@ pub enum StreamEvent {
 /// §3.5.4, supplied by the loop), and wakes `sleep`.
 pub struct Abort {
     flag: AtomicBool,
+    /// Interrupt-and-steer (loop.md §3.5): the owner wants the run to continue with a note.
+    cont: AtomicBool,
     stream: Mutex<Option<UnixStream>>,
     groups: Mutex<BTreeSet<i32>>,
     wake: (Mutex<()>, Condvar),
     kill_group: fn(i32),
+    /// Sub-task aborts (`delegate`): `trigger()` reaches them, and `groups()` reports their
+    /// process groups, so an owner abort stops every sub-task's stream and bash groups.
+    children: Mutex<Vec<Weak<Abort>>>,
 }
 
 impl fmt::Debug for Abort {
@@ -423,20 +428,59 @@ impl Abort {
     pub fn new(kill_group: fn(i32)) -> Self {
         Abort {
             flag: AtomicBool::new(false),
+            cont: AtomicBool::new(false),
             stream: Mutex::new(None),
             groups: Mutex::new(BTreeSet::new()),
             wake: (Mutex::new(()), Condvar::new()),
             kill_group,
+            children: Mutex::new(Vec::new()),
         }
     }
 
+    /// A child abort for one sub-task (`delegate`): its own in-flight stream and process groups,
+    /// so concurrent sub-tasks never overwrite each other's handles. Triggering this abort
+    /// triggers the child; triggering the child (a sub-task's wall-time cap) leaves this one alone.
+    /// A child made after this abort fired starts set.
+    pub fn child(&self) -> Arc<Abort> {
+        let c = Arc::new(Abort::new(self.kill_group));
+        let mut g = lock(&self.children);
+        g.retain(|w| w.strong_count() > 0);
+        if self.is_set() {
+            c.flag.store(true, Ordering::SeqCst);
+        }
+        g.push(Arc::downgrade(&c));
+        c
+    }
+
+    /// A plain abort. It also cancels an earlier continue wish (a second Ctrl-C stops).
     pub fn trigger(&self) {
+        self.cont.store(false, Ordering::SeqCst);
+        self.fire();
+    }
+
+    /// Interrupt-and-steer: abort what runs now, and record that the run should continue at the
+    /// next boundary if there is an owner note to answer (loop.md §3.5).
+    pub fn trigger_continue(&self) {
+        self.cont.store(true, Ordering::SeqCst);
+        self.fire();
+    }
+
+    /// The last trigger was `trigger_continue` (cleared by `trigger` and `reset`).
+    pub fn wants_continue(&self) -> bool {
+        self.cont.load(Ordering::SeqCst)
+    }
+
+    fn fire(&self) {
         self.flag.store(true, Ordering::SeqCst);
         if let Some(s) = lock(&self.stream).take() {
             let _ = s.shutdown(std::net::Shutdown::Both);
         }
         for &pg in lock(&self.groups).iter() {
             (self.kill_group)(pg);
+        }
+        let kids: Vec<Arc<Abort>> = lock(&self.children).iter().filter_map(Weak::upgrade).collect();
+        for c in kids {
+            c.trigger();
         }
         let _g = lock(&self.wake.0);
         self.wake.1.notify_all();
@@ -446,6 +490,7 @@ impl Abort {
     pub fn reset(&self) {
         *lock(&self.stream) = None;
         lock(&self.groups).clear();
+        self.cont.store(false, Ordering::SeqCst);
         self.flag.store(false, Ordering::SeqCst);
     }
 
@@ -715,6 +760,10 @@ pub struct Request<'a> {
     pub session: &'a str,
     /// → `x-init-task`; `None` when the path has no owner message (the proxy books `_none`).
     pub task: Option<&'a str>,
+    /// → `x-init-subtask` (kernel/proxy.md §3.5a): `delegate-<call id>` on a sub-task's requests,
+    /// so traces and per-turn signals can tell sub-task traffic from the main loop's. Recorded,
+    /// never enforced.
+    pub subtask: Option<&'a str>,
 }
 
 /// The loop's only view of the model (loop.md §3.2). The real implementation is provider.md's
@@ -731,6 +780,11 @@ pub trait ModelClient: Send + Sync {
 impl Abort {
     /// The live bash process groups (heartbeat `tool_pgids`, boot.md §4.2). WP11 addition.
     pub fn groups(&self) -> Vec<i32> {
-        lock(&self.groups).iter().copied().collect()
+        let mut v: Vec<i32> = lock(&self.groups).iter().copied().collect();
+        let kids: Vec<Arc<Abort>> = lock(&self.children).iter().filter_map(Weak::upgrade).collect();
+        for c in kids {
+            v.extend(c.groups());
+        }
+        v
     }
 }

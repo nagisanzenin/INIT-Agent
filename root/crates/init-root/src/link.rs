@@ -594,11 +594,29 @@ impl Root {
                 Some("panic") => drop(panic::panic(&self, "owner_socket")),
                 Some("attach") if self.attach(&w, &v).is_ok() => {}
                 Some("line") => self.line(v["text"].as_str().unwrap_or("")),
-                Some("interrupt") => drop(self.deliver(&util::hex(&util::random::<8>().unwrap_or_default()), &json!({"t": "interrupt"}))),
+                // STEER: `interrupt{then?}` and `retract{seq}` go straight to a ready kernel, never queued
+                Some(t @ ("interrupt" | "retract")) => {
+                    let sent = control_frame(&v).map(|f| self.deliver(&util::hex(&util::random::<8>().unwrap_or_default()), &f));
+                    if t == "retract" && sent == Some(false) {
+                        self.notice("info", "[root] nothing taken back: the kernel is not running, so the line stays queued");
+                    }
+                }
                 _ => break,             // detach, a failed attach, or an unknown frame
             }
         }
         let _ = w.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+/// STEER (§4.2): the `owner.in` frame for a client `interrupt` or `retract`. `then` is kept only when it is
+/// `"continue"` (interrupt-and-steer); a `retract` needs an integer `seq` (the kernel echo's). None: nothing
+/// to forward (the frame is ignored; the connection stays up).
+fn control_frame(v: &Value) -> Option<Value> {
+    match v["t"].as_str()? {
+        "interrupt" if v["then"] == "continue" => Some(json!({"t": "interrupt", "then": "continue"})),
+        "interrupt" => Some(json!({"t": "interrupt"})),
+        "retract" => v["seq"].as_u64().map(|seq| json!({"seq": seq, "t": "retract"})),
+        _ => None,
     }
 }
 
@@ -663,5 +681,22 @@ mod tests {
         assert_eq!(line, "{\"level\":\"alert\",\"rseq\":42,\"src\":\"kernel\",\"t\":\"notice\",\"text\":\"[root] level L0→L4\"}\n");
         assert!(super::stamp(&json!("not an object"), "kernel", 1).is_none());
         assert!(super::stamp(&json!({"t": "display", "x": 1.5}), "kernel", 1).is_none(), "not ICJ");
+    }
+
+    /// STEER: `then` survives only as `"continue"`; `retract` needs an integer `seq`; other frames are not control frames.
+    #[test]
+    fn control_frames_for_the_kernel() {
+        let f = |v| super::control_frame(&v);
+        assert_eq!(f(json!({"t": "interrupt"})), Some(json!({"t": "interrupt"})));
+        assert_eq!(f(json!({"t": "interrupt", "then": "continue"})), Some(json!({"t": "interrupt", "then": "continue"})));
+        for then in [json!("stop"), json!(1), json!(null), json!({"x": 1})] {
+            assert_eq!(f(json!({"t": "interrupt", "then": then})), Some(json!({"t": "interrupt"})), "{then}");
+        }
+        assert_eq!(f(json!({"seq": 7, "t": "retract", "x": 1})), Some(json!({"seq": 7, "t": "retract"})));
+        for seq in [json!(null), json!(-1), json!(1.5), json!("7")] {
+            assert_eq!(f(json!({"seq": seq, "t": "retract"})), None, "{seq}");
+        }
+        assert_eq!(f(json!({"t": "retract"})), None);
+        assert_eq!(f(json!({"t": "line", "text": "x"})), None);
     }
 }

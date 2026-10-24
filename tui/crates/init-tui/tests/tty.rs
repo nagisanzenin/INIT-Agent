@@ -131,6 +131,149 @@ fn tui12_tty_session_through_a_pty() {
     cleanup(&fx.dir);
 }
 
+/// STEER: the kernel's `state` frame with the steer lists (supervise.md §4.6).
+fn steer_state(busy: bool, pending: &[u64], seen: &[u64], retracted: &[u64]) -> Value {
+    json!({"busy": busy, "level": 0, "members": 0, "mode": "normal", "queued": pending.len(), "sha12": "3f9c0a1b2c4d", "slot": "running",
+        "steer_pending": pending, "steer_retracted": retracted, "steer_seen": seen, "t": "state"})
+}
+
+/// Waits until the fixture received a frame matching `f`.
+fn got(fx: &Fixture, what: &str, f: impl Fn(&Value) -> bool) {
+    fx.wait_for(10, what, |s| s.received.iter().any(|r| f(&r.frame)));
+}
+
+/// STEER (tui.md §3.7.1) end to end through a pty, the test playing the kernel behind the fixture
+/// owner socket: a line typed during a long bash call waits in the tray with "after bash: …" and the
+/// running call is NOT marked `? no result`; the body's ack moves it into the transcript as `· seen`;
+/// Tab queues the box as `/later` (the next task); Up takes back a line not yet read (its text returns
+/// to the box); Esc with a steer pending sends `interrupt{then:"continue"}`, Esc with none a plain one.
+#[test]
+fn steer_tray_seen_tab_retract_and_esc_through_a_pty() {
+    let fx = Fixture::start("steer");
+    fx.state().auto_echo = false;
+    let mut d = Drive::start(&fx.rh, &[]);
+    d.ok(json!(["wait", "running", 10]));
+    fx.emit(steer_state(false, &[], &[], &[]));
+
+    // the run starts with a long bash call
+    d.ok(json!(["typing", "fix the flaky test", 0.005]));
+    d.ok(json!(["type", "\r"]));
+    got(&fx, "line 1", |f| f["t"] == "line" && f["text"] == "fix the flaky test");
+    fx.emit(json!({"seq": 1, "t": "echo", "text": "fix the flaky test"}));
+    fx.emit(steer_state(true, &[1], &[], &[]));
+    fx.emit(steer_state(true, &[], &[1], &[]));
+    fx.emit(json!({"boot_seq": 1, "call_id": "c1", "kind": "tool_start", "name": "bash", "t": "display", "text": "cargo test -p init-root"}));
+    d.ok(json!(["wait", "cargo test -p init-root", 5]));
+
+    // a steer typed while it runs: the tray says when it will be read; the call keeps running
+    d.ok(json!(["mark"]));
+    d.ok(json!(["typing", "rename the test too", 0.005]));
+    d.ok(json!(["type", "\r"]));
+    got(&fx, "the steer", |f| f["t"] == "line" && f["text"] == "rename the test too");
+    fx.emit(json!({"seq": 2, "t": "echo", "text": "rename the test too"}));
+    fx.emit(steer_state(true, &[2], &[1], &[]));
+    d.ok(json!(["wait", "after bash: cargo test", 5]));
+    d.ok(json!(["sleep", 0.3]));
+    // the batch ends, the body acks seq 2: the steer is in the transcript, marked seen
+    d.ok(json!(["mark"]));
+    fx.emit(json!({"boot_seq": 1, "call_id": "c1", "kind": "tool_end", "name": "bash", "ok": true, "t": "display", "text": "exit 0, 214 passed"}));
+    fx.emit(steer_state(true, &[], &[1, 2], &[]));
+    d.ok(json!(["wait", "· seen", 5])); // `rename the test too` then the dim suffix
+
+    // Tab: the box goes out as `/later`, shown as the next task
+    d.ok(json!(["mark"]));
+    d.ok(json!(["typing", "then update the changelog", 0.005]));
+    d.ok(json!(["type", "\t"]));
+    got(&fx, "the follow-up", |f| f["t"] == "line" && f["text"] == "/later then update the changelog");
+    fx.emit(json!({"seq": 3, "t": "echo", "text": "then update the changelog"}));
+    fx.emit(steer_state(true, &[3], &[1, 2], &[]));
+    d.ok(json!(["wait", "next task", 5]));
+
+    // Up on the empty box: take it back (the kernel still holds it); its text returns to the box
+    d.ok(json!(["mark"]));
+    d.ok(json!(["type", "\u{1b}[A"]));
+    got(&fx, "the retract", |f| f["t"] == "retract" && f["seq"] == 3);
+    fx.emit(steer_state(true, &[], &[1, 2], &[3]));
+    fx.emit(json!({"level": "info", "t": "notice", "text": "[kernel] taken back: message 3 will not be read", "ts": "x"}));
+    d.ok(json!(["wait", "taken back: it was not read", 5]));
+    d.ok(json!(["type", "\u{15}"])); // Ctrl-U clears the restored text
+
+    // Esc with a steer pending: interrupt and steer
+    d.ok(json!(["mark"]));
+    fx.emit(json!({"boot_seq": 1, "call_id": "c2", "kind": "tool_start", "name": "bash", "t": "display", "text": "sleep 600"}));
+    d.ok(json!(["typing", "stop, use nextest instead", 0.005]));
+    d.ok(json!(["type", "\r"]));
+    got(&fx, "the urgent steer", |f| f["t"] == "line" && f["text"] == "stop, use nextest instead");
+    fx.emit(json!({"seq": 4, "t": "echo", "text": "stop, use nextest instead"}));
+    fx.emit(steer_state(true, &[4], &[1, 2], &[3]));
+    d.ok(json!(["wait", "after bash: sleep 600", 5]));
+    d.ok(json!(["type", "\u{1b}"]));
+    got(&fx, "interrupt then continue", |f| f["t"] == "interrupt" && f["then"] == "continue");
+    d.ok(json!(["wait", "your note goes in now", 5]));
+    // the body aborts the call, then reads the steer and continues
+    fx.emit(json!({"boot_seq": 1, "call_id": "c2", "kind": "tool_end", "name": "bash", "ok": false, "t": "display", "text": "aborted after 3 s; process group killed"}));
+    fx.emit(json!({"boot_seq": 1, "kind": "info", "t": "display", "text": "interrupted · continuing with your note"}));
+    fx.emit(steer_state(true, &[], &[1, 2, 4], &[3]));
+    d.ok(json!(["wait", "· seen", 5]));
+    // Esc with nothing pending: a plain interrupt
+    d.ok(json!(["sleep", 1.1]));
+    d.ok(json!(["type", "\u{1b}"]));
+    fx.wait_for(10, "a plain interrupt", |s| s.received.iter().filter(|r| r.frame["t"] == "interrupt").count() == 2);
+    fx.emit(steer_state(false, &[], &[1, 2, 4], &[3]));
+
+    d.ok(json!(["type", "\u{3}"]));
+    d.ok(json!(["type", "\u{3}"]));
+    let s = d.exit(10);
+    assert_eq!(s["exit"], 0, "{}", s["output"]);
+    let out = s["output"].as_str().unwrap();
+    assert!(!out.contains("no result"), "a steer never marks a running call `? no result`");
+    let ints: Vec<Value> = fx.received().into_iter().filter(|r| r.frame["t"] == "interrupt").map(|r| r.frame).collect();
+    assert_eq!(ints[..2], [json!({"t": "interrupt", "then": "continue"}), json!({"t": "interrupt"})], "Esc with a steer, then Esc with none (then the Ctrl-C that quits)");
+    let lines: Vec<String> = fx.received().iter().filter(|r| r.frame["t"] == "line").map(|r| r.frame["text"].as_str().unwrap().to_string()).collect();
+    assert_eq!(lines, ["fix the flaky test", "rename the test too", "/later then update the changelog", "stop, use nextest instead"]);
+    cleanup(&fx.dir);
+}
+
+/// STEER in line mode (`--plain`, no animation): a line echoed while the agent works prints
+/// `[steer queued] …`, then `[steer seen] …` once the kernel reports the body's ack; a taken-back
+/// line prints `[steer retracted] …`.
+#[test]
+fn steer_lines_in_line_mode() {
+    let fx = Fixture::start("steer-line");
+    fx.state().auto_echo = false;
+    let st = fx.st.clone();
+    let kernel = std::thread::spawn(move || {
+        let wait = |text: &str| {
+            let t = Instant::now();
+            while !lock(&st).received.iter().any(|r| r.frame["t"] == "line" && r.frame["text"] == text) {
+                assert!(t.elapsed() < Duration::from_secs(10), "no line {text}");
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        };
+        wait("first");
+        emit(&mut lock(&st), json!({"seq": 1, "t": "echo", "text": "first"}));
+        emit(&mut lock(&st), steer_state(true, &[], &[1], &[]));
+        wait("second");
+        emit(&mut lock(&st), json!({"seq": 2, "t": "echo", "text": "second"}));
+        emit(&mut lock(&st), json!({"seq": 3, "t": "echo", "text": "third"}));
+        emit(&mut lock(&st), steer_state(true, &[2, 3], &[1], &[]));
+        emit(&mut lock(&st), steer_state(true, &[2], &[1], &[3]));
+        emit(&mut lock(&st), steer_state(true, &[], &[1, 2], &[3]));
+        emit(&mut lock(&st), json!({"boot_seq": 1, "kind": "text", "t": "display", "text": "ok, both\n"}));
+        emit(&mut lock(&st), steer_state(false, &[], &[1, 2], &[3]));
+    });
+    let o = run(&fx.rh, &["--plain", "--wait-idle", "--timeout", "20"], "first\nsecond\n/later third\n", 30);
+    kernel.join().unwrap();
+    let out = text(&o);
+    let lines: Vec<&str> = out.lines().collect();
+    let at = |s: &str| lines.iter().position(|l| *l == s).unwrap_or_else(|| panic!("no line {s:?} in:\n{out}"));
+    assert!(at("> first") < at("[steer queued] second"), "{out}");
+    assert!(at("[next task queued] third") < at("[steer retracted] third"), "{out}");
+    assert!(at("[steer retracted] third") < at("[steer seen] second"), "{out}");
+    assert!(at("[steer seen] second") < at("ok, both"), "{out}");
+    cleanup(&fx.dir);
+}
+
 /// WIRE-009 in TTY mode: the workspace in the status bar, `/undo` and `/full on` with the Root's
 /// typed confirmation (the hint names the phrase, the next Enter answers it), then `FULL`.
 #[test]

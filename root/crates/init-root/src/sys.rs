@@ -310,6 +310,22 @@ pub fn held(pid: i32) -> bool {
     } == 0
 }
 
+/// Has our child `pid` exited (a zombie not reaped yet)? Looks only (`WNOHANG | WNOWAIT`); false for a running child
+/// and for anything that is not our unreaped child.
+pub fn has_exited(pid: i32) -> bool {
+    // SAFETY: `info` is a zeroed out-parameter; P_PID names one pid; WNOWAIT leaves its state untouched.
+    pid > 1 && unsafe {
+        let mut info: libc::siginfo_t = std::mem::zeroed();
+        libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) == 0 && {
+            #[cfg(target_os = "linux")]
+            let who = info.si_pid();
+            #[cfg(not(target_os = "linux"))]
+            let who = info.si_pid;
+            who != 0
+        }
+    }
+}
+
 /// Signals a pid (or with `group`, the process group) that the Root holds: a child not yet reaped. Every
 /// spawn is its own process group (`process_group(0)`), and an unreaped leader keeps both ids ours. Any
 /// other pid is refused here, at the only `kill`/`killpg` of a default build (ADR-008, tests/rsafe.rs).
@@ -1073,8 +1089,9 @@ for fd in os.listdir('/proc/self/fd'):
  except OSError: continue
  assert 'secret' not in target and 'seccomp' not in target, target
  assert int(fd)<=4, (fd,target)
+assert os.getuid()==int(sys.argv[4]) and os.getgid()==int(sys.argv[5]), ('the zone must keep the owner ids',os.getuid(),os.getgid())
 print('linux isolation passed')
-"#]).arg(&l.root_home).arg(&p["SRC"]).arg(&p["OUT"]).current_dir("/").env_clear().env("PATH", "/usr/bin:/bin");
+"#]).arg(&l.root_home).arg(&p["SRC"]).arg(&p["OUT"]).arg(euid().to_string()).arg(unsafe { libc::getegid() }.to_string()).current_dir("/").env_clear().env("PATH", "/usr/bin:/bin");
         map_fds(&mut cmd, [a.as_raw_fd(), b.as_raw_fd()]); map_seccomp(&mut cmd, seccomp.as_raw_fd());
         let mut inherited: Vec<_> = mounts.iter().map(AsRawFd::as_raw_fd).collect(); inherited.push(leaked.as_raw_fd());
         inherit_fds(&mut cmd, inherited);
@@ -1142,4 +1159,33 @@ pub fn hold_spawn_fds(cmd: &mut std::process::Command, owned: Vec<OwnedFd>) {
     use std::os::unix::process::CommandExt;
     // SAFETY: no operations after fork; descriptors are dropped with Command in the parent.
     unsafe { cmd.pre_exec(move || { let _keep = &owned; Ok(()) }); }
+}
+
+/// LINUX (memwatch `launcher_view`): whether `pid` is a bubblewrap process (`/proc/<pid>/comm`). Read-only.
+#[cfg(target_os = "linux")]
+pub fn is_bwrap(pid: i32) -> bool {
+    std::fs::read_to_string(format!("/proc/{pid}/comm")).is_ok_and(|c| c.trim_end() == "bwrap")
+}
+
+/// LINUX: `pid` as the innermost pid namespace sees it (the last `NSpid:` field), which is the pid a confined body
+/// knows its tool call by. None when it is gone, or off Linux. Read-only.
+#[cfg(target_os = "linux")]
+pub fn ns_pid(pid: i32) -> Option<i32> {
+    let status = std::fs::read_to_string(format!("/proc/{pid}/status")).ok()?;
+    status.lines().find_map(|s| s.strip_prefix("NSpid:"))?.split_whitespace().last()?.parse().ok()
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn ns_pid(_: i32) -> Option<i32> {
+    None
+}
+
+/// LINUX (cgroup.rs): the child moves itself into the workload cgroup whose `cgroup.procs` the Root opened (`fd`),
+/// after fork and before exec, so every process of the instance starts inside its `memory.max`. A failed write fails
+/// the spawn: a workload that was promised a hard limit never runs without it.
+#[cfg(target_os = "linux")]
+pub fn join_cgroup_on_exec(cmd: &mut std::process::Command, fd: RawFd) {
+    use std::os::unix::process::CommandExt;
+    // SAFETY: only write(2) after fork (async-signal-safe); the descriptor is held by the parent through spawn.
+    unsafe { cmd.pre_exec(move || if libc::write(fd, b"0".as_ptr().cast(), 1) == 1 { Ok(()) } else { Err(io::Error::last_os_error()) }); }
 }

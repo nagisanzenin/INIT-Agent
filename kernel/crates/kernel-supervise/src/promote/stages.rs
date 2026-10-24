@@ -131,8 +131,196 @@ fn rustc_vv(env: &Env) -> (String, String) {
     (out, host)
 }
 
-/// Export `sha` into the slot, warm it from the deps cache, build `init-body` (§3.6.2), then run
-/// G0 in the same slot (gate.md §3.3), then copy the artifacts into `out_dir` (`bin/`, `ext/`).
+/// How the slot's target dir was prepared (supervise.md §3.6.2 "Dependency cache").
+#[derive(Clone, Debug)]
+pub struct DepsPrep {
+    pub key: Option<String>,
+    /// `hit` (cloned from `cache/deps/<key>`), `stub` (compiled from the stub workspace in this
+    /// slot, staged as `<key>.tmp`), or `cold` (no usable key, or the stub build failed).
+    pub mode: &'static str,
+    /// Mode `stub`: the staged entry's digest, published once the candidate's G0 passed.
+    pub staged: Option<String>,
+    pub ms: u64,
+    pub note: String,
+}
+
+impl DepsPrep {
+    fn json(&self, build_ms: u64, published: Option<&Result<bool, String>>) -> Value {
+        let mut j = json!({"mode": self.mode, "key": self.key, "ms": self.ms, "build_ms": build_ms});
+        if let Some(p) = published {
+            j["published"] = match p {
+                Ok(b) => json!(b),
+                Err(e) => json!(kernel_gate::record::cap(e, 512)),
+            };
+        }
+        if !self.note.is_empty() {
+            j["note"] = json!(kernel_gate::record::cap(&self.note, 1024));
+        }
+        j
+    }
+}
+
+/// G0's environment for this slot (gate.md §3.3).
+fn g0_env_spec(env: &Env, slot: &BuildSlot, epoch: i64) -> kernel_gate::g0::EnvSpec {
+    let out = slot.out();
+    kernel_gate::g0::EnvSpec {
+        toolchain_bin: env.cfg.sandbox.toolchain.join("bin"),
+        home: out.join("home"),
+        tmpdir: out.join("tmp"),
+        cargo_home: out.join("cargo-home"),
+        target_dir: slot.target(),
+        source_date_epoch: epoch.max(0) as u64,
+        init_home: env.home.clone(),
+        sdkroot: env.cfg.sandbox.sdkroot.clone(),
+        developer_dir: (!env.cfg.sandbox.devdir.as_os_str().is_empty() && env.cfg.sandbox.devdir.is_dir()).then(|| env.cfg.sandbox.devdir.clone()),
+    }
+}
+
+/// The compiling commands of G0 (gate.md §3.3), for the stub: `check`, `clippy`, the `ext` step and
+/// `test` with `--no-run` (the same units; the stub has no tests to run). `true` marks the
+/// extension workspace's commands.
+pub fn stub_g0_commands(has_ext: bool) -> Vec<(Vec<String>, bool)> {
+    let mut v = Vec::new();
+    for step in kernel_gate::g0::steps(has_ext) {
+        if let kernel_gate::g0::Action::Commands { cmds } = step.action {
+            for c in cmds {
+                if c.argv.get(1).is_some_and(|s| s == "metadata") {
+                    continue;
+                }
+                let ext = c.argv.iter().any(|a| a == "--manifest-path");
+                let mut argv = c.argv;
+                if argv.get(1).is_some_and(|s| s == "test") {
+                    argv.push("--no-run".into());
+                }
+                v.push((argv, ext));
+            }
+        }
+    }
+    v
+}
+
+/// One G0-style command through G0's spawner, output appended to `log`, killed (its own child
+/// handle) at `deadline`.
+fn run_g0_command(sp: &dyn kernel_gate::g0::Spawner, tool: &Path, argv: &[String], envv: &[(String, std::ffi::OsString)], cwd: &Path, log: &Path, deadline: Instant) -> Result<(), String> {
+    use std::io::Write;
+    let mut f = std::fs::OpenOptions::new().create(true).append(true).open(log).map_err(|e| format!("{}: {e}", log.display()))?;
+    let _ = writeln!(f, "$ {}", argv.join(" "));
+    let (o, e) = (f.try_clone().map_err(|e| e.to_string())?, f.try_clone().map_err(|e| e.to_string())?);
+    let req = kernel_gate::g0::SpawnRequest { program: tool.join(&argv[0]), args: argv[1..].to_vec(), env: envv.to_vec(), cwd: cwd.to_path_buf(), stdout: o.into(), stderr: e.into() };
+    let mut child = sp.spawn(req).map_err(|e| format!("spawn cargo {}: {e}", argv[1]))?;
+    loop {
+        match child.try_wait() {
+            Ok(Some(st)) if st.success() => return Ok(()),
+            Ok(Some(st)) => return Err(format!("cargo {} exited {st}", argv[1])),
+            Ok(None) => {}
+            Err(e) => return Err(format!("cargo {}: {e}", argv[1])),
+        }
+        if Instant::now() >= deadline {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(format!("cargo {}: no result before the cold build bound", argv[1]));
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
+
+/// The stub workspace's dependency build, in this slot (supervise.md §3.6.2 "Miss"): the export
+/// moves aside to `slot/cand` (outside the build profile's `SRC` and `OUT`), the stub is written to
+/// `slot/src`, built with the build command (build profile, cold bound) and G0's compiling commands
+/// ([`stub_g0_commands`], G0's spawner and environment), and its first-party artifacts are pruned
+/// from `slot/out/target`. Then the export moves back and `out/{tmp,home,cargo-home}` start empty.
+/// `Err` only when the export could not be restored; the inner result says whether the stub built
+/// (its `Ok` carries a note, e.g. a failed extension part, which leaves only the body warm).
+fn stub_build(env: &Env, slot: &BuildSlot, job: &str, epoch: i64) -> Result<Result<String, String>, String> {
+    let (src, cand) = (slot.src(), slot.dir().join("cand"));
+    crate::build::remove_exact(&cand).map_err(|e| format!("slot/cand: {e}"))?;
+    std::fs::rename(&src, &cand).map_err(|e| format!("move the export aside: {e}"))?;
+    let res = (|| -> Result<String, String> {
+        let names = crate::build::make_stub_workspace(&cand, &src).map_err(|e| format!("stub workspace: {e}"))?;
+        let _ = crate::build::pin_vendor_mtimes(&src);
+        let deadline = Instant::now() + slot.timeouts.cold;
+        let log = env.home.join("state/kernel/gate").join(job).join("deps-stub.log");
+        let b = slot.run_build(env.spawner.as_ref(), &slot.build_request(epoch, &env.cfg.sandbox), false, &log);
+        if !b.ok {
+            return Err(format!("{}: {}", b.reason.unwrap_or("build_failed"), b.message));
+        }
+        let envv = kernel_gate::g0::env(&g0_env_spec(env, slot, epoch));
+        let tool = env.cfg.sandbox.toolchain.join("bin");
+        let mut note = String::new();
+        for (argv, ext) in stub_g0_commands(src.join("ext/Cargo.toml").is_file()) {
+            match run_g0_command(env.g0.as_ref(), &tool, &argv, &envv, &src, &log, deadline) {
+                Ok(()) => {}
+                Err(e) if ext => note.push_str(&format!("ext stub: {e}; ")),
+                Err(e) => return Err(e),
+            }
+        }
+        crate::build::prune_first_party(&slot.target(), &names).map_err(|e| format!("prune: {e}"))?;
+        Ok(note)
+    })();
+    let restore = crate::build::remove_exact(&src).and_then(|()| std::fs::rename(&cand, &src));
+    for d in ["tmp", "home", "cargo-home"] {
+        let p = slot.out().join(d);
+        let _ = crate::build::remove_exact(&p);
+        let _ = std::fs::create_dir_all(&p);
+    }
+    restore.map_err(|e| format!("restore the export: {e}"))?;
+    Ok(res)
+}
+
+/// Prepare `slot/out/target` for the candidate (supervise.md §3.6.2 "Dependency cache"): pin the
+/// export's `vendor/` mtimes, then on a verified hit clone `cache/deps/<key>/target`; on a miss
+/// (or a corrupt entry, which is deleted) build the stub in the slot and stage its target as
+/// `<key>.tmp`. Anything that goes wrong leaves an empty target: a cold build. `Err` only when the
+/// export could not be restored.
+pub fn prepare_deps(env: &Env, slot: &BuildSlot, git: &Git, sha: &str, job: &str, epoch: i64) -> Result<DepsPrep, String> {
+    let t0 = Instant::now();
+    let cache = DepsCache::new(&env.home);
+    let mut note = String::new();
+    if let Err(e) = crate::build::pin_vendor_mtimes(&slot.src()) {
+        note.push_str(&format!("vendor mtimes: {e}; "));
+    }
+    let (vv, host) = rustc_vv(env);
+    let key = match crate::build::deps_key(git, sha, &vv, &host) {
+        Ok(k) => k,
+        Err(e) => return Ok(DepsPrep { key: None, mode: "cold", staged: None, ms: 0, note: format!("{note}no deps key: {e}") }),
+    };
+    let empty_target = || crate::build::remove_exact(&slot.target()).and_then(|()| std::fs::create_dir_all(slot.target()));
+    let prep = |mode, staged, note: String| DepsPrep { key: Some(key.clone()), mode, staged, ms: t0.elapsed().as_millis() as u64, note };
+    if cache.lookup(&key).is_some() {
+        if cache.verify(&key) {
+            match cache.clone_into(&key, &slot.target()) {
+                Ok(()) => return Ok(prep("hit", None, note)),
+                Err(e) => note.push_str(&format!("clone deps {key}: {e}; ")),
+            }
+        } else {
+            note.push_str(&format!("deps {key} failed verification and was deleted; "));
+            let _ = cache.remove(&key);
+        }
+        if let Err(e) = empty_target() {
+            note.push_str(&format!("empty target: {e}"));
+            return Ok(prep("cold", None, note));
+        }
+    }
+    match stub_build(env, slot, job, epoch)? {
+        Ok(n) => note.push_str(&n),
+        Err(e) => {
+            note.push_str(&format!("stub build: {e}"));
+            let _ = empty_target();
+            return Ok(prep("cold", None, note));
+        }
+    }
+    match cache.stage(&key, &slot.target()) {
+        Ok(d) => Ok(prep("stub", d, note)),
+        Err(e) => {
+            note.push_str(&format!("stage deps {key}: {e}"));
+            Ok(prep("stub", None, note))
+        }
+    }
+}
+
+/// Export `sha` into the slot, warm it from the deps cache ([`prepare_deps`]), build `init-body`
+/// (§3.6.2), then run G0 in the same slot (gate.md §3.3), then copy the artifacts into `out_dir`
+/// (`bin/`, `ext/`). A staged deps entry is published only when G0 passed, and discarded otherwise.
 /// `advisory`: ADR-011 A1 on the free path, clippy and the body's tests do not fail G0; their
 /// failures are in the record's `advisory` list and steps (A3 reads the `test` step).
 pub fn build_and_g0(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Path, advisory: bool) -> Result<Built, StageFail> {
@@ -142,45 +330,38 @@ pub fn build_and_g0(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Pat
     let fail = |code: &str, d: String| StageFail::new(Stage::Build, code, d);
     slot.reset().map_err(|e| fail("gate.build.failed", format!("slot reset: {e}")))?;
     slot.export(&git, sha).map_err(|e| fail("gate.build.failed", format!("export: {e}")))?;
-    let (vv, host) = rustc_vv(env);
+    // A fixed SOURCE_DATE_EPOCH, not the commit's time (build::SLOT_EPOCH_S): cc's build scripts
+    // track it, so a per-commit value would rebuild wasmtime on every promote.
+    let epoch = crate::build::SLOT_EPOCH_S;
+    let deps = prepare_deps(env, &slot, &git, sha, job, epoch).map_err(|e| fail("gate.build.failed", e))?;
+    let warm = deps.mode != "cold";
     let cache = DepsCache::new(&env.home);
-    let warm = match crate::build::deps_key(&git, sha, &vv, &host) {
-        Ok(k) if cache.lookup(&k).is_some() => cache.clone_into(&k, &slot.target()).is_ok(),
-        _ => false,
+    let discard = || {
+        if let (Some(k), Some(_)) = (&deps.key, &deps.staged) {
+            let _ = cache.discard(k);
+        }
     };
-    let commit_time = git.commit_time(sha).unwrap_or(0);
-    let req = slot.build_request(commit_time, &env.cfg.sandbox);
+    let req = slot.build_request(epoch, &env.cfg.sandbox);
     let log = env.home.join("state/kernel/gate").join(job).join("build.log");
     let b = slot.run_build(env.spawner.as_ref(), &req, warm, &log);
     if !b.ok {
+        discard();
         let code = if b.timed_out { "gate.build.timeout" } else { "gate.build.failed" };
         let tail = std::fs::read_to_string(&log).map(|t| kernel_gate::record::cap(&t[t.len().saturating_sub(4096)..], 4096)).unwrap_or_default();
         let mut f = fail(code, format!("{}\n{tail}", b.message));
-        f.record = json!({"pass": false, "warm": warm, "wall_ms": b.wall_ms, "reason": f.reason().to_string()});
+        f.record = json!({"pass": false, "warm": warm, "wall_ms": b.wall_ms, "reason": f.reason().to_string(), "deps": deps.json(b.wall_ms, None)});
         return Err(f);
     }
     let build_ms = t0.elapsed().as_millis() as u64;
     // G0.
-    let tool = env.cfg.sandbox.toolchain.join("bin");
-    let out = slot.out();
-    let spec_env = kernel_gate::g0::EnvSpec {
-        toolchain_bin: tool,
-        home: out.join("home"),
-        tmpdir: out.join("tmp"),
-        cargo_home: out.join("cargo-home"),
-        target_dir: slot.target(),
-        source_date_epoch: commit_time.max(0) as u64,
-        init_home: env.home.clone(),
-        sdkroot: env.cfg.sandbox.sdkroot.clone(),
-        developer_dir: (!env.cfg.sandbox.devdir.as_os_str().is_empty() && env.cfg.sandbox.devdir.is_dir()).then(|| env.cfg.sandbox.devdir.clone()),
-    };
+    let spec_env = g0_env_spec(env, &slot, epoch);
     let mut spec = kernel_gate::g0::G0Spec::new(slot.src(), spec_env, job_vault(env, job).join("g0"));
     spec.total_timeout = Duration::from_secs(env.gate.g0_timeout_s);
     spec.advisory = advisory;
     spec.parent_cargo_toml = git.path_id(parent, "Cargo.toml").ok().flatten().and_then(|o| git.read_blob(&o).ok()).map(|b| String::from_utf8_lossy(&b).into_owned());
     let rep = kernel_gate::g0::run(&spec, env.g0.as_ref());
     let mut record = json!({
-        "pass": rep.pass, "wall_ms": rep.wall_ms, "build_ms": build_ms, "cold_target": !warm,
+        "pass": rep.pass, "wall_ms": rep.wall_ms, "build_ms": build_ms, "cold_target": deps.mode != "hit",
         "steps": rep.steps.iter().map(|s| {
             let mut j = json!({"name": s.name, "exit": s.exit, "wall_ms": s.wall_ms});
             if s.advisory {
@@ -198,12 +379,27 @@ pub fn build_and_g0(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Pat
             "diagnostics": kernel_gate::record::cap(&a.diagnostics, 1024)})).collect::<Vec<_>>());
     }
     if !rep.pass {
+        discard();
+        record["deps"] = deps.json(b.wall_ms, None);
         let code = rep.code.unwrap_or("gate.g0.check");
         let mut f = StageFail::new(Stage::G0, code, format!("G0 step `{}` failed:\n{}", rep.step.unwrap_or("?"), rep.diagnostics));
         f.record = record;
         f.record["reason"] = json!(f.reason());
         return Err(f);
     }
+    // G0 passed: publish the staged deps entry (taken before any candidate code ran) and keep the
+    // `deps_cache_keys` most recently used keys.
+    let published = match (&deps.key, &deps.staged) {
+        (Some(k), Some(d)) => {
+            let p = cache.publish(k, d).map_err(|e| e.to_string());
+            if p.is_ok() {
+                let _ = cache.evict_lru(env.cfg.supervise.deps_cache_keys.max(1) as usize);
+            }
+            Some(p)
+        }
+        _ => None,
+    };
+    record["deps"] = deps.json(b.wall_ms, published.as_ref());
     // Copy the artifacts (APFS clones) before the slot is reused.
     let bin = out_dir.join("bin/init-body");
     let ext = out_dir.join("ext");
@@ -373,6 +569,16 @@ fn arm_requests(env: &Env, scope: &Value, sid: &str) -> Vec<Vec<Vec<u8>>> {
 /// criteria. Arm p failing is infra: one retry after `g2_parent_retry_s`.
 #[allow(clippy::too_many_arguments)]
 pub fn g2(env: &Env, job: &str, gate_job: &str, cand: &Candidate, parent: &Candidate, g1: &G1Out, prefix_change: bool) -> G2Outcome {
+    g2_inner(env, job, gate_job, cand, parent, g1, prefix_change, prefix_change)
+}
+
+/// [`g2`] with the continuity waiver separate from `prefix_change`. G3's inner gate needs both: its
+/// own commit is `Prefix-change: no` (the inner prefix must equal the candidate's), but its
+/// continuity reference is the live body, which the candidate replaces; when the candidate itself
+/// declared `Prefix-change: yes` (waived in the outer G2), that reference differs by design (REL-G0:
+/// every prefix-changing T2 candidate failed `gate.g3.inner_g2` continuity at element 0).
+#[allow(clippy::too_many_arguments)]
+fn g2_inner(env: &Env, job: &str, gate_job: &str, cand: &Candidate, parent: &Candidate, g1: &G1Out, prefix_change: bool, waive_continuity: bool) -> G2Outcome {
     let mut attempt = 0;
     loop {
         let live = live_session(env);
@@ -386,6 +592,7 @@ pub fn g2(env: &Env, job: &str, gate_job: &str, cand: &Candidate, parent: &Candi
             (hc.join().unwrap_or_default(), hp.join().unwrap_or_default())
         });
         let continuity = match &live {
+            _ if waive_continuity => Some(Continuity::Waived),
             None => Some(Continuity::NotApplicable),
             Some((_, sid)) => {
                 let rp = env.proxy.scope_summary("live")["last_req_by_session"][sid.as_str()].as_str().and_then(|id| env.proxy.request(id)).map(|r| r.elements);
@@ -481,7 +688,9 @@ fn wait_agent(h: &crate::probe::ProbeHandle, base_requests: u64, quiet: Duration
 /// fetched (sandboxed) into `refs/init/g3/<job>`, verified with `$G`, validated, and gated once
 /// more (G0, G1, G2 with the candidate as parent; no recursion).
 #[allow(clippy::too_many_arguments)]
-pub fn g3(env: &Env, job: &str, cand: &Candidate, cand_built: &Built) -> Result<G3Out, StageFail> {
+/// `cand_prefix_change`: the candidate's own `Prefix-change: yes` (a promote's G3); false for A3,
+/// where the candidate is already the live body.
+pub fn g3(env: &Env, job: &str, cand: &Candidate, cand_built: &Built, cand_prefix_change: bool) -> Result<G3Out, StageFail> {
     let t0 = Instant::now();
     let n = kernel_gate::g3::nonce(job);
     let fail = |reason: &str, d: String| StageFail::new(Stage::G3, format!("gate.g3.{reason}"), d);
@@ -526,7 +735,7 @@ pub fn g3(env: &Env, job: &str, cand: &Candidate, cand_built: &Built) -> Result<
         let g1o = g1(env, &inner_job, &BuildSlot::new(&env.home).src(), &built, &v, &cand.sha).map_err(|f| fail("inner_g1", format!("{}: {}", f.code, f.detail)))?;
         let inner_c = Candidate { sha: c3.clone(), binary: built.binary.clone(), ext_set_dir: None };
         let inner_p = Candidate { sha: cand.sha.clone(), binary: cand_built.binary.clone(), ext_set_dir: None };
-        let o = g2(env, &inner_job, job, &inner_c, &inner_p, &g1o, false);
+        let o = g2_inner(env, &inner_job, job, &inner_c, &inner_p, &g1o, false, cand_prefix_change);
         if !o.pass {
             return Err(fail("inner_g2", format!("{}: {}", o.code().unwrap_or(""), o.detail())));
         }
@@ -612,7 +821,7 @@ pub fn a3(env: &Env, job: &str, scope: &str, sha: &str, binary: &Path, g0: &Valu
         }
         let _ = env.proxy.open_gate(job, "a3", env.gate.gate_musd);
         let cand = Candidate { sha: sha.into(), binary: built.binary.clone(), ext_set_dir: None };
-        let r = g3(env, job, &cand, &built).map(|o| o.record);
+        let r = g3(env, job, &cand, &built, false).map(|o| o.record);
         env.proxy.close_gate(job);
         let _ = env.git().run(&["update-ref", "-d", &format!("refs/init/g3/{job}")], None, Duration::from_secs(30));
         if dir.starts_with(env.home.join("cache/gate")) && dir != env.home.join("cache/gate") {
@@ -677,15 +886,15 @@ mod x0c_tests {
         let gate = GateCfg::default();
         let sup = crate::config::defaults().supervise;
         let b = gate.g3_bounds(&sup);
-        assert_eq!((gate.g3_agent_timeout_s, gate.g3_inner_timeout_s, sup.build_timeout_cold_s, sup.build_timeout_warm_s), (300, 300, 900, 300));
-        assert_eq!(b.agent, Duration::from_secs(300 + 900));
+        assert_eq!((gate.g3_agent_timeout_s, gate.g3_inner_timeout_s, sup.build_timeout_cold_s, sup.build_timeout_warm_s), (300, 300, 3600, 1800));
+        assert_eq!(b.agent, Duration::from_secs(300 + 3600));
         // The agent part.
         assert_eq!(run(Duration::from_secs(gate.g3_agent_timeout_s)), (Wait::TimedOut, 300), "the old bound: the M7 failure");
         assert_eq!(run(b.agent), (Wait::Done, 316));
         // The agent never stops: still timed out, at the derived bound.
         let mut w = AgentWait::new(Duration::ZERO, b.agent, Duration::from_secs(5), 0);
-        assert_eq!(w.step(Duration::from_secs(1199), &summary(1, 0, "tool_use")), Wait::Pending);
-        assert_eq!(w.step(Duration::from_secs(1200), &summary(1, 0, "tool_use")), Wait::TimedOut);
+        assert_eq!(w.step(Duration::from_secs(3899), &summary(1, 0, "tool_use")), Wait::Pending);
+        assert_eq!(w.step(Duration::from_secs(3900), &summary(1, 0, "tool_use")), Wait::TimedOut);
         // The inner gate: a 280 s cold build, then G0 60 s, G1 10 s, G2 40 s = 390 s in all.
         let mut clock = FakeClock(Duration::ZERO);
         let start = clock.0;

@@ -508,7 +508,12 @@ fn read_loop(root: Arc<Root>, k: Arc<Kctl>, s: UnixStream) {
                     k.busy.store(v["data"]["busy"] == true, SeqCst); // SBX-009: `/undo` waits for an idle body
                     crate::sentinel::hb(&root, v["data"]["busy"] == true); // X3: H2's idle rule
                 }
-                "owner.out" if matches!(v["data"]["frame"]["t"].as_str(), Some("display" | "echo" | "notice" | "state")) => root.emit(&v["data"]["frame"]),
+                "owner.out" if matches!(v["data"]["frame"]["t"].as_str(), Some("display" | "echo" | "notice" | "state")) => {
+                    if v["data"]["frame"]["t"] == "echo" {
+                        crate::sentinel::echoed(&root, &v["data"]["frame"]); // MERGE: a retract names its steer by seq
+                    }
+                    root.emit(&v["data"]["frame"]);
+                }
                 _ => {}
             }
         } else if kupgrade::answer(&root, &id, &v) {
@@ -547,9 +552,9 @@ struct Run {
     cfg_checked: Instant,
 }
 
-/// How long the install-mode kernel may run: the kernel bounds its cold seed build at 900 s
+/// How long the install-mode kernel may run: the kernel bounds its cold seed build at 3600 s
 /// (kernel/supervise.md §4.9 `build_timeout_cold_s`); git imports, the store and the records come on top.
-pub const INSTALL_TIMEOUT_S: u64 = 1800;
+pub const INSTALL_TIMEOUT_S: u64 = 4500;
 
 /// §4.3 step 8: runs `init-kernel install --from-bundle <bundle> --seed-tag <tag>` in the zone (profile
 /// `kernel`, reason `install`) and serves its control link until it exits. The kernel imports the seed into
@@ -600,7 +605,7 @@ pub fn install_seed(root: &Arc<Root>, bundle: &std::path::Path, tag: &str, timeo
             }
             Ok(Ev::Exit { inst, code }) if inst == k.inst => break code,
             Ok(Ev::Lost(i)) if i == k.inst => {
-                root.zone.kill(&i, libc::SIGKILL);
+                root.zone.kill_lost(&i);
             }
             Ok(_) | Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
             Err(_) => break None,
@@ -869,7 +874,7 @@ impl Run {
                 crate::access::to_kernel(&root, false); // SBX-009: the access state, `restart: null`
             }
             Ev::Lost(inst) => {
-                root.zone.kill(&inst, libc::SIGKILL); // a kernel without its link is dead to the Root
+                root.zone.kill_lost(&inst); // a kernel without its link is dead to the Root
             }
             Ev::Exit { inst, code } => {
                 let Some(k) = self.current().filter(|k| k.inst == inst) else { return };

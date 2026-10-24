@@ -190,8 +190,9 @@ fn refused_arguments() {
         ("NUL", with("BODY", &format!("{}\0x", s(i.join("body")))), "V2"),
         ("symlinked value", with("WORK", &s(i.join("work/linked"))), "V2"),
         ("LINK_* with a non-canonical parent", with("LINK_BIN", &s(i.join("work/linked/x"))), "V2"),
-        ("outside V3 roots", with("BODY", "/private/etc"), "V3"),
-        ("/etc is a symlink", with("BODY", "/etc"), "V2"),
+        // a canonical directory outside every V3 root (macOS: /etc is a symlink to /private/etc)
+        ("outside V3 roots", with("BODY", if cfg!(target_os = "macos") { "/private/etc" } else { "/etc" }), "V3"),
+        ("/etc is a symlink", with("BODY", "/etc"), if cfg!(target_os = "macos") { "V2" } else { "V3" }),
         ("BODY at vault/", with("BODY", &s(i.join("vault"))), "class"),
         ("another lane's socket", with("KERNEL_SOCK", &s(i.join("probe/p1/run/kernel.sock"))), "class"),
         ("PUB elsewhere", with("PUB", &s(i.join("lineage"))), "class"),

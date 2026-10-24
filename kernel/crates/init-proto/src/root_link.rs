@@ -693,7 +693,14 @@ pub struct PrepareSwapArgs {
 #[serde(tag = "t", rename_all = "snake_case")]
 pub enum OwnerInFrame {
     Line { text: String },
-    Interrupt,
+    /// `then: "continue"` (STEER): interrupt and steer: the body aborts as for a plain interrupt,
+    /// then continues the run with the queued steer instead of going idle. Absent: a plain stop.
+    Interrupt {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        then: Option<String>,
+    },
+    /// STEER: take back owner input `seq` (the kernel echo's) if the body has not consumed it.
+    Retract { seq: u64 },
 }
 
 /// `owner.in`: append durably to the inbox (dedup by `qid`), then answer `ok`.
@@ -932,8 +939,21 @@ pub enum OwnerOutFrame {
         /// Proxy-attributed gate/probe costs today; not all free-evolution reasoning.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         evolution_checks_today_musd: Option<u64>,
+        /// STEER: the seqs of owner inputs the body has not acked yet (steers and follow-ups,
+        /// ascending, at most [`STEER_LIST_MAX`]). Absent from an older kernel.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        steer_pending: Option<Vec<u64>>,
+        /// STEER: the most recently acked input seqs (durably in the body's log), oldest first.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        steer_seen: Option<Vec<u64>>,
+        /// STEER: the most recently retracted input seqs (never logged), oldest first.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        steer_retracted: Option<Vec<u64>>,
     },
 }
+
+/// The longest `steer_pending` / `steer_seen` / `steer_retracted` list in a `state` frame.
+pub const STEER_LIST_MAX: usize = 32;
 
 /// `owner.out`.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -1110,15 +1130,29 @@ mod tests {
             slot: "running".into(),
             task_musd: None,
             evolution_checks_today_musd: None,
+            steer_pending: Some(vec![4]),
+            steer_seen: Some(vec![2, 3]),
+            steer_retracted: None,
         };
         let v = icj::to_value(&f).unwrap();
+        assert_eq!((v["steer_pending"].clone(), v["steer_seen"].clone()), (json!([4]), json!([2, 3])));
+        assert!(v.get("steer_retracted").is_none());
         assert_eq!(v["model"], "deepseek-flash");
         assert!(v.get("evolution_checks_today_musd").is_none());
         assert!(v.as_object().unwrap().contains_key("task_musd") && v["task_musd"].is_null());
         assert_eq!(serde_json::from_value::<OwnerOutFrame>(v).unwrap(), f);
         // A state frame without them (an older kernel) still decodes.
         let old = json!({"busy": true, "level": 0, "members": 0, "mode": "normal", "queued": 1, "sha12": "x", "slot": "running", "t": "state"});
-        assert!(matches!(serde_json::from_value::<OwnerOutFrame>(old).unwrap(), OwnerOutFrame::State { model: None, task_musd: None, .. }));
+        assert!(matches!(serde_json::from_value::<OwnerOutFrame>(old).unwrap(), OwnerOutFrame::State { model: None, task_musd: None, steer_pending: None, .. }));
+    }
+
+    #[test]
+    fn owner_in_interrupt_and_retract_frames() {
+        let f = |v: Value| serde_json::from_value::<OwnerInFrame>(v).unwrap();
+        assert_eq!(f(json!({"t": "interrupt"})), OwnerInFrame::Interrupt { then: None });
+        assert_eq!(f(json!({"t": "interrupt", "then": "continue"})), OwnerInFrame::Interrupt { then: Some("continue".into()) });
+        assert_eq!(f(json!({"seq": 9, "t": "retract"})), OwnerInFrame::Retract { seq: 9 });
+        assert_eq!(icj::to_value(&OwnerInFrame::Interrupt { then: None }).unwrap(), json!({"t": "interrupt"}));
     }
 
     #[test]

@@ -245,7 +245,9 @@ fn spawn_args(i: &str) -> Value {
 
 /// Step 10: store.put, lineage.append (twice, same idem), store.get, tuple.get.
 fn promote(fk: &Fk) {
-    let pid = std::process::id();
+    // a per-run tag: the pid alone repeats on Linux, where every zone kernel is pid 2 of its own pid namespace
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let pid = format!("{}-{nanos}", std::process::id());
     let path = format!("{}/bin/init-body", fk.home);
     let bytes = format!("fake body {pid}\n").into_bytes();
     let file = fs::create_dir_all(format!("{}/bin", fk.home))

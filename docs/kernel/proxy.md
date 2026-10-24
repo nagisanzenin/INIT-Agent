@@ -268,7 +268,8 @@ Malformed values are treated as absent; they never fail the request.
 - `user-agent: init-kernel/<version>`. It carries nothing about the owner. The Root may replace it;
 - `accept-encoding: identity`, so the response stream can be parsed without decompression;
 - the guard report `x-egress-guard` (§3.8, D6);
-- the attribution headers of root/egress.md §4.1: `x-egress-scope: live|gate|member`, `x-egress-body: <body instance id>` (the body's Root instance id, root/egress.md §4.1, not its boot id; for gate scopes the probe id) and `x-egress-reservation: <req_id>` (§3.13), so that the Root's lineage and metering records can be joined with kernel traces. The Root uses them only for labels, never for a ceiling decision.
+- the attribution headers of root/egress.md §4.1: `x-egress-scope: live|gate|member`, `x-egress-body: <body instance id>` (the body's Root instance id, root/egress.md §4.1, not its boot id; for gate scopes the probe id) and `x-egress-reservation: <req_id>` (§3.13), so that the Root's lineage and metering records can be joined with kernel traces. The Root uses them only for labels, never for a ceiling decision;
+- the sub-task label `x-egress-subtask` (v0.3.0, body/tools.md §3.7): a copy of the body's `x-init-subtask`, forwarded verbatim only when it matches the grammar above (≤ 64 bytes); a malformed or absent label forwards nothing. The Root's sentinel counts these requests apart from the main loop (ADR-011 §3.1 `sub_requests`, so H10 and H5b are not raised by `delegate`) and never sends the header to the provider. X5's `x-egress-caps` (a copy of `x-init-caps` up to 1 KiB, ADR-011 §5.2) travels the same way.
 
 Account headers (`OpenAI-Organization`, `OpenAI-Project`) belong with the key and are set by the Root (root/egress.md). They are no longer kernel config.
 

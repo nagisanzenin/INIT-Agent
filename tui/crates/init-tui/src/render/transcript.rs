@@ -31,9 +31,14 @@ fn rows_of(t: &Transcript, abs: usize, width: usize, verbose: bool, now: Instant
         }
         return rows;
     }
+    if let Kind::TurnEnd(text) = &b.kind {
+        let mut l = Line::from_span("· ", Style::dim());
+        l.extend(super::sanitize::inline(text, Style::dim()));
+        return vec![l.truncate(width.saturating_sub(2))];
+    }
     let o = RowOpts { verbose, expanded: b.expanded, spin: 0, first: true };
     let mut rows = block_rows(&b.kind, width.saturating_sub(2), now, &o);
-    if b.expanded && b.at_ms > 0 && !matches!(b.kind, Kind::Tool(_)) {
+    if b.expanded && b.at_ms > 0 && !matches!(b.kind, Kind::Activity(_)) {
         rows.push(Line::from_span(format!("    at {}", crate::time::utc_hms(b.at_ms)), Style::dim()));
     }
     rows
@@ -42,7 +47,7 @@ fn rows_of(t: &Transcript, abs: usize, width: usize, verbose: bool, now: Instant
 /// Renders the view; adjusts `vs.top` so the selection is visible.
 pub fn render(t: &Transcript, vs: &mut ViewState, width: usize, height: usize, verbose: bool, now: Instant) -> Vec<Line> {
     let mut out = vec![
-        Line::from_span(" transcript · j/k move · Enter toggle · e expand all · c collapse all · g/G top/bottom · q back", Style::PLAIN.with_reverse()).pad(width, Style::PLAIN.with_reverse()).truncate(width),
+        Line::from_span(" transcript · j/k move · Enter toggle details · e expand all · c collapse all · g/G top/bottom · q back", Style::PLAIN.with_reverse()).pad(width, Style::PLAIN.with_reverse()).truncate(width),
     ];
     let body = height.saturating_sub(1);
     if t.is_empty() {

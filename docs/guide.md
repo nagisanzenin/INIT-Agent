@@ -6,10 +6,10 @@ Install, daily use, spending, the safety model and the detailed status of v0.2. 
 
 ### Requirements
 
-- macOS 14 or newer on Apple silicon (tested on an M2), with the Command Line Tools (`xcode-select --install`), which provide `git` and `/usr/bin/python3`. Linux is not supported yet (the sandbox is in progress), and Windows is unsupported.
+- macOS 14 or newer on Apple silicon (tested on an M2), with the Command Line Tools (`xcode-select --install`), which provide `git` and `/usr/bin/python3`. Linux (next release): Debian 12 or Ubuntu 24.04 class, aarch64 verified (x86_64 compiled, not run), glibc ≥ 2.36, bubblewrap ≥ 0.13.0 at `/usr/bin/bwrap`, unprivileged user namespaces, python3 and git; the agent works in its own home only (no workspace mode yet). See docs/platforms.md §3.4.0. Windows is unsupported.
 - An API key. DeepSeek is the only provider used against a live API. OpenAI-compatible gateways, Anthropic Messages, OpenAI Responses and local servers are offered as **experimental** (offline tests only).
 - Disk: about 0.5 GB for the install, plus the free-space floor you choose (default 20 GB).
-- Optional: the Rust toolchain ([rustup](https://rustup.rs), 1.97 plus `rustup target add wasm32-wasip2`). Without it INIT runs and can change its own skills and prompts (tier T0). With it, INIT can also build new Wasm tools (T1) and rewrite its compiled core (T2): install Rust, then run `init-root toolchain --set`.
+- The Rust toolchain INIT rebuilds itself with (1.97.1 plus the `wasm32-wasip2` target). `get.sh` installs it for you through rustup, leaving your shell files and your default toolchain alone. Self-rewrite is the point of INIT; `get.sh --no-rust` skips it, and INIT then changes only its skills and prompts (tier T0).
 
 ### Install
 
@@ -18,7 +18,7 @@ curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/g
 init
 ```
 
-`get.sh` downloads the prebuilt bundle, checks its SHA-256 and installs it with default answers (no Rust, no sudo, no key). The first `init` opens a short setup: choose a provider, paste your key (shown only as `•`; it goes to the Root, never to the agent or a log), and pick a model. Later, `/model`, `/key` and `/setup` change them. `get.sh --from <bundle.tar.gz>` installs a downloaded bundle.
+`get.sh` downloads the prebuilt bundle, checks its SHA-256, makes sure the Rust toolchain is present, and installs with default answers (no sudo, no key). The first `init` opens a short setup: choose a provider, paste your key (shown only as `•`; it goes to the Root, never to the agent or a log), and pick a model. Later, `/model`, `/key` and `/setup` change them. `get.sh --from <bundle.tar.gz>` installs a downloaded bundle.
 
 To build from source instead (about 15 minutes on an M2, Rust required): `scripts/install.sh`, then `init`.
 
@@ -94,7 +94,7 @@ It stops INIT through `init-root stop`, unloads the LaunchAgent, then, after you
 **What is not shown:**
 - **There is no evidence yet that self-evolution improves results.** The one real self-change was not kept, and its sealed result (−5 points) was inside the measurement noise, so it shows neither help nor harm. The ADR-011 evolution test on deepseek-flash found no task where INIT failed but a missing mechanism was to blame (where INIT failed, Claude Code on the same model failed too), so its evolution phases never ran. See the [verdict](../reports/INIT%20proof%20sprint%20verdict.md) (in Vietnamese; erratum and evolution test at the end), the [technical report](../reports/INIT%20technical%20report.md) and the [evolution test protocol](../measurements/evo-test-protocol.md) §10–§11.
 - **Real-model coverage of this release is one smoke turn on DeepSeek.** Everything else since the spending and provider changes is checked at $0.
-- **Linux is not supported yet.** The Linux sandbox groundwork passed some isolation tests on cloud CPUs, but the native build test failed and its fix is not yet qualified; there is no Linux memory limit (cgroups) yet. **Windows is unsupported.**
+- **Linux is verified for the next release.** Verified natively, in Docker, on Debian 12 and Ubuntu 24.04 (aarch64, Linux 6.10). Covered: the zone with a real compiler run (the cc1 fix), the memory watchdog plus a cgroup v2 `memory.max` per workload, the bundle installed with no Rust and run end to end on the mock, and the systemd user service. Not verified: x86_64, real hardware, Ubuntu's AppArmor user-namespace restriction, WSL2. Workspace mode is not available on Linux yet (docs/platforms.md §3.4.0). **Windows is unsupported.**
 
 **Providers:**
 - **DeepSeek** (`deepseek-flash`, `deepseek-v4-pro`) is the only provider used live and the only one the installer offers.

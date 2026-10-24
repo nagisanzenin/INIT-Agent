@@ -6,7 +6,7 @@ use crate::access::{self, Out};
 use crate::conn::{self, Ev, PollCmd};
 use crate::input::Editor;
 use crate::keys::{self, Action, View};
-use crate::model::{Conn, EchoOut, Echoes, Feed, FeedOut, Info, Kind, OwnerSt, Transcript};
+use crate::model::{self, Conn, EchoOut, Echoes, Feed, FeedOut, Info, Kind, OwnerSt, Transcript, Tray, TrayOut};
 use crate::notice::{self, Class};
 use crate::proto::{self, Frame, LineKind};
 use crate::render::live::{self, Ui};
@@ -86,6 +86,10 @@ pub struct App {
     pub feed: Feed,
     pub echoes: Echoes,
     pub t: Transcript,
+    /// STEER: lines typed while the agent works, until the body reads them (§3.7.1).
+    pub tray: Tray,
+    /// STEER: the last Esc that interrupted and steered (a second Esc within 1 s just stops).
+    esc_steer_at: Option<Instant>,
     pub ed: Editor,
     pub info: Info,
     pub verbose: bool,
@@ -134,6 +138,8 @@ impl App {
             feed: Feed::new(),
             echoes: Echoes::default(),
             t: Transcript::default(),
+            tray: Tray::default(),
+            esc_steer_at: None,
             ed: Editor::default(),
             info,
             verbose,
@@ -366,13 +372,22 @@ impl App {
                     let turn_end = d.kind == proto::DisplayKind::TurnEnd;
                     self.t.display(&d, now, now_ms);
                     if turn_end {
+                        self.info.on_tokens(&d.text);
                         let _ = self.poll.send(PollCmd::Egress);
                     }
                 }
                 Frame::Echo { text, qid, seq } => {
                     let r = self.echoes.on_echo(&text, qid.as_deref(), seq, now);
                     let new_session = text.trim() == "/new";
+                    if seq.is_some() && proto::line_kind(&text, false) == LineKind::Input {
+                        self.info.on_owner_delivered();
+                    }
                     match r {
+                        EchoOut::Update(id, st) if self.tray.has(id) => {
+                            if let Some(o) = self.tray.on_echo(id, st, seq) {
+                                self.tray_out(o);
+                            }
+                        }
                         EchoOut::Update(id, st) => {
                             self.t.set_owner(id, st);
                             if new_session && st == OwnerSt::Delivered {
@@ -393,7 +408,21 @@ impl App {
                     if notice::is_queue_full(&text, src)
                         && let Some(id) = self.echoes.queue_full()
                     {
-                        self.t.set_owner(id, OwnerSt::NotQueued);
+                        match self.tray.remove(id) {
+                            Some(it) => {
+                                self.t.push(Kind::Owner { id, text: it.text, st: OwnerSt::NotQueued }, now_ms);
+                            }
+                            None => self.t.set_owner(id, OwnerSt::NotQueued),
+                        }
+                    }
+                    // STEER: the kernel's answer to a retract is a hint, not a transcript line
+                    if src != Some("root")
+                        && let Some((taken, seq)) = model::retract_notice(&text)
+                    {
+                        if !taken && self.tray.retract_refused(seq) {
+                            self.set_hint("not taken back: the agent already read it", 4);
+                        }
+                        return;
                     }
                     self.t.notice(&level, &text, src, code.as_deref(), now_ms);
                     if src != Some("kernel") && (text.starts_with("[root]") || text.starts_with("PANIC")) {
@@ -407,10 +436,77 @@ impl App {
                     }
                 }
                 Frame::State(s) => {
+                    let was = self.info.busy();
+                    let outs = self.tray.on_state(&s);
                     self.info.on_state(s, now);
+                    for o in outs {
+                        self.tray_out(o);
+                    }
+                    if was && !self.info.busy() {
+                        self.t.end_activity(now); // the run ended: the activity freezes to its summary
+                        for o in self.tray.flush_untracked() {
+                            self.tray_out(o);
+                        }
+                    }
                 }
                 Frame::ReplayEnd { .. } | Frame::Answer(_) | Frame::Unknown => {}
             },
+        }
+    }
+
+    /// STEER: a line leaves the tray: read (into the transcript, marked seen), delivered (an older
+    /// kernel), or taken back (its text returns to the box when the box is empty).
+    fn tray_out(&mut self, o: TrayOut) {
+        let now_ms = Self::now_ms();
+        match o {
+            TrayOut::Seen(it) => {
+                let st = if it.follow_up { OwnerSt::Delivered } else { OwnerSt::Seen };
+                self.t.push(Kind::Owner { id: it.id, text: it.text, st }, now_ms);
+            }
+            TrayOut::Delivered(it) => {
+                self.t.push(Kind::Owner { id: it.id, text: it.text, st: OwnerSt::Delivered }, now_ms);
+            }
+            TrayOut::Retracted(it) => {
+                if self.ed.is_empty() {
+                    self.ed.set(&it.text);
+                    self.set_hint("taken back: it was not read · edit it, Enter sends it again", 4);
+                } else {
+                    self.ed.push_history(&it.text);
+                    self.set_hint("taken back: it was not read (Up recalls it)", 4);
+                }
+            }
+        }
+        self.dirty = true;
+    }
+
+    /// Esc while busy: with a steer still pending, interrupt *and* steer (the body aborts, then
+    /// continues the run with the steer); a second Esc within 1 s, or nothing pending: just stop.
+    fn esc(&mut self) {
+        let now = Instant::now();
+        let again = self.esc_steer_at.is_some_and(|t| now.duration_since(t) <= Duration::from_secs(1));
+        if self.tray.has_pending_steer() && !again {
+            self.esc_steer_at = Some(now);
+            self.send_frame(&proto::interrupt_steer());
+            self.set_hint("interrupting · your note goes in now (Esc again: just stop)", 3);
+        } else {
+            self.esc_steer_at = None;
+            self.send_frame(&proto::interrupt());
+            self.set_hint("interrupt sent", 2);
+        }
+    }
+
+    /// Up on an empty box with lines waiting: take back the newest one the body has not read.
+    fn retract(&mut self) {
+        match self.tray.retract_newest() {
+            Ok(seq) => {
+                if self.send_frame(&proto::retract(seq)) {
+                    self.set_hint("taking back the newest line…", 3);
+                } else {
+                    self.tray.retract_refused(seq);
+                    self.set_hint("the connection dropped: nothing was taken back", 4);
+                }
+            }
+            Err(why) => self.set_hint(why, 4),
         }
     }
 
@@ -477,10 +573,8 @@ impl App {
             Action::Newline => self.ed.newline(),
             Action::Submit => self.submit(),
             Action::Interrupt => self.ctrl_c(),
-            Action::EscInterrupt => {
-                self.send_frame(&proto::interrupt());
-                self.set_hint("interrupt sent", 2);
-            }
+            Action::EscInterrupt => self.esc(),
+            Action::QueueLater => self.submit_later(),
             Action::ClosePopup => self.ed.popup_dismissed = true,
             Action::Detach => self.quit(),
             Action::Backspace => self.ed.backspace(),
@@ -497,6 +591,8 @@ impl App {
             Action::Up => {
                 if self.ed.popup_open() {
                     self.ed.popup_move(false)
+                } else if self.ed.is_empty() && !self.tray.is_empty() {
+                    self.retract()
                 } else {
                     self.ed.up()
                 }
@@ -622,6 +718,12 @@ impl App {
             self.info_block(crate::render::status::usage_summary(&self.info));
             return;
         }
+        if text.trim() == "/details" {
+            self.ed.push_history(&text);
+            self.ed.clear();
+            self.details();
+            return;
+        }
         let kind = proto::line_kind(&text, self.info.rootish());
         let now = Instant::now();
         if kind != LineKind::Panic && self.acc.holds_lines() {
@@ -680,12 +782,45 @@ impl App {
             return;
         }
         let (id, st) = self.echoes.sent(&text, kind, now);
-        self.t.push(Kind::Owner { id, text: text.clone(), st }, Self::now_ms());
+        if kind == LineKind::Input && self.info.busy() {
+            // STEER: a line typed while the agent works waits in the tray until the body reads it
+            match text.trim().strip_prefix("/later ") {
+                Some(rest) => self.tray.add(id, rest, true, now),
+                None => self.tray.add(id, &text, false, now),
+            }
+        } else {
+            self.t.push(Kind::Owner { id, text: text.clone(), st }, Self::now_ms());
+        }
         self.ed.push_history(&text);
         self.ed.clear();
         if kind == LineKind::RootCommand {
             let _ = self.poll.send(PollCmd::Status);
         }
+    }
+
+    /// STEER: Tab while busy: the box goes out as `/later <text>`, the next task after this run.
+    fn submit_later(&mut self) {
+        let text = proto::canonical(self.ed.text());
+        let body = text.trim();
+        if body.is_empty() {
+            return;
+        }
+        let line = format!("/later {body}");
+        let frame = proto::line(&line);
+        if frame.len() > proto::LINE_MAX {
+            self.set_hint(format!("too long to send ({} KiB > 900 KiB); split it", frame.len() / 1024), 5);
+            return;
+        }
+        if self.writer.is_none() || !self.send_frame(&frame) {
+            self.set_hint("not connected to the Root: nothing was sent; your text is kept", 4);
+            return;
+        }
+        let now = Instant::now();
+        let (id, _) = self.echoes.sent(&line, LineKind::Input, now);
+        self.tray.add(id, body, true, now);
+        self.ed.push_history(&text);
+        self.ed.clear();
+        self.set_hint("queued as the next task", 2);
     }
 
     /// Carries out the access flow's outputs (ADR-009).
@@ -707,13 +842,29 @@ impl App {
         self.dirty = true;
     }
 
+    /// `/details`: the last tool activity printed in full (§3.6).
+    fn details(&mut self) {
+        if let Err(e) = self.t.details(Self::now_ms()) {
+            self.set_hint(e, 4);
+        }
+    }
+
     fn enter_view(&mut self) {
         let mut out = io::stdout();
         let _ = out.queue(EnterAlternateScreen);
         let _ = out.flush();
         term::set_alt(true);
-        let last = self.t.len().saturating_sub(1);
-        self.view = Some(ViewState { sel: last, top: last });
+        // Ctrl-O opens on the last tool activity, expanded (§3.6); otherwise on the newest block
+        let sel = match self.t.last_activity() {
+            Some(i) => {
+                if let Some(b) = self.t.get_mut(i) {
+                    b.expanded = true;
+                }
+                i
+            }
+            None => self.t.len().saturating_sub(1),
+        };
+        self.view = Some(ViewState { sel, top: sel });
     }
 
     fn leave_view(&mut self) {
@@ -762,7 +913,7 @@ impl App {
     // ---------------------------------------------------------------------------------------
 
     fn animating(&self) -> bool {
-        self.info.busy() || self.t.live().any(|(_, b)| matches!(&b.kind, Kind::Tool(t) if t.dur.is_none()) || matches!(&b.kind, Kind::Thinking { done: false, .. }))
+        self.info.busy() || self.t.activity_live() || self.t.live().any(|(_, b)| matches!(&b.kind, Kind::Thinking { done: false, .. }))
     }
 
     pub fn render<W: Write>(&mut self, out: &mut W) -> io::Result<()> {
@@ -792,13 +943,13 @@ impl App {
             return Ok(());
         }
         let max_live = {
-            let ui = Ui { t: &self.t, ed: &self.ed, info: &self.info, verbose: self.verbose, overlay: self.overlay, hint: None, now, now_ms, no_color: self.o.no_color, spin };
+            let ui = Ui { t: &self.t, tray: &self.tray, ed: &self.ed, info: &self.info, verbose: self.verbose, overlay: self.overlay, hint: None, now, now_ms, no_color: self.o.no_color, spin };
             live::max_live(&ui, w, h)
         };
         let commits = live::commit(&mut self.t, w, max_live, self.verbose, now, spin);
         // while the Root waits for a typed confirmation, the hint says so (ADR-009)
         let hint = self.hint.as_ref().map(|(s, _)| s.clone()).or_else(|| self.acc.awaiting().map(|p| format!("type {p} and press Enter to confirm; anything else cancels")));
-        let ui = Ui { t: &self.t, ed: &self.ed, info: &self.info, verbose: self.verbose, overlay: self.overlay, hint: hint.as_deref(), now, now_ms, no_color: self.o.no_color, spin };
+        let ui = Ui { t: &self.t, tray: &self.tray, ed: &self.ed, info: &self.info, verbose: self.verbose, overlay: self.overlay, hint: hint.as_deref(), now, now_ms, no_color: self.o.no_color, spin };
         let region = live::region(&ui, w, h);
         out.queue(BeginSynchronizedUpdate)?;
         term::hide_cursor(out)?;

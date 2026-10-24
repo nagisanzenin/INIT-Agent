@@ -1634,7 +1634,7 @@ From v0.1.1 the boot block also carries `"access": {"access", "full", "workspace
 |---|---|---|---|
 | request | `stop` | `reason`, `grace_ms` | stop its bodies (kernel/supervise.md `stop` frame), flush, answer `ok`, exit 0 |
 | request | `prepare_swap` | `job`, `deadline_s` | pause the live body at a step boundary, stop it, flush, answer `ok`, exit 75 within 10 s |
-| request | `owner.in` | `qid`, `frame` (`line`\|`interrupt`, as supervise.md §4.6) | append durably to its inbox (dedup by `qid`), then answer `ok` |
+| request | `owner.in` | `qid`, `frame` (`line`\|`interrupt{then?}`\|`retract{seq}`, as supervise.md §4.6; STEER: `then:"continue"` is interrupt-and-steer, `retract` takes back the queued line the kernel echoed with `seq`) | append durably to its inbox (dedup by `qid`), then answer `ok` |
 | event | `exited` | `instance`, `code`, `signal`, `rusage_ms`, `at` | treat it as the instance's exit (its process supervision) |
 | event | `level` | `from`, `to`, `cap`, `cause` (`unlock`\|`demotion`\|`charter_max`), `trigger`, `r4_seq`, `evolution_share_max_permille` | enable or disable level features (§3.13.4); relay the notice to the body (evolution.md §4.5) |
 | event | `mode` | `mode` | — (it arrives only together with a restart) |
@@ -1662,6 +1662,8 @@ From v0.1.1 the boot block also carries `"access": {"access", "full", "workspace
 - **Channel frames** are those of kernel/supervise.md §4.6, unchanged:
   - client → Root: `attach{client, replay}`, `line{text}`, `interrupt`, `panic`, `detach`;
   - Root → client: `display`, `echo`, `notice`, `state`, `replay_end`.
+- **STEER frames** (client → Root). `interrupt{then:"continue"}` (interrupt-and-steer) and `retract{seq}` (take back the queued line whose kernel `echo` carried `seq`, a u64) go to a ready kernel inside `owner.in` with a fresh random `qid`, like `interrupt`; they are never written to `state/owner-queue.jsonl`. Any other `then` value is dropped, which leaves a plain `interrupt`. A `retract` without an integer `seq` is ignored and the connection stays up. With no ready kernel, an `interrupt` is dropped (D6) and a `retract` answers the notice `[root] nothing taken back: the kernel is not running, so the line stays queued`. A kernel that cannot decode a frame answers `owner.in` with an error; the Root drops that answer without acking, requeueing or redelivering anything. The harm sentinel (ADR-011 §3.1) sees every relayed frame: an `interrupt` of either form, `/stop`, `/undo`, `/reject`, `/rollback` and `/panic` mark the owner turn's `correction`; a plain steer only adds to its `steered` count, a `/later …` line to neither, and a relayed `retract{seq}` takes its steer back (the kernel `echo` with that `seq` names the line).
+- **`init-root attach` input.** One stdin line is one `line` frame, except: text between the bracketed-paste markers `ESC[200~` … `ESC[201~` (on a terminal the CLI enables bracketed paste and disables it at EOF and exit) is one message with `\n` between its lines; a line ending in a single `\` continues onto the next. Blank messages are not sent.
 - **Request frames** (`{"v":1,"id","cmd","args"}`) carry the CLI commands: `status`, `panic`, `resume`, `stop`, `start`, `charter.apply`, `ledger`, `audit.run`, `audit.verify`, `keys.reload`, `upgrade`, and in test builds `test.clock` (§3.16).
 - **v0.1.1 request frames (ADR-009, §3.17)**, lane SBX-009's protocol:
 

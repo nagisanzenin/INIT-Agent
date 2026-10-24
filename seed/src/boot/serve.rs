@@ -45,7 +45,15 @@ where
     let (out, out_rx) = OutTx::channel(OUT_CAP);
     let out_thread = spawn_output(stdout, out_rx)?;
     let (ctl_tx, ctl_rx) = mpsc::channel();
-    spawn_input(stdin, ctl_tx, s.abort.clone(), s.ext.clone(), s.status.clone())?;
+    spawn_input(
+        stdin,
+        ctl_tx,
+        s.abort.clone(),
+        s.ext.clone(),
+        s.status.clone(),
+        out.clone(),
+    )?;
+    let status = s.status.clone();
     let session = Session::new(SessionConfig {
         ctx: s.ctx,
         model: s.model,
@@ -63,7 +71,8 @@ where
         fault: s.fault,
         on_task: s.on_task,
     });
-    let code = session.serve(); // consumes the session: the last `out` sender drops here
+    let code = session.serve(); // consumes the session's `out` sender
+    status.gate.detach(); // the input thread's sender: now the output thread can finish
     let (tx, rx) = mpsc::channel();
     let _ = std::thread::Builder::new()
         .name("flush".into())

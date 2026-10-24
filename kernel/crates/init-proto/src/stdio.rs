@@ -84,8 +84,14 @@ pub enum ToBody {
         #[serde(default, skip_serializing_if = "InputMode::is_steer")]
         mode: InputMode,
     },
-    /// Abort the current turn, keep partial output.
-    Interrupt,
+    /// Abort the current turn, keep partial output. `then: "continue"` (STEER): then continue the
+    /// run with the queued steer instead of going idle; a body that ignores it simply stops.
+    Interrupt {
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        then: Option<String>,
+    },
+    /// STEER: drop owner input `seq` if not yet consumed; answer `retracted{seq, ok}`.
+    Retract { seq: u64 },
     /// Pause at the next step boundary, then send `paused`.
     Pause { token: String, reason: PauseReason },
     /// Re-lock, rescan, append `update_failed` if not null, continue.
@@ -145,6 +151,9 @@ pub enum FromBody {
     Ack { seq: u64 },
     /// Notice durably in the log.
     NoticeAck { id: String },
+    /// STEER: the answer to `retract{seq}`: `ok` = the input will never be logged; `!ok` = it was
+    /// already consumed (it is or will be acked).
+    Retracted { seq: u64, ok: bool },
     /// Sent on every busy↔idle change.
     State { busy: bool },
     /// Pause reached.
@@ -236,11 +245,23 @@ mod tests {
         let bad = br#"{"detail":1,"kind":"text","ok":"yes","t":"display","text":"x","v":1}"#;
         assert!(decode_from_body(bad).is_err());
         assert!(display_extra(bad).is_empty());
+        // DELEGATE: a sub-task's tool frame keeps `parent_call_id` through the relay (D7 closed
+        // by the pass-through above; the TUI nests the call under its delegate row).
+        let nested = br#"{"call_id":"d1/c1","kind":"tool_start","name":"bash","parent_call_id":"d1","t":"display","text":"ls","v":1}"#;
+        let FromBody::Display(d) = decode_from_body(nested).unwrap() else { panic!() };
+        assert_eq!(d.call_id.as_deref(), Some("d1/c1"));
+        assert_eq!(serde_json::to_value(display_extra(nested)).unwrap(), serde_json::json!({"parent_call_id": "d1"}));
     }
 
     #[test]
     fn unit_frames() {
-        assert_eq!(encode_to_body(&ToBody::Interrupt).unwrap(), b"{\"t\":\"interrupt\",\"v\":1}\n".to_vec());
-        assert_eq!(decode_to_body(b"{\"t\":\"interrupt\",\"v\":1}\n").unwrap(), ToBody::Interrupt);
+        let plain = ToBody::Interrupt { then: None };
+        assert_eq!(encode_to_body(&plain).unwrap(), b"{\"t\":\"interrupt\",\"v\":1}\n".to_vec());
+        assert_eq!(decode_to_body(b"{\"t\":\"interrupt\",\"v\":1}\n").unwrap(), plain);
+        // STEER: interrupt-and-steer, retract and its answer
+        let steer = ToBody::Interrupt { then: Some("continue".into()) };
+        assert_eq!(encode_to_body(&steer).unwrap(), b"{\"t\":\"interrupt\",\"then\":\"continue\",\"v\":1}\n".to_vec());
+        assert_eq!(encode_to_body(&ToBody::Retract { seq: 7 }).unwrap(), b"{\"seq\":7,\"t\":\"retract\",\"v\":1}\n".to_vec());
+        assert_eq!(decode_from_body(br#"{"ok":false,"seq":7,"t":"retracted","v":1}"#).unwrap(), FromBody::Retracted { seq: 7, ok: false });
     }
 }

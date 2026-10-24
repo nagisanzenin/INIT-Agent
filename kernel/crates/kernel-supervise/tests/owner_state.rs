@@ -66,6 +66,79 @@ fn state_follows_turn_end_with_model_and_task_musd() {
     let _ = std::fs::remove_dir_all(&home);
 }
 
+/// The newest `state` frame among `owner.out` so far.
+fn last_state(out: &[serde_json::Value]) -> Option<serde_json::Value> {
+    out.iter().rev().find(|f| f["t"] == "state").cloned()
+}
+
+fn seq_list(v: &serde_json::Value) -> Vec<u64> {
+    v.as_array().map(|a| a.iter().filter_map(|x| x.as_u64()).collect()).unwrap_or_default()
+}
+
+/// STEER (supervise.md §4.6): after each body ack the kernel publishes a `state` frame whose
+/// `steer_seen` names the input just logged and whose `steer_pending` no longer has it; a held input
+/// stays pending until the owner retracts it, when the body answers `retracted{ok}` and the input
+/// moves to `steer_retracted` (never redelivered); retracting a line already read says so.
+#[test]
+fn state_reports_steers_pending_seen_and_retracted() {
+    let _wd = init_testkit::watchdog::arm("state_reports_steers_pending_seen_and_retracted", WD);
+    let home = home("steer-state");
+    let fr = FakeRoot::new(&home, Opts::default());
+    let (_h, code) = fr.start_in_process();
+    fr.wait_for("ready", T, |s| s.ready.then_some(()));
+    let echo_seq = |text: &str| {
+        fr.wait_for(&format!("echo {text}"), T, |s| {
+            s.events.iter().filter(|e| e.ev == "owner.out").map(|e| &e.data["frame"]).find(|f| f["t"] == "echo" && f["text"] == text).and_then(|f| f["seq"].as_u64())
+        })
+    };
+    let state_where = |what: &str, f: &dyn Fn(&serde_json::Value) -> bool| {
+        fr.wait_for(what, T, |s| {
+            let out: Vec<_> = s.events.iter().filter(|e| e.ev == "owner.out").map(|e| e.data["frame"].clone()).collect();
+            last_state(&out).filter(|st| f(st))
+        })
+    };
+    let notice = |needle: String| {
+        fr.wait_for(&needle.clone(), T, |s| {
+            s.events.iter().any(|e| e.ev == "owner.out" && e.data["frame"]["text"].as_str().is_some_and(|t| t.contains(&needle))).then_some(())
+        })
+    };
+
+    // an ordinary line: acked at once by sv-testbody, so the next state shows it seen
+    assert!(fr.owner_line("hello").is_ok());
+    let a = echo_seq("hello");
+    let st = state_where("state with steer_seen", &|st| seq_list(&st["steer_seen"]).contains(&a));
+    assert!(!seq_list(&st["steer_pending"]).contains(&a), "{st}");
+
+    // a held line stays pending (the body neither logs nor acks it) ...
+    assert!(fr.owner_line("!hold").is_ok());
+    let b = echo_seq("!hold");
+    assert!(fr.owner_line("again").is_ok());
+    let c = echo_seq("again");
+    let st = state_where("state after the next ack", &|st| seq_list(&st["steer_seen"]).contains(&c));
+    assert_eq!(seq_list(&st["steer_pending"]), vec![b], "{st}");
+    // ... until it is taken back: the body answers ok, the kernel closes it for good
+    let retract = |seq: u64| {
+        let qid = format!("r-{seq}-{}", kernel_supervise::sys::random_hex(2));
+        fr.request(&RootRequest::OwnerIn(OwnerInArgs { qid, frame: OwnerInFrame::Retract { seq } }), T).expect("answered")
+    };
+    assert!(retract(b).is_ok());
+    let st = state_where("state with steer_retracted", &|st| seq_list(&st["steer_retracted"]).contains(&b));
+    assert!(seq_list(&st["steer_pending"]).is_empty() && !seq_list(&st["steer_seen"]).contains(&b), "{st}");
+    notice(format!("taken back: message {b}"));
+    // a line the agent already read cannot be taken back, and the owner is told
+    assert!(retract(a).is_ok());
+    notice(format!("not taken back: message {a}"));
+    // the inbox on disk agrees: nothing is left to redeliver
+    let inbox = std::fs::read_to_string(home.join("state/kernel/inbox.jsonl")).unwrap();
+    assert!(inbox.contains(&format!("\"seq\":{b},\"t\":\"ack\"")), "{inbox}");
+
+    let r = fr.request(&RootRequest::Stop(StopArgs { reason: "test".into(), grace_ms: 3000 }), T).unwrap();
+    assert!(r.is_ok());
+    assert_eq!(code.recv_timeout(T).unwrap(), 0);
+    assert!(home.starts_with(homes_root()) && home != homes_root());
+    let _ = std::fs::remove_dir_all(&home);
+}
+
 /// K-LINE: the text sv-testbody's `!big` sends (tests/fixtures/testbody.rs `big_text`).
 fn big_text(n: usize) -> String {
     const P: &str = "lorem \"q\" \\ \t\n\u{1} é 😀 ipsum ";

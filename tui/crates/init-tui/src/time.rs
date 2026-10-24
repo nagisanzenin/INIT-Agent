@@ -86,6 +86,17 @@ pub fn dur(d: Duration) -> String {
     if s < 10.0 { format!("{s:.1} s") } else { span(d.as_secs()) }
 }
 
+/// An activity's elapsed time: `4.2 s`, `42 s`, `1 min 12 s`, `1 h 5 min`.
+pub fn elapsed(d: Duration) -> String {
+    let s = d.as_secs();
+    match s {
+        0..10 => format!("{:.1} s", d.as_secs_f64()),
+        10..60 => format!("{s} s"),
+        60..3600 => format!("{} min {} s", s / 60, s % 60),
+        _ => span(s),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -109,5 +120,8 @@ mod tests {
         assert_eq!(until(18_720_000, 0), "in 5 h 12 min");
         assert_eq!(dur(Duration::from_millis(300)), "0.3 s");
         assert_eq!(dur(Duration::from_secs(12)), "12 s");
+        assert_eq!(elapsed(Duration::from_millis(4200)), "4.2 s");
+        assert_eq!(elapsed(Duration::from_secs(72)), "1 min 12 s");
+        assert_eq!(elapsed(Duration::from_secs(3900)), "1 h 5 min");
     }
 }

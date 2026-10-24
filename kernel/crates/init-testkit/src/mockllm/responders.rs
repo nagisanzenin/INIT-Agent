@@ -12,9 +12,21 @@ pub const G3_MARKER: &str = "[init:g3 v1 nonce=";
 /// The give-up text for a G4 task with no script.
 pub const GIVE_UP_TEXT: &str = "I cannot do this task.";
 
-/// Probe responder: one `bash {"command":"true"}` call; `ready` once the last message is a tool result.
+/// A body or kernel annotation the body appends as a user message (`[init:notice] …`, `[init:signals] …`,
+/// `[init:boot] …`), not the probe or G3 instruction. On a bundle install the gate's own stage notices
+/// (`[init:notice] gate: {…"stage":"G0"…}`) followed the probe line, and `[init:signals]` followed the
+/// probe's tool result, in every G2 probe (REL-G0).
+fn is_notice(m: &NMsg) -> bool {
+    m.role == Role::User
+        && m.text.trim_start().starts_with("[init:")
+        && !m.text.contains(PROBE_MARKER)
+        && !m.text.contains(G3_MARKER)
+}
+
+/// Probe responder: one `bash {"command":"true"}` call; `ready` once the last message (annotations
+/// aside) is a tool result.
 pub fn probe_reply(msgs: &[NMsg]) -> Reply {
-    let last = msgs.iter().rev().find(|m| m.role != Role::System);
+    let last = msgs.iter().rev().find(|m| m.role != Role::System && !is_notice(m));
     if last.is_some_and(|m| m.role == Role::Tool) {
         Reply::text("ready")
     } else {
@@ -23,11 +35,11 @@ pub fn probe_reply(msgs: &[NMsg]) -> Reply {
 }
 
 /// Content-based probe detection, for upstream mode where the proxy strips `x-init-purpose`:
-/// the most recent user message carries the probe marker.
+/// the most recent user message that is not an annotation carries the probe marker.
 pub fn looks_like_probe(msgs: &[NMsg]) -> bool {
     msgs.iter()
         .rev()
-        .find(|m| m.role == Role::User)
+        .find(|m| m.role == Role::User && !is_notice(m))
         .is_some_and(|m| m.text.contains(PROBE_MARKER))
 }
 
@@ -302,6 +314,33 @@ Prefix-change: no
             m(Role::Assistant, ""),
             m(Role::User, "[init:g3 v1 nonce=abc]")
         ]));
+    }
+
+    /// REL-G0: kernel notices after the probe line (and after its tool result) do not hide the probe,
+    /// and the probe still makes exactly one call, then says ready.
+    #[test]
+    fn probe_with_trailing_notices() {
+        let notice = r#"[init:notice] gate: {"gate_id":"j-000001","pass":true,"stage":"G0"}"#;
+        let first = [
+            m(Role::System, "S"),
+            m(Role::User, "[init:boot] GATE PROBE: you are a staging copy"),
+            m(Role::User, "[init:probe] Gate probe: call the bash tool once"),
+            m(Role::User, notice),
+        ];
+        assert!(looks_like_probe(&first));
+        assert_eq!(probe_reply(&first).calls[0].input, json!({"command": "true"}));
+        let second = [
+            m(Role::User, "[init:probe] Gate probe: call the bash tool once"),
+            m(Role::User, notice),
+            m(Role::Assistant, ""),
+            m(Role::Tool, ""),
+            m(Role::User, "[init:signals] L0 · context 2% (5k of 200k)"),
+            m(Role::User, notice),
+        ];
+        assert!(looks_like_probe(&second));
+        assert_eq!(probe_reply(&second).text, "ready");
+        // An owner line after the probe is not a notice: not a probe any more.
+        assert!(!looks_like_probe(&[m(Role::User, "[init:probe] x"), m(Role::User, "hello")]));
     }
 
     #[test]

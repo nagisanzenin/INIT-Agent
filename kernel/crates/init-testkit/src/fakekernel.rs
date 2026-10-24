@@ -445,12 +445,19 @@ impl K {
             return;
         }
         match a.frame {
-            OwnerInFrame::Interrupt => {
+            OwnerInFrame::Interrupt { then } => {
                 self.qids.insert(a.qid);
                 let _ = self
                     .link
                     .respond(&Response::ok_value(req.id.clone(), json!({})));
-                self.to_body(&ToBody::Interrupt);
+                self.to_body(&ToBody::Interrupt { then });
+            }
+            OwnerInFrame::Retract { seq } => {
+                self.qids.insert(a.qid);
+                let _ = self
+                    .link
+                    .respond(&Response::ok_value(req.id.clone(), json!({})));
+                self.to_body(&ToBody::Retract { seq });
             }
             OwnerInFrame::Line { text } => {
                 let t = text.trim().to_string();
@@ -734,6 +741,9 @@ impl K {
                     slot,
                     task_musd: None,
                     evolution_checks_today_musd: None,
+                    steer_pending: None,
+                    steer_seen: None,
+                    steer_retracted: None,
                 });
             }
             FromBody::Paused { token, .. } => {
@@ -749,7 +759,7 @@ impl K {
             FromBody::ReloadDone { job, ok, .. } => {
                 self.log(json!({"ev": "reload_done", "job": job, "ok": ok}))
             }
-            FromBody::Unknown => {}
+            FromBody::Retracted { .. } | FromBody::Unknown => {}
         }
     }
 

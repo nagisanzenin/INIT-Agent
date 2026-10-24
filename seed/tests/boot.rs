@@ -505,7 +505,7 @@ fn manifest_reads_no_env() {
         serde_json::from_slice(&crate_file("src/context/testdata/tools.json")).unwrap();
     assert_eq!(m["tools"], golden);
     let icj = serde_json::to_string(&golden).unwrap(); // BTreeMap keys: sorted, no spaces
-    assert_eq!(icj.len(), 3_405);
+    assert_eq!(icj.len(), 4_986);
     let mut sh = Command::new("/usr/bin/shasum")
         .args(["-a", "256"])
         .stdin(Stdio::piped())
@@ -822,7 +822,7 @@ fn live_boot_then_stop(home: &Home) -> Value {
 fn probe_round_trip() {
     let home = Home::new("pa");
     let script = [
-        r#"{"v":1,"kind":"turn","purpose":"probe","expect":{"last_text_contains":"[init:probe] Gate probe","tools":["bash","edit","ext","read","write"]},"reply":{"calls":[{"name":"bash","input":{"command":"true"}}],"stop":"tool_use"}}"#,
+        r#"{"v":1,"kind":"turn","purpose":"probe","expect":{"last_text_contains":"[init:probe] Gate probe","tools":["bash","delegate","edit","ext","read","write"]},"reply":{"calls":[{"name":"bash","input":{"command":"true"}}],"stop":"tool_use"}}"#,
         r#"{"v":1,"kind":"turn","purpose":"probe","expect":{"prefix":"same"},"reply":{"text":"ready","stop":"end_turn"}}"#,
     ]
     .join("\n");
@@ -864,7 +864,7 @@ fn probe_round_trip() {
         .iter()
         .map(|t| t["function"]["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["bash", "edit", "ext", "read", "write"]);
+    assert_eq!(names, ["bash", "delegate", "edit", "ext", "read", "write"]);
     assert_eq!(b1["reasoning_effort"], "high");
     let msgs = b1["messages"].as_array().unwrap();
     assert_eq!(msgs[0]["role"], "system");
@@ -1276,8 +1276,8 @@ fn ext_cli_on_count_lines() {
 fn ext_tool_calls_kept_count_lines() {
     let home = Home::new("ex");
     let script = [
-        r#"{"v":1,"kind":"turn","expect":{"last_role":"user","tools":["bash","edit","ext","read","write"]},"reply":{"calls":[{"name":"ext","input":{"name":"count-lines","input":{"needle":"fn ","path":"a2/notes.txt"}}}],"stop":"tool_use"}}"#,
-        r#"{"v":1,"kind":"turn","expect":{"prefix":"same","tools":["bash","edit","ext","read","write"]},"reply":{"text":"3 lines contain fn: 1, 3 and 4.","stop":"end_turn"}}"#,
+        r#"{"v":1,"kind":"turn","expect":{"last_role":"user","tools":["bash","delegate","edit","ext","read","write"]},"reply":{"calls":[{"name":"ext","input":{"name":"count-lines","input":{"needle":"fn ","path":"a2/notes.txt"}}}],"stop":"tool_use"}}"#,
+        r#"{"v":1,"kind":"turn","expect":{"prefix":"same","tools":["bash","delegate","edit","ext","read","write"]},"reply":{"text":"3 lines contain fn: 1, 3 and 4.","stop":"end_turn"}}"#,
     ]
     .join("\n");
     let Some(mock) = Mock::start(&home, "ext_tool_calls_kept_count_lines", &script, &[]) else {

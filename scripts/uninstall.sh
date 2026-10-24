@@ -5,12 +5,14 @@
 #   scripts/uninstall.sh
 #
 # Paths (environment, as for install.sh): INIT_ROOT_HOME (default ~/.init-root), INIT_HOME (default: the one
-# ROOT_HOME/install.json names, else ~/.init), INIT_BIN_DIR (default ~/.local/bin). The Trash is ~/.Trash.
+# ROOT_HOME/install.json names, else ~/.init), INIT_BIN_DIR (default ~/.local/bin). The Trash is ~/.Trash on macOS and
+# the freedesktop.org Trash (${XDG_DATA_HOME:-~/.local/share}/Trash, with a .trashinfo per item) on Linux.
 #
 # Steps:
 #   1. `init-root stop` through the running Root (the zone stops: kernel and bodies, no demotion).
-#   2. Only for the real install (the LaunchAgent dev.init.root names this ROOT_HOME): `launchctl bootout`, which
-#      stops the Root itself; the plist then goes to the Trash too.
+#   2. Only for the real install (the LaunchAgent dev.init.root, or on Linux the systemd user unit init-root.service,
+#      names this ROOT_HOME): `launchctl bootout` / `systemctl --user disable --now`, which stops the Root itself; the
+#      plist or unit then goes to the Trash too.
 #   3. A Root still running without the service (`init-root start` in a terminal) is never signalled from here:
 #      stop it there (Ctrl-C), then run this again. Nothing is moved while a Root holds run/root.lock.
 #   4. After you type `uninstall`, ROOT_HOME, INIT_HOME and the `init` command (with init-tui) move to ~/.Trash, each with a
@@ -29,14 +31,22 @@ try: print(json.load(open(sys.argv[1])).get("init_home") or "")
 except Exception: print("")' "$RH/install.json")"
 IH="${INIT_HOME:-${IH_REC:-$HOME/.init}}"
 BIN_DIR="${INIT_BIN_DIR:-$HOME/.local/bin}"
-TRASH="$HOME/.Trash"
-PLIST="$PW_HOME/Library/LaunchAgents/dev.init.root.plist"
+OS="$(uname -s)"
+if [ "$OS" = Darwin ]; then
+  TRASH="$HOME/.Trash"
+  PLIST="$PW_HOME/Library/LaunchAgents/dev.init.root.plist"
+  devno() { stat -f %d "$1"; }
+else
+  TRASH="${XDG_DATA_HOME:-$HOME/.local/share}/Trash/files"
+  PLIST="$PW_HOME/.config/systemd/user/init-root.service" # the systemd user unit init-root install writes
+  devno() { stat -c %d "$1"; }
+fi
 ROOT_BIN="$RH/bin/init-root"
 RENV=(env -i HOME="$PW_HOME" INIT_ROOT_HOME="$RH" PATH=/usr/bin:/bin)
 
 [ -e "$RH" ] || [ -e "$IH" ] || die "nothing to uninstall: neither $RH nor $IH exists"
 REAL=0
-if [ -f "$PLIST" ] && grep -q "<string>$RH</string>" "$PLIST"; then REAL=1; fi
+if [ -f "$PLIST" ] && { grep -qF "<string>$RH</string>" "$PLIST" || grep -qxF "Environment=\"INIT_ROOT_HOME=$RH\"" "$PLIST"; }; then REAL=1; fi
 
 lock_free() { # 0 when no process holds ROOT_HOME/run/root.lock (the Root's flock); checks without waiting
   /usr/bin/python3 -I -c 'import fcntl,os,sys
@@ -62,9 +72,13 @@ if [ -x "$ROOT_BIN" ] && [ -S "$RH/run/owner.sock" ] && ! lock_free; then
 fi
 
 # ---------------------------------------------------------------- 2. the service (real install only)
-if [ $REAL = 1 ]; then
+if [ $REAL = 1 ] && [ "$OS" = Darwin ]; then
   say "unloading the launchd service dev.init.root …"
   launchctl bootout "gui/$(id -u)/dev.init.root" 2>/dev/null || true
+  for _ in $(seq 1 120); do lock_free && break; sleep 0.5; done
+elif [ $REAL = 1 ]; then
+  say "stopping and disabling the systemd user service init-root.service …"
+  systemctl --user disable --now init-root.service 2>/dev/null || true
   for _ in $(seq 1 120); do lock_free && break; sleep 0.5; done
 fi
 
@@ -84,7 +98,7 @@ fi
 [ $REAL = 1 ] && MOVE+=("$PLIST")
 mkdir -p "$TRASH"
 for p in "${MOVE[@]}"; do
-  [ "$(stat -f %d "$p")" = "$(stat -f %d "$TRASH")" ] || die "$p is on another volume than $TRASH; move it to the Trash in Finder instead"
+  [ "$(devno "$p")" = "$(devno "$TRASH")" ] || die "$p is on another volume than $TRASH; move it to the Trash in your file manager instead"
 done
 say ""
 say "This moves to $TRASH (nothing is deleted):"
@@ -99,6 +113,11 @@ for p in "${MOVE[@]}"; do
   dst="$TRASH/$base $STAMP"
   n=1; while [ -e "$dst" ]; do n=$((n + 1)); dst="$TRASH/$base $STAMP $n"; done
   mv -- "$p" "$dst"
+  if [ "$OS" != Darwin ]; then # freedesktop.org Trash: the file manager can restore it from this record
+    mkdir -p "$TRASH/../info"
+    printf '[Trash Info]\nPath=%s\nDeletionDate=%s\n' "$p" "$(date +%Y-%m-%dT%H:%M:%S)" >"$TRASH/../info/$(basename "$dst").trashinfo"
+  fi
   say "  moved $p → $dst"
 done
+if [ $REAL = 1 ] && [ "$OS" != Darwin ]; then systemctl --user daemon-reload 2>/dev/null || true; fi
 say "INIT is uninstalled. To undo: move the items back from the Trash. To free the space: empty the Trash."

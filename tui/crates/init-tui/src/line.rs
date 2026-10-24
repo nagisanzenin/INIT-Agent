@@ -82,6 +82,26 @@ impl<W: Write> Out<W> {
     }
 }
 
+/// The tool calls since the last assistant text (§3.12): summarized in one line when they end.
+#[derive(Default)]
+struct LineAct {
+    calls: usize,
+    failed: usize,
+    names: Vec<(String, usize)>,
+}
+
+/// A running call, for the heartbeat.
+struct Running {
+    call_id: String,
+    name: String,
+    started: Instant,
+    /// The last output or heartbeat line.
+    beat: Instant,
+}
+
+/// Line mode prints a heartbeat for a call with no output for this long, and again after as long.
+const LINE_HEARTBEAT: Duration = Duration::from_secs(30);
+
 struct LineApp<W: Write> {
     o: LineOpts,
     out: Out<W>,
@@ -114,9 +134,56 @@ struct LineApp<W: Write> {
     attached_once: bool,
     /// UX-KEYMODEL: the first-run setup, `/key`, `/model` (crate::setup).
     setup: setup::Flow,
+    act: Option<LineAct>,
+    running: Vec<Running>,
+    /// This turn's per-request token lines, for `/details`.
+    reqs: Vec<String>,
+    /// STEER: lines echoed while the agent worked and not read yet: seq → (text, follow-up).
+    steers: std::collections::BTreeMap<u64, (String, bool)>,
 }
 
 impl<W: Write> LineApp<W> {
+    /// The activity ends (the reply's text, an error, the run's end): one summary line when it had
+    /// more than one call.
+    fn end_act(&mut self) {
+        self.running.clear();
+        let Some(a) = self.act.take() else { return };
+        if a.calls < 2 || self.o.raw {
+            return;
+        }
+        let names: Vec<String> = a.names.iter().map(|(n, k)| format!("{k} {n}")).collect();
+        let failed = if a.failed > 0 { format!(", {} failed", a.failed) } else { String::new() };
+        let st = if a.failed > 0 { Style::fg(Color::Red) } else { Style::dim() };
+        self.out.line(&format!("[tools] ran {} calls ({}){failed}", a.calls, names.join(", ")), st);
+    }
+
+    fn act_call(&mut self, name: &str) {
+        let a = self.act.get_or_insert_with(LineAct::default);
+        a.calls += 1;
+        match a.names.iter_mut().find(|(n, _)| n == name) {
+            Some(e) => e.1 += 1,
+            None => a.names.push((name.to_string(), 1)),
+        }
+    }
+
+    /// The heartbeat: a running call silent for 30 s gets a line, then one every 30 s.
+    fn tick(&mut self, now: Instant) {
+        if self.o.raw {
+            return;
+        }
+        let mut lines = Vec::new();
+        for r in self.running.iter_mut() {
+            if now.duration_since(r.beat) >= LINE_HEARTBEAT {
+                r.beat = now;
+                lines.push(format!("  … {} still working ({})", r.name, crate::time::span(now.duration_since(r.started).as_secs())));
+            }
+        }
+        for l in lines {
+            self.out.line(&l, Style::dim());
+        }
+        self.out.flush();
+    }
+
     fn start_attach(&mut self) {
         self.cn += 1;
         self.connecting = true;
@@ -313,6 +380,16 @@ impl<W: Write> LineApp<W> {
                 self.flush_unsent();
             }
             Ev::Line(l) => {
+                if l.trim() == "/details" && !self.o.raw {
+                    if self.reqs.is_empty() {
+                        self.out.line("[details] no token lines in this turn yet", Style::dim());
+                    }
+                    for r in self.reqs.clone() {
+                        self.out.line(&format!("[details] {r}"), Style::dim());
+                    }
+                    self.out.flush();
+                    return;
+                }
                 if l.trim() == "/usage" && !self.o.raw {
                     self.out.line(&format!("[usage] {}", crate::render::status::usage_summary(&self.info)), Style::PLAIN);
                     self.out.flush();
@@ -371,18 +448,30 @@ impl<W: Write> LineApp<W> {
                         if seq.is_some() {
                             self.last_confirm = Some(now);
                             self.idle_after_confirm = false;
+                            if proto::line_kind(&text, false) == LineKind::Input {
+                                self.info.on_owner_delivered();
+                            }
                         }
                         let r = self.echoes.on_echo(&text, qid.as_deref(), seq, now);
                         let (id, st) = match r {
                             EchoOut::Update(id, st) | EchoOut::New(id, st) => (id, st),
                             EchoOut::Absorbed(_) => return,
                         };
+                        // STEER: a line the kernel holds while the agent works is queued, not read yet
+                        let queued_steer = seq.is_some() && self.info.busy() && proto::line_kind(&text, false) == LineKind::Input;
                         if !raw && self.printed.insert(id) {
                             let mut s = format!("> {text}");
                             if st == OwnerSt::Queued {
                                 s.push_str(" · queued");
                             }
-                            self.out.line(&s, Style::PLAIN);
+                            if queued_steer {
+                                let tag = if self.echoes.last_follow_up { "[next task queued]" } else { "[steer queued]" };
+                                s = format!("{tag} {text}");
+                            }
+                            self.out.line(&s, if queued_steer { Style::dim() } else { Style::PLAIN });
+                        }
+                        if let (true, Some(n)) = (queued_steer, seq) {
+                            self.steers.insert(n, (text.clone(), self.echoes.last_follow_up));
                         }
                         if !raw && text.trim() == "/new" && st == OwnerSt::Delivered {
                             self.out.line("── new session ──", Style::dim());
@@ -390,10 +479,20 @@ impl<W: Write> LineApp<W> {
                     }
                     Frame::State(s) => {
                         self.seen_state = true;
+                        self.steer_lines(&s);
                         if s["busy"] == false && self.last_confirm.is_some() {
                             self.idle_after_confirm = true;
                         }
+                        let was = self.info.busy();
                         self.info.on_state(s, now);
+                        if was && !self.info.busy() {
+                            // the run ended: the tool summary, then the turn's tokens, cache and cost
+                            self.end_act();
+                            if !raw && self.info.turn.requests > 0 {
+                                let (t, sc) = (self.info.turn_line(), self.info.session.cache().show());
+                                self.out.line(&format!("[turn] {} requests: {t} (session cache {sc})", self.info.turn.requests), Style::dim());
+                            }
+                        }
                     }
                     Frame::Notice { text, code, .. } => {
                         if notice::is_queue_full(&text, proto::src(&v)) {
@@ -414,10 +513,38 @@ impl<W: Write> LineApp<W> {
         }
     }
 
+    /// STEER: `[steer seen] …` once the body has logged a queued line (the kernel's `steer_seen`),
+    /// `[steer retracted] …` when it was taken back. An older kernel reports neither: nothing more.
+    fn steer_lines(&mut self, s: &serde_json::Value) {
+        let list = |k: &str| -> Option<Vec<u64>> { Some(s.get(k)?.as_array()?.iter().filter_map(serde_json::Value::as_u64).collect()) };
+        let Some(pending) = list("steer_pending") else {
+            if s["busy"] == false {
+                self.steers.clear();
+            }
+            return;
+        };
+        let (seen, retracted) = (list("steer_seen").unwrap_or_default(), list("steer_retracted").unwrap_or_default());
+        let done: Vec<u64> = self.steers.keys().copied().filter(|n| !pending.contains(n) || seen.contains(n) || retracted.contains(n)).collect();
+        for n in done {
+            let Some((text, follow_up)) = self.steers.remove(&n) else { continue };
+            if self.o.raw {
+                continue;
+            }
+            let tag = match (retracted.contains(&n), follow_up) {
+                (true, _) => "[steer retracted]",
+                (false, true) => "[next task started]",
+                (false, false) => "[steer seen]",
+            };
+            self.end_act();
+            self.out.line(&format!("{tag} {text}"), Style::dim());
+        }
+    }
+
     /// The v0.2 attach rules (kernel/supervise.md v0.2 §4.6), with echoes as `> `.
     fn display(&mut self, d: &proto::Display) {
         if let Some(b) = d.boot_seq {
             if self.last_boot.is_some_and(|p| p != b) {
+                self.end_act();
                 self.out.line(&format!("── body restarted (boot {b}) ──"), Style::dim());
             }
             self.last_boot = Some(b);
@@ -426,8 +553,14 @@ impl<W: Write> LineApp<W> {
             self.thinking_open = false;
         }
         let name = d.name.as_deref().unwrap_or("tool");
+        let now = Instant::now();
         match d.kind {
-            DisplayKind::Text => self.out.text(&d.text),
+            DisplayKind::Text => {
+                if !d.text.trim().is_empty() {
+                    self.end_act();
+                }
+                self.out.text(&d.text)
+            }
             DisplayKind::Thinking => {
                 if self.o.verbose {
                     self.out.styled(&d.text, Style::dim());
@@ -436,19 +569,52 @@ impl<W: Write> LineApp<W> {
                 }
                 self.thinking_open = true;
             }
-            DisplayKind::ToolStart => self.out.line(&format!("» {name}: {}", d.text), Style::fg(Color::Cyan)),
+            DisplayKind::ToolStart => {
+                self.act_call(name);
+                let call_id = d.call_id.clone().unwrap_or_default();
+                self.running.push(Running { call_id, name: name.to_string(), started: now, beat: now });
+                // a delegate sub-task's call (parent_call_id): indented under its delegate line
+                let pad = if d.parent.is_some() { "    " } else { "" };
+                self.out.line(&format!("{pad}» {name}: {}", d.text), Style::fg(Color::Cyan))
+            }
+            DisplayKind::ToolProgress => {
+                // no animation in line mode: output only resets the heartbeat's silence
+                if let Some(r) = self.running.iter_mut().find(|r| Some(&r.call_id) == d.call_id.as_ref()) {
+                    r.beat = now;
+                }
+            }
             DisplayKind::ToolEnd => {
-                let (w, st) = if d.ok == Some(true) { ("ok", Style::dim()) } else { ("error", Style::fg(Color::Red)) };
-                self.out.line(&format!("  « {w} {}", d.text), st);
+                match self.running.iter().position(|r| Some(&r.call_id) == d.call_id.as_ref()) {
+                    Some(i) => {
+                        self.running.remove(i);
+                    }
+                    None => self.act_call(name), // an end without a start
+                }
+                let ok = d.ok == Some(true);
+                if !ok && let Some(a) = self.act.as_mut() {
+                    a.failed += 1;
+                }
+                let (w, st) = if ok { ("ok", Style::dim()) } else { ("error", Style::fg(Color::Red)) };
+                let pad = if d.parent.is_some() { "    " } else { "" };
+                self.out.line(&format!("{pad}  « {w} {}", d.text), st);
             }
             DisplayKind::TurnEnd => {
                 self.out.bol();
+                if self.info.on_tokens(&d.text).is_some() {
+                    if self.info.turn.requests == 1 {
+                        self.reqs.clear();
+                    }
+                    self.reqs.push(d.text.clone());
+                }
                 if self.o.verbose {
                     self.out.line(&d.text, Style::dim());
                 }
             }
             DisplayKind::Info | DisplayKind::Other => self.out.line(&format!("[info] {}", d.text), Style::dim()),
-            DisplayKind::Error => self.out.line(&format!("[error] {}", d.text), Style::fg(Color::Red)),
+            DisplayKind::Error => {
+                self.end_act();
+                self.out.line(&format!("[error] {}", d.text), Style::fg(Color::Red))
+            }
         }
     }
 
@@ -533,6 +699,10 @@ pub fn run(o: LineOpts) -> i32 {
         panic_pending: false,
         acc,
         attached_once: false,
+        act: None,
+        running: Vec::new(),
+        reqs: Vec::new(),
+        steers: std::collections::BTreeMap::new(),
         // a key typed into a terminal in line mode would be echoed: only a pipe may carry one
         setup: setup::Flow::new(!std::io::IsTerminal::is_terminal(&std::io::stdin())),
     };
@@ -572,6 +742,7 @@ pub fn run(o: LineOpts) -> i32 {
         if let Some(c) = app.exit {
             break c;
         }
+        app.tick(Instant::now());
         app.prompt();
     };
     app.out.bol();

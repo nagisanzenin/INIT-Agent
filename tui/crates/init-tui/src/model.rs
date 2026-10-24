@@ -254,6 +254,8 @@ pub enum OwnerSt {
     Unconfirmed,
     /// A Root or kernel command: no echo.
     Command,
+    /// STEER: a steer the body has logged (its ack, via the kernel's `state.steer_seen`).
+    Seen,
 }
 
 #[derive(Debug)]
@@ -282,6 +284,8 @@ pub struct Echoes {
     next_id: u64,
     /// Kernel echoes seen (for `--wait-idle`).
     pub kernel_echoes: u64,
+    /// STEER: the last kernel echo matched a line sent as `/later <text>` (a follow-up).
+    pub last_follow_up: bool,
 }
 
 impl Echoes {
@@ -307,8 +311,10 @@ impl Echoes {
         let kernel = seq.is_some() || qid.is_none();
         if kernel {
             self.kernel_echoes += 1;
+            self.last_follow_up = false;
             if let Some(i) = self.awaiting.iter().position(|a| a.kind == LineKind::Input && proto::echo_matches(&a.text, text)) {
                 let a = self.awaiting.remove(i).expect("index");
+                self.last_follow_up = a.text.trim().starts_with("/later ");
                 return EchoOut::Update(a.id, OwnerSt::Delivered);
             }
             let id = self.new_id();
@@ -362,6 +368,168 @@ impl Echoes {
 }
 
 // -------------------------------------------------------------------------------------------
+// The pending tray (STEER, §3.7.1): lines typed while the agent works, until the body reads them
+// -------------------------------------------------------------------------------------------
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TraySt {
+    /// Sent; no echo yet.
+    Sending,
+    /// The Root holds it (no kernel ran); the kernel's echo will follow.
+    Held,
+    /// Durable in the kernel's inbox (`seq` known); the body has not logged it yet.
+    Pending,
+    /// A retract was sent; waiting for the kernel's answer.
+    Retracting,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct TrayItem {
+    /// The owner-line id (the same id the echo merge uses).
+    pub id: u64,
+    /// The text as typed (a follow-up without its `/later ` prefix).
+    pub text: String,
+    /// A follow-up (`/later`, Tab): read when the run ends, as the next task.
+    pub follow_up: bool,
+    pub seq: Option<u64>,
+    pub st: TraySt,
+    pub sent: Instant,
+}
+
+/// What leaves the tray.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TrayOut {
+    /// The body logged it (`state.steer_seen`): into the transcript, marked seen.
+    Seen(TrayItem),
+    /// The kernel took it back (`state.steer_retracted`): never read.
+    Retracted(TrayItem),
+    /// An older kernel that does not report acks: shown as delivered at its echo, as before.
+    Delivered(TrayItem),
+}
+
+#[derive(Debug, Default)]
+pub struct Tray {
+    pub items: Vec<TrayItem>,
+    /// The kernel reports `steer_pending` (seen in a `state` frame): items wait for `steer_seen`.
+    pub tracked: bool,
+}
+
+/// A `state` frame's seq list (absent: None).
+fn seqs(v: &Value, k: &str) -> Option<Vec<u64>> {
+    Some(v.get(k)?.as_array()?.iter().filter_map(Value::as_u64).collect())
+}
+
+impl Tray {
+    pub fn is_empty(&self) -> bool {
+        self.items.is_empty()
+    }
+
+    pub fn add(&mut self, id: u64, text: &str, follow_up: bool, now: Instant) {
+        self.items.push(TrayItem { id, text: text.to_string(), follow_up, seq: None, st: TraySt::Sending, sent: now });
+    }
+
+    pub fn has(&self, id: u64) -> bool {
+        self.items.iter().any(|i| i.id == id)
+    }
+
+    pub fn remove(&mut self, id: u64) -> Option<TrayItem> {
+        let i = self.items.iter().position(|x| x.id == id)?;
+        Some(self.items.remove(i))
+    }
+
+    /// The echo of item `id`: Root-held, or durable in the kernel with `seq`. With an older kernel
+    /// (no `steer_pending` seen) the item leaves the tray as delivered, as before STEER.
+    pub fn on_echo(&mut self, id: u64, st: OwnerSt, seq: Option<u64>) -> Option<TrayOut> {
+        let i = self.items.iter().position(|x| x.id == id)?;
+        match (st, seq) {
+            (OwnerSt::Queued, _) => self.items[i].st = TraySt::Held,
+            (OwnerSt::Delivered, Some(s)) => {
+                if !self.tracked {
+                    return Some(TrayOut::Delivered(self.items.remove(i)));
+                }
+                self.items[i].seq = Some(s);
+                if self.items[i].st != TraySt::Retracting {
+                    self.items[i].st = TraySt::Pending;
+                }
+            }
+            (OwnerSt::NotQueued, _) => return Some(TrayOut::Retracted(self.items.remove(i))),
+            _ => {}
+        }
+        None
+    }
+
+    /// A `state` frame: items whose seq the body acked leave as seen, retracted ones as retracted.
+    /// A seq no longer pending and in neither list (it fell off the kernel's ring) counts as seen.
+    pub fn on_state(&mut self, v: &Value) -> Vec<TrayOut> {
+        let Some(pending) = seqs(v, "steer_pending") else { return Vec::new() };
+        self.tracked = true;
+        let seen = seqs(v, "steer_seen").unwrap_or_default();
+        let retracted = seqs(v, "steer_retracted").unwrap_or_default();
+        let mut out = Vec::new();
+        let mut keep = Vec::new();
+        for it in self.items.drain(..) {
+            match it.seq {
+                Some(s) if retracted.contains(&s) => out.push(TrayOut::Retracted(it)),
+                Some(s) if seen.contains(&s) || !pending.contains(&s) => out.push(TrayOut::Seen(it)),
+                _ => keep.push(it),
+            }
+        }
+        self.items = keep;
+        out
+    }
+
+    /// The run ended under an older kernel: what it echoed is delivered (no ack is reported).
+    pub fn flush_untracked(&mut self) -> Vec<TrayOut> {
+        if self.tracked {
+            return Vec::new();
+        }
+        let (gone, keep): (Vec<_>, Vec<_>) = self.items.drain(..).partition(|i| i.seq.is_some());
+        self.items = keep;
+        gone.into_iter().map(TrayOut::Delivered).collect()
+    }
+
+    /// A steer (not a follow-up) the body has not read yet: Esc then interrupts *and* steers.
+    pub fn has_pending_steer(&self) -> bool {
+        self.items.iter().any(|i| !i.follow_up && i.st != TraySt::Retracting)
+    }
+
+    /// Up: the newest item to take back. `Ok(seq)` marks it retracting; `Err` says why not.
+    pub fn retract_newest(&mut self) -> Result<u64, &'static str> {
+        let it = self.items.iter_mut().rev().find(|i| i.st != TraySt::Retracting).ok_or("nothing to take back")?;
+        match (it.st, it.seq) {
+            (TraySt::Pending, Some(s)) => {
+                it.st = TraySt::Retracting;
+                Ok(s)
+            }
+            (TraySt::Held, _) => Err("held by the Root while INIT restarts: it cannot be taken back yet"),
+            _ => Err("not confirmed by the kernel yet: try again in a moment"),
+        }
+    }
+
+    /// The kernel said `seq` was already read: it stays, and will show as seen.
+    pub fn retract_refused(&mut self, seq: u64) -> bool {
+        match self.items.iter_mut().find(|i| i.seq == Some(seq) && i.st == TraySt::Retracting) {
+            Some(it) => {
+                it.st = TraySt::Pending;
+                true
+            }
+            None => false,
+        }
+    }
+}
+
+/// `[kernel] taken back: message 7 …` / `[kernel] not taken back: message 7 …`: (taken, seq).
+pub fn retract_notice(text: &str) -> Option<(bool, u64)> {
+    let (taken, rest) = if let Some(r) = text.strip_prefix("[kernel] taken back: message ") {
+        (true, r)
+    } else {
+        (false, text.strip_prefix("[kernel] not taken back: message ")?)
+    };
+    let n: String = rest.chars().take_while(char::is_ascii_digit).collect();
+    Some((taken, n.parse().ok()?))
+}
+
+// -------------------------------------------------------------------------------------------
 // Transcript blocks (§3.5, §3.6)
 // -------------------------------------------------------------------------------------------
 
@@ -376,6 +544,126 @@ pub struct Tool {
     pub started: Instant,
     pub start_ms: i64,
     pub dur: Option<Duration>,
+    /// The newest output line of a running call (`display{kind:"tool_progress"}`, §3.6), and when it came.
+    pub out: Option<String>,
+    pub out_at: Option<Instant>,
+    /// The `delegate` call this one ran inside (`parent_call_id`); None for the main loop's calls.
+    pub parent: Option<String>,
+}
+
+impl Tool {
+    pub fn running(&self) -> bool {
+        self.dur.is_none()
+    }
+    pub fn failed(&self) -> bool {
+        self.ok == Some(false)
+    }
+    /// Ended without a `tool_end` (the turn ended or the body restarted).
+    pub fn no_result(&self) -> bool {
+        self.ok.is_none() && self.dur.is_some()
+    }
+}
+
+/// One step of a tool activity, in arrival order (the details view shows them all).
+#[derive(Clone, Debug)]
+pub enum Step {
+    Tool(Tool),
+    /// A per-request token line (`turn_end`): shown only in the details.
+    Tokens(String),
+    /// Thinking between calls: folded into the activity; its text is in the details.
+    Thought { text: String, dur: Option<Duration> },
+}
+
+/// The tool calls between two assistant messages, as one block that updates in place (§3.6): a
+/// header with the current action and counters while it runs, then one summary line once frozen.
+#[derive(Clone, Debug)]
+pub struct Activity {
+    pub steps: Vec<Step>,
+    pub started: Instant,
+    pub start_ms: i64,
+    /// Thinking now, since.
+    pub thinking: Option<Instant>,
+    /// The total elapsed time, once frozen (the turn's text arrived, or the run ended).
+    pub frozen: Option<Duration>,
+    /// A `/details` copy: printed in full in the main screen.
+    pub full: bool,
+}
+
+/// Counters of an activity.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Counts {
+    pub calls: usize,
+    pub running: usize,
+    pub failed: usize,
+    pub no_result: usize,
+}
+
+impl Activity {
+    fn new(now: Instant, now_ms: i64) -> Activity {
+        Activity { steps: Vec::new(), started: now, start_ms: now_ms, thinking: None, frozen: None, full: false }
+    }
+    /// Every call, sub-task calls included (the details view, `/details`).
+    pub fn all_tools(&self) -> impl DoubleEndedIterator<Item = &Tool> {
+        self.steps.iter().filter_map(|s| if let Step::Tool(t) = s { Some(t) } else { None })
+    }
+    /// The main loop's calls: a sub-task's calls are nested under their `delegate` row instead.
+    pub fn tools(&self) -> impl DoubleEndedIterator<Item = &Tool> {
+        self.all_tools().filter(|t| t.parent.is_none())
+    }
+    /// The calls a `delegate` call ran, in arrival order.
+    pub fn children<'a>(&'a self, call_id: &'a str) -> impl DoubleEndedIterator<Item = &'a Tool> + 'a {
+        self.all_tools().filter(move |t| t.parent.as_deref() == Some(call_id))
+    }
+    fn tools_mut(&mut self) -> impl DoubleEndedIterator<Item = &mut Tool> {
+        self.steps.iter_mut().filter_map(|s| if let Step::Tool(t) = s { Some(t) } else { None })
+    }
+    pub fn counts(&self) -> Counts {
+        let mut c = Counts::default();
+        for t in self.tools() {
+            c.calls += 1;
+            c.running += usize::from(t.running());
+            c.failed += usize::from(t.failed());
+            c.no_result += usize::from(t.no_result());
+        }
+        c
+    }
+    /// `bash ×7 · read ×2`: the tool names by count, most used first (ties in first-use order).
+    pub fn names(&self) -> Vec<(String, usize)> {
+        let mut v: Vec<(String, usize)> = Vec::new();
+        for t in self.tools() {
+            match v.iter_mut().find(|(n, _)| *n == t.name) {
+                Some(e) => e.1 += 1,
+                None => v.push((t.name.clone(), 1)),
+            }
+        }
+        v.sort_by_key(|e| std::cmp::Reverse(e.1));
+        v
+    }
+    fn end_thinking(&mut self, now: Instant) {
+        if let Some(since) = self.thinking.take()
+            && let Some(Step::Thought { dur, .. }) = self.steps.iter_mut().rev().find(|s| matches!(s, Step::Thought { dur: None, .. }))
+        {
+            *dur = Some(now.duration_since(since));
+        }
+    }
+    /// Freezes: calls still running end as `no result`.
+    fn freeze(&mut self, now: Instant) {
+        self.end_thinking(now);
+        for t in self.tools_mut().filter(|t| t.dur.is_none()) {
+            t.dur = Some(now.duration_since(t.started));
+        }
+        self.frozen = Some(now.duration_since(self.started));
+    }
+    fn bytes(&self) -> usize {
+        self.steps
+            .iter()
+            .map(|s| match s {
+                Step::Tool(t) => t.start_text.len() + t.summary.as_ref().map_or(0, String::len) + t.detail.as_ref().map_or(0, String::len),
+                Step::Tokens(x) => x.len(),
+                Step::Thought { text, .. } => text.len(),
+            })
+            .sum()
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -384,7 +672,9 @@ pub enum Kind {
     /// Logical lines; the last one may still be growing while `!done`.
     Text { lines: Vec<String>, done: bool },
     Thinking { text: String, done: bool, started: Instant, dur: Option<Duration> },
-    Tool(Tool),
+    Activity(Activity),
+    /// A per-request token line outside an activity: hidden in the main screen (the status bar sums
+    /// it), shown in the transcript view.
     TurnEnd(String),
     Info(String),
     Error(String),
@@ -407,7 +697,7 @@ impl Block {
             Kind::Owner { st, .. } => *st != OwnerSt::Pending,
             Kind::Text { done, .. } => *done,
             Kind::Thinking { done, .. } => *done,
-            Kind::Tool(t) => t.ok.is_some() || t.dur.is_some(),
+            Kind::Activity(a) => a.frozen.is_some(),
             _ => true,
         }
     }
@@ -417,7 +707,7 @@ impl Block {
             Kind::Notice { text, .. } => text.len(),
             Kind::Text { lines, .. } => lines.iter().map(|l| l.len() + 1).sum(),
             Kind::Thinking { text, .. } => text.len(),
-            Kind::Tool(t) => t.start_text.len() + t.summary.as_ref().map_or(0, String::len) + t.detail.as_ref().map_or(0, String::len),
+            Kind::Activity(a) => a.bytes(),
             Kind::Retry => 0,
         }
     }
@@ -440,6 +730,8 @@ pub struct Transcript {
     pub md_at_commit: crate::render::md::MdState,
     open_text: Option<usize>,
     open_thinking: Option<usize>,
+    /// The activity block taking tool calls (§3.6), while it is not frozen.
+    open_act: Option<usize>,
     last_boot: Option<u64>,
     bytes: usize,
     /// Set when a new block was added or one changed (for the renderer).
@@ -462,6 +754,15 @@ impl Transcript {
     }
 
     pub fn push(&mut self, kind: Kind, at_ms: i64) -> usize {
+        // the owner's next line, an error, a divider or the reply's text end the tool activity (§3.6)
+        if matches!(kind, Kind::Error(_) | Kind::Divider(_)) {
+            self.end_activity(Instant::now());
+        }
+        // STEER: an owner line never ends a call that is still running (it keeps running in the
+        // body, and its result is still coming): the activity freezes only once no call runs
+        if matches!(kind, Kind::Owner { .. }) && self.running_tool().is_none() {
+            self.end_activity(Instant::now());
+        }
         let b = Block { kind, at_ms, expanded: false };
         self.bytes += b.bytes();
         self.blocks.push_back(b);
@@ -478,7 +779,7 @@ impl Transcript {
         let n = (self.blocks.len() / 10).max(1).min(self.committed.saturating_sub(self.base));
         for _ in 0..n {
             if let Some(b) = self.blocks.pop_front() {
-                self.bytes -= b.bytes();
+                self.bytes = self.bytes.saturating_sub(b.bytes());
                 self.base += 1;
             }
         }
@@ -490,14 +791,82 @@ impl Transcript {
         let start = self.committed.max(self.base) - self.base;
         let mut changed = false;
         for b in self.blocks.iter_mut().skip(start) {
-            if let Kind::Tool(t) = &mut b.kind
-                && t.dur.is_none()
-            {
-                t.dur = Some(now.duration_since(t.started));
-                changed = true;
+            if let Kind::Activity(a) = &mut b.kind {
+                for t in a.tools_mut().filter(|t| t.dur.is_none()) {
+                    t.dur = Some(now.duration_since(t.started));
+                    changed = true;
+                }
             }
         }
         self.dirty |= changed;
+    }
+
+    /// The open activity, if it is still in the live region (an overflow may have printed it).
+    fn open_activity(&mut self) -> Option<&mut Activity> {
+        let i = self.open_act?;
+        if i < self.committed || self.get(i).is_none() {
+            self.open_act = None;
+            return None;
+        }
+        self.dirty = true;
+        match self.blocks.get_mut(i - self.base).map(|b| &mut b.kind) {
+            Some(Kind::Activity(a)) if a.frozen.is_none() => Some(a),
+            _ => None,
+        }
+    }
+
+    /// The open activity, or a new one.
+    fn activity(&mut self, now: Instant, now_ms: i64) -> &mut Activity {
+        if self.open_activity().is_none() {
+            let i = self.push(Kind::Activity(Activity::new(now, now_ms)), now_ms);
+            self.open_act = Some(i);
+        }
+        self.open_activity().expect("just opened")
+    }
+
+    /// Freezes the open activity into its one-line summary (§3.6).
+    pub fn end_activity(&mut self, now: Instant) {
+        if let Some(a) = self.open_activity() {
+            a.freeze(now);
+        }
+        self.open_act = None;
+    }
+
+    /// `/details`: a copy of the last tool activity with every call expanded and the token line of
+    /// each request, pushed as a block, so it is printed into the main screen (the scrollback).
+    pub fn details(&mut self, now_ms: i64) -> Result<(), &'static str> {
+        let i = self.last_activity().ok_or("no tool activity yet")?;
+        let Some(Kind::Activity(mut a)) = self.get(i).map(|b| b.kind.clone()) else { return Err("no tool activity yet") };
+        if a.frozen.is_none() {
+            return Err("the tool activity is still running: Ctrl-O shows its details now");
+        }
+        // the token line of the request that started the activity sits just before it
+        if let Some(Kind::TurnEnd(x)) = i.checked_sub(1).and_then(|p| self.get(p)).map(|b| &b.kind) {
+            a.steps.insert(0, Step::Tokens(x.clone()));
+        }
+        a.full = true;
+        self.push(Kind::Activity(a), now_ms);
+        Ok(())
+    }
+
+    /// STEER: the call a steer waits behind, the oldest still running in the open activity (the
+    /// batch's results all come back before the body reads a steer).
+    pub fn running_tool(&self) -> Option<&Tool> {
+        let i = self.open_act.filter(|&i| i >= self.committed)?;
+        match &self.get(i)?.kind {
+            Kind::Activity(a) if a.frozen.is_none() => a.tools().filter(|t| t.running()).min_by_key(|t| t.started),
+            _ => None,
+        }
+    }
+
+    /// Is a tool activity running (for the spinner)?
+    pub fn activity_live(&self) -> bool {
+        self.open_act.and_then(|i| self.get(i)).is_some_and(|b| matches!(&b.kind, Kind::Activity(a) if a.frozen.is_none()))
+    }
+
+    /// The newest activity block (for Ctrl-O and `/details`).
+    pub fn last_activity(&self) -> Option<usize> {
+        (self.base..self.len()).rev().take(10_000).find(|&i| matches!(self.get(i).map(|b| &b.kind), Some(Kind::Activity(a)) if !a.full))
     }
 
     fn close_open(&mut self, now: Instant) {
@@ -541,6 +910,9 @@ impl Transcript {
         }
         match d.kind {
             DisplayKind::Text => {
+                if !d.text.trim().is_empty() {
+                    self.end_activity(now);
+                }
                 if let Some(i) = self.open_thinking.take() {
                     self.open_thinking = Some(i);
                     let t = self.open_text.take();
@@ -575,6 +947,16 @@ impl Transcript {
                 {
                     *done = true;
                 }
+                // thinking between tool calls folds into the activity
+                if let Some(a) = self.open_activity() {
+                    match a.steps.last_mut() {
+                        Some(Step::Thought { text, dur: None }) => text.push_str(&d.text),
+                        _ => a.steps.push(Step::Thought { text: d.text.clone(), dur: None }),
+                    }
+                    a.thinking.get_or_insert(now);
+                    self.bytes += d.text.len();
+                    return;
+                }
                 let i = match self.open_thinking {
                     Some(i) if self.get(i).is_some() => i,
                     _ => {
@@ -594,14 +976,28 @@ impl Transcript {
                 self.close_open(now);
                 let call_id = d.call_id.clone().unwrap_or_default();
                 let name = d.name.clone().unwrap_or_else(|| "tool".into());
-                self.push(Kind::Tool(Tool { call_id, name, start_text: d.text.clone(), ok: None, summary: None, detail: d.detail.clone(), started: now, start_ms: now_ms, dur: None }), now_ms);
+                self.bytes += d.text.len();
+                let a = self.activity(now, now_ms);
+                a.end_thinking(now);
+                a.steps.push(Step::Tool(Tool { call_id, name, start_text: d.text.clone(), ok: None, summary: None, detail: d.detail.clone(), started: now, start_ms: now_ms, dur: None, out: None, out_at: None, parent: d.parent.clone() }));
+            }
+            DisplayKind::ToolProgress => {
+                let cid = d.call_id.clone().unwrap_or_default();
+                let last = d.text.lines().rev().map(str::trim_end).find(|l| !l.trim().is_empty()).map(str::to_string);
+                if let Some(t) = self.open_activity().and_then(|a| a.tools_mut().rev().find(|t| t.call_id == cid && t.dur.is_none())) {
+                    if last.is_some() {
+                        t.out = last;
+                    }
+                    t.out_at = Some(now);
+                }
             }
             DisplayKind::ToolEnd => {
                 self.close_open(now);
                 let cid = d.call_id.clone().unwrap_or_default();
+                self.bytes += d.text.len();
                 // the most recent unfinished call with this id, among the last 1,000 blocks
                 let found = self.blocks.iter_mut().rev().take(1000).find_map(|b| match &mut b.kind {
-                    Kind::Tool(t) if t.call_id == cid && t.dur.is_none() => Some(t),
+                    Kind::Activity(a) => a.tools_mut().rev().find(|t| t.call_id == cid && t.dur.is_none()),
                     _ => None,
                 });
                 match found {
@@ -616,17 +1012,29 @@ impl Transcript {
                     }
                     None => {
                         let name = d.name.clone().unwrap_or_else(|| "tool".into());
-                        self.push(
-                            Kind::Tool(Tool { call_id: cid, name, start_text: String::new(), ok: Some(d.ok.unwrap_or(false)), summary: Some(d.text.clone()), detail: d.detail.clone(), started: now, start_ms: now_ms, dur: Some(Duration::ZERO) }),
-                            now_ms,
-                        );
+                        let a = self.activity(now, now_ms);
+                        a.end_thinking(now);
+                        a.steps.push(Step::Tool(Tool { call_id: cid, name, start_text: String::new(), ok: Some(d.ok.unwrap_or(false)), summary: Some(d.text.clone()), detail: d.detail.clone(), started: now, start_ms: now_ms, dur: Some(Duration::ZERO), out: None, out_at: None, parent: d.parent.clone() }));
                     }
                 }
             }
             DisplayKind::TurnEnd => {
                 self.close_open(now);
                 self.close_tools(now);
-                self.push(Kind::TurnEnd(d.text.clone()), now_ms);
+                // `tokens: …; n display deltas dropped`: the drop stays visible
+                let (tokens, dropped) = match d.text.split_once("; ") {
+                    Some((a, b)) if parse_tokens(a).is_some() => (a.to_string(), Some(b.to_string())),
+                    _ => (d.text.clone(), None),
+                };
+                if let Some(a) = self.open_activity() {
+                    a.end_thinking(now);
+                    a.steps.push(Step::Tokens(tokens));
+                } else {
+                    self.push(Kind::TurnEnd(tokens), now_ms);
+                }
+                if let Some(x) = dropped {
+                    self.push(Kind::Info(x), now_ms);
+                }
             }
             DisplayKind::Info | DisplayKind::Other => {
                 if d.kind == DisplayKind::Info && d.text.trim_start().starts_with("retrying") {
@@ -684,6 +1092,104 @@ impl Transcript {
 }
 
 // -------------------------------------------------------------------------------------------
+// Tokens and cache (§3.9): the per-request `turn_end` lines summed per turn and per session
+// -------------------------------------------------------------------------------------------
+
+/// One request's usage from its `turn_end` text: `tokens: in 118497 (cached 117760), out 961`.
+/// `input` counts every prompt token, cached ones included (seed `Usage.input`); `cached` is None
+/// when the line has no cache field (the provider did not report one), which is not 0.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Usage {
+    pub input: u64,
+    pub cached: Option<u64>,
+    pub output: u64,
+}
+
+fn digits(s: &str) -> Option<(u64, &str)> {
+    let n = s.bytes().take_while(u8::is_ascii_digit).count();
+    Some((s[..n].parse().ok()?, &s[n..]))
+}
+
+pub fn parse_tokens(text: &str) -> Option<Usage> {
+    let r = text.trim().strip_prefix("tokens: in ")?;
+    let (input, r) = digits(r)?;
+    let (cached, r) = match r.strip_prefix(" (cached ") {
+        Some(c) => {
+            let (c, r) = digits(c)?;
+            (Some(c), r.strip_prefix(')')?)
+        }
+        None => (None, r),
+    };
+    let (output, _) = digits(r.strip_prefix(", out ")?)?;
+    Some(Usage { input, cached, output })
+}
+
+/// The cache-hit rate, token-weighted: Σ cached / Σ input over the requests that reported a cache
+/// field. `Partial` when some requests did not report one; `Unknown` when none did (never 0%).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum CacheRate {
+    Unknown,
+    Exact(f64),
+    Partial(f64),
+}
+
+impl CacheRate {
+    /// `99.8%` (rounded down to 0.1%, so a rate is never overstated), `~99.8%`, `?`.
+    pub fn show(&self) -> String {
+        let pct = |r: f64| format!("{:.1}%", (r * 1000.0).floor() / 10.0);
+        match self {
+            CacheRate::Unknown => "?".into(),
+            CacheRate::Exact(r) => pct(*r),
+            CacheRate::Partial(r) => format!("~{}", pct(*r)),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Tally {
+    pub requests: u64,
+    pub input: u64,
+    pub output: u64,
+    pub cached: u64,
+    /// Σ input of the requests that reported a cache field (the rate's denominator).
+    pub cache_input: u64,
+    /// Requests without a cache field.
+    pub cache_unknown: u64,
+}
+
+impl Tally {
+    pub fn add(&mut self, u: &Usage) {
+        self.requests += 1;
+        self.input += u.input;
+        self.output += u.output;
+        match u.cached {
+            Some(c) => {
+                self.cached += c.min(u.input);
+                self.cache_input += u.input;
+            }
+            None => self.cache_unknown += 1,
+        }
+    }
+    pub fn cache(&self) -> CacheRate {
+        if self.cache_input == 0 {
+            return CacheRate::Unknown;
+        }
+        let r = self.cached as f64 / self.cache_input as f64;
+        if self.cache_unknown > 0 { CacheRate::Partial(r) } else { CacheRate::Exact(r) }
+    }
+}
+
+/// Token counts: `961`, `12.3k`, `238k`, `1.24M`.
+pub fn tok(n: u64) -> String {
+    match n {
+        0..1000 => n.to_string(),
+        1000..100_000 => format!("{:.1}k", n as f64 / 1e3),
+        100_000..1_000_000 => format!("{}k", n / 1000),
+        _ => format!("{:.2}M", n as f64 / 1e6),
+    }
+}
+
+// -------------------------------------------------------------------------------------------
 // Status-bar data (§3.9)
 // -------------------------------------------------------------------------------------------
 
@@ -715,6 +1221,11 @@ pub struct Info {
     pub access: Option<Value>,
     /// `$HOME`, to show the workspace as `~/…` (display only).
     pub home: Option<String>,
+    /// Tokens of the current (or last) turn, and of everything this TUI has seen.
+    pub turn: Tally,
+    pub session: Tally,
+    /// The Root's `total_spent_musd` when the turn began (for the turn's estimated cost).
+    turn_start_musd: Option<i64>,
 }
 
 impl Default for Info {
@@ -734,6 +1245,9 @@ impl Default for Info {
             ceilings_noticed: Vec::new(),
             access: None,
             home: None,
+            turn: Tally::default(),
+            session: Tally::default(),
+            turn_start_musd: None,
         }
     }
 }
@@ -775,7 +1289,10 @@ impl Info {
     pub fn on_state(&mut self, v: Value, now: Instant) {
         let busy = v["busy"] == true;
         match (busy, self.busy_since) {
-            (true, None) => self.busy_since = Some(now),
+            (true, None) => {
+                self.busy_since = Some(now);
+                self.begin_turn();
+            }
             (false, _) => self.busy_since = None,
             _ => {}
         }
@@ -784,6 +1301,46 @@ impl Info {
 
     pub fn busy(&self) -> bool {
         self.busy_since.is_some()
+    }
+
+    fn spent(&self) -> Option<i64> {
+        self.egress.as_ref().filter(|_| !self.egress_failed)?["money"]["total_spent_musd"].as_i64().filter(|m| *m >= 0)
+    }
+
+    /// A new turn: the run started (`state{busy:true}`), or an owner line was delivered while idle.
+    pub fn begin_turn(&mut self) {
+        self.turn = Tally::default();
+        self.turn_start_musd = self.spent();
+    }
+
+    /// An owner line reached the kernel: a new turn unless it steers the running one.
+    pub fn on_owner_delivered(&mut self) {
+        if !self.busy() {
+            self.begin_turn();
+        }
+    }
+
+    /// A `turn_end` line: its tokens are added to the turn and the session.
+    pub fn on_tokens(&mut self, text: &str) -> Option<Usage> {
+        let u = parse_tokens(text)?;
+        if self.turn.requests == 0 && self.turn_start_musd.is_none() {
+            self.turn_start_musd = self.spent();
+        }
+        self.turn.add(&u);
+        self.session.add(&u);
+        Some(u)
+    }
+
+    /// The turn's estimated cost: the change in the Root's ledger total since the turn began
+    /// (estimates from usage and tariffs, not an invoice; it includes any other spend in that time).
+    pub fn turn_musd(&self) -> Option<i64> {
+        Some((self.spent()? - self.turn_start_musd?).max(0))
+    }
+
+    /// `in 238k out 1.0k · cache 99.8% · $0.004`, the turn's line for the status bar and line mode.
+    pub fn turn_line(&self) -> String {
+        let cost = self.turn_musd().map_or_else(|| "$?".into(), crate::render::usd_fine);
+        format!("in {} out {} · cache {} · {cost}", tok(self.turn.input), tok(self.turn.output), self.turn.cache().show())
     }
 
     /// The Root's slot is panicked, halted or stopped (where `/resume` is the Root's).
@@ -985,7 +1542,7 @@ mod tests {
     fn transcript_tools_text_retry() {
         let now = Instant::now();
         let mut t = Transcript::default();
-        let d = |kind, text: &str| Display { kind, text: text.into(), call_id: None, name: None, ok: None, boot_seq: Some(1), detail: None };
+        let d = |kind, text: &str| Display { kind, text: text.into(), call_id: None, name: None, ok: None, boot_seq: Some(1), detail: None, parent: None };
         t.display(&d(DisplayKind::Text, "Hello\nwor"), now, 0);
         t.display(&d(DisplayKind::Text, "ld"), now, 0);
         let mut s = d(DisplayKind::ToolStart, "cat SELF.md");
@@ -997,7 +1554,7 @@ mod tests {
         e.ok = Some(true);
         t.display(&e, now + Duration::from_millis(300), 0);
         assert!(matches!(&t.get(0).unwrap().kind, Kind::Text { lines, done: true } if lines == &["Hello", "world"]));
-        assert!(matches!(&t.get(1).unwrap().kind, Kind::Tool(tool) if tool.ok == Some(true) && tool.dur == Some(Duration::from_millis(300))));
+        assert!(matches!(&t.get(1).unwrap().kind, Kind::Activity(a) if a.tools().next().is_some_and(|tool| tool.ok == Some(true) && tool.dur == Some(Duration::from_millis(300)))));
         // a retry with nothing printed blanks the partial text
         t.display(&d(DisplayKind::Text, "partial"), now, 0);
         t.display(&d(DisplayKind::Info, "retrying (1/3)"), now, 0);
@@ -1007,6 +1564,184 @@ mod tests {
         b.boot_seq = Some(2);
         t.display(&b, now, 0);
         assert!(t.blocks.iter().any(|b| matches!(&b.kind, Kind::Divider(s) if s == "body restarted (boot 2)")));
+    }
+
+    fn tool_d(kind: DisplayKind, id: &str, name: &str, text: &str, ok: Option<bool>) -> Display {
+        Display { kind, text: text.into(), call_id: Some(id.into()), name: Some(name.into()), ok, boot_seq: Some(1), detail: None, parent: None }
+    }
+
+    fn plain(kind: DisplayKind, text: &str) -> Display {
+        Display { kind, text: text.into(), call_id: None, name: None, ok: None, boot_seq: Some(1), detail: None, parent: None }
+    }
+
+    #[test]
+    fn tool_calls_between_texts_are_one_activity_that_freezes_on_text() {
+        let now = Instant::now();
+        let mut t = Transcript::default();
+        t.display(&plain(DisplayKind::Text, "Let me look."), now, 0);
+        t.display(&plain(DisplayKind::TurnEnd, "tokens: in 100 (cached 90), out 5"), now, 0);
+        for i in 0..5 {
+            let id = format!("c{i}");
+            t.display(&tool_d(DisplayKind::ToolStart, &id, "bash", "ls", None), now, 0);
+            t.display(&plain(DisplayKind::Thinking, "hmm"), now, 0);
+            t.display(&tool_d(DisplayKind::ToolEnd, &id, "bash", "exit 0", Some(i != 2)), now + Duration::from_secs(1), 0);
+            t.display(&plain(DisplayKind::TurnEnd, "tokens: in 200 (cached 190), out 6; 2 display deltas dropped"), now, 0);
+        }
+        // one text block, one hidden token line, one activity, and the visible drop notes
+        let acts: Vec<&Activity> = t.blocks.iter().filter_map(|b| if let Kind::Activity(a) = &b.kind { Some(a) } else { None }).collect();
+        assert_eq!(acts.len(), 1);
+        assert_eq!(acts[0].counts(), Counts { calls: 5, running: 0, failed: 1, no_result: 0 });
+        assert_eq!(acts[0].steps.iter().filter(|s| matches!(s, Step::Tokens(x) if !x.contains("dropped"))).count(), 5);
+        assert!(acts[0].frozen.is_none());
+        assert!(t.blocks.iter().any(|b| matches!(&b.kind, Kind::Info(x) if x == "2 display deltas dropped")));
+        assert!(!t.blocks.iter().any(|b| matches!(b.kind, Kind::Thinking { .. })), "thinking folds into the activity");
+        // whitespace text does not end it; the reply's text does
+        t.display(&plain(DisplayKind::Text, "\n"), now, 0);
+        assert!(t.activity_live());
+        t.display(&plain(DisplayKind::Text, "Done."), now + Duration::from_secs(9), 0);
+        assert!(!t.activity_live());
+        let a = t.blocks.iter().find_map(|b| if let Kind::Activity(a) = &b.kind { Some(a) } else { None }).unwrap();
+        assert_eq!(a.frozen, Some(Duration::from_secs(9)));
+        assert_eq!(t.last_activity().map(|i| matches!(t.get(i).unwrap().kind, Kind::Activity(_))), Some(true));
+        // the next tool call starts a new activity
+        t.display(&tool_d(DisplayKind::ToolStart, "d1", "read", "x", None), now, 0);
+        assert!(t.activity_live());
+        // STEER: an owner line typed while a call runs does not end it (no false `? no result`):
+        // the call keeps running and its result still lands in the activity ...
+        t.push(Kind::Owner { id: 9, text: "stop".into(), st: OwnerSt::Delivered }, 0);
+        let last = t.last_activity().unwrap();
+        assert!(matches!(&t.get(last).unwrap().kind, Kind::Activity(a) if a.counts() == Counts { calls: 1, running: 1, failed: 0, no_result: 0 } && a.frozen.is_none()));
+        assert_eq!(t.running_tool().map(|x| x.call_id.as_str()), Some("d1"));
+        t.display(&tool_d(DisplayKind::ToolEnd, "d1", "read", "12 lines", Some(true)), now + Duration::from_secs(2), 0);
+        assert!(matches!(&t.get(last).unwrap().kind, Kind::Activity(a) if a.counts() == Counts { calls: 1, running: 0, failed: 0, no_result: 0 }));
+        // ... and the next owner line (the steer, once read) freezes it, all ok
+        t.push(Kind::Owner { id: 10, text: "and test it".into(), st: OwnerSt::Seen }, 0);
+        assert!(matches!(&t.get(last).unwrap().kind, Kind::Activity(a) if a.counts().no_result == 0 && a.frozen.is_some()));
+        assert!(t.running_tool().is_none());
+    }
+
+    fn st(pending: &[u64], seen: &[u64], retracted: &[u64]) -> Value {
+        serde_json::json!({"busy": true, "t": "state", "steer_pending": pending, "steer_seen": seen, "steer_retracted": retracted})
+    }
+
+    #[test]
+    fn tray_items_leave_when_seen_or_retracted() {
+        let now = Instant::now();
+        let mut tr = Tray::default();
+        tr.on_state(&st(&[], &[], &[]));
+        assert!(tr.tracked);
+        tr.add(1, "fix the test name", false, now);
+        tr.add(2, "then run clippy", true, now);
+        assert!(tr.has_pending_steer());
+        assert_eq!(tr.retract_newest(), Err("not confirmed by the kernel yet: try again in a moment"));
+        assert_eq!(tr.on_echo(1, OwnerSt::Delivered, Some(7)), None);
+        assert_eq!(tr.on_echo(2, OwnerSt::Delivered, Some(8)), None);
+        assert_eq!((tr.items[0].st, tr.items[0].seq), (TraySt::Pending, Some(7)));
+        // a state before the ack changes nothing
+        assert!(tr.on_state(&st(&[7, 8], &[5, 6], &[])).is_empty());
+        // Up takes back the newest (the follow-up); the kernel confirms
+        assert_eq!(tr.retract_newest(), Ok(8));
+        assert_eq!(tr.items[1].st, TraySt::Retracting);
+        let out = tr.on_state(&st(&[7], &[5, 6], &[8]));
+        assert!(matches!(&out[..], [TrayOut::Retracted(i)] if i.id == 2));
+        // the steer is acked: seen
+        let out = tr.on_state(&st(&[], &[5, 6, 7], &[8]));
+        assert!(matches!(&out[..], [TrayOut::Seen(i)] if i.id == 1 && i.text == "fix the test name"));
+        assert!(tr.is_empty() && !tr.has_pending_steer());
+    }
+
+    #[test]
+    fn tray_retract_refused_and_old_kernels() {
+        let now = Instant::now();
+        let mut tr = Tray { tracked: true, ..Tray::default() };
+        tr.add(1, "a", false, now);
+        tr.on_echo(1, OwnerSt::Delivered, Some(3));
+        assert_eq!(tr.retract_newest(), Ok(3));
+        assert!(!tr.has_pending_steer(), "a line being taken back no longer steers on Esc");
+        assert!(tr.retract_refused(3));
+        assert_eq!(tr.items[0].st, TraySt::Pending);
+        // a seq that fell off the seen ring (no longer pending) still counts as seen
+        assert!(matches!(&tr.on_state(&st(&[9], &[10], &[]))[..], [TrayOut::Seen(_)]));
+        // Root-held lines cannot be taken back yet
+        tr.add(2, "b", false, now);
+        tr.on_echo(2, OwnerSt::Queued, None);
+        assert_eq!(tr.items[0].st, TraySt::Held);
+        assert!(tr.retract_newest().unwrap_err().contains("held by the Root"));
+        // an older kernel (no steer lists): delivered at the echo, as before STEER
+        let mut old = Tray::default();
+        old.add(4, "c", false, now);
+        assert!(old.on_state(&serde_json::json!({"busy": true, "t": "state"})).is_empty());
+        assert!(matches!(old.on_echo(4, OwnerSt::Delivered, Some(1)), Some(TrayOut::Delivered(i)) if i.id == 4));
+        assert_eq!(retract_notice("[kernel] taken back: message 12 will not be read"), Some((true, 12)));
+        assert_eq!(retract_notice("[kernel] not taken back: message 3 was already read by the agent"), Some((false, 3)));
+        assert_eq!(retract_notice("[kernel] promoted"), None);
+    }
+
+    #[test]
+    fn progress_updates_the_running_call() {
+        let now = Instant::now();
+        let mut t = Transcript::default();
+        t.display(&tool_d(DisplayKind::ToolStart, "c1", "bash", "cargo build", None), now, 0);
+        t.display(&tool_d(DisplayKind::ToolProgress, "c1", "bash", "   Compiling a v1\n   Compiling b v2\n\n", None), now + Duration::from_secs(3), 0);
+        let a = t.blocks.iter().find_map(|b| if let Kind::Activity(a) = &b.kind { Some(a) } else { None }).unwrap();
+        let tool = a.tools().next().unwrap();
+        assert_eq!(tool.out.as_deref(), Some("   Compiling b v2"));
+        assert_eq!(tool.out_at, Some(now + Duration::from_secs(3)));
+    }
+
+    #[test]
+    fn token_lines_parse_and_cache_is_token_weighted() {
+        assert_eq!(parse_tokens("tokens: in 119586 (cached 119424), out 79"), Some(Usage { input: 119_586, cached: Some(119_424), output: 79 }));
+        assert_eq!(parse_tokens("tokens: in 5, out 6"), Some(Usage { input: 5, cached: None, output: 6 }));
+        assert_eq!(parse_tokens("tokens: in 5 (cached 1), out 6; 3 display deltas dropped").map(|u| u.output), Some(6));
+        assert_eq!(parse_tokens("retrying (1/3)"), None);
+        // the owner's question: 119424 / 119586 is one request's rate (99.86%, shown rounded down)
+        let mut one = Tally::default();
+        one.add(&parse_tokens("tokens: in 119586 (cached 119424), out 79").unwrap());
+        assert_eq!(one.cache().show(), "99.8%");
+        // weighted, not the mean of rates: (90 + 0) / (100 + 900) = 9%, not (90% + 0%) / 2
+        let mut t = Tally::default();
+        t.add(&Usage { input: 100, cached: Some(90), output: 1 });
+        t.add(&Usage { input: 900, cached: Some(0), output: 1 });
+        assert_eq!(t.cache(), CacheRate::Exact(0.09));
+        assert_eq!(t.cache().show(), "9.0%");
+        // a missing cache field is unknown, never 0%
+        let mut u = Tally::default();
+        u.add(&Usage { input: 5, cached: None, output: 6 });
+        assert_eq!(u.cache(), CacheRate::Unknown);
+        assert_eq!(u.cache().show(), "?");
+        u.add(&Usage { input: 10, cached: Some(5), output: 1 });
+        assert_eq!(u.cache().show(), "~50.0%", "partial: only requests that reported a cache field");
+        assert_eq!(Tally::default().cache().show(), "?");
+        assert_eq!((tok(961), tok(12_345), tok(238_102), tok(1_240_000)), ("961".into(), "12.3k".into(), "238k".into(), "1.24M".into()));
+    }
+
+    #[test]
+    fn turn_and_session_tallies_and_cost() {
+        let now = Instant::now();
+        let mut i = Info::default();
+        let money = |m: i64| json!({"money": {"enforced": false, "policy": "observe", "total_spent_musd": m}});
+        i.on_egress(money(1_000_000));
+        i.on_state(json!({"busy": true}), now);
+        i.on_tokens("tokens: in 1000 (cached 900), out 10");
+        i.on_egress(money(1_004_200));
+        i.on_tokens("tokens: in 3000 (cached 2900), out 20");
+        assert_eq!(i.turn.requests, 2);
+        assert_eq!(i.turn_musd(), Some(4_200));
+        assert_eq!(i.turn_line(), "in 4.0k out 30 · cache 95.0% · $0.004");
+        // a steer while busy is the same turn; the next run is a new one
+        i.on_owner_delivered();
+        assert_eq!(i.turn.requests, 2);
+        i.on_state(json!({"busy": false}), now);
+        i.on_state(json!({"busy": true}), now);
+        assert_eq!(i.turn.requests, 0);
+        i.on_tokens("tokens: in 10, out 1");
+        assert_eq!(i.session.requests, 3);
+        assert_eq!(i.session.cache().show(), "~95.0%");
+        assert_eq!(i.turn.cache().show(), "?");
+        // no ledger: the cost is unknown, not $0
+        i.egress_failed = true;
+        assert!(i.turn_line().ends_with("· $?"), "{}", i.turn_line());
     }
 
     #[test]

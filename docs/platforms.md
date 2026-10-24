@@ -116,6 +116,71 @@ Changes that **do** alter macOS behaviour are separate, flagged steps after PLAT
 
 ### 3.4 Linux
 
+#### 3.4.0 Implementation status (LINUX lane, 2026-10-24)
+
+What the code does today. Where it differs from the design below, this subsection is the current truth.
+
+- **Verified natively** (Docker, `--privileged` container, tests run as uid 1000, $0, mock model only):
+  - **Build and qualification:** Debian 12 (bookworm), Linux 6.10 (linuxkit), aarch64, bubblewrap 0.13.0 built from source,
+    gcc 12, Rust 1.97.1. Results: the full `ci/local.sh` Linux subset (see build/status/LINUX.md for the counts), and
+    the native zone qualification:
+    - `linux_zone_real_isolation`: Build profile mounts, seccomp, no network, and a real `cc` → `cc1` → `ld` run inside
+      the zone, which qualifies commit c4ab500;
+    - `linux_sealed_real_isolation`;
+    - `linux_pidfd_tracked_stop_kill_isolates_owned_target`;
+    - the memory watchdog killing one tool call behind bwrap;
+    - the cgroup v2 `memory.max` backstop in a delegated subtree.
+  - **Bundle e2e:** Ubuntu 24.04 with no Rust, the same kernel, aarch64. Flow: `get.sh --from` the Linux bundle →
+    install → the TUI first run with a `test-` key on the mock → one line round trip → `/usage` → uninstall.
+    It took 19.5 s end to end; get.sh plus install took 13.5 s. The container was *not* privileged: Docker needs
+    only `--security-opt seccomp=unconfined --security-opt systempaths=unconfined` (for user namespaces and bwrap's
+    `--proc`), plus `--init`. The genesis body is built inside the Linux Build zone during `scripts/bundle.sh`
+    (about 5 min).
+  - **Service:** the systemd user unit is enabled and running in a systemd container; this was tested with Ubuntu
+    24.04 and systemd 255. The Root sits in its delegated leaf `init-root.service/init-root` with `+memory` enabled
+    for workloads, and it keeps the delegation across `systemctl --user restart`. `uninstall.sh` disables the unit
+    and moves it to the Trash.
+  - **Live cgroup leaf:** on the same product path (a `Delegate=memory` user scope, the real kernel and body), the body
+    instance ran in `w-<id>` with `memory.max = 4294967296` and `swap.max = 0`. The kernel ran in no leaf.
+- **Not verified:** x86_64 (all four workspaces pass `cargo check --all-targets --target x86_64-unknown-linux-gnu`,
+  but nothing ran on x86_64); real hardware or a VM
+  rather than Docker; Ubuntu with `kernel.apparmor_restrict_unprivileged_userns=1` (§3.4.6; Docker has no AppArmor
+  here); Fedora with SELinux; kernels older than 6.1; WSL2; a live provider on Linux.
+- **bubblewrap floor: 0.13.0** at `/usr/bin/bwrap` (`install.rs` `check_tools`; fd-pinned `--bind-fd`/`--ro-bind-fd`
+  binds). This is above the 0.8.0 of §3.4.1. No distro LTS ships 0.13 yet, so install it from the upstream release:
+  `curl -LO https://github.com/containers/bubblewrap/releases/download/v0.13.0/bubblewrap-0.13.0.tar.xz`, verify its
+  sha256 `4734237473c0e5d695e4e9034a34e43b2dbf5164655bd13fa59ae376b2b7a765`, then
+  `meson setup build bubblewrap-0.13.0 --prefix=/usr -Dman=disabled -Dtests=false && ninja -C build && sudo ninja -C build install`.
+  This needs meson, ninja, a C compiler and libcap-dev. `install.sh` checks for it, for working user/pid/net
+  namespaces, and for util-linux `unshare`, python3 and git ≥ 2.39.4, and says how to fix each.
+- **Bundle:** `init-v<version>-linux-arm64.tar.gz` or `init-v<version>-linux-x86_64.tar.gz`. It is built on Debian 12,
+  so it needs glibc ≥ 2.36. musl is not supported. `get.sh` picks the asset from `uname -m`.
+- **ADR-009 on Linux is capped off.** There are no home reads, no workspace writes and no full mode
+  (`access.rs` `LINUX_HOME_GRANTS`). The split-bind plan of §3.4.4 is not built, so the body works inside INIT_HOME
+  only. `init` launched in a project directory says "workspace mode is not available on Linux yet". This fails closed:
+  there is never an unconfined fallback.
+- **Memory and disk:** this matches macOS's MEM-RUNAWAY behaviour, and adds a hard cap where the Root has a delegated
+  cgroup.
+  - **The 1 s watchdog:** it reads /proc RSS + swap. The bwrap hops are not units (`memwatch::launcher_view`).
+    Kill records name the tool call by its pid-namespace pid, and kills go through pidfd only.
+  - **The disk floor:** same as macOS.
+  - **The hard cap:** where the Root runs in a delegated cgroup v2 subtree (the unit says `Delegate=memory`), each
+    workload instance (every zone instance but the kernel, and each sealed run) gets its own leaf with
+    `memory.max = sandbox.mem_cap_mib` and `memory.swap.max = 0`, joined before exec (cgroup.rs). The kernel's OOM
+    killer then takes the largest process at once, the kill is recorded as a `mem_cap` event with scope `cgroup`,
+    and the owner gets an alert.
+  - **Without delegation** (a terminal `init-root start`, cgroup v1): the polling watchdog alone, logged at start.
+  - **Known differences:**
+    - a body and its tool calls share one `memory.max`, where the watchdog caps each separately;
+    - a leaf left by a Root that was killed (for example by `systemctl stop`) is removed at the next start, once
+      it is empty.
+- **Service:** `~/.config/systemd/user/init-root.service`. It has `Restart=always`, `KillMode=mixed` and
+  `Delegate=memory`, and is enabled with `systemctl --user enable --now` unless `--no-service`. It runs while you are
+  logged in; run `loginctl enable-linger` to keep it running after logout. `uninstall.sh` disables it and moves it to
+  the freedesktop Trash (`~/.local/share/Trash`, with `.trashinfo`), as it does both homes.
+- **Keys:** a 0600 file under `ROOT_HOME/keys/` (§3.4.9's Secret Service backend is not built).
+- **Landlock:** not applied. The mount namespace, seccomp and the empty network namespace are the boundary.
+
 #### 3.4.1 Support and minimum versions
 
 | Requirement | Minimum | Why | `doctor` on failure |

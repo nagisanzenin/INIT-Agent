@@ -1,0 +1,67 @@
+-- failures never fold (live)
+== 80x24 ==
+▸ bash   cat SELF.md                                  ✓ exit 0, 96 lines · 0.3 s|ddbbbb................................................ggdddddddddddddddddddddddd
+Read it.                                                                        |........                                                                        
+⠸ waiting for the model…                              6 calls · 2 failed · 6.0 s|ccdddddddddddddddddddddd..............................ddddddddddrrrrrrrrdddddddd
+  … +1 more                                                                     |ddddddddddd                                                                     
+  ▸ bash   cargo test -p crate1                     ✗ exit 101, 12 lines · 0.5 s|..ddbbbb............................................rrrrrrrrrrrrrrrrrrrrdddddddd
+  ▸ bash   cargo test -p crate2                                 ✓ exit 0 · 0.5 s|..ddbbbb........................................................ggdddddddddddddd
+  ▸ bash   cargo test -p crate3                                 ✓ exit 0 · 0.5 s|..ddbbbb........................................................ggdddddddddddddd
+  ▸ bash   cargo test -p crate4                                 ✓ exit 0 · 0.5 s|..ddbbbb........................................................ggdddddddddddddd
+  ▸ bash   cargo test -p crate5                     ✗ exit 101, 12 lines · 0.5 s|..ddbbbb............................................rrrrrrrrrrrrrrrrrrrrdddddddd
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
+cursor 4,10
+-- thinking between calls
+== 80x24 ==
+▸ bash   cat SELF.md                                  ✓ exit 0, 96 lines · 0.3 s|ddbbbb................................................ggdddddddddddddddddddddddd
+Read it.                                                                        |........                                                                        
+⠸ thinking…                                           6 calls · 2 failed · 7.0 s|ccddddddddd...........................................ddddddddddrrrrrrrrdddddddd
+  … +1 more                                                                     |ddddddddddd                                                                     
+  ▸ bash   cargo test -p crate1                     ✗ exit 101, 12 lines · 0.5 s|..ddbbbb............................................rrrrrrrrrrrrrrrrrrrrdddddddd
+  ▸ bash   cargo test -p crate2                                 ✓ exit 0 · 0.5 s|..ddbbbb........................................................ggdddddddddddddd
+  ▸ bash   cargo test -p crate3                                 ✓ exit 0 · 0.5 s|..ddbbbb........................................................ggdddddddddddddd
+  ▸ bash   cargo test -p crate4                                 ✓ exit 0 · 0.5 s|..ddbbbb........................................................ggdddddddddddddd
+  ▸ bash   cargo test -p crate5                     ✗ exit 101, 12 lines · 0.5 s|..ddbbbb............................................rrrrrrrrrrrrrrrrrrrrdddddddd
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
+cursor 4,10
+== 80x24 ==
+▸ bash   cat SELF.md                                  ✓ exit 0, 96 lines · 0.3 s|ddbbbb................................................ggdddddddddddddddddddddddd
+Read it.                                                                        |........                                                                        
+⠸ thinking…                                           6 calls · 2 failed · 7.0 s|ccddddddddd...........................................ddddddddddrrrrrrrrdddddddd
+    Two crates fail.                                                            |....dddddddddddddddd                                                            
+    Both on the same assert.                                                    |....dddddddddddddddddddddddd                                                    
+    Check the fixture first.                                                    |....dddddddddddddddddddddddd                                                    
+  … +1 more                                                                     |ddddddddddd                                                                     
+  ▸ bash   cargo test -p crate1                     ✗ exit 101, 12 lines · 0.5 s|..ddbbbb............................................rrrrrrrrrrrrrrrrrrrrdddddddd
+  ▸ bash   cargo test -p crate2                                 ✓ exit 0 · 0.5 s|..ddbbbb........................................................ggdddddddddddddd
+  ▸ bash   cargo test -p crate3                                 ✓ exit 0 · 0.5 s|..ddbbbb........................................................ggdddddddddddddd
+  ▸ bash   cargo test -p crate4                                 ✓ exit 0 · 0.5 s|..ddbbbb........................................................ggdddddddddddddd
+  ▸ bash   cargo test -p crate5                     ✗ exit 101, 12 lines · 0.5 s|..ddbbbb............................................rrrrrrrrrrrrrrrrrrrrdddddddd
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
+cursor 4,13
+-- frozen with failures and an interrupted call
+== 80x24 ==
+▸ bash   cat SELF.md                                  ✓ exit 0, 96 lines · 0.3 s|ddbbbb................................................ggdddddddddddddddddddddddd
+Read it.                                                                        |........                                                                        
+▸ ran 7 tools in 10 s · bash ×7                       ✗ 2 failed · ? 1 no result|dd...................dddddddddd.......................rrrrrrrrrrdddyyyyyyyyyyyyy
+  ▸ bash   cargo test -p crate1                     ✗ exit 101, 12 lines · 0.5 s|..ddbbbb............................................rrrrrrrrrrrrrrrrrrrrdddddddd
+  ▸ bash   cargo test -p crate5                     ✗ exit 101, 12 lines · 0.5 s|..ddbbbb............................................rrrrrrrrrrrrrrrrrrrrdddddddd
+  ▸ bash   sleep 600                                         ? no result · 2.5 s|..ccbbbb.....................................................ddddddddddddddddddd
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > Type a message · / for commands · ? for keys                               │|eeccdddddddddddddddddddddddddddddddddddddddddddd..............................ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · deepseek-flash · +$0.00 since attach · $1.23/$5.00 today · running        |.bbdddddddddddddddddddddddddddddddddddddddddd.................ddd.......        
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
+cursor 4,7

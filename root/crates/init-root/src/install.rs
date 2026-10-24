@@ -684,9 +684,13 @@ fn service_file(p: &Paths) -> io::Result<PathBuf> {
              <key>StandardOutPath</key><string>{rh}/logs/launchd.log</string>\n<key>StandardErrorPath</key><string>{rh}/logs/launchd.log</string>\n\
              </dict></plist>\n"))
     } else {
+        // LINUX: systemd quoting, not XML (a literal `%` is `%%`; `"` and `\` are escaped inside the quotes).
+        // Delegate=memory gives the Root its own cgroup v2 subtree for the per-workload memory.max (cgroup.rs).
+        let q = |s: &Path| s.display().to_string().replace('\\', "\\\\").replace('"', "\\\"").replace('%', "%%");
+        let (exe, rh) = (q(&p.r("bin/init-root")), q(&p.rh));
         (service_path(p), format!(
             "[Unit]\nDescription=INIT Root\n\n[Service]\nExecStart=\"{exe}\" start\nEnvironment=\"INIT_ROOT_HOME={rh}\"\n\
-             Restart=always\nRestartSec=2\nKillMode=mixed\nTimeoutStopSec=60\n\n[Install]\nWantedBy=default.target\n"))
+             Restart=always\nRestartSec=2\nKillMode=mixed\nTimeoutStopSec=60\nDelegate=memory\n\n[Install]\nWantedBy=default.target\n"))
     };
     fs::create_dir_all(f.parent().ok_or_else(|| bad("service dir"))?)?;
     write_atomic(&f, text.as_bytes(), 0o644)?;

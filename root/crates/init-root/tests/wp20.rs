@@ -113,7 +113,9 @@ fn install_lays_out_both_homes_and_records_genesis() {
     assert_eq!(mode(&h.rh.join("keys/lineage.ed25519")), 0o600);
     assert_eq!(fs::metadata(h.rh.join("keys/lineage.ed25519")).unwrap().len(), 32);
     assert_eq!(mode(&h.rh.join("run/canary")), 0o400);
-    assert!(h.rh.join("keys/mirror_ed25519.pub").is_file() && h.rh.join("bin/init-root").is_file());
+    // the mirror deploy key needs ssh-keygen, which minimal Linux installs lack (install skips it there)
+    assert!(h.rh.join("keys/mirror_ed25519.pub").is_file() || !Path::new("/usr/bin/ssh-keygen").exists());
+    assert!(h.rh.join("bin/init-root").is_file());
     for d in ["kernel/bin", "bin", "body", "work", "state/kernel", "probe", "cache", "vault", "run/mark", "root", "lineage/kernel.git"] {
         assert!(h.ih.join(d).is_dir(), "INIT_HOME/{d}");
     }
@@ -132,7 +134,14 @@ fn install_lays_out_both_homes_and_records_genesis() {
     assert_eq!(view["supported_max_level"], 4); // a test build
     let st: Value = serde_json::from_str(&fs::read_to_string(h.ih.join("root/status.json")).unwrap()).unwrap();
     assert_eq!((st["slot"].as_str(), st["level"].as_i64()), (Some("stopped"), Some(0)));
+    #[cfg(target_os = "macos")]
     assert!(h.dir.join("Library/LaunchAgents/dev.init.root.plist").is_file(), "service file under the test HOME");
+    #[cfg(not(target_os = "macos"))]
+    {
+        // LINUX: the systemd user unit, with its own cgroup subtree for the per-workload memory.max
+        let unit = fs::read_to_string(h.dir.join(".config/systemd/user/init-root.service")).expect("service file under the test HOME");
+        assert!(unit.contains("\nDelegate=memory\n") && unit.contains(&format!("Environment=\"INIT_ROOT_HOME={}\"", h.rh.display())), "{unit}");
+    }
     assert_eq!(h.run(&["install"]).status.code(), Some(1), "a second install is refused");
 }
 
@@ -194,7 +203,12 @@ fn keys_set_reads_only_a_tty_and_stores_0600() {
     assert_eq!(h.run(&["keys", "set", "Bad/Id"]).status.code(), Some(64));
     // through a pseudo-terminal: /usr/bin/script runs the CLI on a pty fed from our pipe
     let mut c = Command::new("/usr/bin/script");
-    c.args(["-q", "/dev/null", BIN, "keys", "set", "deepseek"]).env_clear()
+    #[cfg(target_os = "macos")]
+    c.args(["-q", "/dev/null", BIN, "keys", "set", "deepseek"]);
+    // LINUX: util-linux script takes the command as one -c string (BIN has no single quote)
+    #[cfg(not(target_os = "macos"))]
+    c.args(["-q", "-e", "-c", &format!("'{BIN}' keys set deepseek"), "/dev/null"]);
+    c.env_clear()
         .env("HOME", &h.dir).env("INIT_ROOT_HOME", &h.rh).env("PATH", "/usr/bin:/bin");
     let mut child = c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut stdin = child.stdin.take().unwrap();
@@ -335,8 +349,17 @@ fn sandboxed_peers_are_rejected() {
     let h = home("peer");
     h.install("[root]\ntest_mode = true\n");
     let _d = h.daemon(&[]);
-    // a sandbox applied only to a process this test spawns
-    let o = Command::new("/usr/bin/sandbox-exec").args(["-p", "(version 1)(allow default)", BIN, "status", "--json"])
+    // a sandbox applied only to a process this test spawns (LINUX: bwrap's own pid namespace, which `sys::sandboxed`
+    // tells apart by its pid-namespace inode)
+    #[cfg(target_os = "macos")]
+    let mut c = Command::new("/usr/bin/sandbox-exec");
+    #[cfg(target_os = "macos")]
+    c.args(["-p", "(version 1)(allow default)", BIN, "status", "--json"]);
+    #[cfg(not(target_os = "macos"))]
+    let mut c = Command::new("/usr/bin/bwrap");
+    #[cfg(not(target_os = "macos"))]
+    c.args(["--unshare-user", "--unshare-pid", "--die-with-parent", "--dev-bind", "/", "/", "--proc", "/proc", BIN, "status", "--json"]);
+    let o = c
         .env_clear().env("HOME", &h.dir).env("INIT_ROOT_HOME", &h.rh).env("PATH", "/usr/bin:/bin").output().unwrap();
     assert_ne!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stdout));
     assert!(fs::read_to_string(h.rh.join("logs/root.jsonl")).unwrap().contains("peer rejected"));

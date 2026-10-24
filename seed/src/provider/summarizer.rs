@@ -54,6 +54,7 @@ impl Summarizer for ProxySummarizer {
             session: c.session,
             purpose: Purpose::Compaction.as_str(),
             task: c.task,
+            subtask: None,
             // A compaction leaves the marks to the next turn request it serves.
             caps: None,
         };

@@ -23,7 +23,12 @@ pub fn lock<T>(m: &Mutex<T>) -> MutexGuard<'_, T> {
 pub fn home(name: &str) -> PathBuf {
     let base = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-homes/tui");
     fs::create_dir_all(&base).unwrap();
-    let base = fs::canonicalize(base).unwrap();
+    // INIT_TUI_TEST_HOMES: a shorter path to the same directory (a symlink), for checkouts whose
+    // path makes `rh/run/owner.sock` longer than a Unix socket path may be (104 bytes on macOS)
+    let base = match std::env::var_os("INIT_TUI_TEST_HOMES") {
+        Some(b) => PathBuf::from(b),
+        None => fs::canonicalize(base).unwrap(),
+    };
     let d = base.join(name);
     if d.exists() {
         fs::remove_dir_all(&d).unwrap(); // exact path, created by an earlier run of this test
@@ -366,7 +371,7 @@ fn serve(st: Arc<Mutex<State>>, s: UnixStream) {
                     emit(&mut g, json!({"busy": false, "level": 0, "members": 0, "mode": "normal", "queued": 0, "sha12": "3f9c0a1b2c4d", "slot": "running", "t": "state"}));
                 }
             }
-            Some("interrupt") | Some("panic") => {}
+            Some("interrupt") | Some("panic") | Some("retract") => {} // STEER: the test plays the kernel
             _ => break, // detach, or an unknown frame
         }
     }

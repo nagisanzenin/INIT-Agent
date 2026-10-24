@@ -228,6 +228,9 @@ impl Drop for Attach {
 
 /// Slice-1 path: the kernel under the `kernel` profile, a body under `body` with its stdio handed over
 /// fd 4, owner lines as `owner.in` and display frames back, Ctrl-C as `interrupt`, the queue across a stop.
+// LINUX: macOS only; it checks both instances with Seatbelt's sandbox_check. The Linux zone has its own qualification
+// (init-root linux_zone_real_isolation, linux_sealed_real_isolation) and the bundle e2e round trip.
+#[cfg(target_os = "macos")]
 #[test]
 fn slice1_kernel_in_zone_owner_round_trip_and_stop_start() {
     let h = home("s1");
@@ -341,8 +344,11 @@ fn panic_channels_resume_and_latch_survives_restart() {
     // RT-P7: resume → rollback to audited-good, `resume`, kernel with reason panic_resume, same session
     h.ok(&["resume"]);
     let (st, _) = h.running();
-    assert_eq!(st["tuples"]["current"], genesis, "rolled back to audited-good");
+    // the rollback names audited-good; the resumed fake kernel promotes again at once, so `current` may already have
+    // moved past it by the time the status is read (LINUX: the namespaced kernel gets there first more often)
     let rb = h.last("rollback");
+    assert!(st["tuples"]["current"] == genesis || h.last("lkg")["seq"].as_u64() > rb["seq"].as_u64(), "rolled back to audited-good: {st}");
+    assert_eq!(rb["data"]["to"], genesis, "rolled back to audited-good");
     assert_eq!((rb["data"]["target"].as_str(), &rb["data"]["from"], rb["data"]["reason"].as_str()), (Some("audited"), &t1, Some("panic")));
     let r = h.records();
     let (pi, ri) = (r.iter().rposition(|x| x["kind"] == "panic").unwrap(), r.iter().rposition(|x| x["kind"] == "resume").unwrap());

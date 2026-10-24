@@ -202,7 +202,7 @@ fn g0_to_g3(env: &Env, job: &dyn Job, rec: &mut Record, sha: &str, running: &str
         job.progress(JobState::Gating, Some(Stage::G3), 60, "scripted self-edit");
         let t = Instant::now();
         let cand = Candidate { sha: sha.into(), binary: built.binary.clone(), ext_set_dir: None };
-        match stages::g3(env, &jid, &cand, &built) {
+        match stages::g3(env, &jid, &cand, &built, v.trailers.prefix_change) {
             Ok(o) => {
                 rec.stage("G3", o.record);
                 let _ = env.git().run(&["update-ref", "-d", &format!("refs/init/g3/{jid}")], None, std::time::Duration::from_secs(30));

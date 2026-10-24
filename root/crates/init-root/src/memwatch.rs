@@ -1,5 +1,5 @@
 //! MEM-RUNAWAY (RELEASE_PLAN.md; measurements/m7-results.md DV-4, DV-6): the per-workload memory watchdog and the
-//! workload disk floor (root/root.md §3.14.1), macOS.
+//! workload disk floor (root/root.md §3.14.1), macOS and Linux.
 //!
 //! Seatbelt has no memory limit and macOS does not enforce `RLIMIT_AS`, so one sandboxed process can grow through RAM
 //! into swap, and swap grows on the system volume until the disk is full (M7 D: one python3.9 reached 43.9 GB
@@ -18,7 +18,10 @@
 //! body's tool call reports "process exceeded memory cap N MiB, killed"; the owner gets an alert (a notice, a line in
 //! `alerts.jsonl`, `notify.cmd`). Signals reach the leaders only through `sys::signal` (held pids) and the processes
 //! observed below them only through `sys::signal_tracked`, which re-checks each identity right before the syscall
-//! (the ADR-008 amendment). Linux uses /proc RSS+swap polling and pidfd-based signaling; cgroup hard limits remain unimplemented.
+//! (the ADR-008 amendment). Linux (LINUX lane): /proc RSS+swap polling through `launcher_view` (the bwrap hops are not
+//! units), pidfd-based signaling, records that name the tool call by its pid-namespace pid, and, where the Root runs in
+//! a delegated cgroup v2 subtree (the systemd user unit's `Delegate=memory`), a hard `memory.max` per workload instance
+//! as a backstop the 1 s poll cannot be outrun past (cgroup.rs).
 
 use crate::charter::Charter;
 use crate::link::{Root, lock};
@@ -228,6 +231,54 @@ impl Watch {
     }
 }
 
+/// LINUX: the Root's leader is the outer bwrap (`exec-clean` → `unshare` → `bwrap`, one pid); bwrap forks the pid
+/// namespace's init, which forks the payload (the kernel, a body, a build, a sealed body). Without this view a leader
+/// would have one child and so one unit: the whole instance, kernel included. `launchers` are those bwrap processes
+/// (on Linux, `/proc/<pid>/comm` is `bwrap`): from each leader the chain of launchers is followed (earliest-started
+/// child first) to the payload, which stands in for the leader; the launchers leave the table, and any other child
+/// of a launcher (an orphan reparented to the namespace's init) becomes a child of the payload, so it stays in a unit.
+/// A leader that is not a launcher (macOS, tests) or has no payload yet is left as it is. Pure.
+#[cfg_attr(not(target_os = "linux"), allow(dead_code))]
+pub fn launcher_view(leaders: &[Leader], table: &[Proc], launcher: &dyn Fn(i32) -> bool) -> (Vec<Leader>, Vec<Proc>) {
+    let mut kids: HashMap<i32, Vec<&Proc>> = HashMap::new();
+    for p in table {
+        kids.entry(p.ppid).or_default().push(p);
+    }
+    let (mut out, mut hidden, mut adopt) = (Vec::new(), HashSet::new(), HashMap::new());
+    for l in leaders {
+        let (mut at, mut chain) = (l.pid, Vec::new());
+        while launcher(at) && chain.len() < 4 {
+            chain.push(at);
+            match kids.get(&at).and_then(|k| k.iter().min_by_key(|p| (p.start_us, p.pid))) {
+                Some(next) => at = next.pid,
+                None => break,
+            }
+        }
+        if chain.is_empty() || chain.contains(&at) {
+            out.push(l.clone());
+            continue;
+        }
+        for c in &chain {
+            hidden.insert(*c);
+            for k in kids.get(c).into_iter().flatten().filter(|k| k.pid != at && !chain.contains(&k.pid)) {
+                adopt.insert(k.pid, at);
+            }
+        }
+        out.push(Leader { pid: at, ..l.clone() });
+    }
+    let table = table.iter().filter(|p| !hidden.contains(&p.pid)).map(|p| Proc { ppid: adopt.get(&p.pid).copied().unwrap_or(p.ppid), ..*p }).collect();
+    (out, table)
+}
+
+/// The process table and leaders the watchdog judges: the platform's table, through `launcher_view` on Linux.
+pub fn observed(leaders: &[Leader]) -> (Vec<Leader>, Vec<Proc>) {
+    let table = sys::proc_table();
+    #[cfg(target_os = "linux")]
+    return launcher_view(leaders, &table, &sys::is_bwrap);
+    #[cfg(not(target_os = "linux"))]
+    (leaders.to_vec(), table)
+}
+
 /// Stops every member top-down (nothing forks meanwhile), looks once more for children born before their parent
 /// stopped, then kills bottom-up. Only through `sys::signal_tracked`, which re-checks each identity. Returns the pids
 /// that took the SIGKILL.
@@ -318,7 +369,9 @@ pub fn mem_msg(leader: Option<&Leader>, scope: &str, pgid: i32, n: usize, bytes:
 pub fn kill_unit(sink: &mut dyn FnMut(&Value), rh: &Path, event: &str, leader: Option<&Leader>, unit: &Unit, lim: &Limits, free: Option<u64>)
     -> Vec<i32> {
     let pids: Vec<i32> = unit.members.iter().map(|p| p.pid).collect();
-    sink(&record(event, leader, Some(unit.pgid()), "unit", unit.bytes, lim, free, &pids));
+    // LINUX: the body knows its tool call by the pid it sees, the one in the instance's pid namespace
+    let local = sys::ns_pid(unit.pgid()).unwrap_or(unit.pgid());
+    sink(&record(event, leader, Some(local), "unit", unit.bytes, lim, free, &pids));
     let killed = kill_members(&unit.members);
     if event == "mem_cap" {
         alert(rh, "mem_cap", &mem_msg(leader, "unit", unit.pgid(), unit.members.len(), unit.bytes, lim));
@@ -382,7 +435,17 @@ pub fn zone_tick(root: &Root, w: &mut Watch, disk: &mut DiskState, lim: &Limits)
     if leaders.is_empty() && w.is_empty() {
         return;
     }
-    let table = sys::proc_table();
+    let (leaders, table) = observed(&leaders);
+    // LINUX: OOM kills the cgroup backstop made since the last poll (cgroup.rs), one record and alert per instance
+    #[cfg(target_os = "linux")]
+    for l in &leaders {
+        let n = crate::cgroup::oom_kills(&l.key);
+        if n > 0 {
+            sink(&record("mem_cap", Some(l), None, "cgroup", lim.cap, lim, None, &[]));
+            alert(&rh, "mem_cap", &format!("[root] memory cap: {n} process(es) of {} instance {} reached memory.max = sandbox.mem_cap_mib = {} MiB; killed by the kernel's OOM killer",
+                l.kind, l.key, lim.cap_mib()));
+        }
+    }
     let plan = w.plan(&leaders, &table, lim.cap, &sys::footprint);
     if let Some(free) = low {
         for (owner, u) in &plan.units {
@@ -431,6 +494,34 @@ mod tests {
         Leader { key: key.into(), kind: kind.into(), pid }
     }
     const M: u64 = MIB;
+
+    /// LINUX: leader 10 (outer bwrap) → 11 (the namespace's init, bwrap) → 12 (the body) → tool calls 13 and 14 (a
+    /// tree with 15); 16 is an orphan the init adopted. Through the view the body stands in for the leader, its tool
+    /// calls are separate units, the orphan stays in a unit, and no bwrap is ever a member. A non-launcher leader and a
+    /// launcher with no payload yet are left alone.
+    #[test]
+    fn the_bwrap_hops_are_not_units_and_tool_calls_stay_separate() {
+        let t = vec![p(10, 9, 10), p(11, 10, 11), p(12, 11, 12), p(13, 12, 13), p(14, 12, 14), p(15, 14, 14), p(16, 11, 16), p(20, 9, 20), p(21, 20, 21)];
+        let bwrap = |pid: i32| [10, 11, 30].contains(&pid);
+        let leaders = [l("b", "body", 10), l("x", "build", 20), l("y", "check", 30)];
+        let (seen, table) = launcher_view(&leaders, &t, &bwrap);
+        assert_eq!(seen.iter().map(|l| l.pid).collect::<Vec<_>>(), vec![12, 20, 30]);
+        assert!(!table.iter().any(|p| p.pid == 10 || p.pid == 11), "the launchers leave the table");
+        assert_eq!(table.iter().find(|p| p.pid == 16).unwrap().ppid, 12, "the init's orphan is adopted by the payload");
+        let fp = |pid: i32| Some(if pid == 15 { 300 * M } else { M });
+        let plan = Watch::default().plan(&seen, &table, 256 * M, &fp);
+        let mut units: Vec<(String, i32, Vec<i32>)> = plan.units.iter()
+            .map(|(o, u)| (o.as_ref().unwrap().key.clone(), u.pgid(), u.members.iter().map(|m| m.pid).collect())).collect();
+        units.sort();
+        assert_eq!(units, vec![("b".into(), 13, vec![13]), ("b".into(), 14, vec![14, 15]), ("b".into(), 16, vec![16]), ("x".into(), 21, vec![21])]);
+        assert_eq!(plan.verdicts.len(), 1);
+        assert!(matches!(&plan.verdicts[0], Verdict::Unit { unit, .. } if unit.pgid() == 14), "only the tool call over the cap goes");
+        // a protected kernel behind bwrap: its tool calls go, never the kernel itself
+        let k = [l("k", "kernel", 10)];
+        let (seen, table) = launcher_view(&k, &t, &bwrap);
+        let plan = Watch::default().plan(&seen, &table, 256 * M, &|_| Some(300 * M));
+        assert!(plan.verdicts.iter().all(|v| matches!(v, Verdict::Unit { unit, .. } if unit.pgid() != 12)), "{:?}", plan.verdicts);
+    }
 
     /// A body with two tool calls (one a tree of three) next to the kernel: units are per child of a leader, summed
     /// over the child's tree; a unit over the cap is the only verdict, its leader and the sibling unit are not.

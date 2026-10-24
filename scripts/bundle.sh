@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build the prebuilt release bundle (docs/ux-v1.md §3.2.2, §3.5.1; lane UX-BUNDLE): one tar.gz that installs INIT
-# on a Mac with no Rust, in about a minute, through scripts/get.sh.
+# on a Mac or a Linux machine with no Rust, in about a minute, through scripts/get.sh. It builds for the machine it
+# runs on: macos-arm64 (Apple silicon), linux-arm64 (aarch64) or linux-x86_64.
 #
 #   scripts/bundle.sh [--label preview] [--reuse-release] [--keep-release] [-- <release.sh args>]
 #
@@ -11,8 +12,8 @@
 #   --keep-release   keep target/dist/v<version>/ afterwards (default: removed by exact path; only the bundle stays)
 #
 # Output, in target/dist/v<version>-<label>/:
-#   init-v<version>-<label>-macos-arm64.tar.gz          the bundle (top dir init-v<version>-<label>-macos-arm64/)
-#   init-v<version>-<label>-macos-arm64.tar.gz.sha256   `<sha256>  <file>`, what get.sh checks
+#   init-v<version>-<label>-<target>.tar.gz          the bundle (top dir init-v<version>-<label>-<target>/)
+#   init-v<version>-<label>-<target>.tar.gz.sha256   `<sha256>  <file>`, what get.sh checks
 #   latest.json                                         version, file, sha256, bytes, commit (a channel file)
 #
 # The bundle holds the release directory (release.sh: init-root, init-kernel, initctl, init-mockllm, init-tui, the
@@ -20,7 +21,7 @@
 # vendor/, docs, wit, ext, assets, MANIFEST.json), plus:
 #   body/init-body, body/BODY.json   the prebuilt genesis body and its record {sha256, commit, tag, profile, rustc}
 #   scripts/{install.sh,init,uninstall.sh,get.sh}, VERSION, README.md
-#   SHA256SUMS                       every other file (`shasum -a 256 -c SHA256SUMS`)
+#   SHA256SUMS                       every other file (`shasum -a 256 -c SHA256SUMS`, or `sha256sum -c` on Linux)
 #
 # The prebuilt body is the one the install-mode kernel builds: this script installs the release into scratch
 # homes under target/ub/ (mock provider, no service, nothing outside target/), so the body comes out of the
@@ -50,11 +51,26 @@ free_mb() { df -m / | awk 'NR==2{print $4}'; }
 now() { date +%s; }
 T0=$(now)
 
-[ "$(uname -s)" = Darwin ] && [ "$(uname -m)" = arm64 ] || die "this bundle target is macOS arm64; run it on an Apple-silicon Mac"
+case "$(uname -s)/$(uname -m)" in
+  Darwin/arm64) TARGET=macos-arm64 ;;
+  Linux/aarch64|Linux/arm64) TARGET=linux-arm64 ;;
+  Linux/x86_64) TARGET=linux-x86_64 ;;
+  *) die "no bundle target for $(uname -s) $(uname -m) (macOS arm64, Linux aarch64 or x86_64)" ;;
+esac
+if [ "$(uname -s)" = Darwin ]; then
+  sha256() { shasum -a 256 "$@"; }
+  sha_check() { shasum -a 256 -c --quiet "$@"; }
+  pack() { COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata -czf "$@"; }
+else
+  sha256() { sha256sum "$@"; }
+  sha_check() { sha256sum -c --quiet "$@"; }
+  pack() { tar --owner=0 --group=0 --numeric-owner --sort=name -czf "$@"; }
+fi
+bytes() { wc -c <"$1" | tr -d ' '; }
 VERSION="$(git -C "$REPO" show HEAD:root/Cargo.toml | sed -n 's/^version = "\(.*\)"$/\1/p' | head -1)"
 [ -n "$VERSION" ] || die "no version in HEAD's root/Cargo.toml"
 TAG="v$VERSION${LABEL:+-$LABEL}"
-NAME="init-$TAG-macos-arm64"
+NAME="init-$TAG-$TARGET"
 REL="$REPO/target/dist/v$VERSION"
 OUT="$REPO/target/dist/$TAG"
 UB="$REPO/target/ub" # scratch homes: short, so ROOT_HOME stays under the Root's 64-byte socket-path limit
@@ -119,13 +135,13 @@ for f in os.listdir(tdir):
 print(lkg["binary_sha256"], lkg["sha"], ",".join(sorted(b for b in bodies if b)) or "-")
 PY
 read -r BODY_SHA BODY_COMMIT GENESIS_BODY <<<"$(/usr/bin/python3 -I "$UB/info.py" "$UB/h/state/kernel/lkg.json" "$UB/r")"
-GOT="$(shasum -a 256 "$BODY" | cut -d' ' -f1)"
+GOT="$(sha256 "$BODY" | cut -d' ' -f1)"
 [ "$GOT" = "$BODY_SHA" ] || die "bin/init-body is $GOT, lkg.json says $BODY_SHA"
 [ "$GENESIS_BODY" = "$BODY_SHA" ] || die "the genesis tuple's body ($GENESIS_BODY) is not bin/init-body ($BODY_SHA)"
 SEED_COMMIT="$(/usr/bin/git bundle list-heads "$SEED_BUNDLE" "refs/tags/seed-v$VERSION" | cut -d' ' -f1)"
 # an annotated tag would list the tag object; release.sh makes a lightweight one, so this is the commit
 [ "$SEED_COMMIT" = "$BODY_COMMIT" ] || die "the body was built from $BODY_COMMIT, the seed tag names $SEED_COMMIT"
-log "prebuilt body $BODY_SHA (seed commit ${BODY_COMMIT:0:12}, $(( $(stat -f %z "$BODY") / 1048576 )) MB)"
+log "prebuilt body $BODY_SHA (seed commit ${BODY_COMMIT:0:12}, $(( $(bytes "$BODY") / 1048576 )) MB)"
 T_BODY=$(now)
 
 # ---------------------------------------------------------------- 3. G1: the body and the seed's committed self.json agree
@@ -158,7 +174,7 @@ D="$OUT/$NAME"
 mkdir -p "$OUT"
 if [ -e "$D" ]; then rm -rf -- "$D"; fi
 mkdir -p "$D"
-cp -cR "$REL/" "$D/" 2>/dev/null || cp -R "$REL/" "$D/"
+cp -cR "$REL/." "$D/" 2>/dev/null || cp -R "$REL/." "$D/" # the contents ("/." : GNU cp would nest "$REL/" as a subdir)
 mkdir -p "$D/body" "$D/scripts"
 cp -c "$BODY" "$D/body/init-body" 2>/dev/null || cp "$BODY" "$D/body/init-body"
 chmod 755 "$D/body/init-body"
@@ -174,22 +190,23 @@ PY
 for f in install.sh init uninstall.sh get.sh; do cp "$REPO/scripts/$f" "$D/scripts/$f"; chmod 755 "$D/scripts/$f"; done
 cp "$REPO/README.md" "$D/README.md"
 printf '%s\n' "${TAG#v}" >"$D/VERSION"
-(cd "$D" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do shasum -a 256 "$f"; done) >"$D/SHA256SUMS"
-(cd "$D" && shasum -a 256 -c --quiet SHA256SUMS) || die "SHA256SUMS does not verify"
+(cd "$D" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do sha256 "$f"; done) >"$D/SHA256SUMS"
+(cd "$D" && sha_check SHA256SUMS) || die "SHA256SUMS does not verify"
 TGZ="$OUT/$NAME.tar.gz"
-COPYFILE_DISABLE=1 /usr/bin/tar --no-mac-metadata -czf "$TGZ.partial" -C "$OUT" "$NAME"
+pack "$TGZ.partial" -C "$OUT" "$NAME"
 mv "$TGZ.partial" "$TGZ"
-TGZ_SHA="$(shasum -a 256 "$TGZ" | cut -d' ' -f1)"
+TGZ_SHA="$(sha256 "$TGZ" | cut -d' ' -f1)"
 printf '%s  %s\n' "$TGZ_SHA" "$NAME.tar.gz" >"$TGZ.sha256"
-/usr/bin/python3 -I - "$OUT/latest.json" "${TAG#v}" "$NAME.tar.gz" "$TGZ_SHA" "$(stat -f %z "$TGZ")" "$COMMIT" "$BODY_SHA" <<'PY'
+/usr/bin/python3 -I - "$OUT/latest.json" "${TAG#v}" "$NAME.tar.gz" "$TGZ_SHA" "$(bytes "$TGZ")" "$COMMIT" "$BODY_SHA" "$TARGET" <<'PY'
 import json, sys
-out, version, f, sha, size, commit, body = sys.argv[1:8]
-m = {"v": 1, "version": version, "target": "macos-arm64", "file": f, "sha256": sha, "bytes": int(size),
+out, version, f, sha, size, commit, body, target = sys.argv[1:9]
+# one channel file per target; scripts/get.sh derives every target's asset name from "version"
+m = {"v": 1, "version": version, "target": target, "file": f, "sha256": sha, "bytes": int(size),
      "commit": commit, "body_sha256": body}
 open(out, "w").write(json.dumps(m, indent=1, sort_keys=True) + "\n")
 PY
 UNPACKED_MB=$(du -sm "$D" | cut -f1)
 cleanup
 if [ $KEEP = 0 ] && [ -e "$REL" ]; then rm -rf -- "$REL"; log "removed $REL (--keep-release keeps it)"; fi
-log "bundle $TGZ ($(( $(stat -f %z "$TGZ") / 1048576 )) MB packed, $UNPACKED_MB MB unpacked; sha256 ${TGZ_SHA:0:16}…)"
+log "bundle $TGZ ($(( $(bytes "$TGZ") / 1048576 )) MB packed, $UNPACKED_MB MB unpacked; sha256 ${TGZ_SHA:0:16}…)"
 log "times: release $(( T_REL - T0 )) s, prebuilt body $(( T_BODY - T_REL )) s, total $(( $(now) - T0 )) s; free $(free_mb) MB"

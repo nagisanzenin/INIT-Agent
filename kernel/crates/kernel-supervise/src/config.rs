@@ -72,8 +72,12 @@ impl Default for SuperviseCfg {
             crash_limit: 4,
             safe_crash_limit: 2,
             max_provisional_depth: 3,
-            build_timeout_cold_s: 900,
-            build_timeout_warm_s: 300,
+            // REL-G0: a cold `init-body` build at SANDBOX_CARGO_JOBS took 500-877 s on an idle-ish M2
+            // and over 900 s under load (owner install j-000006). 3600 / 1800 is what every real-install
+            // run used. MERGE-T2CACHE: the first promote of a dependency set still pays the stub build
+            // (cold bound); later ones and G3's inner gate start from cache/deps (warm bound).
+            build_timeout_cold_s: 3600,
+            build_timeout_warm_s: 1800,
             kupgrade_build_timeout_s: 1800,
             deps_cache_keys: 3,
             max_concurrent_probes: 6,

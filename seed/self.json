@@ -3,15 +3,15 @@
     "crate": "init-body",
     "edition": "2024",
     "rust_version": null,
-    "version": "0.2.0"
+    "version": "0.3.0"
   },
-  "body_tokens": 390657,
+  "body_tokens": 414262,
   "budget": {
-    "bytes": 1508204,
-    "files": 93,
-    "tests_tokens": 21965,
-    "tokens": 390657,
-    "uncounted_tokens": 66534
+    "bytes": 1599567,
+    "files": 96,
+    "tests_tokens": 21974,
+    "tokens": 414262,
+    "uncounted_tokens": 69075
   },
   "components": [
     {
@@ -112,7 +112,7 @@
       "paths": [
         "src/boot/manifest.rs"
       ],
-      "tokens": 1298
+      "tokens": 1301
     },
     {
       "compensates_for": "none",
@@ -134,7 +134,7 @@
       "paths": [
         "src/boot/probe.rs"
       ],
-      "tokens": 2943
+      "tokens": 2949
     },
     {
       "compensates_for": "none",
@@ -178,7 +178,7 @@
       "paths": [
         "src/boot/serve.rs"
       ],
-      "tokens": 707
+      "tokens": 743
     },
     {
       "compensates_for": "none",
@@ -200,7 +200,7 @@
       "paths": [
         "src/context/engine.rs"
       ],
-      "tokens": 11841
+      "tokens": 11993
     },
     {
       "compensates_for": "none",
@@ -288,7 +288,7 @@
       "paths": [
         "src/context/tests.rs"
       ],
-      "tokens": 21466
+      "tokens": 21469
     },
     {
       "compensates_for": "none",
@@ -420,7 +420,7 @@
       "paths": [
         "src/ext_host/registry.rs"
       ],
-      "tokens": 2728
+      "tokens": 2731
     },
     {
       "compensates_for": "none",
@@ -555,6 +555,17 @@
       "tokens": 3750
     },
     {
+      "compensates_for": "context-pollution",
+      "compensates_note": null,
+      "core": false,
+      "id": "mod/src/loop/delegate.rs",
+      "kind": "mod",
+      "paths": [
+        "src/loop/delegate.rs"
+      ],
+      "tokens": 6203
+    },
+    {
       "compensates_for": "none",
       "compensates_note": null,
       "core": false,
@@ -563,7 +574,7 @@
       "paths": [
         "src/loop/frames.rs"
       ],
-      "tokens": 2544
+      "tokens": 2970
     },
     {
       "compensates_for": "none",
@@ -574,7 +585,7 @@
       "paths": [
         "src/loop/hooks.rs"
       ],
-      "tokens": 2715
+      "tokens": 2915
     },
     {
       "compensates_for": "none",
@@ -585,7 +596,7 @@
       "paths": [
         "src/loop/mod.rs"
       ],
-      "tokens": 10651
+      "tokens": 11765
     },
     {
       "compensates_for": "none",
@@ -596,7 +607,7 @@
       "paths": [
         "src/loop/status.rs"
       ],
-      "tokens": 1340
+      "tokens": 1993
     },
     {
       "compensates_for": "none",
@@ -607,7 +618,7 @@
       "paths": [
         "src/loop/tests.rs"
       ],
-      "tokens": 16539
+      "tokens": 24677
     },
     {
       "compensates_for": "none",
@@ -618,7 +629,7 @@
       "paths": [
         "src/main.rs"
       ],
-      "tokens": 967
+      "tokens": 966
     },
     {
       "compensates_for": "none",
@@ -629,7 +640,7 @@
       "paths": [
         "src/model.rs"
       ],
-      "tokens": 6360
+      "tokens": 6969
     },
     {
       "compensates_for": "none",
@@ -662,7 +673,7 @@
       "paths": [
         "src/provider/client.rs"
       ],
-      "tokens": 622
+      "tokens": 645
     },
     {
       "compensates_for": "none",
@@ -706,7 +717,7 @@
       "paths": [
         "src/provider/http.rs"
       ],
-      "tokens": 5156
+      "tokens": 5344
     },
     {
       "compensates_for": "none",
@@ -728,7 +739,7 @@
       "paths": [
         "src/provider/mock_tests.rs"
       ],
-      "tokens": 10601
+      "tokens": 10613
     },
     {
       "compensates_for": "none",
@@ -783,7 +794,7 @@
       "paths": [
         "src/provider/summarizer.rs"
       ],
-      "tokens": 606
+      "tokens": 612
     },
     {
       "compensates_for": "none",
@@ -838,7 +849,7 @@
       "paths": [
         "src/tools/mod.rs"
       ],
-      "tokens": 5452
+      "tokens": 5707
     },
     {
       "compensates_for": "none",
@@ -849,7 +860,7 @@
       "paths": [
         "src/tools/tests.rs"
       ],
-      "tokens": 13034
+      "tokens": 13224
     },
     {
       "compensates_for": "none",
@@ -861,6 +872,17 @@
         "src/tools/testutil.rs"
       ],
       "tokens": 2313
+    },
+    {
+      "compensates_for": "none",
+      "compensates_note": null,
+      "core": false,
+      "id": "skill/delegate",
+      "kind": "skill",
+      "paths": [
+        "skills/delegate/SKILL.md"
+      ],
+      "tokens": 539
     },
     {
       "compensates_for": "none",
@@ -907,6 +929,17 @@
         "src/tools/bash.rs"
       ],
       "tokens": 7058
+    },
+    {
+      "compensates_for": "context-pollution",
+      "compensates_note": null,
+      "core": false,
+      "id": "tool/delegate",
+      "kind": "tool",
+      "paths": [
+        "src/tools/delegate.rs"
+      ],
+      "tokens": 5146
     },
     {
       "compensates_for": "none",
@@ -2129,14 +2162,14 @@
       "bytes": 49136,
       "counted": false,
       "path": "Cargo.lock",
-      "sha256": "277896a31f73a5b5c4052e49f49769e28d56f05e9ed3da51c68cc27a05dd15f6",
+      "sha256": "b520c2f513e6668acdc9a656530d67836363b1f07bc93002a4a9567e97318b07",
       "tokens": 18415
     },
     {
       "bytes": 1840,
       "counted": true,
       "path": "Cargo.toml",
-      "sha256": "3c1b454e0baada834767e8efb60e008acb6983841e650a806ef0748ba961b3ab",
+      "sha256": "75f8f4b7767c2f000b9a9e5170fdeb1d13fc60f5574805c2b13bd81e4b74638a",
       "tokens": 524
     },
     {
@@ -2147,11 +2180,11 @@
       "tokens": 334
     },
     {
-      "bytes": 6011,
+      "bytes": 6256,
       "counted": true,
       "path": "SELF.md",
-      "sha256": "71489c0f9d3968801d482113d37704de884aec6a20761910d387dfeae64c6c1f",
-      "tokens": 1618
+      "sha256": "df4e190af415a90fa2c03e5c2b96c4dd803ad66568465fe92b01a81fd4718c5d",
+      "tokens": 1682
     },
     {
       "bytes": 7816,
@@ -2180,6 +2213,13 @@
       "path": "ext/count-lines/src/lib.rs",
       "sha256": "4ccea32b5f2e63d50b7d82fc09c8251becc29a1b81a1a148b2db43efdcbdff2f",
       "tokens": 1109
+    },
+    {
+      "bytes": 2115,
+      "counted": true,
+      "path": "skills/delegate/SKILL.md",
+      "sha256": "8596a957bcbc0976887cd2f4472932a0250d69a85dbc8a0e5269e77f148bed0f",
+      "tokens": 539
     },
     {
       "bytes": 7161,
@@ -2273,11 +2313,11 @@
       "tokens": 2809
     },
     {
-      "bytes": 4498,
+      "bytes": 4510,
       "counted": true,
       "path": "src/boot/manifest.rs",
-      "sha256": "86dc12c7917d5e4966eaa9c6b5d7e89ad68ebed81ca620deb55b7be25c806b08",
-      "tokens": 1298
+      "sha256": "6757409591c76ecf23a083f378cc4788419d090c7689e0773574ba0e6ec073e9",
+      "tokens": 1301
     },
     {
       "bytes": 13137,
@@ -2287,11 +2327,11 @@
       "tokens": 3443
     },
     {
-      "bytes": 11829,
+      "bytes": 11852,
       "counted": true,
       "path": "src/boot/probe.rs",
-      "sha256": "a6b12898cdc4b170eda38edb8346bc77617c23feb81ec657b80c7621c717797a",
-      "tokens": 2943
+      "sha256": "dc319af3657489f3227a11c378b5eac65b99fe92fd8953ecdb5b0fee7a710824",
+      "tokens": 2949
     },
     {
       "bytes": 1702,
@@ -2315,11 +2355,11 @@
       "tokens": 4518
     },
     {
-      "bytes": 2557,
+      "bytes": 2730,
       "counted": true,
       "path": "src/boot/serve.rs",
-      "sha256": "47b57a0cea30bc96d26f31a65cae4a4f43063a6d8f11ff3c6b7c60989b7bcb07",
-      "tokens": 707
+      "sha256": "64a56aa43fe507170e977f223581d33399e052b89b7eead8c2654471721b1aee",
+      "tokens": 743
     },
     {
       "bytes": 29490,
@@ -2329,11 +2369,11 @@
       "tokens": 6984
     },
     {
-      "bytes": 51779,
+      "bytes": 52381,
       "counted": true,
       "path": "src/context/engine.rs",
-      "sha256": "4834f2d8252d3544bd5c2ecc2213fe89b79fc7da56d92b48cdf467e2b3ed7fb9",
-      "tokens": 11841
+      "sha256": "e228283278c83d71b34e37354521cbd48b9d68e4f6625fbb0b115927ba3c778d",
+      "tokens": 11993
     },
     {
       "bytes": 6944,
@@ -2385,46 +2425,46 @@
       "tokens": 3136
     },
     {
-      "bytes": 14707,
+      "bytes": 16317,
       "counted": false,
       "path": "src/context/testdata/golden/head-object-deepseek-flash.json",
-      "sha256": "9e86feb00159c23dae978abeabd01f7e7e3549bc901f648d80be994727b9cb69",
-      "tokens": 3615
+      "sha256": "90f80e1cdb7d56cf0738693dbeca8bfa3751af8a27eb4239f17fb0479c039fe5",
+      "tokens": 3982
     },
     {
-      "bytes": 14704,
+      "bytes": 16314,
       "counted": false,
       "path": "src/context/testdata/golden/head-object-mock-frontier-1.json",
-      "sha256": "2e5b0a1e25d01fc60f3bba95f393e22506d1f515d8df1179d5c0fe51ef1eb9fc",
-      "tokens": 3615
+      "sha256": "a734fbfe503b4b8ad5c97bd0cee089a413773a5e6928090e6dbdf738cd653b1d",
+      "tokens": 3982
     },
     {
-      "bytes": 14731,
+      "bytes": 16341,
       "counted": false,
       "path": "src/context/testdata/golden/head-request-deepseek-flash.json",
-      "sha256": "ccf3fe0208f29f70225ef9a8ee48f19494d5aed3ac63f8b0f6b8e36785d0b94c",
-      "tokens": 3621
+      "sha256": "1cb04b0beb2e71b83ac7626219dc4d27608dadfd5fea3c8fc633b94901d54f83",
+      "tokens": 3988
     },
     {
-      "bytes": 14731,
+      "bytes": 16341,
       "counted": false,
       "path": "src/context/testdata/golden/head-request-mock-frontier-1.json",
-      "sha256": "a31aaf2f23e158d59461beeafb8f5884a28050f70289b2f7024de4368dc6bcc5",
-      "tokens": 3622
+      "sha256": "c529076496dada950217520802be68dec93da2427eb3b979186b594c26c738d6",
+      "tokens": 3989
     },
     {
       "bytes": 72,
       "counted": false,
       "path": "src/context/testdata/golden/prefix-hash-deepseek-flash.txt",
-      "sha256": "d1ea0814a93ae5564d213e219de3ace55ef3e7fea2bf13b4de36c8cd81efb0f7",
-      "tokens": 37
+      "sha256": "4883791c6a1a74dcba1c7fc979e6f4f5df437dc46e4fd8e2aadb541ebdb28d4f",
+      "tokens": 41
     },
     {
       "bytes": 72,
       "counted": false,
       "path": "src/context/testdata/golden/prefix-hash-mock-frontier-1.txt",
-      "sha256": "ec6eaa0b1d1b63dc73583fb4b2ce168d072f5fd1f12d01efc0400ba78e1e7c78",
-      "tokens": 47
+      "sha256": "56331597bc70b924042319652c5fcff886899a7c52cc1d822f6c51b7812475ba",
+      "tokens": 39
     },
     {
       "bytes": 3930,
@@ -2462,18 +2502,18 @@
       "tokens": 7
     },
     {
-      "bytes": 3447,
+      "bytes": 5000,
       "counted": false,
       "path": "src/context/testdata/tools.json",
-      "sha256": "28fef218ea28db3feeb4447dad5fa05753ef753e54bf586e01bc988c6122a430",
-      "tokens": 764
+      "sha256": "3d0c35bc96f35f274359c36e157a82651c343aef6d8ed68072df630959b1075d",
+      "tokens": 1112
     },
     {
-      "bytes": 81962,
+      "bytes": 81974,
       "counted": true,
       "path": "src/context/tests.rs",
-      "sha256": "5826ffba51a04a9d23f3d205d1b499522d7ee00e1d8bc3d32ba1d54e6b235000",
-      "tokens": 21466
+      "sha256": "c375456bd784480b61672ab4b33298cb5ec7ae8382b81f2c28eac7c3442564b9",
+      "tokens": 21469
     },
     {
       "bytes": 1753,
@@ -2553,11 +2593,11 @@
       "tokens": 4706
     },
     {
-      "bytes": 10713,
+      "bytes": 10725,
       "counted": true,
       "path": "src/ext_host/registry.rs",
-      "sha256": "857012a68da388831129482f327bba1e3cfcb7643ba7c392e04a707dccd243e8",
-      "tokens": 2728
+      "sha256": "07f6cfb0722f87f9b7f392027d7e393eb6bebbe2147140ac2f3a19025c403aac",
+      "tokens": 2731
     },
     {
       "bytes": 4246,
@@ -2651,53 +2691,60 @@
       "tokens": 3750
     },
     {
-      "bytes": 10722,
+      "bytes": 26316,
+      "counted": true,
+      "path": "src/loop/delegate.rs",
+      "sha256": "783f1a4d6aedac9697325d214bcee5427e95b4a593d0e3a3a5ed69c7d1dc93bb",
+      "tokens": 6203
+    },
+    {
+      "bytes": 12583,
       "counted": true,
       "path": "src/loop/frames.rs",
-      "sha256": "be675d6efab49aed5152a0c920a67e509725350f920ae82af8fa59e1a7f91f3f",
-      "tokens": 2544
+      "sha256": "7e995ba119e7188e7df89078884fbae778a24b41b6db670010a868aed78928ff",
+      "tokens": 2970
     },
     {
-      "bytes": 10927,
+      "bytes": 11734,
       "counted": true,
       "path": "src/loop/hooks.rs",
-      "sha256": "5586b5a4b0cbb96bdcbe39ba0f70ddc4e077b4a5dc0bbae607305ebdb74323d9",
-      "tokens": 2715
+      "sha256": "eaa668ab763002b4de4981e6f77883b90d5a138e8a36e500960de5552157f7f8",
+      "tokens": 2915
     },
     {
-      "bytes": 48713,
+      "bytes": 53665,
       "counted": true,
       "path": "src/loop/mod.rs",
-      "sha256": "17faeab062e1af27d51f542efe76a863d4bee0a61350e26156347886eae33877",
-      "tokens": 10651
+      "sha256": "d907ece303f2fb2d4a4dba6d6f213e355b48a1a3b2de4e0215aba2805e72cb75",
+      "tokens": 11765
     },
     {
-      "bytes": 5106,
+      "bytes": 7629,
       "counted": true,
       "path": "src/loop/status.rs",
-      "sha256": "6f9c924fff076ad529e2a1d3b1e5453de321f462d8ccdc35219ea36ef120a95c",
-      "tokens": 1340
+      "sha256": "d9fa82348017450f10e7013730df536343b08d75ce344af27be549b1472fdbcd",
+      "tokens": 1993
     },
     {
-      "bytes": 59188,
+      "bytes": 88057,
       "counted": true,
       "path": "src/loop/tests.rs",
-      "sha256": "a797ffc78f46fbb66e007ab2f3d007c3fc8df1479d93bc2b6aebdcb3b8b637ae",
-      "tokens": 16539
+      "sha256": "d0704f655de97a8280c5ee2e47f0fff2f31a6f3df16241e6f3cdc1da127b6c2e",
+      "tokens": 24677
     },
     {
-      "bytes": 3639,
+      "bytes": 3634,
       "counted": true,
       "path": "src/main.rs",
-      "sha256": "b811f9203be5d8898063d07fd92e001da31c06c8714a04a94902e647c4a6ba19",
-      "tokens": 967
+      "sha256": "cbe00791ec5cd91f23df5649ccb0856c05ebb21b06052a1cad69902bb50c0517",
+      "tokens": 966
     },
     {
-      "bytes": 25927,
+      "bytes": 28344,
       "counted": true,
       "path": "src/model.rs",
-      "sha256": "a19775adb1707b0230d41988eecc18e62d3e5c73d2b98dbbe796b17eda6aa16b",
-      "tokens": 6360
+      "sha256": "9211eebe3b5844f97665f73d4ab312a474bf5ffec103076612abe12805cd5b7f",
+      "tokens": 6969
     },
     {
       "bytes": 45035,
@@ -2714,11 +2761,11 @@
       "tokens": 1254
     },
     {
-      "bytes": 2589,
+      "bytes": 2671,
       "counted": true,
       "path": "src/provider/client.rs",
-      "sha256": "bb8e383c87d6cf25687d8fddc9d0f3846fb31e97e020ff78be0d2d73652788d2",
-      "tokens": 622
+      "sha256": "94d446e2973dbedeab63a356f5b1cd6c3e003a56da82b29f64eaf4fb6a94d566",
+      "tokens": 645
     },
     {
       "bytes": 55162,
@@ -2742,11 +2789,11 @@
       "tokens": 3308
     },
     {
-      "bytes": 18550,
+      "bytes": 19162,
       "counted": true,
       "path": "src/provider/http.rs",
-      "sha256": "a5a699a4faba4ef32125727a176a31fa143720c028e3715f566f2fd2bed1eea7",
-      "tokens": 5156
+      "sha256": "172e3b16a11ff7a92858d2704ebf887ea9616bd5547c336403f91527200074ca",
+      "tokens": 5344
     },
     {
       "bytes": 5436,
@@ -2756,11 +2803,11 @@
       "tokens": 1891
     },
     {
-      "bytes": 40085,
+      "bytes": 40136,
       "counted": true,
       "path": "src/provider/mock_tests.rs",
-      "sha256": "3f353086c80e1062014264b1c557608749b41359e78449a85cd9e11f40666513",
-      "tokens": 10601
+      "sha256": "71db40abb7dcf59f24adc0917d0dace902fad56251adeca63d4d865b978888c5",
+      "tokens": 10613
     },
     {
       "bytes": 8249,
@@ -2791,11 +2838,11 @@
       "tokens": 2368
     },
     {
-      "bytes": 2522,
+      "bytes": 2549,
       "counted": true,
       "path": "src/provider/summarizer.rs",
-      "sha256": "6c8c3ac3c641a719b4fc4ffa8c58926c67b603e034310b80cd2fcb68ff24436d",
-      "tokens": 606
+      "sha256": "9f8b326ea23e978818f15fae998a6dcef91575c80656c9ef817114487427bc0a",
+      "tokens": 612
     },
     {
       "bytes": 1811,
@@ -2917,11 +2964,11 @@
       "tokens": 373
     },
     {
-      "bytes": 4399,
+      "bytes": 6009,
       "counted": false,
       "path": "src/provider/testdata/golden/deepseek-six.json",
-      "sha256": "b95819857e715f8d87ed1bc7ebc74816693b1c17df97c9d351af5f7dc3531b7a",
-      "tokens": 1018
+      "sha256": "7163a56bb881f65d3162c812212715abf442c22a301d778b2e947bf7617643ad",
+      "tokens": 1385
     },
     {
       "bytes": 1983,
@@ -2966,6 +3013,13 @@
       "tokens": 6881
     },
     {
+      "bytes": 17653,
+      "counted": true,
+      "path": "src/tools/delegate.rs",
+      "sha256": "3c0f281549f4f242be70e84aaf698c941d16735274dcafef5e62c8edee2da0cd",
+      "tokens": 4783
+    },
+    {
       "bytes": 20256,
       "counted": true,
       "path": "src/tools/edit.rs",
@@ -2987,11 +3041,11 @@
       "tokens": 3612
     },
     {
-      "bytes": 21630,
+      "bytes": 22827,
       "counted": true,
       "path": "src/tools/mod.rs",
-      "sha256": "e82cd238abf03303bd521affebef307e7d2eacab406debdcdd906469a9781527",
-      "tokens": 5452
+      "sha256": "66dfdb08af4407ea80a84c6decdb7d46c7ee07625c3b15d711ae197367c985cd",
+      "tokens": 5707
     },
     {
       "bytes": 12482,
@@ -3001,18 +3055,18 @@
       "tokens": 3536
     },
     {
-      "bytes": 3405,
+      "bytes": 4986,
       "counted": false,
       "path": "src/tools/registry.json",
-      "sha256": "996fe26661cb88a81ef73e0bccc0bcd5d96c9ba57c0b198e71ce39226ca732e4",
-      "tokens": 745
+      "sha256": "3287ad0da87b7e550c79a7d4902db5b9ed63475b1063e4bb5eecb386c43b1bc1",
+      "tokens": 1107
     },
     {
-      "bytes": 44737,
+      "bytes": 45544,
       "counted": true,
       "path": "src/tools/tests.rs",
-      "sha256": "e12e927e8cf624221a2ad1f217262569aaa526697e26c027904d2cffac253fcf",
-      "tokens": 13034
+      "sha256": "591d88503efac15810756f1aa857f3cebfe5197a39b45831f53b0bac009bf426",
+      "tokens": 13224
     },
     {
       "bytes": 8955,
@@ -3029,11 +3083,11 @@
       "tokens": 1217
     },
     {
-      "bytes": 71083,
+      "bytes": 71128,
       "counted": false,
       "path": "tests/boot.rs",
-      "sha256": "4e4da3412bf174bd805e7c075e071b581d27e942c3893f0eb541d7440798729b",
-      "tokens": 19958
+      "sha256": "e59386eec0a57d72e888ef3cd5bdacdfa5c89618fdf4428442d6e15110a73801",
+      "tokens": 19967
     },
     {
       "bytes": 7445,
@@ -3057,7 +3111,7 @@
   },
   "hooks": [],
   "manifest": {
-    "body_version": "0.2.0",
+    "body_version": "0.3.0",
     "control_channel": "stdio-jsonl/1",
     "env": [
       "HOME",
@@ -3127,9 +3181,30 @@
       "ext describe",
       "ext inspect"
     ],
-    "tools_sha256": "sha256:996fe26661cb88a81ef73e0bccc0bcd5d96c9ba57c0b198e71ce39226ca732e4"
+    "tools_sha256": "sha256:3287ad0da87b7e550c79a7d4902db5b9ed63475b1063e4bb5eecb386c43b1bc1"
   },
-  "markers": [],
+  "markers": [
+    {
+      "compensates_for": "context-pollution",
+      "component": "mod/src/loop/delegate.rs",
+      "end_line": 731,
+      "item": null,
+      "line": 1,
+      "note": null,
+      "path": "src/loop/delegate.rs",
+      "tokens": 6203
+    },
+    {
+      "compensates_for": "context-pollution",
+      "component": "tool/delegate",
+      "end_line": 453,
+      "item": null,
+      "line": 1,
+      "note": null,
+      "path": "src/tools/delegate.rs",
+      "tokens": 4783
+    }
+  ],
   "modules": [
     {
       "forbid_unsafe": false,
@@ -5491,13 +5566,13 @@
           "kind": "mod",
           "line": 95,
           "name": "tests",
-          "tokens": 495,
+          "tokens": 498,
           "vis": "private"
         }
       ],
       "lines": 131,
       "path": "src/boot/manifest.rs",
-      "tokens": 1298
+      "tokens": 1301
     },
     {
       "forbid_unsafe": false,
@@ -5791,25 +5866,25 @@
           "vis": "private"
         },
         {
-          "end_line": 223,
+          "end_line": 224,
           "kind": "fn",
           "line": 146,
           "name": "turn",
-          "tokens": 584,
+          "tokens": 590,
           "vis": "private"
         },
         {
-          "end_line": 333,
+          "end_line": 334,
           "kind": "fn",
-          "line": 225,
+          "line": 226,
           "name": "run",
           "tokens": 1052,
           "vis": "pub"
         }
       ],
-      "lines": 333,
+      "lines": 334,
       "path": "src/boot/probe.rs",
-      "tokens": 2943
+      "tokens": 2949
     },
     {
       "forbid_unsafe": false,
@@ -6103,17 +6178,17 @@
           "vis": "pub"
         },
         {
-          "end_line": 76,
+          "end_line": 85,
           "kind": "fn",
           "line": 38,
           "name": "serve",
-          "tokens": 365,
+          "tokens": 401,
           "vis": "pub"
         }
       ],
-      "lines": 76,
+      "lines": 85,
       "path": "src/boot/serve.rs",
-      "tokens": 707
+      "tokens": 743
     },
     {
       "forbid_unsafe": false,
@@ -6567,33 +6642,33 @@
           "vis": "pub"
         },
         {
-          "end_line": 1379,
+          "end_line": 1392,
           "kind": "impl",
           "line": 223,
           "name": "impl Context",
-          "tokens": 9621,
+          "tokens": 9773,
           "vis": "private"
         },
         {
-          "end_line": 1386,
+          "end_line": 1399,
           "kind": "fn",
-          "line": 1381,
+          "line": 1394,
           "name": "user_msg",
           "tokens": 47,
           "vis": "private"
         },
         {
-          "end_line": 1424,
+          "end_line": 1437,
           "kind": "fn",
-          "line": 1388,
+          "line": 1401,
           "name": "update_failed_from",
           "tokens": 370,
           "vis": "pub"
         }
       ],
-      "lines": 1424,
+      "lines": 1437,
       "path": "src/context/engine.rs",
-      "tokens": 11841
+      "tokens": 11993
     },
     {
       "forbid_unsafe": false,
@@ -7667,7 +7742,7 @@
           "kind": "fn",
           "line": 303,
           "name": "deepseek_layout_and_signal_placement",
-          "tokens": 1248,
+          "tokens": 1251,
           "vis": "private"
         },
         {
@@ -7953,7 +8028,7 @@
       ],
       "lines": 2269,
       "path": "src/context/tests.rs",
-      "tokens": 21466
+      "tokens": 21469
     },
     {
       "forbid_unsafe": false,
@@ -9155,7 +9230,7 @@
           "kind": "const",
           "line": 123,
           "name": "RESERVED_NAMES",
-          "tokens": 41,
+          "tokens": 44,
           "vis": "pub"
         },
         {
@@ -9233,7 +9308,7 @@
       ],
       "lines": 336,
       "path": "src/ext_host/registry.rs",
-      "tokens": 2728
+      "tokens": 2731
     },
     {
       "forbid_unsafe": false,
@@ -11095,6 +11170,150 @@
       "forbid_unsafe": false,
       "items": [
         {
+          "end_line": 44,
+          "kind": "const",
+          "line": 44,
+          "name": "IN_SUB",
+          "tokens": 37,
+          "vis": "private"
+        },
+        {
+          "end_line": 51,
+          "kind": "struct",
+          "line": 46,
+          "name": "RenderReq",
+          "tokens": 50,
+          "vis": "private"
+        },
+        {
+          "end_line": 56,
+          "kind": "enum",
+          "line": 53,
+          "name": "Ev",
+          "tokens": 16,
+          "vis": "private"
+        },
+        {
+          "end_line": 74,
+          "kind": "struct",
+          "line": 58,
+          "name": "SubEnv",
+          "tokens": 129,
+          "vis": "private"
+        },
+        {
+          "end_line": 84,
+          "kind": "enum",
+          "line": 76,
+          "name": "End",
+          "tokens": 52,
+          "vis": "private"
+        },
+        {
+          "end_line": 96,
+          "kind": "impl",
+          "line": 86,
+          "name": "impl End",
+          "tokens": 92,
+          "vis": "private"
+        },
+        {
+          "end_line": 114,
+          "kind": "fn",
+          "line": 98,
+          "name": "block_values",
+          "tokens": 175,
+          "vis": "private"
+        },
+        {
+          "end_line": 119,
+          "kind": "fn",
+          "line": 116,
+          "name": "est_tokens",
+          "tokens": 51,
+          "vis": "private"
+        },
+        {
+          "end_line": 143,
+          "kind": "fn",
+          "line": 121,
+          "name": "to_blocks",
+          "tokens": 189,
+          "vis": "private"
+        },
+        {
+          "end_line": 153,
+          "kind": "fn",
+          "line": 145,
+          "name": "result_tokens",
+          "tokens": 56,
+          "vis": "private"
+        },
+        {
+          "end_line": 307,
+          "kind": "impl",
+          "line": 155,
+          "name": "impl Session",
+          "tokens": 1200,
+          "vis": "private"
+        },
+        {
+          "end_line": 379,
+          "kind": "fn",
+          "line": 309,
+          "name": "run_sub",
+          "tokens": 721,
+          "vis": "private"
+        },
+        {
+          "end_line": 386,
+          "kind": "struct",
+          "line": 381,
+          "name": "SubState",
+          "tokens": 28,
+          "vis": "private"
+        },
+        {
+          "end_line": 589,
+          "kind": "fn",
+          "line": 388,
+          "name": "sub_loop",
+          "tokens": 1577,
+          "vis": "private"
+        },
+        {
+          "end_line": 654,
+          "kind": "fn",
+          "line": 591,
+          "name": "inner_call",
+          "tokens": 491,
+          "vis": "private"
+        },
+        {
+          "end_line": 664,
+          "kind": "fn",
+          "line": 656,
+          "name": "record_path",
+          "tokens": 68,
+          "vis": "private"
+        },
+        {
+          "end_line": 731,
+          "kind": "fn",
+          "line": 666,
+          "name": "write_record",
+          "tokens": 602,
+          "vis": "private"
+        }
+      ],
+      "lines": 731,
+      "path": "src/loop/delegate.rs",
+      "tokens": 6203
+    },
+    {
+      "forbid_unsafe": false,
+      "items": [
+        {
           "end_line": 18,
           "kind": "const",
           "line": 17,
@@ -11151,81 +11370,81 @@
           "vis": "pub"
         },
         {
-          "end_line": 77,
+          "end_line": 84,
           "kind": "enum",
           "line": 56,
           "name": "Control",
-          "tokens": 103,
+          "tokens": 177,
           "vis": "pub"
         },
         {
-          "end_line": 81,
+          "end_line": 88,
           "kind": "fn",
-          "line": 79,
+          "line": 86,
           "name": "s",
           "tokens": 39,
           "vis": "private"
         },
         {
-          "end_line": 148,
+          "end_line": 164,
           "kind": "fn",
-          "line": 83,
+          "line": 90,
           "name": "parse_frame",
-          "tokens": 664,
+          "tokens": 749,
           "vis": "pub"
         },
         {
-          "end_line": 175,
+          "end_line": 199,
           "kind": "enum",
-          "line": 150,
+          "line": 166,
           "name": "Out",
-          "tokens": 127,
+          "tokens": 216,
           "vis": "pub"
         },
         {
-          "end_line": 230,
+          "end_line": 260,
           "kind": "impl",
-          "line": 177,
+          "line": 201,
           "name": "impl Out",
-          "tokens": 395,
+          "tokens": 457,
           "vis": "private"
         },
         {
-          "end_line": 237,
+          "end_line": 267,
           "kind": "struct",
-          "line": 232,
+          "line": 262,
           "name": "OutTx",
           "tokens": 48,
           "vis": "pub"
         },
         {
-          "end_line": 263,
+          "end_line": 293,
           "kind": "impl",
-          "line": 239,
+          "line": 269,
           "name": "impl OutTx",
           "tokens": 204,
           "vis": "private"
         },
         {
-          "end_line": 281,
+          "end_line": 311,
           "kind": "fn",
-          "line": 265,
+          "line": 295,
           "name": "spawn_output",
           "tokens": 140,
           "vis": "pub"
         },
         {
-          "end_line": 345,
+          "end_line": 388,
           "kind": "fn",
-          "line": 283,
+          "line": 313,
           "name": "spawn_input",
-          "tokens": 464,
+          "tokens": 580,
           "vis": "pub"
         }
       ],
-      "lines": 345,
+      "lines": 388,
       "path": "src/loop/frames.rs",
-      "tokens": 2544
+      "tokens": 2970
     },
     {
       "forbid_unsafe": false,
@@ -11263,89 +11482,89 @@
           "vis": "pub"
         },
         {
-          "end_line": 87,
+          "end_line": 100,
           "kind": "trait",
           "line": 68,
           "name": "ContextHooks",
-          "tokens": 256,
+          "tokens": 397,
           "vis": "pub"
         },
         {
-          "end_line": 90,
+          "end_line": 103,
           "kind": "type",
-          "line": 89,
+          "line": 102,
           "name": "NoticeRenderer",
           "tokens": 38,
           "vis": "pub"
         },
         {
-          "end_line": 100,
+          "end_line": 113,
           "kind": "fn",
-          "line": 92,
+          "line": 105,
           "name": "default_notice_text",
           "tokens": 101,
           "vis": "pub"
         },
         {
-          "end_line": 105,
+          "end_line": 118,
           "kind": "struct",
-          "line": 102,
+          "line": 115,
           "name": "BasicSignals",
           "tokens": 39,
           "vis": "pub"
         },
         {
-          "end_line": 122,
+          "end_line": 135,
           "kind": "impl",
-          "line": 107,
+          "line": 120,
           "name": "impl SignalSource for BasicSignals",
           "tokens": 129,
           "vis": "private"
         },
         {
-          "end_line": 129,
+          "end_line": 142,
           "kind": "struct",
-          "line": 124,
+          "line": 137,
           "name": "LogContext",
           "tokens": 42,
           "vis": "pub"
         },
         {
-          "end_line": 183,
+          "end_line": 196,
           "kind": "impl",
-          "line": 131,
+          "line": 144,
           "name": "impl LogContext",
           "tokens": 370,
           "vis": "private"
         },
         {
-          "end_line": 186,
+          "end_line": 199,
           "kind": "const",
-          "line": 185,
+          "line": 198,
           "name": "IMAGE_TOKENS_DEFAULT",
           "tokens": 39,
           "vis": "pub"
         },
         {
-          "end_line": 290,
+          "end_line": 311,
           "kind": "impl",
-          "line": 188,
+          "line": 201,
           "name": "impl ContextHooks for LogContext",
-          "tokens": 741,
+          "tokens": 800,
           "vis": "private"
         },
         {
-          "end_line": 332,
+          "end_line": 353,
           "kind": "fn",
-          "line": 292,
+          "line": 313,
           "name": "base64_decode",
           "tokens": 387,
           "vis": "pub"
         }
       ],
-      "lines": 332,
+      "lines": 353,
       "path": "src/loop/hooks.rs",
-      "tokens": 2715
+      "tokens": 2915
     },
     {
       "forbid_unsafe": false,
@@ -11354,7 +11573,7 @@
           "end_line": 9,
           "kind": "mod",
           "line": 9,
-          "name": "frames",
+          "name": "delegate",
           "tokens": 4,
           "vis": "pub"
         },
@@ -11362,7 +11581,7 @@
           "end_line": 10,
           "kind": "mod",
           "line": 10,
-          "name": "hooks",
+          "name": "frames",
           "tokens": 4,
           "vis": "pub"
         },
@@ -11370,374 +11589,438 @@
           "end_line": 11,
           "kind": "mod",
           "line": 11,
+          "name": "hooks",
+          "tokens": 4,
+          "vis": "pub"
+        },
+        {
+          "end_line": 12,
+          "kind": "mod",
+          "line": 12,
           "name": "status",
           "tokens": 4,
           "vis": "pub"
         },
         {
-          "end_line": 14,
+          "end_line": 15,
           "kind": "mod",
-          "line": 13,
+          "line": 14,
           "name": "tests",
           "tokens": 7,
           "vis": "private"
         },
         {
-          "end_line": 42,
+          "end_line": 44,
           "kind": "const",
-          "line": 41,
+          "line": 43,
           "name": "MAX_PARALLEL",
           "tokens": 21,
           "vis": "pub"
         },
         {
-          "end_line": 44,
+          "end_line": 46,
           "kind": "const",
-          "line": 43,
+          "line": 45,
           "name": "RELOAD_WAIT",
           "tokens": 42,
           "vis": "pub"
         },
         {
-          "end_line": 45,
-          "kind": "const",
-          "line": 45,
-          "name": "RELOAD_WAIT_EXT",
-          "tokens": 16,
-          "vis": "pub"
-        },
-        {
           "end_line": 47,
           "kind": "const",
-          "line": 46,
-          "name": "IDLE_RELOAD_POLL",
-          "tokens": 41,
+          "line": 47,
+          "name": "RELOAD_WAIT_EXT",
+          "tokens": 16,
           "vis": "pub"
         },
         {
           "end_line": 49,
           "kind": "const",
           "line": 48,
-          "name": "LENGTH_STRIKES",
-          "tokens": 30,
+          "name": "IDLE_RELOAD_POLL",
+          "tokens": 41,
           "vis": "pub"
         },
         {
           "end_line": 51,
           "kind": "const",
-          "line": 51,
+          "line": 50,
+          "name": "LENGTH_STRIKES",
+          "tokens": 30,
+          "vis": "pub"
+        },
+        {
+          "end_line": 53,
+          "kind": "const",
+          "line": 53,
           "name": "ABORTED_TEXT",
           "tokens": 22,
           "vis": "pub"
         },
         {
-          "end_line": 62,
+          "end_line": 55,
+          "kind": "const",
+          "line": 54,
+          "name": "CONTINUE_TEXT",
+          "tokens": 31,
+          "vis": "pub"
+        },
+        {
+          "end_line": 66,
           "kind": "enum",
-          "line": 53,
+          "line": 57,
           "name": "RunEnd",
           "tokens": 72,
           "vis": "pub"
         },
         {
-          "end_line": 70,
+          "end_line": 76,
           "kind": "struct",
-          "line": 64,
+          "line": 68,
           "name": "Guards",
-          "tokens": 45,
+          "tokens": 75,
           "vis": "private"
         },
         {
-          "end_line": 76,
+          "end_line": 82,
           "kind": "impl",
-          "line": 72,
+          "line": 78,
           "name": "impl Guards",
           "tokens": 51,
           "vis": "private"
         },
         {
-          "end_line": 85,
+          "end_line": 91,
           "kind": "struct",
-          "line": 78,
+          "line": 84,
           "name": "Queue",
           "tokens": 54,
           "vis": "private"
         },
         {
-          "end_line": 92,
+          "end_line": 100,
           "kind": "enum",
-          "line": 87,
+          "line": 93,
           "name": "Class",
-          "tokens": 17,
+          "tokens": 40,
           "vis": "private"
         },
         {
-          "end_line": 97,
+          "end_line": 105,
           "kind": "enum",
-          "line": 94,
+          "line": 102,
           "name": "PauseEnd",
           "tokens": 14,
           "vis": "private"
         },
         {
-          "end_line": 102,
+          "end_line": 110,
           "kind": "enum",
-          "line": 99,
+          "line": 107,
           "name": "TurnOutcome",
           "tokens": 22,
           "vis": "private"
         },
         {
-          "end_line": 110,
+          "end_line": 118,
           "kind": "struct",
-          "line": 104,
+          "line": 112,
           "name": "WaitingReload",
           "tokens": 54,
           "vis": "private"
         },
         {
-          "end_line": 114,
+          "end_line": 122,
           "kind": "type",
-          "line": 112,
+          "line": 120,
           "name": "FaultHook",
           "tokens": 66,
           "vis": "pub"
         },
         {
-          "end_line": 115,
+          "end_line": 123,
           "kind": "const",
-          "line": 115,
+          "line": 123,
           "name": "FAULT_EXIT",
           "tokens": 12,
           "vis": "pub"
         },
         {
-          "end_line": 118,
+          "end_line": 126,
           "kind": "type",
-          "line": 117,
+          "line": 125,
           "name": "HeadSource",
           "tokens": 51,
           "vis": "pub"
         },
         {
-          "end_line": 123,
+          "end_line": 131,
           "kind": "type",
-          "line": 120,
+          "line": 128,
           "name": "TaskHook",
           "tokens": 84,
           "vis": "pub"
         },
         {
-          "end_line": 145,
+          "end_line": 153,
           "kind": "struct",
-          "line": 125,
+          "line": 133,
           "name": "SessionConfig",
           "tokens": 177,
           "vis": "pub"
         },
         {
-          "end_line": 171,
+          "end_line": 179,
           "kind": "struct",
-          "line": 147,
+          "line": 155,
           "name": "Session",
           "tokens": 178,
           "vis": "pub"
         },
         {
-          "end_line": 180,
+          "end_line": 188,
           "kind": "fn",
-          "line": 173,
+          "line": 181,
           "name": "loop_error",
-          "tokens": 53,
-          "vis": "private"
-        },
-        {
-          "end_line": 189,
-          "kind": "fn",
-          "line": 182,
-          "name": "provider_error",
           "tokens": 53,
           "vis": "private"
         },
         {
           "end_line": 197,
           "kind": "fn",
-          "line": 191,
+          "line": 190,
+          "name": "provider_error",
+          "tokens": 53,
+          "vis": "private"
+        },
+        {
+          "end_line": 201,
+          "kind": "fn",
+          "line": 199,
+          "name": "aborted_in_retry",
+          "tokens": 29,
+          "vis": "private"
+        },
+        {
+          "end_line": 209,
+          "kind": "fn",
+          "line": 203,
           "name": "owner_input",
           "tokens": 40,
           "vis": "private"
         },
         {
-          "end_line": 206,
+          "end_line": 218,
           "kind": "fn",
-          "line": 199,
+          "line": 211,
           "name": "is_command",
           "tokens": 98,
           "vis": "pub"
         },
         {
-          "end_line": 212,
+          "end_line": 224,
           "kind": "fn",
-          "line": 208,
+          "line": 220,
           "name": "cut_off_note",
           "tokens": 50,
           "vis": "pub"
         },
         {
-          "end_line": 218,
+          "end_line": 230,
           "kind": "fn",
-          "line": 214,
+          "line": 226,
           "name": "length_cutoff_text",
           "tokens": 76,
           "vis": "pub"
         },
         {
-          "end_line": 225,
+          "end_line": 237,
           "kind": "fn",
-          "line": 220,
+          "line": 232,
           "name": "refused_text",
           "tokens": 44,
           "vis": "pub"
         },
         {
-          "end_line": 232,
+          "end_line": 244,
           "kind": "fn",
-          "line": 227,
+          "line": 239,
           "name": "panic_message",
           "tokens": 66,
           "vis": "private"
         },
         {
-          "end_line": 1285,
+          "end_line": 1395,
           "kind": "impl",
-          "line": 234,
+          "line": 246,
           "name": "impl Session",
-          "tokens": 8433,
+          "tokens": 9423,
           "vis": "private"
         },
         {
-          "end_line": 1296,
+          "end_line": 1407,
           "kind": "fn",
-          "line": 1287,
+          "line": 1397,
           "name": "send_end",
-          "tokens": 92,
+          "tokens": 97,
           "vis": "private"
         },
         {
-          "end_line": 1316,
+          "end_line": 1427,
           "kind": "fn",
-          "line": 1298,
+          "line": 1409,
           "name": "t1_tier",
           "tokens": 124,
           "vis": "private"
         },
         {
-          "end_line": 1322,
+          "end_line": 1433,
           "kind": "struct",
-          "line": 1318,
+          "line": 1429,
           "name": "RequestWithMax",
           "tokens": 39,
           "vis": "pub"
         },
         {
-          "end_line": 1329,
+          "end_line": 1440,
           "kind": "impl",
-          "line": 1324,
+          "line": 1435,
           "name": "impl std::ops::Deref for RequestWithMax",
           "tokens": 39,
           "vis": "private"
         }
       ],
-      "lines": 1329,
+      "lines": 1440,
       "path": "src/loop/mod.rs",
-      "tokens": 10651
+      "tokens": 11765
     },
     {
       "forbid_unsafe": false,
       "items": [
         {
-          "end_line": 21,
+          "end_line": 23,
           "kind": "enum",
-          "line": 12,
+          "line": 14,
           "name": "Phase",
           "tokens": 62,
           "vis": "pub"
         },
         {
-          "end_line": 47,
+          "end_line": 49,
           "kind": "impl",
-          "line": 23,
+          "line": 25,
           "name": "impl Phase",
           "tokens": 169,
           "vis": "private"
         },
         {
-          "end_line": 57,
+          "end_line": 61,
           "kind": "struct",
-          "line": 49,
+          "line": 51,
           "name": "Status",
-          "tokens": 71,
+          "tokens": 105,
           "vis": "pub"
         },
         {
-          "end_line": 70,
+          "end_line": 75,
           "kind": "impl",
-          "line": 59,
+          "line": 63,
           "name": "impl Default for Status",
-          "tokens": 89,
+          "tokens": 98,
           "vis": "private"
         },
         {
-          "end_line": 89,
+          "end_line": 94,
           "kind": "impl",
-          "line": 72,
+          "line": 77,
           "name": "impl Status",
           "tokens": 151,
           "vis": "private"
         },
         {
-          "end_line": 98,
+          "end_line": 97,
+          "kind": "const",
+          "line": 96,
+          "name": "GATE_CAP",
+          "tokens": 27,
+          "vis": "pub"
+        },
+        {
+          "end_line": 106,
           "kind": "struct",
-          "line": 91,
+          "line": 99,
+          "name": "GateSets",
+          "tokens": 77,
+          "vis": "pub"
+        },
+        {
+          "end_line": 115,
+          "kind": "impl",
+          "line": 108,
+          "name": "impl GateSets",
+          "tokens": 52,
+          "vis": "private"
+        },
+        {
+          "end_line": 126,
+          "kind": "struct",
+          "line": 117,
+          "name": "RetractGate",
+          "tokens": 126,
+          "vis": "pub"
+        },
+        {
+          "end_line": 166,
+          "kind": "impl",
+          "line": 128,
+          "name": "impl RetractGate",
+          "tokens": 312,
+          "vis": "private"
+        },
+        {
+          "end_line": 175,
+          "kind": "struct",
+          "line": 168,
           "name": "HeartbeatInfo",
           "tokens": 57,
           "vis": "pub"
         },
         {
-          "end_line": 118,
+          "end_line": 195,
           "kind": "fn",
-          "line": 100,
+          "line": 177,
           "name": "heartbeat_value",
           "tokens": 205,
           "vis": "pub"
         },
         {
-          "end_line": 130,
+          "end_line": 207,
           "kind": "fn",
-          "line": 120,
+          "line": 197,
           "name": "write_heartbeat",
           "tokens": 137,
           "vis": "pub"
         },
         {
-          "end_line": 160,
+          "end_line": 237,
           "kind": "fn",
-          "line": 132,
+          "line": 209,
           "name": "spawn_heartbeat",
           "tokens": 289,
           "vis": "pub"
         },
         {
-          "end_line": 164,
+          "end_line": 241,
           "kind": "fn",
-          "line": 162,
+          "line": 239,
           "name": "run_dir",
           "tokens": 24,
           "vis": "pub"
         }
       ],
-      "lines": 164,
+      "lines": 241,
       "path": "src/loop/status.rs",
-      "tokens": 1340
+      "tokens": 1993
     },
     {
       "forbid_unsafe": false,
@@ -11767,529 +12050,697 @@
           "vis": "private"
         },
         {
-          "end_line": 65,
+          "end_line": 66,
           "kind": "struct",
           "line": 58,
           "name": "Seen",
-          "tokens": 43,
+          "tokens": 50,
           "vis": "private"
         },
         {
-          "end_line": 72,
+          "end_line": 79,
           "kind": "struct",
-          "line": 67,
+          "line": 68,
           "name": "ScriptModel",
-          "tokens": 34,
+          "tokens": 136,
           "vis": "private"
         },
         {
-          "end_line": 88,
+          "end_line": 108,
           "kind": "impl",
-          "line": 74,
+          "line": 81,
           "name": "impl ScriptModel",
-          "tokens": 119,
+          "tokens": 241,
           "vis": "private"
         },
         {
-          "end_line": 97,
+          "end_line": 117,
           "kind": "fn",
-          "line": 90,
+          "line": 110,
           "name": "origin",
           "tokens": 52,
           "vis": "private"
         },
         {
-          "end_line": 157,
+          "end_line": 208,
           "kind": "impl",
-          "line": 99,
+          "line": 119,
           "name": "impl ModelClient for ScriptModel",
-          "tokens": 465,
+          "tokens": 711,
           "vis": "private"
         },
         {
-          "end_line": 159,
+          "end_line": 210,
           "kind": "static",
-          "line": 159,
+          "line": 210,
           "name": "CALL_N",
           "tokens": 16,
           "vis": "private"
         },
         {
-          "end_line": 172,
+          "end_line": 223,
           "kind": "fn",
-          "line": 161,
+          "line": 212,
           "name": "call",
           "tokens": 93,
           "vis": "private"
         },
         {
-          "end_line": 192,
+          "end_line": 243,
           "kind": "fn",
-          "line": 174,
+          "line": 225,
           "name": "amsg",
           "tokens": 130,
           "vis": "private"
         },
         {
-          "end_line": 199,
+          "end_line": 250,
           "kind": "fn",
-          "line": 194,
+          "line": 245,
           "name": "reply",
           "tokens": 41,
           "vis": "private"
         },
         {
-          "end_line": 206,
+          "end_line": 257,
           "kind": "fn",
-          "line": 201,
+          "line": 252,
           "name": "tools_reply",
           "tokens": 43,
           "vis": "private"
         },
         {
-          "end_line": 210,
+          "end_line": 261,
           "kind": "fn",
-          "line": 208,
+          "line": 259,
           "name": "bash_call",
           "tokens": 25,
           "vis": "private"
         },
         {
-          "end_line": 215,
+          "end_line": 266,
           "kind": "struct",
-          "line": 212,
+          "line": 263,
           "name": "TestSummarizer",
           "tokens": 28,
           "vis": "private"
         },
         {
-          "end_line": 228,
+          "end_line": 279,
           "kind": "impl",
-          "line": 217,
+          "line": 268,
           "name": "impl Summarizer for TestSummarizer",
           "tokens": 188,
           "vis": "private"
         },
         {
-          "end_line": 233,
+          "end_line": 284,
           "kind": "fn",
-          "line": 230,
+          "line": 281,
           "name": "test_head",
           "tokens": 55,
           "vis": "private"
         },
         {
-          "end_line": 242,
+          "end_line": 293,
           "kind": "struct",
-          "line": 239,
+          "line": 290,
           "name": "ChanWriter",
           "tokens": 22,
           "vis": "private"
         },
         {
-          "end_line": 257,
+          "end_line": 308,
           "kind": "impl",
-          "line": 244,
+          "line": 295,
           "name": "impl Write for ChanWriter",
           "tokens": 143,
           "vis": "private"
         },
         {
-          "end_line": 259,
+          "end_line": 310,
           "kind": "type",
-          "line": 259,
+          "line": 310,
           "name": "SendHeadSource",
           "tokens": 21,
           "vis": "private"
         },
         {
-          "end_line": 268,
+          "end_line": 321,
           "kind": "struct",
-          "line": 261,
+          "line": 312,
           "name": "Opts",
-          "tokens": 52,
+          "tokens": 85,
           "vis": "private"
         },
         {
-          "end_line": 270,
+          "end_line": 323,
           "kind": "type",
-          "line": 270,
+          "line": 323,
           "name": "TaskLog",
           "tokens": 16,
           "vis": "private"
         },
         {
-          "end_line": 282,
+          "end_line": 335,
           "kind": "struct",
-          "line": 272,
+          "line": 325,
           "name": "H",
           "tokens": 82,
           "vis": "private"
         },
         {
-          "end_line": 479,
+          "end_line": 535,
           "kind": "impl",
-          "line": 284,
+          "line": 337,
           "name": "impl H",
-          "tokens": 1611,
+          "tokens": 1654,
           "vis": "private"
         },
         {
-          "end_line": 483,
+          "end_line": 539,
           "kind": "fn",
-          "line": 481,
+          "line": 537,
           "name": "session_file",
           "tokens": 26,
           "vis": "private"
         },
         {
-          "end_line": 491,
+          "end_line": 547,
           "kind": "fn",
-          "line": 485,
+          "line": 541,
           "name": "events",
           "tokens": 69,
           "vis": "private"
         },
         {
-          "end_line": 495,
+          "end_line": 551,
           "kind": "fn",
-          "line": 493,
+          "line": 549,
           "name": "of_type",
           "tokens": 46,
           "vis": "private"
         },
         {
-          "end_line": 504,
+          "end_line": 560,
           "kind": "fn",
-          "line": 497,
+          "line": 553,
           "name": "result_text",
           "tokens": 48,
           "vis": "private"
         },
         {
-          "end_line": 508,
+          "end_line": 564,
           "kind": "fn",
-          "line": 506,
+          "line": 562,
           "name": "is_display",
           "tokens": 43,
           "vis": "private"
         },
         {
-          "end_line": 517,
+          "end_line": 573,
           "kind": "fn",
-          "line": 510,
+          "line": 566,
           "name": "last_msg_text",
           "tokens": 106,
           "vis": "private"
         },
         {
-          "end_line": 529,
+          "end_line": 585,
           "kind": "fn",
-          "line": 519,
+          "line": 575,
           "name": "roles",
           "tokens": 93,
           "vis": "private"
         },
         {
-          "end_line": 536,
+          "end_line": 592,
           "kind": "fn",
-          "line": 531,
+          "line": 587,
           "name": "blocks_text",
           "tokens": 41,
           "vis": "private"
         },
         {
-          "end_line": 544,
+          "end_line": 600,
           "kind": "fn",
-          "line": 538,
+          "line": 594,
           "name": "wait_until",
           "tokens": 69,
           "vis": "private"
         },
         {
-          "end_line": 546,
+          "end_line": 602,
           "kind": "const",
-          "line": 546,
+          "line": 602,
           "name": "ID1",
           "tokens": 22,
           "vis": "private"
         },
         {
-          "end_line": 547,
+          "end_line": 603,
           "kind": "const",
-          "line": 547,
+          "line": 603,
           "name": "ID2",
           "tokens": 22,
           "vis": "private"
         },
         {
-          "end_line": 548,
+          "end_line": 604,
           "kind": "const",
-          "line": 548,
+          "line": 604,
           "name": "ID3",
           "tokens": 22,
           "vis": "private"
         },
         {
-          "end_line": 549,
+          "end_line": 605,
           "kind": "const",
-          "line": 549,
+          "line": 605,
           "name": "ID4",
           "tokens": 22,
           "vis": "private"
         },
         {
-          "end_line": 601,
+          "end_line": 657,
           "kind": "fn",
-          "line": 555,
+          "line": 611,
           "name": "t01_turn_without_tools",
           "tokens": 374,
           "vis": "private"
         },
         {
-          "end_line": 675,
+          "end_line": 731,
           "kind": "fn",
-          "line": 603,
+          "line": 659,
           "name": "t02_parallel_batch_order_and_d1",
           "tokens": 818,
           "vis": "private"
         },
         {
-          "end_line": 714,
+          "end_line": 770,
           "kind": "fn",
-          "line": 677,
+          "line": 733,
           "name": "t03_same_file_edits_are_serialized",
           "tokens": 363,
           "vis": "private"
         },
         {
-          "end_line": 743,
+          "end_line": 799,
           "kind": "fn",
-          "line": 716,
+          "line": 772,
           "name": "t04_tool_panic_is_isolated",
           "tokens": 284,
           "vis": "private"
         },
         {
-          "end_line": 784,
+          "end_line": 840,
           "kind": "fn",
-          "line": 745,
+          "line": 801,
           "name": "t05_steer_during_bash",
           "tokens": 440,
           "vis": "private"
         },
         {
-          "end_line": 813,
+          "end_line": 869,
           "kind": "fn",
-          "line": 786,
+          "line": 842,
           "name": "t06_steer_while_final_reply_streams",
           "tokens": 249,
           "vis": "private"
         },
         {
-          "end_line": 855,
+          "end_line": 911,
           "kind": "fn",
-          "line": 815,
+          "line": 871,
           "name": "t07_follow_ups_one_per_run_end",
           "tokens": 410,
           "vis": "private"
         },
         {
-          "end_line": 906,
+          "end_line": 962,
           "kind": "fn",
-          "line": 857,
+          "line": 913,
           "name": "t08_interrupt_mid_stream",
           "tokens": 465,
           "vis": "private"
         },
         {
-          "end_line": 955,
+          "end_line": 1011,
           "kind": "fn",
-          "line": 908,
+          "line": 964,
           "name": "t09_interrupt_during_bash_with_read",
           "tokens": 488,
           "vis": "private"
         },
         {
-          "end_line": 1015,
+          "end_line": 1071,
           "kind": "fn",
-          "line": 957,
+          "line": 1013,
           "name": "t10_length_stops",
           "tokens": 568,
           "vis": "private"
         },
         {
-          "end_line": 1040,
+          "end_line": 1096,
           "kind": "fn",
-          "line": 1017,
+          "line": 1073,
           "name": "t11_unknown_tool_and_invalid_json",
           "tokens": 286,
           "vis": "private"
         },
         {
-          "end_line": 1122,
+          "end_line": 1178,
           "kind": "fn",
-          "line": 1042,
+          "line": 1098,
           "name": "t12_pause_idle_resume_exit",
           "tokens": 1030,
           "vis": "private"
         },
         {
-          "end_line": 1140,
+          "end_line": 1196,
           "kind": "fn",
-          "line": 1124,
+          "line": 1180,
           "name": "t12b_stop_while_paused",
           "tokens": 215,
           "vis": "private"
         },
         {
-          "end_line": 1173,
+          "end_line": 1229,
           "kind": "fn",
-          "line": 1142,
+          "line": 1198,
           "name": "t13_pause_during_batch",
           "tokens": 407,
           "vis": "private"
         },
         {
-          "end_line": 1182,
+          "end_line": 1238,
           "kind": "fn",
-          "line": 1175,
+          "line": 1231,
           "name": "report",
           "tokens": 83,
           "vis": "private"
         },
         {
-          "end_line": 1267,
+          "end_line": 1323,
           "kind": "fn",
-          "line": 1184,
+          "line": 1240,
           "name": "t14_reload",
           "tokens": 895,
           "vis": "private"
         },
         {
-          "end_line": 1287,
+          "end_line": 1343,
           "kind": "fn",
-          "line": 1269,
+          "line": 1325,
           "name": "t14b_reload_refused_in_safe_mode",
           "tokens": 166,
           "vis": "private"
         },
         {
-          "end_line": 1328,
+          "end_line": 1384,
           "kind": "fn",
-          "line": 1289,
+          "line": 1345,
           "name": "t15_notices",
           "tokens": 488,
           "vis": "private"
         },
         {
-          "end_line": 1352,
+          "end_line": 1408,
           "kind": "fn",
-          "line": 1330,
+          "line": 1386,
           "name": "t16_duplicate_input_after_restart",
           "tokens": 302,
           "vis": "private"
         },
         {
-          "end_line": 1378,
+          "end_line": 1434,
           "kind": "fn",
-          "line": 1354,
+          "line": 1410,
           "name": "t17_budget_error",
           "tokens": 233,
           "vis": "private"
         },
         {
-          "end_line": 1388,
+          "end_line": 1444,
           "kind": "fn",
-          "line": 1380,
+          "line": 1436,
           "name": "overflow",
           "tokens": 64,
           "vis": "private"
         },
         {
-          "end_line": 1438,
+          "end_line": 1494,
           "kind": "fn",
-          "line": 1390,
+          "line": 1446,
           "name": "t18_context_overflow",
           "tokens": 414,
           "vis": "private"
         },
         {
-          "end_line": 1490,
+          "end_line": 1546,
           "kind": "fn",
-          "line": 1440,
+          "line": 1496,
           "name": "t19_crash_repair_and_auto_continue",
           "tokens": 556,
           "vis": "private"
         },
         {
-          "end_line": 1551,
+          "end_line": 1607,
           "kind": "fn",
-          "line": 1492,
+          "line": 1548,
           "name": "t20_stop_grace_and_eof",
           "tokens": 569,
           "vis": "private"
         },
         {
-          "end_line": 1595,
+          "end_line": 1651,
           "kind": "fn",
-          "line": 1553,
+          "line": 1609,
           "name": "t22_task_id",
           "tokens": 440,
           "vis": "private"
         },
         {
-          "end_line": 1629,
+          "end_line": 1685,
           "kind": "fn",
-          "line": 1597,
+          "line": 1653,
           "name": "t23_input_modes",
           "tokens": 341,
           "vis": "private"
         },
         {
-          "end_line": 1673,
+          "end_line": 1729,
           "kind": "fn",
-          "line": 1631,
+          "line": 1687,
           "name": "t24_interrupt_during_ext_call",
           "tokens": 455,
           "vis": "private"
         },
         {
-          "end_line": 1726,
+          "end_line": 1737,
           "kind": "fn",
-          "line": 1679,
+          "line": 1735,
+          "name": "is_retracted",
+          "tokens": 44,
+          "vis": "private"
+        },
+        {
+          "end_line": 1741,
+          "kind": "fn",
+          "line": 1739,
+          "name": "is_info",
+          "tokens": 52,
+          "vis": "private"
+        },
+        {
+          "end_line": 1750,
+          "kind": "fn",
+          "line": 1743,
+          "name": "user_texts",
+          "tokens": 57,
+          "vis": "private"
+        },
+        {
+          "end_line": 1778,
+          "kind": "fn",
+          "line": 1752,
+          "name": "assert_paired_before_steer",
+          "tokens": 251,
+          "vis": "private"
+        },
+        {
+          "end_line": 1819,
+          "kind": "fn",
+          "line": 1780,
+          "name": "t25_retract_before_the_boundary",
+          "tokens": 373,
+          "vis": "private"
+        },
+        {
+          "end_line": 1848,
+          "kind": "fn",
+          "line": 1821,
+          "name": "t25b_retract_after_it_was_consumed",
+          "tokens": 283,
+          "vis": "private"
+        },
+        {
+          "end_line": 1892,
+          "kind": "fn",
+          "line": 1850,
+          "name": "t25c_retract_a_queued_follow_up",
+          "tokens": 412,
+          "vis": "private"
+        },
+        {
+          "end_line": 1941,
+          "kind": "fn",
+          "line": 1894,
+          "name": "t26_interrupt_and_steer_during_a_batch",
+          "tokens": 458,
+          "vis": "private"
+        },
+        {
+          "end_line": 1987,
+          "kind": "fn",
+          "line": 1943,
+          "name": "t26b_interrupt_and_steer_mid_stream",
+          "tokens": 443,
+          "vis": "private"
+        },
+        {
+          "end_line": 2007,
+          "kind": "fn",
+          "line": 1989,
+          "name": "t26c_continue_without_a_steer_stops",
+          "tokens": 201,
+          "vis": "private"
+        },
+        {
+          "end_line": 2032,
+          "kind": "fn",
+          "line": 2009,
+          "name": "t26d_plain_interrupt_with_a_steer_stops",
+          "tokens": 274,
+          "vis": "private"
+        },
+        {
+          "end_line": 2070,
+          "kind": "fn",
+          "line": 2034,
+          "name": "steer_frames_parse_and_render",
+          "tokens": 332,
+          "vis": "private"
+        },
+        {
+          "end_line": 2088,
+          "kind": "fn",
+          "line": 2072,
+          "name": "retract_gate_decides_once_and_stays_bounded",
+          "tokens": 195,
+          "vis": "private"
+        },
+        {
+          "end_line": 2100,
+          "kind": "fn",
+          "line": 2090,
+          "name": "abort_continue_wish",
+          "tokens": 91,
+          "vis": "private"
+        },
+        {
+          "end_line": 2153,
+          "kind": "fn",
+          "line": 2106,
           "name": "frames_parse_and_render",
           "tokens": 478,
           "vis": "private"
         },
         {
-          "end_line": 1736,
+          "end_line": 2163,
           "kind": "fn",
-          "line": 1728,
+          "line": 2155,
           "name": "deltas_drop_when_the_queue_is_full",
           "tokens": 79,
           "vis": "private"
         },
         {
-          "end_line": 1746,
+          "end_line": 2173,
           "kind": "fn",
-          "line": 1738,
+          "line": 2165,
           "name": "base64_round_trip",
           "tokens": 104,
           "vis": "private"
         },
         {
-          "end_line": 1749,
+          "end_line": 2176,
           "kind": "fn",
-          "line": 1748,
+          "line": 2175,
           "name": "_unused",
           "tokens": 15,
           "vis": "private"
+        },
+        {
+          "end_line": 2272,
+          "kind": "fn",
+          "line": 2178,
+          "name": "t99_delegate_runs_a_subtask_in_a_fresh_context",
+          "tokens": 1206,
+          "vis": "private"
+        },
+        {
+          "end_line": 2282,
+          "kind": "fn",
+          "line": 2274,
+          "name": "delegate_record",
+          "tokens": 90,
+          "vis": "private"
+        },
+        {
+          "end_line": 2289,
+          "kind": "fn",
+          "line": 2284,
+          "name": "delayed",
+          "tokens": 49,
+          "vis": "private"
+        },
+        {
+          "end_line": 2342,
+          "kind": "fn",
+          "line": 2291,
+          "name": "t100_delegate_fan_out_runs_in_parallel_and_keeps_call_order",
+          "tokens": 687,
+          "vis": "private"
+        },
+        {
+          "end_line": 2414,
+          "kind": "fn",
+          "line": 2344,
+          "name": "t101_delegate_read_mode_refuses_write_and_edit",
+          "tokens": 751,
+          "vis": "private"
+        },
+        {
+          "end_line": 2485,
+          "kind": "fn",
+          "line": 2416,
+          "name": "t102_delegate_bounds_turns_calls_and_wall_time",
+          "tokens": 789,
+          "vis": "private"
+        },
+        {
+          "end_line": 2537,
+          "kind": "fn",
+          "line": 2487,
+          "name": "t103_delegate_owner_abort_stops_sub_tasks",
+          "tokens": 530,
+          "vis": "private"
         }
       ],
-      "lines": 1749,
+      "lines": 2537,
       "path": "src/loop/tests.rs",
-      "tokens": 16539
+      "tokens": 24677
     },
     {
       "forbid_unsafe": true,
@@ -12385,7 +12836,7 @@
       ],
       "lines": 94,
       "path": "src/main.rs",
-      "tokens": 967
+      "tokens": 966
     },
     {
       "forbid_unsafe": false,
@@ -12483,7 +12934,7 @@
           "kind": "struct",
           "line": 159,
           "name": "ToolSpec",
-          "tokens": 66,
+          "tokens": 65,
           "vis": "pub"
         },
         {
@@ -12591,121 +13042,121 @@
           "vis": "pub"
         },
         {
-          "end_line": 411,
+          "end_line": 416,
           "kind": "struct",
           "line": 401,
           "name": "Abort",
-          "tokens": 142,
+          "tokens": 226,
           "vis": "pub"
         },
         {
-          "end_line": 419,
+          "end_line": 424,
           "kind": "impl",
-          "line": 413,
+          "line": 418,
           "name": "impl fmt::Debug for Abort",
           "tokens": 57,
           "vis": "private"
         },
         {
-          "end_line": 508,
+          "end_line": 553,
           "kind": "impl",
-          "line": 421,
+          "line": 426,
           "name": "impl Abort",
-          "tokens": 648,
+          "tokens": 1046,
           "vis": "private"
         },
         {
-          "end_line": 513,
+          "end_line": 558,
           "kind": "fn",
-          "line": 510,
+          "line": 555,
           "name": "lock",
           "tokens": 50,
           "vis": "private"
         },
         {
-          "end_line": 621,
+          "end_line": 666,
           "kind": "mod",
-          "line": 515,
+          "line": 560,
           "name": "tests",
           "tokens": 969,
           "vis": "private"
         },
         {
-          "end_line": 636,
+          "end_line": 681,
           "kind": "enum",
-          "line": 628,
+          "line": 673,
           "name": "Effort",
           "tokens": 59,
           "vis": "pub"
         },
         {
-          "end_line": 658,
+          "end_line": 703,
           "kind": "impl",
-          "line": 638,
+          "line": 683,
           "name": "impl Effort",
           "tokens": 155,
           "vis": "private"
         },
         {
-          "end_line": 666,
+          "end_line": 711,
           "kind": "enum",
-          "line": 660,
+          "line": 705,
           "name": "Purpose",
           "tokens": 49,
           "vis": "pub"
         },
         {
-          "end_line": 676,
+          "end_line": 721,
           "kind": "impl",
-          "line": 668,
+          "line": 713,
           "name": "impl Purpose",
           "tokens": 50,
           "vis": "private"
         },
         {
-          "end_line": 684,
+          "end_line": 729,
           "kind": "enum",
-          "line": 678,
+          "line": 723,
           "name": "ReasoningRule",
           "tokens": 53,
           "vis": "pub"
         },
         {
-          "end_line": 699,
+          "end_line": 744,
           "kind": "struct",
-          "line": 686,
+          "line": 731,
           "name": "ModelInfo",
           "tokens": 119,
           "vis": "pub"
         },
         {
-          "end_line": 718,
+          "end_line": 767,
           "kind": "struct",
-          "line": 701,
+          "line": 746,
           "name": "Request",
-          "tokens": 213,
+          "tokens": 284,
           "vis": "pub"
         },
         {
-          "end_line": 729,
+          "end_line": 778,
           "kind": "trait",
-          "line": 720,
+          "line": 769,
           "name": "ModelClient",
           "tokens": 107,
           "vis": "pub"
         },
         {
-          "end_line": 736,
+          "end_line": 790,
           "kind": "impl",
-          "line": 731,
+          "line": 780,
           "name": "impl Abort",
-          "tokens": 57,
+          "tokens": 110,
           "vis": "private"
         }
       ],
-      "lines": 736,
+      "lines": 790,
       "path": "src/model.rs",
-      "tokens": 6360
+      "tokens": 6969
     },
     {
       "forbid_unsafe": false,
@@ -13031,25 +13482,25 @@
           "vis": "private"
         },
         {
-          "end_line": 78,
+          "end_line": 79,
           "kind": "fn",
           "line": 71,
           "name": "cx",
-          "tokens": 62,
+          "tokens": 81,
           "vis": "pub"
         },
         {
-          "end_line": 96,
+          "end_line": 97,
           "kind": "impl",
-          "line": 80,
+          "line": 81,
           "name": "impl ModelClient for Client",
-          "tokens": 102,
+          "tokens": 106,
           "vis": "private"
         }
       ],
-      "lines": 96,
+      "lines": 97,
       "path": "src/provider/client.rs",
-      "tokens": 622
+      "tokens": 645
     },
     {
       "forbid_unsafe": false,
@@ -13463,209 +13914,209 @@
           "vis": "pub"
         },
         {
-          "end_line": 35,
+          "end_line": 37,
           "kind": "struct",
           "line": 25,
           "name": "Cx",
-          "tokens": 123,
+          "tokens": 163,
           "vis": "pub"
         },
         {
-          "end_line": 42,
+          "end_line": 44,
           "kind": "struct",
-          "line": 37,
+          "line": 39,
           "name": "Timeouts",
           "tokens": 37,
           "vis": "pub"
         },
         {
-          "end_line": 48,
+          "end_line": 50,
           "kind": "struct",
-          "line": 44,
+          "line": 46,
           "name": "Response",
           "tokens": 29,
           "vis": "pub"
         },
         {
-          "end_line": 54,
+          "end_line": 56,
           "kind": "impl",
-          "line": 50,
+          "line": 52,
           "name": "impl Response",
           "tokens": 32,
           "vis": "private"
         },
         {
-          "end_line": 61,
+          "end_line": 63,
           "kind": "fn",
-          "line": 56,
+          "line": 58,
           "name": "header",
           "tokens": 60,
           "vis": "pub"
         },
         {
-          "end_line": 67,
+          "end_line": 69,
           "kind": "enum",
-          "line": 63,
+          "line": 65,
           "name": "Body",
           "tokens": 44,
           "vis": "pub"
         },
         {
-          "end_line": 84,
+          "end_line": 86,
           "kind": "impl",
-          "line": 69,
+          "line": 71,
           "name": "impl Read for Body",
           "tokens": 123,
           "vis": "private"
         },
         {
-          "end_line": 96,
+          "end_line": 98,
           "kind": "fn",
-          "line": 86,
+          "line": 88,
           "name": "io_or_timeout",
           "tokens": 116,
           "vis": "private"
         },
         {
-          "end_line": 124,
+          "end_line": 129,
           "kind": "fn",
-          "line": 98,
+          "line": 100,
           "name": "request_head",
-          "tokens": 277,
+          "tokens": 311,
           "vis": "pub"
         },
         {
-          "end_line": 157,
+          "end_line": 162,
           "kind": "fn",
-          "line": 126,
+          "line": 131,
           "name": "send",
           "tokens": 342,
           "vis": "pub"
         },
         {
-          "end_line": 161,
+          "end_line": 166,
           "kind": "fn",
-          "line": 159,
+          "line": 164,
           "name": "invalid",
           "tokens": 31,
           "vis": "private"
         },
         {
-          "end_line": 189,
+          "end_line": 194,
           "kind": "fn",
-          "line": 163,
+          "line": 168,
           "name": "read_line",
           "tokens": 227,
           "vis": "private"
         },
         {
-          "end_line": 225,
+          "end_line": 230,
           "kind": "fn",
-          "line": 191,
+          "line": 196,
           "name": "read_head",
           "tokens": 350,
           "vis": "pub"
         },
         {
-          "end_line": 241,
+          "end_line": 246,
           "kind": "fn",
-          "line": 227,
+          "line": 232,
           "name": "parse_status",
           "tokens": 164,
           "vis": "private"
         },
         {
-          "end_line": 253,
+          "end_line": 258,
           "kind": "fn",
-          "line": 243,
+          "line": 248,
           "name": "frame_body",
           "tokens": 117,
           "vis": "pub"
         },
         {
-          "end_line": 260,
+          "end_line": 265,
           "kind": "enum",
-          "line": 255,
+          "line": 260,
           "name": "Framing",
           "tokens": 28,
           "vis": "pub"
         },
         {
-          "end_line": 297,
+          "end_line": 302,
           "kind": "fn",
-          "line": 262,
+          "line": 267,
           "name": "body_framing",
           "tokens": 316,
           "vis": "pub"
         },
         {
-          "end_line": 304,
+          "end_line": 309,
           "kind": "struct",
-          "line": 299,
+          "line": 304,
           "name": "ChunkedReader",
           "tokens": 39,
           "vis": "pub"
         },
         {
-          "end_line": 317,
+          "end_line": 322,
           "kind": "impl",
-          "line": 306,
+          "line": 311,
           "name": "impl ChunkedReader",
           "tokens": 63,
           "vis": "private"
         },
         {
-          "end_line": 346,
+          "end_line": 351,
           "kind": "impl",
-          "line": 319,
+          "line": 324,
           "name": "impl Read for ChunkedReader",
           "tokens": 212,
           "vis": "private"
         },
         {
-          "end_line": 366,
+          "end_line": 371,
           "kind": "fn",
-          "line": 348,
+          "line": 353,
           "name": "read_chunk_size",
           "tokens": 220,
           "vis": "private"
         },
         {
-          "end_line": 375,
+          "end_line": 380,
           "kind": "fn",
-          "line": 368,
+          "line": 373,
           "name": "read_trailers",
           "tokens": 66,
           "vis": "private"
         },
         {
-          "end_line": 391,
+          "end_line": 396,
           "kind": "fn",
-          "line": 377,
+          "line": 382,
           "name": "expect_crlf",
           "tokens": 127,
           "vis": "private"
         },
         {
-          "end_line": 398,
+          "end_line": 403,
           "kind": "fn",
-          "line": 393,
+          "line": 398,
           "name": "read_capped",
           "tokens": 69,
           "vis": "pub"
         },
         {
-          "end_line": 557,
+          "end_line": 567,
           "kind": "mod",
-          "line": 400,
+          "line": 405,
           "name": "tests",
-          "tokens": 1700,
+          "tokens": 1814,
           "vis": "private"
         }
       ],
-      "lines": 557,
+      "lines": 567,
       "path": "src/provider/http.rs",
-      "tokens": 5156
+      "tokens": 5344
     },
     {
       "forbid_unsafe": false,
@@ -13819,7 +14270,7 @@
           "kind": "fn",
           "line": 112,
           "name": "turn_cx",
-          "tokens": 26,
+          "tokens": 28,
           "vis": "private"
         },
         {
@@ -13899,7 +14350,7 @@
           "kind": "fn",
           "line": 287,
           "name": "mock_full_turn_strict_reasoning_round_trip",
-          "tokens": 1247,
+          "tokens": 1249,
           "vis": "private"
         },
         {
@@ -14015,57 +14466,57 @@
           "vis": "private"
         },
         {
-          "end_line": 893,
+          "end_line": 894,
           "kind": "fn",
           "line": 829,
           "name": "stub_model_client_seam_and_headers",
-          "tokens": 612,
+          "tokens": 618,
           "vis": "private"
         },
         {
-          "end_line": 964,
+          "end_line": 965,
           "kind": "fn",
-          "line": 895,
+          "line": 896,
           "name": "stub_proxy_errors_and_backoff_jump",
           "tokens": 613,
           "vis": "private"
         },
         {
-          "end_line": 987,
+          "end_line": 988,
           "kind": "fn",
-          "line": 966,
+          "line": 967,
           "name": "stub_connect_errors_retry_then_fail",
           "tokens": 229,
           "vis": "private"
         },
         {
-          "end_line": 1022,
+          "end_line": 1023,
           "kind": "fn",
-          "line": 989,
+          "line": 990,
           "name": "stub_abort_during_backoff",
           "tokens": 333,
           "vis": "private"
         },
         {
-          "end_line": 1058,
+          "end_line": 1059,
           "kind": "fn",
-          "line": 1024,
+          "line": 1025,
           "name": "stub_idle_timeout_then_content_length_body",
           "tokens": 348,
           "vis": "private"
         },
         {
-          "end_line": 1120,
+          "end_line": 1121,
           "kind": "fn",
-          "line": 1060,
+          "line": 1061,
           "name": "mock_full_turn_anthropic_and_openai",
-          "tokens": 760,
+          "tokens": 762,
           "vis": "private"
         }
       ],
-      "lines": 1120,
+      "lines": 1121,
       "path": "src/provider/mock_tests.rs",
-      "tokens": 10601
+      "tokens": 10613
     },
     {
       "forbid_unsafe": false,
@@ -14703,17 +15154,17 @@
           "vis": "pub"
         },
         {
-          "end_line": 72,
+          "end_line": 73,
           "kind": "impl",
           "line": 50,
           "name": "impl Summarizer for ProxySummarizer",
-          "tokens": 208,
+          "tokens": 214,
           "vis": "private"
         }
       ],
-      "lines": 72,
+      "lines": 73,
       "path": "src/provider/summarizer.rs",
-      "tokens": 606
+      "tokens": 612
     },
     {
       "forbid_unsafe": false,
@@ -15391,6 +15842,238 @@
       "forbid_unsafe": false,
       "items": [
         {
+          "end_line": 23,
+          "kind": "const",
+          "line": 22,
+          "name": "NAME",
+          "tokens": 30,
+          "vis": "pub"
+        },
+        {
+          "end_line": 27,
+          "kind": "const",
+          "line": 25,
+          "name": "SUMMARY_BYTES",
+          "tokens": 49,
+          "vis": "pub"
+        },
+        {
+          "end_line": 38,
+          "kind": "enum",
+          "line": 29,
+          "name": "Access",
+          "tokens": 133,
+          "vis": "pub"
+        },
+        {
+          "end_line": 47,
+          "kind": "impl",
+          "line": 40,
+          "name": "impl Access",
+          "tokens": 40,
+          "vis": "private"
+        },
+        {
+          "end_line": 62,
+          "kind": "struct",
+          "line": 49,
+          "name": "Bounds",
+          "tokens": 178,
+          "vis": "pub"
+        },
+        {
+          "end_line": 75,
+          "kind": "impl",
+          "line": 64,
+          "name": "impl Default for Bounds",
+          "tokens": 70,
+          "vis": "private"
+        },
+        {
+          "end_line": 78,
+          "kind": "const",
+          "line": 77,
+          "name": "CEIL_TURNS",
+          "tokens": 30,
+          "vis": "pub"
+        },
+        {
+          "end_line": 79,
+          "kind": "const",
+          "line": 79,
+          "name": "CEIL_CALLS",
+          "tokens": 12,
+          "vis": "pub"
+        },
+        {
+          "end_line": 80,
+          "kind": "const",
+          "line": 80,
+          "name": "CEIL_REQUESTS",
+          "tokens": 12,
+          "vis": "pub"
+        },
+        {
+          "end_line": 81,
+          "kind": "const",
+          "line": 81,
+          "name": "CEIL_TOKENS",
+          "tokens": 18,
+          "vis": "pub"
+        },
+        {
+          "end_line": 82,
+          "kind": "const",
+          "line": 82,
+          "name": "CEIL_SECONDS",
+          "tokens": 14,
+          "vis": "pub"
+        },
+        {
+          "end_line": 84,
+          "kind": "const",
+          "line": 83,
+          "name": "CEIL_PARALLEL",
+          "tokens": 39,
+          "vis": "pub"
+        },
+        {
+          "end_line": 132,
+          "kind": "impl",
+          "line": 86,
+          "name": "impl Bounds",
+          "tokens": 490,
+          "vis": "private"
+        },
+        {
+          "end_line": 143,
+          "kind": "struct",
+          "line": 134,
+          "name": "Args",
+          "tokens": 79,
+          "vis": "pub"
+        },
+        {
+          "end_line": 152,
+          "kind": "const",
+          "line": 145,
+          "name": "FIELDS",
+          "tokens": 41,
+          "vis": "private"
+        },
+        {
+          "end_line": 164,
+          "kind": "fn",
+          "line": 154,
+          "name": "positive",
+          "tokens": 105,
+          "vis": "private"
+        },
+        {
+          "end_line": 208,
+          "kind": "fn",
+          "line": 166,
+          "name": "parse",
+          "tokens": 468,
+          "vis": "pub"
+        },
+        {
+          "end_line": 240,
+          "kind": "fn",
+          "line": 210,
+          "name": "opening",
+          "tokens": 366,
+          "vis": "pub"
+        },
+        {
+          "end_line": 248,
+          "kind": "fn",
+          "line": 242,
+          "name": "last_turn_note",
+          "tokens": 71,
+          "vis": "pub"
+        },
+        {
+          "end_line": 256,
+          "kind": "fn",
+          "line": 250,
+          "name": "read_mode_refusal",
+          "tokens": 82,
+          "vis": "pub"
+        },
+        {
+          "end_line": 270,
+          "kind": "fn",
+          "line": 258,
+          "name": "cut",
+          "tokens": 137,
+          "vis": "pub"
+        },
+        {
+          "end_line": 281,
+          "kind": "struct",
+          "line": 272,
+          "name": "Tally",
+          "tokens": 76,
+          "vis": "pub"
+        },
+        {
+          "end_line": 308,
+          "kind": "fn",
+          "line": 283,
+          "name": "result_text",
+          "tokens": 249,
+          "vis": "pub"
+        },
+        {
+          "end_line": 312,
+          "kind": "fn",
+          "line": 310,
+          "name": "plural",
+          "tokens": 27,
+          "vis": "private"
+        },
+        {
+          "end_line": 325,
+          "kind": "fn",
+          "line": 314,
+          "name": "summary_line",
+          "tokens": 101,
+          "vis": "pub"
+        },
+        {
+          "end_line": 340,
+          "kind": "fn",
+          "line": 327,
+          "name": "subtask_label",
+          "tokens": 154,
+          "vis": "pub"
+        },
+        {
+          "end_line": 346,
+          "kind": "fn",
+          "line": 342,
+          "name": "inner_call_id",
+          "tokens": 67,
+          "vis": "pub"
+        },
+        {
+          "end_line": 453,
+          "kind": "mod",
+          "line": 348,
+          "name": "tests",
+          "tokens": 1436,
+          "vis": "private"
+        }
+      ],
+      "lines": 453,
+      "path": "src/tools/delegate.rs",
+      "tokens": 4783
+    },
+    {
+      "forbid_unsafe": false,
+      "items": [
+        {
           "end_line": 18,
           "kind": "struct",
           "line": 14,
@@ -15791,18 +16474,10 @@
       "forbid_unsafe": false,
       "items": [
         {
-          "end_line": 8,
-          "kind": "mod",
-          "line": 8,
-          "name": "args",
-          "tokens": 4,
-          "vis": "pub"
-        },
-        {
           "end_line": 9,
           "kind": "mod",
           "line": 9,
-          "name": "bash",
+          "name": "args",
           "tokens": 4,
           "vis": "pub"
         },
@@ -15810,7 +16485,7 @@
           "end_line": 10,
           "kind": "mod",
           "line": 10,
-          "name": "edit",
+          "name": "bash",
           "tokens": 4,
           "vis": "pub"
         },
@@ -15818,7 +16493,7 @@
           "end_line": 11,
           "kind": "mod",
           "line": 11,
-          "name": "ext",
+          "name": "delegate",
           "tokens": 4,
           "vis": "pub"
         },
@@ -15826,15 +16501,15 @@
           "end_line": 12,
           "kind": "mod",
           "line": 12,
-          "name": "memcap",
-          "tokens": 5,
+          "name": "edit",
+          "tokens": 4,
           "vis": "pub"
         },
         {
           "end_line": 13,
           "kind": "mod",
           "line": 13,
-          "name": "read",
+          "name": "ext",
           "tokens": 4,
           "vis": "pub"
         },
@@ -15842,286 +16517,302 @@
           "end_line": 14,
           "kind": "mod",
           "line": 14,
+          "name": "memcap",
+          "tokens": 5,
+          "vis": "pub"
+        },
+        {
+          "end_line": 15,
+          "kind": "mod",
+          "line": 15,
+          "name": "read",
+          "tokens": 4,
+          "vis": "pub"
+        },
+        {
+          "end_line": 16,
+          "kind": "mod",
+          "line": 16,
           "name": "write",
           "tokens": 4,
           "vis": "pub"
         },
         {
-          "end_line": 17,
+          "end_line": 19,
           "kind": "mod",
-          "line": 16,
+          "line": 18,
           "name": "tests",
           "tokens": 7,
           "vis": "private"
         },
         {
-          "end_line": 19,
+          "end_line": 21,
           "kind": "mod",
-          "line": 18,
+          "line": 20,
           "name": "testutil",
           "tokens": 9,
           "vis": "pub"
         },
         {
-          "end_line": 42,
+          "end_line": 44,
           "kind": "const",
-          "line": 40,
+          "line": 42,
           "name": "REGISTRY_JSON",
           "tokens": 66,
           "vis": "pub"
         },
         {
-          "end_line": 45,
+          "end_line": 47,
           "kind": "const",
-          "line": 44,
+          "line": 46,
           "name": "NAMES",
-          "tokens": 39,
+          "tokens": 42,
           "vis": "pub"
         },
         {
-          "end_line": 55,
+          "end_line": 57,
           "kind": "enum",
-          "line": 47,
+          "line": 49,
           "name": "Mode",
           "tokens": 95,
           "vis": "pub"
         },
         {
-          "end_line": 71,
+          "end_line": 73,
           "kind": "struct",
-          "line": 57,
+          "line": 59,
           "name": "Limits",
           "tokens": 117,
           "vis": "pub"
         },
         {
-          "end_line": 89,
+          "end_line": 91,
           "kind": "impl",
-          "line": 73,
+          "line": 75,
           "name": "impl Default for Limits",
           "tokens": 122,
           "vis": "private"
         },
         {
-          "end_line": 101,
+          "end_line": 103,
           "kind": "fn",
-          "line": 91,
+          "line": 93,
           "name": "specs",
           "tokens": 111,
           "vis": "pub"
         },
         {
-          "end_line": 106,
+          "end_line": 108,
           "kind": "fn",
-          "line": 103,
+          "line": 105,
           "name": "spec_values",
           "tokens": 48,
           "vis": "pub"
         },
         {
-          "end_line": 118,
+          "end_line": 120,
           "kind": "struct",
-          "line": 112,
+          "line": 114,
           "name": "ToolError",
           "tokens": 55,
           "vis": "pub"
         },
         {
-          "end_line": 146,
+          "end_line": 148,
           "kind": "impl",
-          "line": 120,
+          "line": 122,
           "name": "impl ToolError",
           "tokens": 191,
           "vis": "private"
         },
         {
-          "end_line": 152,
+          "end_line": 154,
           "kind": "impl",
-          "line": 148,
+          "line": 150,
           "name": "impl fmt::Display for ToolError",
           "tokens": 40,
           "vis": "private"
         },
         {
-          "end_line": 163,
+          "end_line": 165,
           "kind": "fn",
-          "line": 154,
+          "line": 156,
           "name": "error_result",
           "tokens": 68,
           "vis": "pub"
         },
         {
-          "end_line": 172,
+          "end_line": 174,
           "kind": "fn",
-          "line": 165,
+          "line": 167,
           "name": "text_result",
           "tokens": 60,
           "vis": "pub"
         },
         {
-          "end_line": 175,
+          "end_line": 177,
           "kind": "const",
-          "line": 174,
+          "line": 176,
           "name": "PERMISSION_HINT",
           "tokens": 35,
           "vis": "pub"
         },
         {
-          "end_line": 193,
+          "end_line": 195,
           "kind": "fn",
-          "line": 177,
+          "line": 179,
           "name": "io_error",
           "tokens": 213,
           "vis": "pub"
         },
         {
-          "end_line": 198,
+          "end_line": 200,
           "kind": "fn",
-          "line": 195,
+          "line": 197,
           "name": "is_directory",
           "tokens": 47,
           "vis": "pub"
         },
         {
-          "end_line": 203,
+          "end_line": 205,
           "kind": "fn",
-          "line": 200,
+          "line": 202,
           "name": "os_message",
           "tokens": 43,
           "vis": "pub"
         },
         {
-          "end_line": 216,
+          "end_line": 218,
           "kind": "fn",
-          "line": 205,
+          "line": 207,
           "name": "commas",
           "tokens": 117,
           "vis": "pub"
         },
         {
-          "end_line": 228,
+          "end_line": 230,
           "kind": "struct",
-          "line": 222,
+          "line": 224,
           "name": "PathCx",
           "tokens": 64,
           "vis": "pub"
         },
         {
-          "end_line": 255,
+          "end_line": 257,
           "kind": "fn",
-          "line": 230,
+          "line": 232,
           "name": "resolve",
           "tokens": 254,
           "vis": "pub"
         },
         {
-          "end_line": 280,
+          "end_line": 282,
           "kind": "fn",
-          "line": 257,
+          "line": 259,
           "name": "normalize",
           "tokens": 194,
           "vis": "pub"
         },
         {
-          "end_line": 297,
+          "end_line": 299,
           "kind": "struct",
-          "line": 286,
+          "line": 288,
           "name": "ToolsConfig",
           "tokens": 130,
           "vis": "pub"
         },
         {
-          "end_line": 309,
+          "end_line": 313,
           "kind": "struct",
-          "line": 299,
+          "line": 301,
           "name": "Tools",
-          "tokens": 121,
+          "tokens": 149,
           "vis": "pub"
         },
         {
-          "end_line": 321,
+          "end_line": 325,
           "kind": "struct",
-          "line": 311,
+          "line": 315,
           "name": "ToolCx",
           "tokens": 100,
           "vis": "pub"
         },
         {
-          "end_line": 338,
+          "end_line": 342,
           "kind": "enum",
-          "line": 323,
+          "line": 327,
           "name": "Prepared",
           "tokens": 88,
           "vis": "pub"
         },
         {
-          "end_line": 354,
+          "end_line": 358,
           "kind": "impl",
-          "line": 340,
+          "line": 344,
           "name": "impl Prepared",
           "tokens": 112,
           "vis": "private"
         },
         {
-          "end_line": 363,
+          "end_line": 370,
           "kind": "enum",
-          "line": 356,
+          "line": 360,
           "name": "Job",
-          "tokens": 48,
+          "tokens": 88,
           "vis": "pub"
         },
         {
-          "end_line": 370,
+          "end_line": 377,
           "kind": "struct",
-          "line": 365,
+          "line": 372,
           "name": "Ran",
           "tokens": 48,
           "vis": "pub"
         },
         {
-          "end_line": 564,
+          "end_line": 586,
           "kind": "impl",
-          "line": 372,
+          "line": 379,
           "name": "impl Tools",
-          "tokens": 1665,
+          "tokens": 1823,
           "vis": "private"
         },
         {
-          "end_line": 573,
+          "end_line": 595,
           "kind": "fn",
-          "line": 566,
+          "line": 588,
           "name": "truncate_chars",
           "tokens": 78,
           "vis": "pub"
         },
         {
-          "end_line": 589,
+          "end_line": 611,
           "kind": "fn",
-          "line": 575,
+          "line": 597,
           "name": "summary_of_error",
           "tokens": 141,
           "vis": "pub"
         },
         {
-          "end_line": 608,
+          "end_line": 630,
           "kind": "fn",
-          "line": 591,
+          "line": 613,
           "name": "finalize",
           "tokens": 177,
           "vis": "pub"
         },
         {
-          "end_line": 659,
+          "end_line": 681,
           "kind": "fn",
-          "line": 610,
+          "line": 632,
           "name": "head_tail",
           "tokens": 443,
           "vis": "private"
         }
       ],
-      "lines": 659,
+      "lines": 681,
       "path": "src/tools/mod.rs",
-      "tokens": 5452
+      "tokens": 5707
     },
     {
       "forbid_unsafe": false,
@@ -16275,7 +16966,7 @@
           "kind": "fn",
           "line": 77,
           "name": "validation_errors_teach",
-          "tokens": 473,
+          "tokens": 475,
           "vis": "private"
         },
         {
@@ -16471,49 +17162,49 @@
           "vis": "private"
         },
         {
-          "end_line": 1072,
+          "end_line": 1086,
           "kind": "fn",
           "line": 930,
           "name": "run_group_separate_stdin_cancel",
-          "tokens": 1175,
+          "tokens": 1363,
           "vis": "private"
         },
         {
-          "end_line": 1135,
+          "end_line": 1149,
           "kind": "fn",
-          "line": 1078,
+          "line": 1092,
           "name": "workspace_cwd_for_relative_paths_bash_and_ext",
           "tokens": 629,
           "vis": "private"
         },
         {
-          "end_line": 1206,
+          "end_line": 1220,
           "kind": "fn",
-          "line": 1137,
+          "line": 1151,
           "name": "ext_dispatch",
           "tokens": 783,
           "vis": "private"
         },
         {
-          "end_line": 1221,
+          "end_line": 1235,
           "kind": "fn",
-          "line": 1208,
+          "line": 1222,
           "name": "long_results_are_capped_and_spilled",
           "tokens": 169,
           "vis": "private"
         },
         {
-          "end_line": 1230,
+          "end_line": 1244,
           "kind": "fn",
-          "line": 1223,
+          "line": 1237,
           "name": "panic_hook_for_tests_exists",
           "tokens": 99,
           "vis": "private"
         }
       ],
-      "lines": 1230,
+      "lines": 1244,
       "path": "src/tools/tests.rs",
-      "tokens": 13034
+      "tokens": 13224
     },
     {
       "forbid_unsafe": false,
@@ -16704,6 +17395,12 @@
   "self_v": 2,
   "skills": [
     {
+      "description": "When a sub-task in a fresh context helps (long searches, reviews, parallel read-only scouts, one writer) and how to brief it.",
+      "name": "delegate",
+      "path": "skills/delegate/SKILL.md",
+      "tokens": 539
+    },
+    {
       "description": "Turn mined failure evidence into one self-change through the engine. Read the friction index, file one proposal with attested evidence, submit up to 3 variant patches, screen them and promote the chosen one. Use when you run as the evolution worker, when your boot block shows eligible frictions, or when you want variants compared before you keep one. On the free path the engine is optional; skills/extend covers changing yourself directly.",
       "name": "evolve",
       "path": "skills/evolve/SKILL.md",
@@ -16722,7 +17419,7 @@
       "tokens": 2680
     }
   ],
-  "source_digest": "sha256:8a8ba917b97cb65518299e5a63dda87380a4d623faeb8bf118015901e88a4fea",
+  "source_digest": "sha256:d38ebed8587888dd86c7d579dcbaa659592a03fd32861264e1ea7dd063604eec",
   "tools": {
     "list": [
       {
@@ -16749,6 +17446,52 @@
         "name": "bash",
         "schema_sha256": "sha256:19313531d811254de96381d8f5b147c5fa82676161377d259204da09e10a5158",
         "tokens": 177
+      },
+      {
+        "description": "Run a bounded sub-task in a fresh context and return only its final summary. Use it for self-contained work that would flood this context with tool output: reading through a tree, a long search, a review, a comparison of several files. The sub-agent does not see this conversation, so give it a self-contained task and say exactly what to return. It has the same tools except delegate and a budget (by default 8 turns, 24 tool calls, 600 s). Several delegate calls in one reply run in parallel (up to 4) and return in call order. mode \"read\" (default) refuses write and edit, but its bash and ext are not sandboxed read-only, so for them read mode is advisory; mode \"write\" may change files, one writer at a time. Its full record is written under state/spill/.",
+        "input_schema": {
+          "additionalProperties": false,
+          "properties": {
+            "context": {
+              "description": "Optional facts it cannot discover from the workspace (paths, commands, constraints), one paragraph.",
+              "type": "string"
+            },
+            "max_calls": {
+              "description": "Lower this sub-task's tool-call cap.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_seconds": {
+              "description": "Lower this sub-task's wall-time cap, in seconds.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "max_turns": {
+              "description": "Lower this sub-task's turn cap.",
+              "minimum": 1,
+              "type": "integer"
+            },
+            "mode": {
+              "description": "\"read\" (default) or \"write\".",
+              "enum": [
+                "read",
+                "write"
+              ],
+              "type": "string"
+            },
+            "task": {
+              "description": "The sub-task, self-contained: what to find out or do, and what to return. It cannot ask you questions.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "task"
+          ],
+          "type": "object"
+        },
+        "name": "delegate",
+        "schema_sha256": "sha256:86d0b881161dede9774ba54e4e4ef94abfe9a67e8c37a0a5a4c696bccb8879fe",
+        "tokens": 363
       },
       {
         "description": "Edit a file by exact text replacement. Each edits[i].old_text must occur exactly once in the file and must not overlap another edit; all edits are matched against the file as it was before this call. If there is no exact match, a match that ignores trailing whitespace, Unicode punctuation variants and a uniform indentation difference is tried. Returns a diff.",
@@ -16871,7 +17614,7 @@
         "tokens": 87
       }
     ],
-    "sha256": "sha256:996fe26661cb88a81ef73e0bccc0bcd5d96c9ba57c0b198e71ce39226ca732e4"
+    "sha256": "sha256:3287ad0da87b7e550c79a7d4902db5b9ed63475b1063e4bb5eecb386c43b1bc1"
   },
   "warnings": []
 }

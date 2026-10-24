@@ -326,6 +326,10 @@ pub struct Supervisor {
     spawner: Arc<dyn Spawner>,
     outbox: Arc<Outbox>,
     inbox: Inbox,
+    /// STEER: the inputs most recently acked by the body, and retracted (the `state` frame's
+    /// `steer_seen`/`steer_retracted`, so the owner sees a steer picked up or taken back).
+    steer_seen: std::collections::VecDeque<u64>,
+    steer_retracted: std::collections::VecDeque<u64>,
     m: Machine,
     tx: Sender<DEv>,
     rx: Receiver<DEv>,
@@ -635,6 +639,8 @@ impl Supervisor {
         let access0 = boot.access.as_ref().map(spawnspec::Access::from_data).or_else(spawnspec::Access::from_env);
         let mut s = Supervisor {
             inbox: Inbox::open(&rel(&home, "state/kernel/inbox.jsonl")),
+            steer_seen: std::collections::VecDeque::new(),
+            steer_retracted: std::collections::VecDeque::new(),
             home,
             cfg,
             link,
@@ -1073,12 +1079,18 @@ impl Supervisor {
     fn owner_in(&mut self, id: String, qid: String, frame: OwnerInFrame) {
         let now = Now::real();
         let text = match frame {
-            OwnerInFrame::Interrupt => {
+            OwnerInFrame::Interrupt { then } => {
+                // only `continue` is known; anything else is a plain interrupt
+                let then = then.filter(|t| t == "continue");
                 if let Some(t) = self.m.relay_target().map(str::to_string) {
-                    self.send_to(&t, &ToBody::Interrupt);
+                    self.send_to(&t, &ToBody::Interrupt { then });
                 }
                 self.link.respond(&id, Ok(json!({})));
                 return;
+            }
+            OwnerInFrame::Retract { seq } => {
+                self.link.respond(&id, Ok(json!({})));
+                return self.owner_retract(seq);
             }
             OwnerInFrame::Line { text } => text,
         };
@@ -1144,6 +1156,29 @@ impl Supervisor {
         }
     }
 
+    /// STEER: take back input `seq`. Held here only (no body is reading it): done at once.
+    /// Otherwise the body decides (`retracted{seq, ok}`), since it may already have logged it.
+    fn owner_retract(&mut self, seq: u64) {
+        if !self.inbox.pending_seqs().contains(&seq) {
+            return self.owner_notice(AlertLevel::Info, &format!("[kernel] not taken back: message {seq} was already read by the agent"));
+        }
+        match self.m.relay_target().map(str::to_string) {
+            Some(t) if self.send_to(&t, &ToBody::Retract { seq }) => {}
+            _ => self.on_retracted(seq, true),
+        }
+    }
+
+    /// The body's answer to `retract`, or the kernel's own when no body holds the input.
+    fn on_retracted(&mut self, seq: u64, ok: bool) {
+        if ok && self.inbox.retract(seq) {
+            push_ring(&mut self.steer_retracted, seq, 16);
+            self.owner_state();
+            self.owner_notice(AlertLevel::Info, &format!("[kernel] taken back: message {seq} will not be read"));
+        } else if !ok {
+            self.owner_notice(AlertLevel::Info, &format!("[kernel] not taken back: message {seq} was already read by the agent"));
+        }
+    }
+
     fn owner_out(&self, frame: OwnerOutFrame) {
         self.owner_send(frame, false);
     }
@@ -1189,8 +1224,11 @@ impl Supervisor {
         let task_musd = stats.as_ref().and_then(|s| s["spend"]["task"]["today_musd"].as_u64());
         let evolution_checks_today_musd = stats.as_ref().and_then(|s| s["spend"]["evolution_today_musd"].as_u64());
         let queued = self.inbox.counts().0;
+        let mut pending = self.inbox.pending_seqs();
+        pending.truncate(init_proto::root_link::STEER_LIST_MAX);
         self.owner_out(OwnerOutFrame::State { busy, level: self.level, members: 0, mode, model, queued, sha12, slot, task_musd,
-            evolution_checks_today_musd });
+            evolution_checks_today_musd, steer_pending: Some(pending), steer_seen: Some(self.steer_seen.iter().copied().collect()),
+            steer_retracted: Some(self.steer_retracted.iter().copied().collect()) });
     }
 
     fn owner_notice(&self, level: AlertLevel, text: &str) {
@@ -1214,7 +1252,14 @@ impl Supervisor {
         let now = Now::real();
         let is_relay = self.m.relay_target() == Some(inst.as_str()) || self.m.primary.as_ref().is_some_and(|p| p.id == inst);
         match msg {
-            BodyMsg::Frame(FromBody::Ack { seq }) => self.inbox.ack(seq),
+            BodyMsg::Frame(FromBody::Ack { seq }) => {
+                // STEER: the owner sees the line picked up (it is durably in the body's log)
+                if self.inbox.ack(seq) {
+                    push_ring(&mut self.steer_seen, seq, init_proto::root_link::STEER_LIST_MAX);
+                    self.owner_state();
+                }
+            }
+            BodyMsg::Frame(FromBody::Retracted { seq, ok }) => self.on_retracted(seq, ok),
             BodyMsg::Frame(FromBody::NoticeAck { id }) => self.inbox.notice_ack(&id),
             BodyMsg::Frame(FromBody::Display(d)) => self.relay_display(&inst, is_relay, d, BTreeMap::new()),
             BodyMsg::Display(d, extra) => self.relay_display(&inst, is_relay, d, extra),
@@ -2063,4 +2108,12 @@ fn start_hb_thread(link: Arc<RootLink>, hb: Arc<Mutex<HbShared>>, every: Duratio
             }
         })
         .expect("spawn hb thread");
+}
+
+/// A bounded ring of recent seqs, oldest first (the `state` frame's STEER lists).
+fn push_ring(r: &mut std::collections::VecDeque<u64>, seq: u64, max: usize) {
+    r.push_back(seq);
+    while r.len() > max {
+        r.pop_front();
+    }
 }

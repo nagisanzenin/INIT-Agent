@@ -39,7 +39,19 @@ pub struct Turn {
     pub requests: u32,
     pub req_bytes: u64,
     pub provider_errors: u32,
+    /// An owner correction (MERGE): an interrupt (Esc or Ctrl-C, also `then:"continue"`), `/stop`, `/panic`, `/undo`,
+    /// or the owner's reversals `/reject` and `/rollback`. Never a plain steer, a `/later` line or a retracted line.
     pub correction: bool,
+    /// Plain owner lines steering this owner turn: a weak signal, never a correction. A relayed `retract{seq}` takes
+    /// its line's contribution back (the kernel echo's `seq` names the line).
+    #[serde(default)]
+    pub steered: u32,
+    /// The part of `requests` and `cost_musd` that `delegate` sub-tasks made (`x-egress-subtask`, body/tools.md §3.7).
+    /// H10 and H5b test the main loop's share (`requests − sub_requests`, `cost_musd − sub_cost_musd`).
+    #[serde(default)]
+    pub sub_requests: u32,
+    #[serde(default)]
+    pub sub_cost_musd: u64,
     pub crash: bool,
     pub kill: bool,
     pub refusal: bool,
@@ -282,28 +294,34 @@ pub fn fold(e: &mut Engine, recs: &[Value]) {
 
 // ------------------------------------------------------------------------------------------------ hooks
 
-/// `link.rs` `deliver`: a frame the Root relayed to a ready kernel (`line` starts or steers a turn; `interrupt`).
+/// `link.rs` `deliver`: a frame the Root relayed to a ready kernel (`line` starts or steers a turn; `interrupt`, also
+/// `then:"continue"`, is a correction; `retract{seq}` takes a steer back). Corrections are classified in `engine.rs`.
 pub fn relayed(root: &Root, qid: &str, frame: &Value) {
     match frame["t"].as_str() {
-        Some("interrupt") => go(root, |e, cx| {
-            e.interrupt(cx);
-            Vec::new()
-        }),
         Some("line") => {
-            {
-                let mut seen = lock(&root.sentinel.seen);
-                if seen.iter().any(|q| q == qid) {
-                    return; // a redelivery after a restart
-                }
-                seen.push_back(qid.into());
-                if seen.len() > 256 {
-                    seen.pop_front();
-                }
+            let mut seen = lock(&root.sentinel.seen);
+            if seen.iter().any(|q| q == qid) {
+                return; // a redelivery after a restart
             }
-            let text = frame["text"].as_str().unwrap_or("").to_string();
-            go(root, |e, cx| e.line(cx, qid, &text));
+            seen.push_back(qid.into());
+            if seen.len() > 256 {
+                seen.pop_front();
+            }
         }
-        _ => {}
+        Some("interrupt" | "retract") => {}
+        _ => return,
+    }
+    go(root, |e, cx| e.frame(cx, qid, frame));
+}
+
+/// `sup.rs` read loop: the kernel's `owner.out` `echo{seq, text}`, so a later `retract{seq}` finds its steer.
+pub fn echoed(root: &Root, frame: &Value) {
+    if let Some(seq) = frame["seq"].as_u64() {
+        let text = frame["text"].as_str().unwrap_or("");
+        go(root, |e, _| {
+            e.echoed(seq, text);
+            Vec::new()
+        });
     }
 }
 
@@ -457,9 +475,10 @@ pub fn mem_event(root: &Root, v: &Value) {
     go(root, |e, cx| e.mem_event(cx, &ev));
 }
 
-/// `egress.rs` `forward`, after the live `start` record: a zone request begins.
-pub fn egress_start(root: &Root, id: &str, req_bytes: u64) {
-    go(root, |e, cx| e.req_start(cx, id, req_bytes));
+/// `egress.rs` `forward`, after the live `start` record: a zone request begins. `sub`: it carried a well-formed
+/// `x-egress-subtask` (a `delegate` sub-task's request), kept apart from the main loop's share for H10 and H5b.
+pub fn egress_start(root: &Root, id: &str, req_bytes: u64, sub: bool) {
+    go(root, |e, cx| e.req_start_as(cx, id, req_bytes, sub));
 }
 
 /// `egress.rs` `finish`: a zone request ended. H9 counts finish class `error` and upstream 400/422 (a malformed

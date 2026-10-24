@@ -17,6 +17,8 @@ pub enum DisplayKind {
     Thinking,
     ToolStart,
     ToolEnd,
+    /// The newest output of a running call (proposed, §9 Q4): `call_id` and `text`.
+    ToolProgress,
     TurnEnd,
     Info,
     Error,
@@ -33,6 +35,9 @@ pub struct Display {
     pub boot_seq: Option<u64>,
     /// An optional longer result (§3.6), rendered under the summary when present.
     pub detail: Option<String>,
+    /// `parent_call_id`: the `delegate` call a sub-task's tool frame belongs to; such a call is
+    /// shown nested and collapsed under that call's row.
+    pub parent: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -69,6 +74,7 @@ pub fn classify(v: &Value) -> Frame {
                 Some("thinking") => DisplayKind::Thinking,
                 Some("tool_start") => DisplayKind::ToolStart,
                 Some("tool_end") => DisplayKind::ToolEnd,
+                Some("tool_progress") => DisplayKind::ToolProgress,
                 Some("turn_end") => DisplayKind::TurnEnd,
                 Some("info") => DisplayKind::Info,
                 Some("error") => DisplayKind::Error,
@@ -82,6 +88,7 @@ pub fn classify(v: &Value) -> Frame {
                 ok: v.get("ok").and_then(Value::as_bool),
                 boot_seq: v.get("boot_seq").and_then(Value::as_u64),
                 detail: s(v, "detail"),
+                parent: s(v, "parent_call_id"),
             })
         }
         Some("echo") => Frame::Echo { text: s(v, "text").unwrap_or_default(), qid: s(v, "qid"), seq: v.get("seq").and_then(Value::as_u64) },
@@ -119,6 +126,18 @@ pub fn line(text: &str) -> String {
 
 pub fn interrupt() -> String {
     icj(&json!({"t": "interrupt"}))
+}
+
+/// STEER: interrupt *and* steer (Esc with a steer pending): the body aborts, then continues the
+/// run with the steer instead of going idle. An older Root, kernel or body treats it as a plain
+/// interrupt (the agent stops; the steer starts the next run), which is safe.
+pub fn interrupt_steer() -> String {
+    icj(&json!({"t": "interrupt", "then": "continue"}))
+}
+
+/// STEER: take back the pending line the kernel numbered `seq` (its echo's `seq`).
+pub fn retract(seq: u64) -> String {
+    icj(&json!({"seq": seq, "t": "retract"}))
 }
 
 pub fn panic_frame() -> String {
@@ -192,6 +211,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("/workspace", "the workspace and the agent's access"),
     ("/stop", "stop the current run (kernel)"),
     ("/usage", "show metered cost and tokens locally"),
+    ("/details", "print the last tool activity in full (calls, tokens per request)"),
     ("/status", "the kernel's status line"),
     ("/kernel", "the kernel's commands"),
     ("/accept ", "accept a task: /accept <task>"),
@@ -265,7 +285,10 @@ mod tests {
     #[test]
     fn classify_frames() {
         let d = classify(&json!({"t":"display","kind":"tool_end","text":"exit 0","call_id":"c1","ok":true,"boot_seq":2,"extra":1}));
-        assert!(matches!(d, Frame::Display(Display { kind: DisplayKind::ToolEnd, ok: Some(true), boot_seq: Some(2), .. })));
+        assert!(matches!(d, Frame::Display(Display { kind: DisplayKind::ToolEnd, ok: Some(true), boot_seq: Some(2), parent: None, .. })));
+        // DELEGATE: a sub-task's call names its delegate call
+        let s = classify(&json!({"t":"display","kind":"tool_start","text":"ls","call_id":"d1/c1","parent_call_id":"d1","boot_seq":2}));
+        assert!(matches!(s, Frame::Display(Display { parent: Some(ref p), .. }) if p == "d1"));
         assert_eq!(classify(&json!({"t":"zzz"})), Frame::Unknown);
         assert!(matches!(classify(&json!({"t":"echo","text":"x","seq":3})), Frame::Echo { seq: Some(3), .. }));
         assert!(matches!(classify(&json!({"ok":false,"id":null})), Frame::Answer(_)));

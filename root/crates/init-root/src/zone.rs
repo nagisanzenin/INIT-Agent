@@ -145,6 +145,19 @@ impl Broker {
         Some(usize::from(!i.reaped && (sys::signal(i.pid, sig, true) | sys::signal(i.pid, sig, false))))
     }
 
+    /// A kernel whose control link closed (`Ev::Lost`): SIGKILL, except that on Linux the leader is the outer bwrap,
+    /// which outlives the kernel by a moment while it collects the kernel's exit status: give it up to 2 s to exit by
+    /// itself, so the Root records the kernel's own exit code (78: config, 75: swap) and not a kill.
+    pub fn kill_lost(&self, id: &str) {
+        if cfg!(target_os = "linux") && let Some(pid) = self.pid_of(id) {
+            let t = std::time::Instant::now();
+            while !sys::has_exited(pid) && t.elapsed() < std::time::Duration::from_secs(2) {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+        }
+        self.kill(id, libc::SIGKILL);
+    }
+
     /// SIGKILL to every held instance (panic step 4, a kernel crash): (instances, processes signalled).
     pub fn kill_all(&self) -> (usize, usize) {
         let t = lock(&self.insts);
@@ -186,6 +199,12 @@ fn launch(root: &Root, id: &str, profile: ProfileId, given: &BTreeMap<String, St
         sys::map_seccomp(&mut c, seccomp.as_raw_fd());
         #[cfg(target_os = "linux")]
         sys::inherit_fds(&mut c, mounts.iter().map(AsRawFd::as_raw_fd).collect());
+        // LINUX: a workload (every instance but the kernel) starts inside its own memory.max, where delegated
+        #[cfg(target_os = "linux")]
+        let cg = (profile != ProfileId::Kernel).then(|| lock(&root.st).charter.as_ref().map(|l| crate::memwatch::Limits::of(&l.ch).cap))
+            .flatten().and_then(|cap| crate::cgroup::workload(id, cap));
+        #[cfg(target_os = "linux")]
+        if let Some(fd) = &cg { sys::join_cgroup_on_exec(&mut c, fd.as_raw_fd()); }
         c.spawn().map(|ch| ch.id() as i32).map_err(|e| format!("spawn: {e}")) // reaped by wait4, never by `Child`
     });
     if res.is_err() {
@@ -379,6 +398,8 @@ fn reaper(root: Arc<Root>, id: String, pid: i32) {
         let m = root.p.i("run/mark").join(&id);
         scan(&root, &m);
         let _ = fs::remove_file(&m); // exact path
+        #[cfg(target_os = "linux")]
+        crate::cgroup::release(&id);
         lock(&root.zone.insts).remove(&id);
         root.zone.cpu_ms.fetch_add(cpu, Ordering::Relaxed);
         save(&root);

@@ -1,5 +1,6 @@
 //! `Phase` and `Status` (loop.md §3.1), shared with the heartbeat thread (boot.md §3.12).
 
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
@@ -7,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::json;
 
+use super::frames::{Out, OutTx};
 use crate::model::Abort;
 
 #[repr(u8)]
@@ -54,6 +56,8 @@ pub struct Status {
     pub last_progress_ms: AtomicU64,
     pub leaf: Mutex<String>,
     pub start: Instant,
+    /// `retract{seq}` decisions, shared by the input thread and the loop (loop.md §3.4).
+    pub gate: RetractGate,
 }
 
 impl Default for Status {
@@ -65,6 +69,7 @@ impl Default for Status {
             last_progress_ms: AtomicU64::new(0),
             leaf: Mutex::new(String::new()),
             start: Instant::now(),
+            gate: RetractGate::default(),
         }
     }
 }
@@ -85,6 +90,78 @@ impl Status {
     }
     pub fn leaf(&self) -> String {
         self.leaf.lock().unwrap_or_else(|p| p.into_inner()).clone()
+    }
+}
+
+/// How many seqs each gate set remembers; the smallest go first.
+pub const GATE_CAP: usize = 1024;
+
+/// The two sets behind `RetractGate`, under one lock.
+#[derive(Default, Debug)]
+pub struct GateSets {
+    /// Inputs the owner took back in time: never appended, whenever they arrive.
+    pub retracted: BTreeSet<u64>,
+    /// Inputs committed to an append: too late to retract.
+    pub consumed: BTreeSet<u64>,
+}
+
+impl GateSets {
+    pub fn consume(&mut self, seq: u64) {
+        self.consumed.insert(seq);
+        while self.consumed.len() > GATE_CAP {
+            self.consumed.pop_first();
+        }
+    }
+}
+
+/// The retract gate (loop.md §3.4). The input thread answers `retract{seq}` at once; the loop
+/// filters and marks inputs under the same lock right before every append, so each input is
+/// either retracted (never appended) or consumed (acked normally), never both.
+#[derive(Default)]
+pub struct RetractGate {
+    sets: Mutex<GateSets>,
+    /// The input thread's own reply channel (`retracted`). `detach` drops it at exit so the
+    /// output thread can finish while stdin stays open.
+    out: Mutex<Option<OutTx>>,
+}
+
+impl RetractGate {
+    pub fn lock(&self) -> std::sync::MutexGuard<'_, GateSets> {
+        self.sets.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    /// `ok`: the input was not consumed yet and now never will be.
+    pub fn retract(&self, seq: u64) -> bool {
+        let mut g = self.lock();
+        let ok = !g.consumed.contains(&seq);
+        if ok {
+            g.retracted.insert(seq);
+            while g.retracted.len() > GATE_CAP {
+                g.retracted.pop_first();
+            }
+        }
+        ok
+    }
+
+    pub fn is_retracted(&self, seq: u64) -> bool {
+        self.lock().retracted.contains(&seq)
+    }
+
+    pub fn attach(&self, out: OutTx) {
+        *self.out.lock().unwrap_or_else(|p| p.into_inner()) = Some(out);
+    }
+
+    pub fn detach(&self) {
+        self.out.lock().unwrap_or_else(|p| p.into_inner()).take();
+    }
+
+    /// Decides and replies `retracted{seq, ok}`.
+    pub fn retract_and_reply(&self, seq: u64) {
+        let ok = self.retract(seq);
+        let out = self.out.lock().unwrap_or_else(|p| p.into_inner()).clone();
+        if let Some(o) = out {
+            o.send(Out::Retracted { seq, ok });
+        }
     }
 }
 

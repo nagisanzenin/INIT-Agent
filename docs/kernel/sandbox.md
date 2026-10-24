@@ -346,7 +346,7 @@ Sections 1–4 are **byte-identical** to the `body` profile (only the comment on
 | Use | `SRC` | `OUT` |
 |---|---|---|
 | candidate build / G0 (supervise.md §3.6.2) | `cache/build/slot/src` | `cache/build/slot/out` (holds `target/ tmp/ home/ cargo-home/`) |
-| stub deps build | `cache/deps/<key>.tmp/src` | `cache/deps/<key>.tmp/out` |
+| stub deps build (supervise.md §3.6.2) | `cache/build/slot/src` (holds the stub; the export waits in `slot/cand`) | `cache/build/slot/out`. The kernel clones `out/target` into `cache/deps/<key>.tmp/` and later clones a hit back into `out/target`; no build instance reads or writes `cache/deps/` |
 | acceptance check (`check`, gate.md) | the check's inputs (task workspace after the run, check script) | a scratch dir under `cache/` |
 | G1 selfmap (`--manifest`, `describe()`) | the export (`cache/build/slot/src`) | `cache/gate/<job>/` (holds the candidate binary and components; G3's inner gate: `cache/gate/<job>/g3/`); the child's `HOME`/`TMPDIR` are in `OUT/g1/` (as built, K-GATE) |
 

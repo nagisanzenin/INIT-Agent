@@ -236,3 +236,111 @@ fn g1_child_paths_lie_inside_the_build_profile() {
     }
     crate::testutil::remove_test_dir(&e.home);
 }
+
+/// supervise.md §3.6.2 "Dependency cache", end to end with real cargo (LocalSpawner, DirectSpawner):
+/// a tiny body with one vendored crate whose build script says `rerun-if-changed=build.rs`.
+/// 1. Miss: the stub builds in the slot and is staged, the candidate then builds on its target
+///    (cargo compiles only the body) and runs the candidate's code, never the stub's empty main.
+/// 2. Published, a second commit whose export looks newer (vendor mtimes in the future, as a later
+///    `git archive` stamps them) hits: the vendored crate is not compiled again.
+/// 3. A corrupt entry fails verification, is deleted, and the build falls back to the stub (cold).
+#[test]
+fn deps_cache_stub_then_warm_hit_then_corrupt_falls_back() {
+    use crate::build::{BuildSlot, DepsCache};
+    let Some(tc) = std::env::var_os("CARGO").map(std::path::PathBuf::from).and_then(|c| Some(c.parent()?.parent()?.to_path_buf())).filter(|t| t.join("bin/rustc").is_file()) else {
+        eprintln!("note: no toolchain found through $CARGO; skipped");
+        return;
+    };
+    let fx = crate::git::testfx::Fx::new("deps-e2e");
+    let sum = "5".repeat(64);
+    fx.write("Cargo.toml", b"[package]\nname = \"init-body\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[[bin]]\nname = \"init-body\"\npath = \"src/main.rs\"\n\n[dependencies]\ntinydep = \"0.1.0\"\n\n[workspace]\n");
+    fx.write("Cargo.lock", format!("version = 4\n\n[[package]]\nname = \"init-body\"\nversion = \"0.1.0\"\ndependencies = [\n \"tinydep\",\n]\n\n[[package]]\nname = \"tinydep\"\nversion = \"0.1.0\"\nsource = \"registry+https://github.com/rust-lang/crates.io-index\"\nchecksum = \"{sum}\"\n").as_bytes());
+    fx.write("vendor/tinydep/Cargo.toml", b"[package]\nname = \"tinydep\"\nversion = \"0.1.0\"\nedition = \"2021\"\nbuild = \"build.rs\"\n");
+    fx.write("vendor/tinydep/.cargo-checksum.json", format!("{{\"files\":{{}},\"package\":\"{sum}\"}}").as_bytes());
+    fx.write("vendor/tinydep/build.rs", b"fn main() { println!(\"cargo:rerun-if-changed=build.rs\"); println!(\"cargo:rustc-env=TINY=dep\"); }\n");
+    fx.write("vendor/tinydep/src/lib.rs", b"pub fn v() -> &'static str { env!(\"TINY\") }\n");
+    fx.write("src/main.rs", b"fn main() { println!(\"one {}\", tinydep::v()); }\n");
+    let c1 = fx.commit("one");
+    fx.write("src/main.rs", b"fn main() { println!(\"two {}\", tinydep::v()); }\n");
+    let c2 = fx.commit("two");
+    fx.set_main(&c1);
+    let mut cfg = crate::config::defaults();
+    let sdk = std::process::Command::new("/usr/bin/xcrun").arg("--show-sdk-path").output().ok().filter(|o| o.status.success());
+    cfg.sandbox = crate::spawnspec::SandboxPaths {
+        toolchain: tc,
+        devdir: if cfg!(target_os = "macos") { "/Library/Developer/CommandLineTools".into() } else { std::path::PathBuf::new() },
+        home_real: "/nonexistent".into(),
+        sdkroot: sdk.map(|o| std::path::PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())),
+    };
+    cfg.supervise.git = crate::git::testfx::GIT_BIN.into();
+    let e = Env {
+        home: fx.home.clone(),
+        cfg,
+        gate: GateCfg::default(),
+        spawner: Arc::new(LocalSpawner::new()),
+        g0: Arc::new(kernel_gate::g0::DirectSpawner),
+        proxy: Arc::new(NoGateProxy),
+        lineage: Arc::new(FakeLineage::default()),
+        sup: Arc::new(FakeSup::default()),
+        jobs: Arc::new(MemJobs::default()),
+        upload_pack: "git-upload-pack".into(),
+        level: 0,
+        kernel: KernelInfo::default(),
+        model: "deepseek-flash".into(),
+        pipeline_busy: AtomicBool::new(false),
+        g4_running: Mutex::new(None),
+        gates: AtomicU64::new(0),
+        g4_attempts: Mutex::new(Default::default()),
+        fault: None,
+        slot_lock: Mutex::new(()),
+        sealed: None,
+        extend: None,
+    };
+    let git = e.git();
+    let slot = BuildSlot::configured(&e.home, &e.cfg.supervise);
+    let cache = DepsCache::new(&e.home);
+    let log = e.home.join("state/kernel/gate/j-1/build.log");
+    // Export `sha` (optionally making its vendor/ look newer), prepare the deps, build the candidate.
+    let round = |sha: &str, newer_vendor: bool| {
+        slot.reset().unwrap();
+        slot.export(&git, sha).unwrap();
+        if newer_vendor {
+            let t = std::time::SystemTime::now() + std::time::Duration::from_secs(3600);
+            for f in ["vendor/tinydep/build.rs", "vendor/tinydep/src/lib.rs", "vendor/tinydep/Cargo.toml"] {
+                std::fs::File::options().write(true).open(slot.src().join(f)).unwrap().set_modified(t).unwrap();
+            }
+        }
+        let prep = stages::prepare_deps(&e, &slot, &git, sha, "j-1", crate::build::SLOT_EPOCH_S).unwrap();
+        let b = slot.run_build(e.spawner.as_ref(), &slot.build_request(crate::build::SLOT_EPOCH_S, &e.cfg.sandbox), prep.mode != "cold", &log);
+        let text = std::fs::read_to_string(&log).unwrap_or_default();
+        assert!(b.ok, "{b:?}\n{text}\n{prep:?}");
+        let out = std::process::Command::new(slot.built_binary()).env_clear().output().unwrap();
+        (prep, text, String::from_utf8_lossy(&out.stdout).into_owned())
+    };
+    // 1. Miss: stub, staged; the candidate's own code runs.
+    let (p1, log1, out1) = round(&c1, false);
+    assert_eq!((p1.mode, p1.staged.is_some()), ("stub", true), "{p1:?}");
+    let key = p1.key.clone().unwrap();
+    assert_eq!(out1, "one dep\n");
+    assert!(log1.contains("Compiling init-body") && !log1.contains("Compiling tinydep"), "deps came from the stub:\n{log1}");
+    let stub_log = std::fs::read_to_string(e.home.join("state/kernel/gate/j-1/deps-stub.log")).unwrap();
+    assert!(stub_log.contains("Compiling tinydep") && stub_log.contains("$ cargo check") && stub_log.contains("--no-run"), "{stub_log}");
+    assert!(cache.lookup(&key).is_none(), "nothing is published before G0 passes");
+    assert!(cache.publish(&key, p1.staged.as_deref().unwrap()).unwrap());
+    let fps: Vec<String> = std::fs::read_dir(cache.lookup(&key).unwrap().join("debug/.fingerprint")).unwrap().flatten().map(|d| d.file_name().to_string_lossy().into_owned()).collect();
+    assert!(fps.iter().any(|f| f.starts_with("tinydep-")) && !fps.iter().any(|f| f.starts_with("init-body-")), "{fps:?}");
+    // 2. Hit: warm, the vendored crate is not compiled again although its export is newer.
+    let (p2, log2, out2) = round(&c2, true);
+    assert_eq!((p2.mode, p2.key.as_deref()), ("hit", Some(key.as_str())), "{p2:?}");
+    assert_eq!(out2, "two dep\n");
+    assert!(log2.contains("Compiling init-body") && !log2.contains("Compiling tinydep"), "{log2}");
+    // 3. Corrupt entry: rejected, deleted, rebuilt from the stub.
+    let rlib = std::fs::read_dir(cache.lookup(&key).unwrap().join("debug/deps")).unwrap().flatten().map(|d| d.path()).find(|p| p.extension().is_some_and(|x| x == "rlib")).unwrap();
+    std::fs::write(&rlib, b"poisoned").unwrap();
+    let (p3, _, out3) = round(&c2, false);
+    assert_eq!(p3.mode, "stub", "{p3:?}");
+    assert!(p3.note.contains("failed verification"), "{p3:?}");
+    assert_eq!(out3, "two dep\n");
+    assert!(cache.lookup(&key).is_none(), "the corrupt entry is gone");
+    cache.discard(&key).unwrap();
+}

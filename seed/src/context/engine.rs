@@ -873,6 +873,19 @@ impl Context {
         self.render(msgs, max_tokens, false)
     }
 
+    /// A request for a fresh sub-context (the `delegate` tool): the same head and target, a message
+    /// list of its own. No projection, no log write, no cache state: the sub-task's turns are not
+    /// this session's history, and the head hash is unchanged, so the sub-request still hits the
+    /// cached prefix. Returns `(body, head_hash)`.
+    pub fn render_subtask(
+        &mut self,
+        msgs: &[Msg],
+        max_tokens: u32,
+    ) -> Result<(Vec<u8>, String), ContextError> {
+        let body = self.render(msgs, max_tokens, false)?;
+        Ok((body, self.head_hash.clone()))
+    }
+
     /// §3.13 steps 5–8: rebuild check, signal, sync (D2), render.
     pub fn next_request(
         &mut self,

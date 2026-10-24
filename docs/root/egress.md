@@ -304,11 +304,13 @@ POST /_root/action                  HTTP/1.1          helper verbs (§3.7; refus
 GET  /_root/ceilings · /_root/health
 headers from the kernel:  content-type, accept, anthropic-version, anthropic-beta, openai-beta, idempotency-key,
                           x-egress-scope: live|gate, x-egress-body: <instance>, x-egress-reservation: <req_id>,
-                          x-egress-guard: epoch=<E>
+                          x-egress-guard: epoch=<E>,
+                          x-egress-caps: <ids> (ADR-011 §5.2), x-egress-subtask: <label> (v0.3.0, a delegate sub-task)
 ```
 
 - Every other header is dropped, including any auth header. The Root adds the route's auth header from the class, `user-agent: init-root/<version>`, `accept-encoding: identity`, and the OpenAI account headers if the charter's provider entry sets them.
 - `x-egress-scope`, `x-egress-body` and `x-egress-reservation` are labels for the ledger only, never inputs to a ceiling or class decision.
+- `x-egress-subtask` (v0.3.0) marks a `delegate` sub-task's request. The Root accepts it only in the `x-init-subtask` grammar (≤ 64 bytes, `[a-zA-Z0-9][a-zA-Z0-9._-]*`) and uses it only to count the request apart in the harm sentinel's turn record (`sub_requests`, `sub_cost`: H10 and H5b test the main loop's share, ADR-011 §3.1). It is never a ceiling input and, like every `x-egress-*` header, never reaches the provider.
 - Response: the provider's status, allowlisted headers (kernel/proxy.md §4.1) and the streamed body, unchanged, plus `x-egress-req-id`, `x-egress-retries`, `x-egress-reserved-musd` and `x-egress-epoch`. The final cost is not a header (it is known only at the end of a stream); the kernel reads it from `GET /_root/ceilings`, which it re-reads after every completed request (declines kernel/proxy.md Q-EG2b, with reason).
 
 ### 4.2 The money block: `ceilings.get` and `GET /_root/ceilings`

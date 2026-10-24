@@ -153,7 +153,8 @@ fn x5_live_relay_is_unchanged_and_caps_never_leave() {
         r#"{"max_tokens":256,"messages":[],"model":"deepseek-flash","stream":true}"#,
         r#"{"input":[],"max_output_tokens":256,"model":"deepseek-flash","stream":true}"#];
     for (i, ((_, path), want)) in cases.iter().zip(&fixtures).enumerate() {
-        let hs = [("content-type", "application/json"), ("x-egress-caps", "mem/vec_index,loop/plan2"), ("x-egress-scope", "live"), ("x-init-caps", "mem/x")];
+        let hs = [("content-type", "application/json"), ("x-egress-caps", "mem/vec_index,loop/plan2"), ("x-egress-scope", "live"), ("x-init-caps", "mem/x"),
+            ("x-egress-subtask", "delegate-call_7")]; // MERGE: the sub-task label stays inside the Root too
         let (status, head, body) = request(&sock, path, &hs, bodies[i].as_bytes());
         assert_eq!(status, 200, "{path}: {head}");
         assert!(body == *want, "{path}: the relayed bytes differ from the recording ({} vs {} bytes)", body.len(), want.len());

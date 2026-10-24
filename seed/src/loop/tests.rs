@@ -59,6 +59,7 @@ enum Step {
 struct Seen {
     body: Vec<u8>,
     task: Option<String>,
+    subtask: Option<String>,
     max_tokens: u32,
     messages: Vec<Msg>,
     head_hash: String,
@@ -69,6 +70,12 @@ struct ScriptModel {
     steps: Mutex<VecDeque<Step>>,
     seen: Mutex<Vec<Seen>>,
     stalled: AtomicBool,
+    /// DELEGATE: per-sub-task scripts, chosen when the request's first message contains the key
+    /// (concurrent sub-tasks reach the model in any order).
+    routes: Mutex<Vec<(String, VecDeque<Step>)>>,
+    /// In-flight streams now, the most seen at once, and the most seen at once for keys that
+    /// start with `W` (writer sub-tasks).
+    inflight: Mutex<(usize, usize, usize, usize)>,
 }
 
 impl ScriptModel {
@@ -80,7 +87,20 @@ impl ScriptModel {
             steps: Mutex::new(steps.into()),
             seen: Mutex::new(Vec::new()),
             stalled: AtomicBool::new(false),
+            routes: Mutex::new(Vec::new()),
+            inflight: Mutex::new((0, 0, 0, 0)),
         })
+    }
+    fn route(&self, key: &str, steps: Vec<Step>) {
+        self.routes
+            .lock()
+            .unwrap()
+            .push((key.to_string(), steps.into()));
+    }
+    /// (most streams at once, most writer streams at once).
+    fn peaks(&self) -> (usize, usize) {
+        let g = self.inflight.lock().unwrap();
+        (g.1, g.3)
     }
     fn seen(&self) -> Vec<Seen> {
         self.seen.lock().unwrap().clone()
@@ -108,11 +128,35 @@ impl ModelClient for ScriptModel {
         self.seen.lock().unwrap().push(Seen {
             body: req.body.to_vec(),
             task: req.task.map(str::to_string),
+            subtask: req.subtask.map(str::to_string),
             max_tokens: req.max_tokens,
             messages: req.messages.to_vec(),
             head_hash: req.head_hash.to_string(),
         });
-        let step = self.steps.lock().unwrap().pop_front();
+        let first = match req.messages.first() {
+            Some(Msg::User { blocks, .. }) => blocks_text(blocks),
+            _ => String::new(),
+        };
+        let routed = {
+            let mut r = self.routes.lock().unwrap();
+            r.iter_mut()
+                .find(|(k, _)| first.contains(k.as_str()))
+                .map(|(k, q)| (k.clone(), q.pop_front()))
+        };
+        let writer = routed.as_ref().is_some_and(|(k, _)| k.starts_with('W'));
+        {
+            let mut g = self.inflight.lock().unwrap();
+            g.0 += 1;
+            g.1 = g.1.max(g.0);
+            if writer {
+                g.2 += 1;
+                g.3 = g.3.max(g.2);
+            }
+        }
+        let step = match routed {
+            Some((_, s)) => s,
+            None => self.steps.lock().unwrap().pop_front(),
+        };
         let started = StreamEvent::Started {
             attempt: 1,
             request_id: None,
@@ -152,6 +196,13 @@ impl ModelClient for ScriptModel {
                 ]
             }
         };
+        {
+            let mut g = self.inflight.lock().unwrap();
+            g.0 -= 1;
+            if writer {
+                g.2 -= 1;
+            }
+        }
         Box::new(evs.into_iter())
     }
 }
@@ -265,6 +316,8 @@ struct Opts {
     head_source: Option<SendHeadSource>,
     host: Option<Arc<FakeHost>>,
     tasks: Option<TaskLog>,
+    /// Extra bash/tool environment (e.g. `INIT_DELEGATE_*`).
+    env: Vec<(&'static str, &'static str)>,
 }
 
 type TaskLog = Arc<Mutex<Vec<(String, Option<String>)>>>;
@@ -291,15 +344,16 @@ impl H {
         let summaries = Arc::new(AtomicUsize::new(0));
         let ext: Option<Arc<dyn ExtHostApi>> = o.host.clone().map(|h| h as Arc<dyn ExtHostApi>);
         let (ctl_tx, ctl_rx) = mpsc::channel();
+        let (out, out_rx) = OutTx::channel(frames::OUT_CAP);
         spawn_input(
             BufReader::new(pr),
             ctl_tx,
             abort.clone(),
             ext.clone(),
             status.clone(),
+            out.clone(),
         )
         .unwrap();
-        let (out, out_rx) = OutTx::channel(frames::OUT_CAP);
         spawn_output(
             ChanWriter {
                 tx: ftx,
@@ -319,6 +373,8 @@ impl H {
         let fault = o.fault;
         let mut hs = o.head_source.take();
         let tasks = o.tasks.clone();
+        let env: Vec<(&'static str, Option<&'static str>)> =
+            o.env.iter().map(|&(k, v)| (k, Some(v))).collect();
         let join = std::thread::Builder::new()
             .name("loop-main".into())
             .spawn(move || {
@@ -348,7 +404,7 @@ impl H {
                     provider: "mock".into(),
                     model: "mock-frontier-1".into(),
                     init_home: Some(h2.clone()),
-                    base_env: Some(base_env(&[])),
+                    base_env: Some(base_env(&env)),
                     limits: Limits::default(),
                 });
                 let s = Session::new(SessionConfig {
@@ -1673,6 +1729,377 @@ fn t24_interrupt_during_ext_call() {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Lane STEER: retract and interrupt-and-steer (loop.md §3.4, §3.5)
+// ---------------------------------------------------------------------------------------------
+
+fn is_retracted(seq: u64) -> impl Fn(&Value) -> bool {
+    move |f: &Value| f["t"] == "retracted" && f["seq"] == seq
+}
+
+fn is_info(text: &'static str) -> impl Fn(&Value) -> bool {
+    move |f: &Value| f["t"] == "display" && f["kind"] == "info" && f["text"] == text
+}
+
+fn user_texts(m: &[Msg]) -> Vec<String> {
+    m.iter()
+        .filter_map(|x| match x {
+            Msg::User { blocks, .. } => Some(blocks_text(blocks)),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Every tool call of every assistant message has its result, and every result comes before the
+/// first steer that follows its call.
+fn assert_paired_before_steer(evs: &[Value]) {
+    let mut open: Vec<String> = Vec::new();
+    for e in evs {
+        match e["type"].as_str() {
+            Some("message") if e["role"] == "assistant" => {
+                for b in e["content"].as_array().into_iter().flatten() {
+                    if b["type"] == "tool_use" {
+                        open.push(b["call_id"].as_str().unwrap().to_string());
+                    }
+                }
+            }
+            Some("tool_result") => {
+                let id = e["call_id"].as_str().unwrap();
+                assert!(
+                    open.iter().any(|o| o == id),
+                    "a result for an unknown call {id}"
+                );
+                open.retain(|o| o != id);
+            }
+            Some("steer") => assert!(open.is_empty(), "a steer before results of {open:?}"),
+            _ => {}
+        }
+    }
+    assert!(open.is_empty(), "calls without results: {open:?}");
+}
+
+/// A steer retracted before its boundary is never appended: `retracted{ok:true}`, no ack.
+#[test]
+fn t25_retract_before_the_boundary() {
+    let home = TempHome::new("loop-25");
+    let mut h = H::start(
+        &home,
+        vec![
+            tools_reply(vec![bash_call("sleep 1; echo slept")]),
+            reply("done"),
+        ],
+        Opts::default(),
+    );
+    h.input(ID1, 1, "run it");
+    h.wait(is_display("tool_start"));
+    h.input(ID2, 2, "never mind this note");
+    let t_r = h.send(json!({"t": "retract", "seq": 2}));
+    let (t_reply, f) = h.wait(is_retracted(2));
+    assert_eq!(f["ok"], true);
+    assert!(
+        t_reply - t_r < Duration::from_millis(500),
+        "replied at once, mid-batch"
+    );
+    assert!(
+        h.pos(is_display("tool_end")).is_none(),
+        "before the batch ended"
+    );
+    h.idle(1);
+    assert!(h.pos(|f| f["t"] == "ack" && f["seq"] == 2).is_none());
+    let evs = h.events();
+    assert!(of_type(&evs, "steer").is_empty());
+    assert!(!serde_json::to_string(&evs).unwrap().contains("never mind"));
+    let seen = h.model.seen();
+    assert_eq!(seen.len(), 2);
+    assert!(
+        user_texts(&seen[1].messages)
+            .iter()
+            .all(|t| !t.contains("never mind"))
+    );
+    h.finish();
+}
+
+/// A retract after the boundary consumed the input: `ok:false`, and it is in the log once.
+#[test]
+fn t25b_retract_after_it_was_consumed() {
+    let home = TempHome::new("loop-25b");
+    let mut h = H::start(
+        &home,
+        vec![
+            tools_reply(vec![bash_call("sleep 0.3")]),
+            Step::Reply {
+                msg: amsg("done", vec![], StopReason::EndTurn),
+                delay: Duration::from_millis(600),
+            },
+        ],
+        Opts::default(),
+    );
+    h.input(ID1, 1, "run it");
+    h.wait(is_display("tool_start"));
+    h.input(ID2, 2, "a note");
+    h.wait(|f| f["t"] == "ack" && f["seq"] == 2);
+    h.send(json!({"t": "retract", "seq": 2}));
+    let (_, f) = h.wait(is_retracted(2));
+    assert_eq!(f["ok"], false);
+    h.idle(1);
+    let evs = h.events();
+    assert_eq!(of_type(&evs, "steer").len(), 1);
+    assert_eq!(h.model.seen().len(), 2);
+    h.finish();
+}
+
+/// A queued follow-up is retractable until delivered; a delivery with nothing left ends the run
+/// idle without a model request; the next input runs normally.
+#[test]
+fn t25c_retract_a_queued_follow_up() {
+    let home = TempHome::new("loop-25c");
+    let mut h = H::start(
+        &home,
+        vec![
+            tools_reply(vec![bash_call("sleep 0.3")]),
+            Step::Reply {
+                msg: amsg("main done", vec![], StopReason::EndTurn),
+                delay: Duration::from_millis(600),
+            },
+            reply("next"),
+        ],
+        Opts::default(),
+    );
+    h.input(ID1, 1, "main");
+    h.wait(is_display("tool_start"));
+    h.input_mode(ID2, 2, "later, please", "follow_up");
+    // The boundary after the batch has queued the follow-up; the final reply is streaming.
+    wait_until("the second request", || h.model.seen().len() == 2);
+    h.send(json!({"t": "retract", "seq": 2}));
+    let (_, f) = h.wait(is_retracted(2));
+    assert_eq!(f["ok"], true);
+    h.idle(1);
+    assert_eq!(
+        h.model.seen().len(),
+        2,
+        "no request for a retracted follow-up"
+    );
+    assert!(h.pos(|f| f["t"] == "ack" && f["seq"] == 2).is_none());
+    let evs = h.events();
+    assert!(
+        of_type(&evs, "message")
+            .iter()
+            .all(|m| m["input_id"] != ID2)
+    );
+    h.input(ID3, 3, "something else");
+    h.idle(2);
+    assert_eq!(h.model.seen().len(), 3);
+    h.finish();
+}
+
+/// Interrupt-and-steer during a long bash: the group dies, the run continues with the note
+/// (results first, then the steer), a second request happens, the run ends idle normally.
+#[test]
+fn t26_interrupt_and_steer_during_a_batch() {
+    let home = TempHome::new("loop-26");
+    let mut h = H::start(
+        &home,
+        vec![
+            tools_reply(vec![bash_call("sleep 30")]),
+            reply("answered the note"),
+        ],
+        Opts::default(),
+    );
+    h.input(ID1, 1, "start");
+    h.wait(is_display("tool_start"));
+    h.input(ID2, 2, "use the other dir");
+    let t_int = h.send(json!({"t": "interrupt", "then": "continue"}));
+    h.wait(is_info(CONTINUE_TEXT));
+    let t_idle = h.idle(1);
+    assert!(
+        t_idle - t_int < Duration::from_secs(5),
+        "{:?}",
+        t_idle - t_int
+    );
+    assert!(h.pos(is_info("aborted")).is_none());
+    assert!(h.pos(|f| f["t"] == "ack" && f["seq"] == 2).is_some());
+    let seen = h.model.seen();
+    assert_eq!(seen.len(), 2);
+    assert!(
+        user_texts(&seen[1].messages)
+            .last()
+            .is_some_and(|t| t.contains("use the other dir"))
+    );
+    let evs = h.events();
+    assert_paired_before_steer(&evs);
+    let r = of_type(&evs, "tool_result");
+    assert_eq!(r.len(), 1);
+    assert!(
+        result_text(r[0]).contains("[aborted after "),
+        "{}",
+        result_text(r[0])
+    );
+    let last = (*of_type(&evs, "message").last().unwrap()).clone();
+    assert_eq!(last["role"], "assistant");
+    assert_eq!(last["content"][0]["text"], "answered the note");
+    assert!(!h.abort.is_set());
+    h.finish();
+}
+
+/// Interrupt-and-steer while the model streams: the aborted partial, aborted results for its
+/// complete calls, then the note, then a second request.
+#[test]
+fn t26b_interrupt_and_steer_mid_stream() {
+    let home = TempHome::new("loop-26b");
+    let complete = bash_call("echo never");
+    let mut h = H::start(
+        &home,
+        vec![
+            Step::Stall {
+                msg: amsg("partial text", vec![complete.clone()], StopReason::EndTurn),
+            },
+            reply("switching"),
+        ],
+        Opts::default(),
+    );
+    h.input(ID1, 1, "long answer please");
+    wait_until("the stall", || h.model.stalled.load(Ordering::SeqCst));
+    h.input(ID2, 2, "shorter, please");
+    h.send(json!({"t": "interrupt", "then": "continue"}));
+    h.idle(1);
+    assert!(h.pos(is_info(CONTINUE_TEXT)).is_some());
+    assert!(h.pos(is_info("aborted")).is_none());
+    let evs = h.events();
+    assert_paired_before_steer(&evs);
+    let a = of_type(&evs, "message")
+        .into_iter()
+        .find(|m| m["role"] == "assistant")
+        .unwrap()
+        .clone();
+    assert_eq!(a["stop_reason"], "aborted");
+    let r = of_type(&evs, "tool_result");
+    assert_eq!(r.len(), 1);
+    assert_eq!(r[0]["call_id"], complete.id.as_str());
+    assert_eq!(result_text(r[0]), ABORTED_TEXT);
+    assert_eq!(of_type(&evs, "steer").len(), 1);
+    let seen = h.model.seen();
+    assert_eq!(seen.len(), 2);
+    assert!(
+        user_texts(&seen[1].messages)
+            .last()
+            .is_some_and(|t| t.contains("shorter, please"))
+    );
+    h.finish();
+}
+
+/// `then:"continue"` with no note to answer is a plain stop, exactly as today.
+#[test]
+fn t26c_continue_without_a_steer_stops() {
+    let home = TempHome::new("loop-26c");
+    let mut h = H::start(
+        &home,
+        vec![tools_reply(vec![bash_call("sleep 30")])],
+        Opts::default(),
+    );
+    h.input(ID1, 1, "start");
+    h.wait(is_display("tool_start"));
+    h.send(json!({"t": "interrupt", "then": "continue"}));
+    h.idle(1);
+    assert!(h.pos(is_info("aborted")).is_some());
+    assert!(h.pos(is_info(CONTINUE_TEXT)).is_none());
+    assert_eq!(h.model.seen().len(), 1, "no request after the abort");
+    assert_paired_before_steer(&h.events());
+    h.finish();
+}
+
+/// A plain interrupt (an unknown `then` too) with a steer queued still stops: the steer is
+/// appended, no request follows.
+#[test]
+fn t26d_plain_interrupt_with_a_steer_stops() {
+    let home = TempHome::new("loop-26d");
+    let mut h = H::start(
+        &home,
+        vec![tools_reply(vec![bash_call("sleep 30")])],
+        Opts::default(),
+    );
+    h.input(ID1, 1, "start");
+    h.wait(is_display("tool_start"));
+    h.input(ID2, 2, "a note");
+    h.send(json!({"t": "interrupt", "then": "something-new"}));
+    h.idle(1);
+    assert!(h.pos(is_info("aborted")).is_some());
+    assert!(h.pos(is_info(CONTINUE_TEXT)).is_none());
+    assert_eq!(h.model.seen().len(), 1);
+    let evs = h.events();
+    assert_eq!(of_type(&evs, "steer").len(), 1);
+    assert_paired_before_steer(&evs);
+    assert!(h.pos(|f| f["t"] == "ack" && f["seq"] == 2).is_some());
+    h.finish();
+}
+
+#[test]
+fn steer_frames_parse_and_render() {
+    use super::frames::parse_frame;
+    let p = |l: &str| parse_frame(l).unwrap().unwrap();
+    assert_eq!(
+        p(r#"{"t":"interrupt","v":1}"#),
+        Control::Interrupt {
+            then_continue: false
+        }
+    );
+    assert_eq!(
+        p(r#"{"t":"interrupt","then":"continue","v":1}"#),
+        Control::Interrupt {
+            then_continue: true
+        }
+    );
+    assert_eq!(
+        p(r#"{"t":"interrupt","then":"later","v":1}"#),
+        Control::Interrupt {
+            then_continue: false
+        }
+    );
+    assert_eq!(
+        p(r#"{"t":"retract","seq":7,"v":1}"#),
+        Control::Retract { seq: 7 }
+    );
+    assert!(parse_frame(r#"{"t":"retract","v":1}"#).is_err());
+    assert!(parse_frame(r#"{"t":"retract","seq":"7","v":1}"#).is_err());
+    assert_eq!(
+        Out::Retracted { seq: 7, ok: true }.to_value().to_string(),
+        r#"{"ok":true,"seq":7,"t":"retracted","v":1}"#
+    );
+    assert_eq!(
+        Out::Retracted { seq: 8, ok: false }.to_value().to_string(),
+        r#"{"ok":false,"seq":8,"t":"retracted","v":1}"#
+    );
+}
+
+#[test]
+fn retract_gate_decides_once_and_stays_bounded() {
+    let st = Status::default();
+    st.gate.lock().consume(5);
+    assert!(!st.gate.retract(5), "consumed: too late");
+    assert!(st.gate.retract(6));
+    assert!(st.gate.is_retracted(6));
+    assert!(!st.gate.is_retracted(5));
+    for s in 100..(100 + 2 * status::GATE_CAP as u64) {
+        st.gate.lock().consume(s);
+        st.gate.retract(s + 10_000);
+    }
+    let g = st.gate.lock();
+    assert_eq!(g.consumed.len(), status::GATE_CAP);
+    assert_eq!(g.retracted.len(), status::GATE_CAP);
+    assert!(!g.consumed.contains(&5), "the smallest go first");
+}
+
+#[test]
+fn abort_continue_wish() {
+    let a = Abort::new(kill_hook);
+    a.trigger_continue();
+    assert!(a.is_set() && a.wants_continue());
+    a.trigger(); // a second, plain Ctrl-C stops
+    assert!(a.is_set() && !a.wants_continue());
+    a.trigger_continue();
+    a.reset();
+    assert!(!a.is_set() && !a.wants_continue());
+}
+
+// ---------------------------------------------------------------------------------------------
 // Unit checks
 // ---------------------------------------------------------------------------------------------
 
@@ -1747,3 +2174,364 @@ fn base64_round_trip() {
 
 #[allow(dead_code)]
 fn _unused(_: Map<String, Value>) {}
+
+/// tools/delegate.rs + loop/delegate.rs (ported from INIT's own evo/delegate 4258c2e): a sub-task
+/// runs in a fresh context, and the main context sees only its summary. The sub-request carries
+/// one message (the task), not the session transcript, plus the parent's task id and its own
+/// `x-init-subtask` label; its tool frames are nested under the delegate call.
+#[test]
+fn t99_delegate_runs_a_subtask_in_a_fresh_context() {
+    let home = TempHome::new("loop-99");
+    let d = call("delegate", json!({"task": "count the unit tests in src/"}));
+    let did = d.id.clone();
+    let mut h = H::start(
+        &home,
+        vec![
+            tools_reply(vec![d]),
+            tools_reply(vec![bash_call("echo 3 tests")]),
+            reply("3 tests: a.rs, b.rs, c.rs"),
+            reply("done: 3 tests"),
+        ],
+        Opts::default(),
+    );
+    h.input(ID1, 1, "count the tests");
+    h.idle(1);
+
+    let evs = h.events();
+    let results = of_type(&evs, "tool_result");
+    assert_eq!(results.len(), 1, "the main log gains one result, not the sub-task's");
+    let text = result_text(results[0]);
+    assert!(text.contains("3 tests: a.rs, b.rs, c.rs"), "{text}");
+    assert!(text.contains("[init:delegate] 2 turns, 1 tool call, 2 requests"), "{text}");
+    assert!(text.contains("; record "), "{text}");
+
+    let seen = h.model.seen();
+    assert_eq!(seen.len(), 4, "main, two sub turns, main");
+    assert_eq!(seen[1].messages.len(), 1, "the sub-task starts fresh");
+    assert!(matches!(seen[1].messages[0], Msg::User { .. }));
+    assert_eq!(seen[1].head_hash, seen[0].head_hash, "same head: the cached prefix is reused");
+    assert_eq!(seen[1].task, seen[0].task, "a sub-request carries the parent's task id");
+    let label = crate::tools::delegate::subtask_label(&did);
+    assert_eq!(seen[1].subtask.as_deref(), Some(label.as_str()));
+    assert_eq!(seen[0].subtask, None, "the main loop's requests carry no subtask label");
+    assert_eq!(seen[2].messages.len(), 3, "user, assistant tool call, results");
+    assert!(
+        seen[3].messages.len() >= 4,
+        "the main context kept its own history: {}",
+        seen[3].messages.len()
+    );
+    let main_has_sub_tool = seen[3].messages.iter().any(|m| matches!(m, Msg::ToolResults(r)
+        if r.iter().any(|t| t.name == "bash")));
+    assert!(!main_has_sub_tool, "the sub-task's tool call never enters the main context");
+
+    // display: one start/end for the delegate, and the inner bash nested under it
+    let starts: Vec<Value> = h
+        .frames
+        .iter()
+        .map(|(_, f)| f.clone())
+        .filter(|f| f["t"] == "display" && f["kind"] == "tool_start")
+        .collect();
+    assert_eq!(starts.len(), 2, "{starts:#?}");
+    assert_eq!(starts[0]["call_id"], did.as_str());
+    assert!(starts[0].get("parent_call_id").is_none());
+    assert_eq!(starts[1]["parent_call_id"], did.as_str());
+    assert!(starts[1]["call_id"].as_str().unwrap().starts_with(&format!("{did}/")));
+    let ends: Vec<Value> = h
+        .frames
+        .iter()
+        .map(|(_, f)| f.clone())
+        .filter(|f| f["t"] == "display" && f["kind"] == "tool_end")
+        .collect();
+    assert_eq!(ends.len(), 2);
+    assert_eq!(ends[0]["parent_call_id"], did.as_str(), "the inner call ends first");
+    assert_eq!(ends[1]["call_id"], did.as_str());
+    assert_eq!(ends[1]["text"], "done · 1 call");
+
+    let dir = home.path.join("state/spill").join(SID);
+    let rec = std::fs::read_dir(&dir)
+        .expect("spill dir")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .is_some_and(|n| n.starts_with("delegate-") && n.ends_with(".json"))
+        })
+        .expect("a delegate record");
+    let v: Value = serde_json::from_slice(&std::fs::read(&rec).unwrap()).unwrap();
+    assert_eq!(v["tool"], "delegate");
+    assert_eq!(v["turns"], 2);
+    assert_eq!(v["tool_calls"], 1);
+    assert_eq!(v["requests"], 2);
+    assert_eq!(v["mode"], "read");
+    assert_eq!(v["end"], "done");
+    assert_eq!(v["subtask"], label.as_str());
+    assert!(v["summary"].as_str().unwrap().contains("3 tests: a.rs"));
+    assert_eq!(v["messages"].as_array().unwrap().len(), 3);
+    h.finish();
+}
+
+fn delegate_record(home: &TempHome, call_id: &str) -> Value {
+    let p = home
+        .path
+        .join("state/spill")
+        .join(SID)
+        .join(format!("delegate-{call_id}.json"));
+    serde_json::from_slice(&std::fs::read(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display())))
+        .unwrap()
+}
+
+fn delayed(text: &str, ms: u64) -> Step {
+    Step::Reply {
+        msg: amsg(text, vec![], StopReason::EndTurn),
+        delay: Duration::from_millis(ms),
+    }
+}
+
+/// DELEGATE fan-out: several delegate calls in one reply run concurrently, at most
+/// `INIT_DELEGATE_PARALLEL` at once; the results keep call order; writers never overlap.
+#[test]
+fn t100_delegate_fan_out_runs_in_parallel_and_keeps_call_order() {
+    let home = TempHome::new("loop-100");
+    let calls: Vec<ToolCall> = ["R1", "R2", "R3", "R4"]
+        .iter()
+        .map(|k| call("delegate", json!({"task": format!("scout {k}: look around")})))
+        .chain(["W1", "W2"].iter().map(|k| {
+            call(
+                "delegate",
+                json!({"task": format!("writer {k}: change a file"), "mode": "write"}),
+            )
+        }))
+        .collect();
+    let ids: Vec<String> = calls.iter().map(|c| c.id.clone()).collect();
+    let mut h = H::start(
+        &home,
+        vec![tools_reply(calls), reply("all six reported")],
+        Opts {
+            env: vec![("INIT_DELEGATE_PARALLEL", "3")],
+            ..Opts::default()
+        },
+    );
+    for k in ["R1", "R2", "R3", "R4", "W1", "W2"] {
+        h.model.route(k, vec![delayed(&format!("{k} found it"), 300)]);
+    }
+    let t0 = Instant::now();
+    h.input(ID1, 1, "fan out");
+    h.idle(1);
+    let took = t0.elapsed();
+
+    let evs = h.events();
+    let results = of_type(&evs, "tool_result");
+    assert_eq!(results.len(), 6);
+    for (r, k) in results.iter().zip(["R1", "R2", "R3", "R4", "W1", "W2"]) {
+        let t = result_text(r);
+        assert!(t.starts_with(&format!("{k} found it")), "call order kept: {t}");
+    }
+    let (peak, writers) = h.model.peaks();
+    assert!(peak >= 2, "sub-tasks ran concurrently (peak {peak})");
+    assert!(peak <= 3, "at most INIT_DELEGATE_PARALLEL at once (peak {peak})");
+    assert_eq!(writers, 1, "at most one writer at a time");
+    // 6 × 300 ms sequentially is 1.8 s; with 3 lanes (writers serialized) it is about 0.6-0.9 s.
+    assert!(took < Duration::from_millis(1700), "parallel: {took:?}");
+    for (id, k) in ids.iter().zip(["R1", "R2", "R3", "R4", "W1", "W2"]) {
+        let v = delegate_record(&home, id);
+        assert_eq!(v["end"], "done");
+        assert_eq!(v["mode"], if k.starts_with('W') { "write" } else { "read" });
+    }
+    h.finish();
+}
+
+/// DELEGATE read mode: `write` and `edit` are refused inside a read sub-task (the file is not
+/// touched); a write sub-task may change files; a nested `delegate` is refused (depth 1).
+#[test]
+fn t101_delegate_read_mode_refuses_write_and_edit() {
+    let home = TempHome::new("loop-101");
+    std::fs::create_dir_all(home.path.join("work")).unwrap();
+    std::fs::write(home.path.join("work/keep.txt"), "old\n").unwrap();
+    let r = call("delegate", json!({"task": "reader RD: tidy up"}));
+    let w = call("delegate", json!({"task": "writer WR: make the file", "mode": "write"}));
+    let (rid, wid) = (r.id.clone(), w.id.clone());
+    let mut h = H::start(&home, vec![tools_reply(vec![r, w]), reply("ok")], Opts::default());
+    h.model.route(
+        "RD",
+        vec![
+            tools_reply(vec![
+                call("write", json!({"path": "made-by-reader.txt", "content": "x"})),
+                call(
+                    "edit",
+                    json!({"path": "keep.txt", "edits": [{"old_text": "old", "new_text": "new"}]}),
+                ),
+                call("delegate", json!({"task": "go deeper"})),
+            ]),
+            reply("could not change anything"),
+        ],
+    );
+    h.model.route(
+        "WR",
+        vec![
+            tools_reply(vec![call(
+                "write",
+                json!({"path": "made-by-writer.txt", "content": "y"}),
+            )]),
+            reply("wrote made-by-writer.txt"),
+        ],
+    );
+    h.input(ID1, 1, "try both");
+    h.idle(1);
+
+    assert!(!home.path.join("work/made-by-reader.txt").exists(), "read mode refused write");
+    assert_eq!(
+        std::fs::read_to_string(home.path.join("work/keep.txt")).unwrap(),
+        "old\n",
+        "read mode refused edit"
+    );
+    assert_eq!(
+        std::fs::read_to_string(home.path.join("work/made-by-writer.txt")).unwrap(),
+        "y",
+        "write mode writes"
+    );
+    let rec = delegate_record(&home, &rid);
+    let tool_msg = &rec["messages"][2]["results"];
+    let texts: Vec<String> = tool_msg
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["blocks"][0]["text"].as_str().unwrap_or("").to_string())
+        .collect();
+    assert!(texts[0].contains("not_available: write is off in a read-mode sub-task"), "{texts:?}");
+    assert!(texts[1].contains("not_available: edit is off"), "{texts:?}");
+    assert!(texts[2].contains("delegate cannot run inside a sub-task"), "{texts:?}");
+    assert_eq!(delegate_record(&home, &wid)["end"], "done");
+    // the refused inner calls show as failed nested rows
+    let failed_nested = h
+        .frames
+        .iter()
+        .filter(|(_, f)| f["kind"] == "tool_end" && f["parent_call_id"] == rid.as_str())
+        .filter(|(_, f)| f["ok"] == false)
+        .count();
+    assert_eq!(failed_nested, 3);
+    h.finish();
+}
+
+/// DELEGATE bounds: a turn cap (the last turn is told to answer, and its calls do not run), a
+/// tool-call cap, and a hard wall-time cap (a stalled request is shut down by the watchdog).
+#[test]
+fn t102_delegate_bounds_turns_calls_and_wall_time() {
+    let home = TempHome::new("loop-102");
+    let a = call("delegate", json!({"task": "loop TA: keep going", "max_turns": 2}));
+    let b = call("delegate", json!({"task": "calls TB: many calls", "max_calls": 1}));
+    let c = call("delegate", json!({"task": "stall TC: wait", "max_seconds": 1}));
+    let (aid, bid, cid) = (a.id.clone(), b.id.clone(), c.id.clone());
+    let mut h = H::start(&home, vec![tools_reply(vec![a, b, c]), reply("ok")], Opts::default());
+    h.model.route(
+        "TA",
+        vec![
+            tools_reply(vec![bash_call("echo one")]),
+            tools_reply(vec![bash_call("echo two")]),
+        ],
+    );
+    h.model.route(
+        "TB",
+        vec![
+            tools_reply(vec![bash_call("echo b1"), bash_call("echo b2")]),
+            reply("partial: b1 only"),
+        ],
+    );
+    h.model.route(
+        "TC",
+        vec![Step::Stall {
+            msg: amsg("", vec![], StopReason::EndTurn),
+        }],
+    );
+    let t0 = Instant::now();
+    h.input(ID1, 1, "bounded");
+    h.idle(1);
+    assert!(t0.elapsed() < Duration::from_secs(10), "the wall-time cap ended the stall");
+
+    let evs = h.events();
+    let results = of_type(&evs, "tool_result");
+    assert_eq!(results.len(), 3);
+    let ta = result_text(results[0]);
+    assert!(ta.contains("hit its 2 turn cap"), "{ta}");
+    let ra = delegate_record(&home, &aid);
+    assert_eq!(ra["turns"], 2);
+    assert_eq!(ra["tool_calls"], 1, "the last turn's call did not run");
+    assert_eq!(ra["end"], "capped: 2 turn cap");
+    let msgs = ra["messages"].as_array().unwrap();
+    assert!(
+        msgs.iter().any(|m| m["role"] == "note"
+            && m["text"].as_str().unwrap().contains("this is your last turn")),
+        "{msgs:#?}"
+    );
+    let seen = h.model.seen();
+    let ta_label = crate::tools::delegate::subtask_label(&aid);
+    let ta_last = seen
+        .iter()
+        .rfind(|s| s.subtask.as_deref() == Some(ta_label.as_str()))
+        .unwrap();
+    assert_eq!(roles(&ta_last.messages).last(), Some(&"note"));
+
+    let tb = result_text(results[1]);
+    assert!(tb.starts_with("partial: b1 only"), "{tb}");
+    let rb = delegate_record(&home, &bid);
+    assert_eq!(rb["tool_calls"], 1);
+    let second = rb["messages"][2]["results"][1]["blocks"][0]["text"].as_str().unwrap();
+    assert!(second.contains("1-call cap"), "{second}");
+
+    let tc = result_text(results[2]);
+    assert!(tc.contains("1 s wall-time cap"), "{tc}");
+    assert_eq!(delegate_record(&home, &cid)["end"], "capped: wall time");
+    h.finish();
+}
+
+/// DELEGATE: an owner abort reaches every running sub-task through the child aborts: a stalled
+/// sub-request is shut down and a sub-task's bash group is killed; the run ends aborted.
+#[test]
+fn t103_delegate_owner_abort_stops_sub_tasks() {
+    let home = TempHome::new("loop-103");
+    let pgf = home.work().join("pg");
+    let a = call("delegate", json!({"task": "stall SA"}));
+    let b = call("delegate", json!({"task": "shell SB"}));
+    let (aid, bid) = (a.id.clone(), b.id.clone());
+    let mut h = H::start(&home, vec![tools_reply(vec![a, b])], Opts::default());
+    h.model.route(
+        "SA",
+        vec![Step::Stall {
+            msg: amsg("", vec![], StopReason::EndTurn),
+        }],
+    );
+    h.model.route(
+        "SB",
+        vec![
+            tools_reply(vec![bash_call(&format!(
+                "echo $$ > '{}'; sleep 100",
+                pgf.display()
+            ))]),
+            reply("not reached"),
+        ],
+    );
+    h.input(ID1, 1, "go");
+    wait_until("the pgid file", || {
+        std::fs::read_to_string(&pgf)
+            .map(|s| s.ends_with('\n'))
+            .unwrap_or(false)
+    });
+    wait_until("the stalled sub-request", || h.model.stalled.load(Ordering::SeqCst));
+    let pg: i32 = std::fs::read_to_string(&pgf).unwrap().trim().parse().unwrap();
+    assert!(group_alive(pg));
+    let t_int = h.send(json!({"t": "interrupt"}));
+    while group_alive(pg) {
+        assert!(t_int.elapsed() < Duration::from_millis(500), "sub-task group still alive");
+        std::thread::sleep(Duration::from_millis(2));
+    }
+    h.idle(1);
+    let evs = h.events();
+    let results = of_type(&evs, "tool_result");
+    assert_eq!(results.len(), 2);
+    for r in &results {
+        assert!(result_text(r).contains("aborted"), "{}", result_text(r));
+    }
+    assert_eq!(delegate_record(&home, &aid)["end"], "aborted");
+    assert_eq!(delegate_record(&home, &bid)["end"], "aborted");
+    h.finish();
+}

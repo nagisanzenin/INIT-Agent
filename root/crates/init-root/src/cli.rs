@@ -259,6 +259,9 @@ fn start(p: &Paths, fg: bool) -> u8 {
         Ok((b, a, h)) => util::log(&p.rh, "info", &format!("RLIMIT_NOFILE soft {b} -> {a} (hard {h})")),
         Err(e) => util::log(&p.rh, "warn", &format!("RLIMIT_NOFILE could not be raised: {e}")),
     }
+    // LINUX: claim the delegated cgroup subtree (if any) before anything is spawned (cgroup.rs)
+    #[cfg(target_os = "linux")]
+    crate::cgroup::init(&p.rh);
     let root = match Root::boot(p.clone()) {
         Ok(r) => r,
         Err(e) => return fail(1, &format!("cold start: {e}")),
@@ -300,12 +303,21 @@ fn attach(p: &Paths, replay: bool, raw: bool) -> u8 {
             while io::Read::read_exact(&mut sig, &mut b).is_ok() && writeln!(w2, "{{\"t\":\"interrupt\"}}").is_ok() {}
         });
     }
+    // STEER: a multi-line paste is one owner message. On a terminal, bracketed paste marks it; it is
+    // switched off again at stdin's EOF and when attach returns.
+    let _paste = Paste::on(sys::isatty(0) && sys::isatty(1));
     std::thread::spawn(move || {
+        let mut asm = Assembler::default();
+        let send = |w: &mut UnixStream, m: String| writeln!(w, "{}", icj(&json!({"t": "line", "text": m})).unwrap_or_default());
         for line in io::stdin().lock().lines().map_while(Result::ok) {
-            if writeln!(w, "{}", icj(&json!({"t": "line", "text": line})).unwrap_or_default()).is_err() {
+            if asm.push(&line).into_iter().any(|m| send(&mut w, m).is_err()) {
                 return;
             }
         }
+        if let Some(m) = asm.finish() {
+            let _ = send(&mut w, m);
+        }
+        Paste::off();
         let _ = writeln!(w, "{{\"t\":\"detach\"}}");
     });
     for line in BufReader::new(s).lines().map_while(Result::ok) {
@@ -321,6 +333,86 @@ fn attach(p: &Paths, replay: bool, raw: bool) -> u8 {
         let _ = io::stdout().flush();
     }
     0
+}
+
+/// Bracketed paste on the owner's terminal (`ESC[?2004h`), switched off once (`ESC[?2004l`) by `off` or on drop.
+struct Paste;
+static PASTE_ON: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+impl Paste {
+    fn on(enable: bool) -> Paste {
+        if enable && !PASTE_ON.swap(true, std::sync::atomic::Ordering::SeqCst) {
+            print!("\x1b[?2004h");
+            let _ = io::stdout().flush();
+        }
+        Paste
+    }
+    fn off() {
+        if PASTE_ON.swap(false, std::sync::atomic::Ordering::SeqCst) {
+            print!("\x1b[?2004l");
+            let _ = io::stdout().flush();
+        }
+    }
+}
+
+impl Drop for Paste {
+    fn drop(&mut self) {
+        Paste::off();
+    }
+}
+
+const PASTE_START: &str = "\x1b[200~";
+const PASTE_END: &str = "\x1b[201~";
+
+/// STEER: stdin lines → owner messages for `attach`. Everything between the bracketed-paste markers (which may
+/// start and end mid-line and span lines) joins into one message with `\n` separators, markers stripped; a line
+/// ending in a single `\` continues onto the next (the `\` becomes `\n`, as the TUI's `\` + Enter; `\\` stays
+/// literal); otherwise one line is one message. A trailing `\r` is dropped and a `\r` inside a paste is a
+/// newline. Messages empty after that (blank or whitespace only) are not sent.
+#[derive(Default)]
+struct Assembler {
+    buf: String,
+    paste: bool,
+}
+
+impl Assembler {
+    /// One stdin line (without its `\n`): the messages it completes.
+    fn push(&mut self, line: &str) -> Vec<String> {
+        let mut rest = line.strip_suffix('\r').unwrap_or(line);
+        loop {
+            if self.paste {
+                let Some(i) = rest.find(PASTE_END) else {
+                    self.buf.push_str(&rest.replace("\r\n", "\n").replace('\r', "\n"));
+                    self.buf.push('\n'); // the line ends inside the paste
+                    return Vec::new();
+                };
+                self.buf.push_str(&rest[..i].replace("\r\n", "\n").replace('\r', "\n"));
+                (self.paste, rest) = (false, &rest[i + PASTE_END.len()..]);
+            } else if let Some(i) = rest.find(PASTE_START) {
+                self.buf.push_str(&rest[..i]);
+                (self.paste, rest) = (true, &rest[i + PASTE_START.len()..]);
+            } else if let Some(head) = rest.strip_suffix('\\').filter(|h| !h.ends_with('\\')) {
+                self.buf.push_str(head);
+                self.buf.push('\n');
+                return Vec::new();
+            } else {
+                self.buf.push_str(rest);
+                return self.take().into_iter().collect();
+            }
+        }
+    }
+
+    /// EOF: an unterminated paste or continuation is sent as it stands.
+    fn finish(&mut self) -> Option<String> {
+        self.paste = false;
+        self.take()
+    }
+
+    fn take(&mut self) -> Option<String> {
+        let m = std::mem::take(&mut self.buf);
+        let m = m.trim_end_matches('\n');
+        (!m.trim().is_empty()).then(|| m.to_string())
+    }
 }
 
 /// `panic` (§3.9.1, §3.9.6): over owner.sock, confirmed within 2 s; otherwise the latch, by hand.
@@ -507,5 +599,58 @@ pub(crate) fn apply_own_charter(p: &Paths) -> Result<Value, (u8, String)> {
         Err(Fail::Refused(_, m)) => Err((2, m)),
         Err(Fail::Protocol(m)) => Err((76, format!("protocol error: {m}"))),
         Ok(v) => Ok(v),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Assembler;
+
+    fn run(lines: &[&str]) -> Vec<String> {
+        let mut a = Assembler::default();
+        let mut out: Vec<String> = lines.iter().flat_map(|l| a.push(l)).collect();
+        out.extend(a.finish());
+        out
+    }
+
+    #[test]
+    fn plain_lines_are_one_message_each_and_blank_lines_are_not_sent() {
+        assert_eq!(run(&["hello", "", "   ", "world"]), ["hello", "world"]);
+        assert_eq!(run(&["/panic"]), ["/panic"]);
+    }
+
+    #[test]
+    fn a_paste_across_three_lines_is_one_message() {
+        assert_eq!(run(&["\x1b[200~first", "second", "third\x1b[201~", "after"]), ["first\nsecond\nthird", "after"]);
+        // the closing marker alone on the next line (the paste ended with a newline)
+        assert_eq!(run(&["\x1b[200~a", "b", "\x1b[201~"]), ["a\nb"]);
+        // a backslash inside a paste is literal
+        assert_eq!(run(&["\x1b[200~x \\", "y\x1b[201~"]), ["x \\\ny"]);
+    }
+
+    #[test]
+    fn a_paste_may_start_and_end_mid_line() {
+        assert_eq!(run(&["look: \x1b[200~one", "two\x1b[201~ thanks"]), ["look: one\ntwo thanks"]);
+        assert_eq!(run(&["a\x1b[200~b\x1b[201~c\x1b[200~d\x1b[201~e"]), ["abcde"]);
+        assert_eq!(run(&["\x1b[200~\x1b[201~"]), Vec::<String>::new(), "an empty paste sends nothing");
+    }
+
+    #[test]
+    fn a_trailing_backslash_continues_the_message() {
+        assert_eq!(run(&["one \\", "two\\", "three", "four"]), ["one \ntwo\nthree", "four"]);
+        assert_eq!(run(&["literal \\\\", "next"]), ["literal \\\\", "next"]);
+        assert_eq!(run(&["pasted \x1b[200~p\\\x1b[201~", "next"]), ["pasted p\\", "next"], "the `\\` came from the paste");
+        assert_eq!(run(&["dangling \\"]), ["dangling "], "EOF ends a continuation");
+    }
+
+    #[test]
+    fn eof_inside_a_paste_sends_it_as_one_message() {
+        assert_eq!(run(&["\x1b[200~a", "b"]), ["a\nb"]);
+        assert_eq!(run(&["\x1b[200~"]), Vec::<String>::new());
+    }
+
+    #[test]
+    fn crlf_is_tolerated() {
+        assert_eq!(run(&["hello\r", "\x1b[200~a\r", "b\r\nc\rd\x1b[201~\r", "x \\\r", "y\r"]), ["hello", "a\nb\nc\nd", "x \ny"]);
     }
 }

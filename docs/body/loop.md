@@ -291,6 +291,7 @@ Rules:
 - At a pause (§3.8.1), steers, follow-ups and notices already queued are appended at that boundary *before* the ack. Inputs that arrive during a pause are held by the kernel, not by the body (supervise §3.6.4 step 1).
 - At abort (§3.5), the queued items are appended at the same final boundary, but no model request follows; the run ends idle. What the owner typed is in the context of the next run. A failed or refused run ends the same way.
 - At an abort, failed or pause boundary, queued follow-ups are appended as owner messages (each one starts a new task, §3.3). A steer still queued when the body goes idle starts a run, as an owner message.
+- **Retract.** `retract{seq}` asks to take input `seq` back. The input thread answers at once (never at a boundary, which can be an hour away behind a long bash) with `retracted{seq, ok}`, deciding under the lock of a shared gate (`Status.gate`: `retracted` and `consumed` seq sets, each bounded to the newest 1024). `ok:true`: the input was not consumed, and it will never be appended, whether it is queued now or arrives later. It is dropped silently with no `ack`, because the kernel already marked it done. `ok:false`: the input was already committed to an append, so it is acked normally. The loop's single choke point before `ctx.boundary_append` filters retracted owner inputs, steers, commands and delivered follow-ups, and marks the rest consumed, under the same lock, so the two decisions are atomic. If everything new in a boundary that would start or continue a run on owner text alone was retracted, no request is sent and the run ends idle. A follow-up stays retractable until it is delivered. A redelivered input that was already in the log before a restart is a duplicate. It is acked even if it was retracted, so a late `ack` after `ok:true` means it was consumed after all.
 
 ### 3.5 Abort
 
@@ -313,14 +314,16 @@ Rules:
 **After an abort:**
 1. Each complete tool call of an aborted reply gets an error result: `error: aborted: not executed (owner abort)`. Every `tool_use` needs a matching result before the conversation can continue on any API.
 2. The final boundary appends the results, queued steers and notices (steps 1–4), then syncs.
-3. The loop emits `display{kind:"info", text:"aborted"}`, goes idle, and sends `state{busy:false}`. There is no automatic continuation.
+3. The loop emits `display{kind:"info", text:"aborted"}`, goes idle, and sends `state{busy:false}`. There is no automatic continuation, except through interrupt-and-steer.
+
+**Interrupt-and-steer.** `interrupt{then:"continue"}` means the owner typed a note and wants it handled now. The kernel sends the note's `input` frame first. The input thread calls `Abort::trigger_continue()`, which records the wish and then triggers the same abort. A plain `trigger()`, a second Ctrl-C, the `stop` grace or EOF clears the wish, and so does `reset()`. When the stream abort, the abort in a retry wait, or the boundary abort check after a batch finds the wish *and* a steer to answer (one queued now, or one appended by this boundary or the last), the run continues. That boundary appends the aborted results (built exactly as in steps 1–2) and then the steer, calls `Abort::reset()`, and emits `display{kind:"info", text:"interrupted · continuing with your note"}` in place of `aborted`. The next model request follows. Follow-ups stay queued for after the run. Without a steer, or when its steer was retracted, the interrupt is a plain stop as above. An interrupt while paused stays a no-op, because the reset on resume clears the wish. An older body ignores `then` and simply stops, which is the documented safe fallback.
 
 The abort is visible in the log through `stop_reason:"aborted"` and the `aborted` results. No separate event type is needed.
 
 **Races:**
 - A bash call that registers its group *after* the flag is set sees `register_group == false` and kills its own group at once.
 - A model connection that registers after the flag gets `Err(Aborted)`.
-- The flag is cleared only by `Abort::reset()` at the start of the next run.
+- The flag is cleared only by `Abort::reset()`: at the start of the next run, on resume, or at the boundary where interrupt-and-steer continues the run.
 
 ### 3.6 Model turn, validation and stop reasons
 
@@ -508,7 +511,8 @@ One JSON object per line, `"v":1`, key `t`. Unknown `t` values and unknown field
 | Kernel → body | Loop behavior |
 |---|---|
 | `input{id, seq, text, ts, mode}` | §3.4 (`mode`: `steer` default, `follow_up`). `ack{seq}` after the appending boundary syncs. `id` is also the task id of the run it starts (§3.3) |
-| `interrupt` | the input thread calls `Abort::trigger()`, then `Control::Interrupt` (§3.5) |
+| `interrupt{then?}` | the input thread calls `Abort::trigger()`, or `Abort::trigger_continue()` for `then:"continue"` (interrupt-and-steer; any other `then` is plain), then `Control::Interrupt` (§3.5) |
+| `retract{seq}` | answered by the input thread at once with `retracted{seq, ok}` (§3.4); never reaches the loop |
 | `pause{token, reason}` | §3.8.1 |
 | `resume{token, update_failed}` | §3.8.1, only while paused; otherwise a protocol warning on stderr |
 | `exit{token, code}` | §3.8.1, only while paused |
@@ -525,6 +529,7 @@ One JSON object per line, `"v":1`, key `t`. Unknown `t` values and unknown field
 | `display{kind:"turn_end", text}` | after each model reply; `text` = usage summary + dropped-delta count |
 | `display{kind:"info"\|"error", text}` | retries, abort, run-ending errors, safe-mode refusals |
 | `ack{seq}` · `notice_ack{id}` | after the appending boundary's sync |
+| `retracted{seq, ok}` | at once, in reply to `retract{seq}` (§3.4) |
 | `state{busy}` | on every busy↔idle change. This is the kernel's "next idle point" (supervise §3.6.7) |
 | `paused{token, log_len, leaf}` | §3.8.1 |
 | `reload_done{job, ok, prefix_changed, components, error}` | §3.8.2 |

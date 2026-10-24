@@ -63,13 +63,22 @@ pub fn home(p: &crate::install::Paths) -> PathBuf {
 }
 
 /// The charter's `[sandbox]` ADR-009 keys: (read_home, allow_full, read_deny entries).
+/// LINUX: the bwrap zone has no deny overlays for a home bind yet (init-sandbox-profiles `linux.rs` refuses broad home
+/// reads and workspace writes), so the platform caps both off: the body works in INIT_HOME only, and every view the
+/// owner sees says so. Fail closed, never an unconfined fallback.
 fn charter(root: &Root) -> (bool, bool, Vec<PathBuf>) {
     let st = lock(&root.st);
-    st.charter.as_ref().map_or((true, true, vec![]), |l| {
+    let (read_home, allow_full, deny) = st.charter.as_ref().map_or((true, true, vec![]), |l| {
         let s = &l.ch.sandbox;
         (s.read_home, s.allow_full, s.read_deny.iter().filter_map(|x| pa::charter_entry(x)).collect())
-    })
+    });
+    if LINUX_HOME_GRANTS { (read_home, allow_full, deny) } else { (false, false, deny) }
 }
+
+/// Whether this platform's zone can grant home reads, workspace writes and full mode (ADR-009).
+const LINUX_HOME_GRANTS: bool = !cfg!(target_os = "linux");
+/// The owner's notice when a workspace is asked for where the zone cannot grant one.
+const NO_WS_LINUX: &str = "[root] workspace mode is not available on Linux yet: the agent works in its own home (INIT_HOME) and cannot read or edit your files (docs/platforms.md)";
 
 /// The read deny list (`Z_DENY_<i>`): the built-in list, then the charter's.
 pub fn deny(root: &Root) -> Vec<PathBuf> {
@@ -188,7 +197,7 @@ pub fn workspace_set(root: &Root, a: &Value) -> Result<Value, Err3> {
     let cwd = a["cwd"].as_str().ok_or(("root.args", "workspace.set needs cwd (a string)".to_string(), Value::Null))?;
     let own = fixed_of(&root.p);
     let new = pa::validate_workspace(cwd, &own.as_fixed(), &ws_deny(root));
-    let ws = new.as_ref().ok().cloned();
+    let ws = new.as_ref().ok().cloned().filter(|_| LINUX_HOME_GRANTS);
     let (old, was_full) = {
         let mut st = lock(&root.access);
         let old = (st.workspace.clone(), st.full);
@@ -207,13 +216,18 @@ pub fn workspace_set(root: &Root, a: &Value) -> Result<Value, Err3> {
         crate::twin::session_started(root, r.as_ref().ok());
     }
     let change = old != ws || was_full;
-    let text = ws.as_ref().map_or_else(|| no_ws_text().to_string(), |w| format!("[root] workspace: {}", w.display()));
+    let text = ws.as_ref().map_or_else(|| if LINUX_HOME_GRANTS || new.is_err() { no_ws_text() } else { NO_WS_LINUX }.to_string(),
+        |w| format!("[root] workspace: {}", w.display()));
     if change {
         changed(root, "workspace", &text);
     } else {
         root.notice_code("info", "access", &text);
     }
-    let refused = new.err().map(|r| json!({"code": r.code(), "message": r.message()}));
+    let refused = match new {
+        Err(r) => Some(json!({"code": r.code(), "message": r.message()})),
+        Ok(_) if !LINUX_HOME_GRANTS => Some(json!({"code": "platform", "message": NO_WS_LINUX.trim_start_matches("[root] ")})),
+        Ok(_) => None,
+    };
     Ok(json!({"access": view(root), "changed": change, "refused": refused}))
 }
 
@@ -232,6 +246,9 @@ pub fn full_set(root: &Root, a: &Value) -> Result<Value, Err3> {
             changed(root, "full_off", "[root] full mode off: the body goes back to its workspace grant when it restarts at its next idle point");
         }
         return Ok(json!({"access": view(root), "changed": full, "snapshot": null}));
+    }
+    if !allow_full && !LINUX_HOME_GRANTS {
+        return Err(("root.mode", "full mode is not available on Linux yet (docs/platforms.md)".into(), json!({"reason": "platform"})));
     }
     if !allow_full {
         return Err(("root.mode", "full mode is disabled by the charter (sandbox.allow_full = false)".into(), json!({"reason": "charter"})));

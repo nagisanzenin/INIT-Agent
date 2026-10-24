@@ -24,7 +24,10 @@ main → boot → loop → provider | context | tools | ext_host → log
   the projection of the log, masking, compaction, self-signals, canonical JSON.
 - `src/sha256.rs`: the head hash (prefix_hash).
 - `src/log/`: append-only JSONL tree in state/sessions/; one writer (flock); rehydration.
-- `src/tools/`: read, write, edit, bash. `src/ext_host/`: Wasmtime host behind the `ext` tool.
+- `src/tools/`: read, write, edit, bash, delegate (arguments and bounds only). `src/loop/delegate.rs`
+  runs delegate sub-tasks: same head, fresh message list, parallel (writers one at a time), bounded
+  by INIT_DELEGATE_*, summary only, record in state/spill/ (skills/delegate). `src/ext_host/`: the
+  Wasmtime host behind the `ext` tool.
 
 ## Absences (true by construction; keep them true)
 - I never link kernel code and never read vault/. I re-declare the few kernel JSON shapes I use.

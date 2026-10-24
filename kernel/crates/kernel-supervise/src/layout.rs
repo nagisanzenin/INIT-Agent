@@ -71,7 +71,9 @@ mod tests {
 
     #[test]
     fn layout_rules() {
-        let d = crate::testutil::test_dir("layout");
+        // LINUX: a name long enough that the home exceeds 64 bytes wherever the repo is checked out (a short checkout
+        // path such as /w/work/init made this depend on the machine)
+        let d = crate::testutil::test_dir(&format!("layout-{}", "x".repeat(64)));
         std::fs::create_dir_all(d.join("state/kernel")).unwrap();
         assert!(check(&d, true).is_ok());
         assert!(check(&d, false).unwrap_err().contains("bytes"), "repo test homes exceed 64 bytes");

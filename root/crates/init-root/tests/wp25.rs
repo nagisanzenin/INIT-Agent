@@ -228,6 +228,8 @@ fn rt_l1_l2_the_record_unlocks_l1_without_a_restart() {
     let st = h.status();
     assert_eq!((st["level"].as_i64(), st["slot"].as_str()), (Some(1), Some("running")));
     assert_eq!(h.fk("start").len(), 1, "no kernel restart");
+    // LINUX: the Root holds the outer bwrap pid; the kernel sees itself by its pid-namespace pid
+    #[cfg(target_os = "macos")]
     assert_eq!(st["kernel"]["pid"], h.fk("start")[0]["pid"]);
     assert_eq!(h.count("zone_start"), 1);
     let view: Value = serde_json::from_str(&fs::read_to_string(h.ih.join("root/ledger.json")).unwrap()).unwrap();

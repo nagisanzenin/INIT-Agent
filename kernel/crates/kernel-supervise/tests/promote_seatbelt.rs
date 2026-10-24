@@ -854,3 +854,122 @@ fn g4_refuses_caps_below_one_request_and_never_scores_runs_that_never_ran() {
     assert!(w.sbx.launches().iter().all(|l| l.refused.is_none()));
     w.stop();
 }
+
+// ---- MERGE-T2CACHE: the deps cache on the real seed (supervise.md §3.6.2) -------------------------
+
+/// `<repo>/target/test-homes` (canonical). The home is `m2` right under it: G0 runs the seed's own
+/// tests, which bind Unix sockets under `<home>/cache/build/slot/out/target/sk/`, and those paths
+/// must fit `sun_path` (103 bytes on macOS) from this repo's checkout path.
+fn t2_base() -> PathBuf {
+    let b = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../target/test-homes");
+    std::fs::create_dir_all(&b).unwrap();
+    std::fs::canonicalize(b).unwrap()
+}
+
+/// The T2 build stage of a real promote, twice, on the real seed: `promote::stages::build_and_g0`
+/// (the call the pipeline and G3's inner gate make) with every build instance launched as the
+/// Root's broker launches it (`build` profile) and G0's commands under the `kernel` zone profile.
+/// 1. The seed as installed (packaging cut, `scripts/slice1/seedpack.py --kind repo`): no deps
+///    entry, so the stub workspace builds in the slot, then the candidate, then G0; G0 passes and
+///    the staged entry is published.
+/// 2. A no-op comment on `src/main.rs`: a verified hit, so the candidate build and G0 compile only
+///    the body (and its tests). Prints both records' timings (the cold and warm G0 build seconds).
+#[test]
+#[ignore = "two real seed builds and G0s under sandbox-exec (about 15-20 min): INIT_T2_WARM_BENCH=1, --ignored --nocapture"]
+fn t2_seed_build_is_warm_on_the_second_promote() {
+    // ci/local.sh runs this file with --ignored (A3, 1-2 min); this benchmark is opt-in on top of that.
+    if std::env::var("INIT_T2_WARM_BENCH").as_deref() != Ok("1") {
+        eprintln!("t2_seed_build_is_warm_on_the_second_promote: skipped (set INIT_T2_WARM_BENCH=1 to run it)");
+        return;
+    }
+    let _wd = init_testkit::watchdog::arm("t2_seed_build_is_warm_on_the_second_promote", Duration::from_secs(5400));
+    let repo = Path::new(env!("CARGO_MANIFEST_DIR")).ancestors().nth(3).unwrap().to_path_buf();
+    let home = t2_base().join("m2");
+    if home.exists() {
+        std::fs::remove_dir_all(&home).unwrap();
+    }
+    for d in ["kernel/bin", "state/kernel/gate", "vault/gate/jobs", "lineage", "cache"] {
+        std::fs::create_dir_all(home.join(d)).unwrap();
+    }
+    let mock = std::env::var_os("INIT_MOCKLLM_BIN").map(PathBuf::from).unwrap_or_else(|| repo.join("kernel/target/debug/init-mockllm"));
+    assert!(mock.is_file(), "{} is missing: build init-mockllm first", mock.display());
+    std::fs::copy(&mock, home.join("kernel/bin/init-mockllm")).unwrap();
+    // The install's packaging cut, committed as the agent, as lineage `main`.
+    let cut = home.join("cache/seedcut");
+    line(Command::new("/usr/bin/python3").arg("-I").arg(repo.join("scripts/slice1/seedpack.py")).arg("--repo").arg(&repo).arg("--dst").arg(&cut).args(["--kind", "repo", "--rev", "worktree"]));
+    ag(&cut, &home, &["init", "-q", "-b", "main"]);
+    ag(&cut, &home, &["add", "-A"]);
+    ag(&cut, &home, &["commit", "-q", "-m", "seed"]);
+    let c1 = ag(&cut, &home, &["rev-parse", "HEAD"]);
+    ag(&home.join("lineage"), &home, &["clone", "-q", "--bare", cut.to_str().unwrap(), "body.git"]);
+    let p = paths();
+    let zone = Zone::new(&home, &p);
+    let sbx = SeatbeltSpawner::new(zone.clone());
+    let mut cfg = kernel_supervise::config::defaults();
+    cfg.sandbox = sandbox_cfg(&p);
+    let sdk = line(Command::new("/usr/bin/xcrun").arg("--show-sdk-path"));
+    cfg.sandbox.sdkroot = Some(PathBuf::from(sdk));
+    let env = Env {
+        home: home.clone(),
+        cfg,
+        gate: GateCfg::default(),
+        spawner: sbx.clone(),
+        g0: Arc::new(KernelZoneG0 { argv: zone.kernel_argv(), n: Mutex::new(0) }),
+        proxy: Arc::new(promote::NoGateProxy),
+        lineage: Arc::new(NoLineage),
+        sup: Arc::new(NoSup),
+        jobs: Arc::new(MemJobs::default()),
+        upload_pack: "git-upload-pack".into(),
+        level: 0,
+        kernel: KernelInfo::default(),
+        model: "deepseek-flash".into(),
+        pipeline_busy: AtomicBool::new(false),
+        g4_running: Mutex::new(None),
+        gates: Default::default(),
+        g4_attempts: Mutex::new(Default::default()),
+        fault: None,
+        slot_lock: Mutex::new(()),
+        sealed: None,
+        extend: None,
+    };
+    let run = |job: &str, sha: &str| -> Value {
+        let t = Instant::now();
+        let r = promote::stages::build_and_g0(&env, job, sha, &c1, &home.join("cache/gate").join(job), false);
+        let wall = t.elapsed().as_secs_f64();
+        let rec = match r {
+            Ok(b) => b.record,
+            Err(f) => panic!("{job}: {} {}\n{}", f.code, f.detail, f.record),
+        };
+        let s = |ms: &Value| ms.as_u64().unwrap_or(0) as f64 / 1000.0;
+        eprintln!(
+            "merge-t2 {job}: deps {} (prep {:.1} s), candidate build {:.1} s, build stage {:.1} s, G0 {:.1} s, total {wall:.1} s; steps {}",
+            rec["deps"]["mode"], s(&rec["deps"]["ms"]), s(&rec["deps"]["build_ms"]), s(&rec["build_ms"]), s(&rec["wall_ms"]), rec["steps"]
+        );
+        rec
+    };
+    let r1 = run("j-000001", &c1);
+    assert_eq!((r1["deps"]["mode"].as_str(), r1["deps"]["published"].as_bool()), (Some("stub"), Some(true)), "{r1}");
+    // A second promote of a small change.
+    let main_rs = cut.join("src/main.rs");
+    let mut text = std::fs::read_to_string(&main_rs).unwrap();
+    text.push_str("// merge-t2: a no-op comment\n");
+    std::fs::write(&main_rs, text).unwrap();
+    ag(&cut, &home, &["commit", "-q", "-am", "refactor: a no-op comment"]);
+    let c2 = ag(&cut, &home, &["rev-parse", "HEAD"]);
+    ag(&home.join("lineage/body.git"), &home, &["fetch", "-q", cut.to_str().unwrap(), "+refs/heads/main:refs/agent/main"]);
+    let r2 = run("j-000002", &c2);
+    assert_eq!((r2["deps"]["mode"].as_str(), r2["cold_target"].as_bool()), (Some("hit"), Some(false)), "{r2}");
+    // Only the body compiles: no vendored crate (wasmtime's build script tracks SOURCE_DATE_EPOCH).
+    let log2 = std::fs::read_to_string(home.join("state/kernel/gate/j-000002/build.log")).unwrap();
+    let compiled: Vec<&str> = log2.lines().filter(|l| l.trim_start().starts_with("Compiling")).collect();
+    assert!(compiled.len() == 1 && compiled[0].contains("init-body"), "{compiled:?}");
+    let refused: Vec<Launch> = sbx.launches().into_iter().filter(|l| l.refused.is_some()).collect();
+    assert!(refused.is_empty(), "the Root would refuse: {refused:?}");
+    assert!(
+        r2["build_ms"].as_u64().unwrap() * 3 < r1["build_ms"].as_u64().unwrap(),
+        "the warm build stage is a fraction of the cold one: {} ms vs {} ms",
+        r2["build_ms"],
+        r1["build_ms"]
+    );
+    std::fs::remove_dir_all(&home).unwrap();
+}

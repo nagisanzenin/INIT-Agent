@@ -84,6 +84,19 @@ pub trait ContextHooks {
     fn leaf(&self) -> String;
     fn has_input(&self, id: &str) -> bool;
     fn session_id(&self) -> String;
+    /// Renders a request for a fresh sub-context (the `delegate` tool): the same head, a message
+    /// list that is not this session's transcript, so nothing is projected, masked or written to
+    /// the log. Returns `(body, head_hash)`. Default: unsupported.
+    fn subtask_request(
+        &mut self,
+        msgs: &[crate::context::project::Msg],
+        max_tokens: u32,
+    ) -> Result<(Vec<u8>, String), ContextError> {
+        let _ = (msgs, max_tokens);
+        Err(ContextError::Render(
+            "this context cannot render sub-task requests".into(),
+        ))
+    }
 }
 
 /// Renders a kernel notice for the model (awareness.md owns the real texts; WP13 replaces this).
@@ -286,6 +299,14 @@ impl ContextHooks for LogContext {
 
     fn session_id(&self) -> String {
         self.ctx.log.sid().to_string()
+    }
+
+    fn subtask_request(
+        &mut self,
+        msgs: &[crate::context::project::Msg],
+        max_tokens: u32,
+    ) -> Result<(Vec<u8>, String), ContextError> {
+        self.ctx.render_subtask(msgs, max_tokens)
     }
 }
 

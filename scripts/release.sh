@@ -147,6 +147,11 @@ BIN_R="$REPO/root/target/release"
 BIN_S="$REPO/seed/target/release"
 BIN_T="$REPO/tui/target/release"
 EXT_WASM="$REPO/seed/target/wasm32-wasip2/debug/count_lines.wasm"
+if [ -n "${CARGO_TARGET_DIR:-}" ]; then # one shared target dir (the builds above honour it; LINUX lane: a tmpfs)
+  BIN_K="$CARGO_TARGET_DIR/release"; BIN_R="$BIN_K"; BIN_S="$BIN_K"; BIN_T="$BIN_K"
+  EXT_WASM="$CARGO_TARGET_DIR/wasm32-wasip2/debug/count_lines.wasm"
+  [ $LEAN = 0 ] || die "--lean removes per-workspace target dirs; it cannot be used with one shared CARGO_TARGET_DIR"
+fi
 stage() { # <file>…: APFS clones into the new release dir (a file already staged is kept)
   local f
   for f in "$@"; do
@@ -185,7 +190,7 @@ root_job() {
 }
 seed_and_ext() {
   build seed seed cargo build --release --offline --locked --bin init-body
-  build ext seed/ext env CARGO_TARGET_DIR="$REPO/seed/target" cargo build --offline --locked --target wasm32-wasip2 -p count-lines
+  build ext seed/ext env CARGO_TARGET_DIR="${CARGO_TARGET_DIR:-$REPO/seed/target}" cargo build --offline --locked --target wasm32-wasip2 -p count-lines
   if [ $SERIAL = 1 ] && ok seed; then
     guard_tests seed
     if [ $SKIP_TESTS = 1 ] || ok test-seed; then stage "$BIN_S/init-body"; lean_rm "$BIN_S"; fi

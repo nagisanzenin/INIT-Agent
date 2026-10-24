@@ -68,11 +68,12 @@ impl Client {
     }
 }
 
-pub fn cx(session: &str, purpose: Purpose, task: Option<&str>) -> Cx {
+pub fn cx(session: &str, purpose: Purpose, task: Option<&str>, subtask: Option<&str>) -> Cx {
     Cx {
         session: session.to_string(),
         purpose: purpose.as_str(),
         task: task.map(str::to_string),
+        subtask: subtask.map(str::to_string),
         caps: super::caps::take(),
     }
 }
@@ -89,7 +90,7 @@ impl ModelClient for Client {
     ) -> Box<dyn Iterator<Item = StreamEvent> + 'a> {
         Box::new(self.send_body(
             req.body.to_vec(),
-            cx(req.session, req.purpose, req.task),
+            cx(req.session, req.purpose, req.task, req.subtask),
             abort,
         ))
     }

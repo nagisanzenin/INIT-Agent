@@ -346,8 +346,8 @@ ESC-1 is settled: crates need no approval, an L0 right (CONVENTIONS §6, spec v0
 | `crash_limit` | 4 |
 | `safe_crash_limit` | 2 |
 | `max_provisional_depth` | 3 |
-| `build_timeout_cold_s` | 900 |
-| `build_timeout_warm_s` | 300 |
+| `build_timeout_cold_s` | 3,600 |
+| `build_timeout_warm_s` | 1,800 |
 | `deps_cache_keys` | 3 |
 | `max_concurrent_probes` | 6 |
 | `config_error_exits` | 2 |

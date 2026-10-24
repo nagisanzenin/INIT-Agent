@@ -29,6 +29,8 @@ pub struct Cx {
     /// `turn` | `probe` | `compaction`.
     pub purpose: &'static str,
     pub task: Option<String>,
+    /// `x-init-subtask` (kernel/proxy.md §3.5a): a sub-task's label (`delegate-<call id>`).
+    pub subtask: Option<String>,
     /// `x-init-caps` (ADR-011 §5.2): the zone-evidence caps that shaped this request
     /// ([`crate::provider::caps`]); the same value on every attempt.
     pub caps: Option<String>,
@@ -115,6 +117,9 @@ pub fn request_head(req: &HttpRequest, attempt: u32, cx: &Cx) -> Vec<u8> {
     );
     if let Some(t) = &cx.task {
         let _ = write!(head, "x-init-task: {t}\r\n");
+    }
+    if let Some(t) = &cx.subtask {
+        let _ = write!(head, "x-init-subtask: {t}\r\n");
     }
     if let Some(c) = &cx.caps {
         let _ = write!(head, "x-init-caps: {c}\r\n");
@@ -539,6 +544,7 @@ mod tests {
             session: "s1".into(),
             purpose: "turn",
             task: Some("t9".into()),
+            subtask: None,
             caps: None,
         };
         let got = String::from_utf8(request_head(&req, 2, &cx)).unwrap();
@@ -553,5 +559,9 @@ mod tests {
         let cx = Cx { caps: Some("loop/plan,mem/notes".into()), ..cx };
         let got = String::from_utf8(request_head(&req, 1, &cx)).unwrap();
         assert!(got.ends_with("x-init-task: t9\r\nx-init-caps: loop/plan,mem/notes\r\n\r\n"), "{got}");
+        // DELEGATE: a sub-task's requests carry its label after the task (kernel/proxy.md §3.5a).
+        let cx = Cx { subtask: Some("delegate-call_7".into()), caps: None, ..cx };
+        let got = String::from_utf8(request_head(&req, 1, &cx)).unwrap();
+        assert!(got.ends_with("x-init-task: t9\r\nx-init-subtask: delegate-call_7\r\n\r\n"), "{got}");
     }
 }

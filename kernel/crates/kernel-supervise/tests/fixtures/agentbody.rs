@@ -484,7 +484,7 @@ fn main() {
                 b.log.append(json!({"type": "notice", "notice_id": id, "kind": kind, "data": data}));
                 out.send(&FromBody::NoticeAck { id });
             }
-            ToBody::Interrupt => out.display(DisplayKind::Info, "interrupted"),
+            ToBody::Interrupt { .. } => out.display(DisplayKind::Info, "interrupted"),
             ToBody::Stop { .. } => {
                 b.log.unlock();
                 std::process::exit(0);
@@ -521,7 +521,7 @@ fn main() {
                 b.log.append(json!({"type": "reload", "job": job}));
                 out.send(&FromBody::ReloadDone { job, ok: true, prefix_changed: false, components: components.unwrap_or_default(), error: None });
             }
-            ToBody::Resume { .. } | ToBody::Unknown => {}
+            ToBody::Resume { .. } | ToBody::Retract { .. } | ToBody::Unknown => {}
         }
     }
 }

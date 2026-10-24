@@ -109,20 +109,64 @@ impl DepsCache {
         self.touch(key)
     }
 
-    /// Populate `<key>` from a finished stub build's target dir: clone it into `<key>.tmp/target`,
-    /// then rename `<key>.tmp` → `<key>` and fsync `cache/deps/`. `Ok(false)` when the key was
-    /// already complete (it is never written again). Run the stub build in the build slot so its
-    /// absolute paths match later builds.
+    /// Populate `<key>` from a finished stub build's target dir: [`DepsCache::stage`] then
+    /// [`DepsCache::publish`]. `Ok(false)` when the key was already complete (it is never written
+    /// again). Run the stub build in the build slot so its absolute paths match later builds.
     pub fn commit(&self, key: &str, built_target: &Path) -> io::Result<bool> {
+        match self.stage(key, built_target)? {
+            Some(digest) => self.publish(key, &digest),
+            None => Ok(false),
+        }
+    }
+
+    /// `<key>.tmp`: a staged entry, published only after the candidate's G0 passed.
+    fn tmp_dir(&self, key: &str) -> io::Result<PathBuf> {
+        self.key_dir(key).map(|_| self.dir.join(format!("{key}.tmp")))
+    }
+
+    /// Stage `<key>`: clone a finished stub build's target dir into `<key>.tmp/target` and return
+    /// its [`tree_digest`], taken before any candidate code runs. `Ok(None)` when the key is already
+    /// complete. Leftover `<key>.tmp` dirs of earlier, interrupted builds are deleted by exact path.
+    pub fn stage(&self, key: &str, built_target: &Path) -> io::Result<Option<String>> {
         let fin = self.key_dir(key)?;
         if fs::symlink_metadata(&fin).is_ok() {
-            return Ok(false);
+            return Ok(None);
         }
         fs::create_dir_all(&self.dir)?;
-        let tmp = self.dir.join(format!("{key}.tmp"));
-        remove_exact(&tmp)?;
+        for e in fs::read_dir(&self.dir)? {
+            let name = e?.file_name().to_string_lossy().into_owned();
+            if name.strip_suffix(".tmp").is_some_and(is_key) {
+                remove_exact(&self.dir.join(&name))?;
+            }
+        }
+        let tmp = self.tmp_dir(key)?;
         fs::create_dir(&tmp)?;
-        let res = crate::sys::clone_path(built_target, &tmp.join("target")).and_then(|()| fs::rename(&tmp, &fin));
+        let res = crate::sys::clone_path(built_target, &tmp.join("target")).and_then(|()| tree_digest(&tmp.join("target")));
+        if res.is_err() {
+            let _ = remove_exact(&tmp);
+        }
+        res.map(Some)
+    }
+
+    /// Publish a staged `<key>`: its tree must still have the digest [`DepsCache::stage`] returned
+    /// (else it is deleted and this fails: something wrote into it while the candidate ran). Writes
+    /// `manifest.json` with the digest, renames `<key>.tmp` → `<key>`, fsyncs `cache/deps/` and
+    /// marks the key used. `Ok(false)` when the key was already complete.
+    pub fn publish(&self, key: &str, digest: &str) -> io::Result<bool> {
+        let fin = self.key_dir(key)?;
+        let tmp = self.tmp_dir(key)?;
+        if fs::symlink_metadata(&fin).is_ok() {
+            remove_exact(&tmp)?;
+            return Ok(false);
+        }
+        let res = (|| {
+            let now = tree_digest(&tmp.join("target"))?;
+            if now != digest {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, format!("staged deps {key} changed after staging")));
+            }
+            write_new(&tmp.join(DEPS_MANIFEST), serde_json::json!({"v": 1, "key": key, "digest": digest}).to_string().as_bytes())?;
+            fs::rename(&tmp, &fin)
+        })();
         if let Err(e) = res {
             let _ = remove_exact(&tmp);
             return if fs::symlink_metadata(&fin).is_ok() { Ok(false) } else { Err(e) };
@@ -130,6 +174,33 @@ impl DepsCache {
         crate::fsx::sync_dir(&self.dir)?;
         self.touch(key)?;
         Ok(true)
+    }
+
+    /// Delete a staged `<key>.tmp` by exact path (the candidate failed, or the build was cut short).
+    pub fn discard(&self, key: &str) -> io::Result<()> {
+        remove_exact(&self.tmp_dir(key)?)
+    }
+
+    /// Whether the complete `<key>` still has the digest recorded in its `manifest.json`. A
+    /// missing or unreadable manifest, or any changed, added or removed file, is `false`.
+    pub fn verify(&self, key: &str) -> bool {
+        let Some(t) = self.lookup(key) else { return false };
+        let Ok(b) = crate::fsx::read_nofollow(&self.dir.join(key).join(DEPS_MANIFEST), 4096, false) else { return false };
+        let m: serde_json::Value = serde_json::from_slice(&b).unwrap_or_default();
+        match (m["v"].as_u64(), m["key"].as_str(), m["digest"].as_str()) {
+            (Some(1), Some(k), Some(d)) if k == key => tree_digest(&t).is_ok_and(|now| now == d),
+            _ => false,
+        }
+    }
+
+    /// Delete a complete `<key>` by exact path (a corrupt entry) and drop it from `lru.json`.
+    pub fn remove(&self, key: &str) -> io::Result<()> {
+        remove_exact(&self.key_dir(key)?)?;
+        let mut m = self.read_lru();
+        if m.remove(key).is_some() {
+            self.write_lru(&m)?;
+        }
+        Ok(())
     }
 
     /// Keep the `keep` most recently used complete keys; delete the rest by exact path.
@@ -197,9 +268,165 @@ impl DepsCache {
     }
 }
 
+/// A complete key's record: `{"v":1,"key":<key>,"digest":<tree_digest of target/>}`.
+const DEPS_MANIFEST: &str = "manifest.json";
+
+/// SHA-256 over a directory tree, as 64 lowercase hex: every entry in sorted relative-path order,
+/// with its type, and for a regular file its length and the SHA-256 of its bytes, for a symlink
+/// its target. Symlinks are never followed.
+pub fn tree_digest(dir: &Path) -> io::Result<String> {
+    use sha2::Digest;
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    let mut entries: Vec<(PathBuf, fs::FileType)> = Vec::new();
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        for e in fs::read_dir(dir.join(&rel))? {
+            let e = e?;
+            let (r, ft) = (rel.join(e.file_name()), e.file_type()?);
+            if ft.is_dir() {
+                stack.push(r.clone());
+            }
+            entries.push((r, ft));
+        }
+    }
+    entries.sort_by(|a, b| a.0.cmp(&b.0));
+    let mut h = sha2::Sha256::new();
+    let mut buf = vec![0u8; 1 << 20];
+    for (rel, ft) in entries {
+        let p = dir.join(&rel);
+        let kind: &[u8] = if ft.is_dir() { b"d" } else if ft.is_symlink() { b"l" } else if ft.is_file() { b"f" } else { b"o" };
+        h.update(kind);
+        h.update(rel.as_os_str().as_bytes());
+        h.update([0]);
+        if ft.is_symlink() {
+            h.update(fs::read_link(&p)?.as_os_str().as_bytes());
+            h.update([0]);
+        } else if ft.is_file() {
+            let mut f = OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(&p)?;
+            let mut fh = sha2::Sha256::new();
+            let mut len = 0u64;
+            loop {
+                let n = f.read(&mut buf)?;
+                if n == 0 {
+                    break;
+                }
+                fh.update(&buf[..n]);
+                len += n as u64;
+            }
+            h.update(len.to_string().as_bytes());
+            h.update([0]);
+            h.update(fh.finalize());
+        }
+    }
+    Ok(crate::fsx::hex(&h.finalize()))
+}
+
+/// The mtime every entry under an export's `vendor/` gets (2000-01-01T00:00:00Z). `git archive`
+/// stamps every file with the commit's time, so without this each new commit would look newer
+/// than the cached build-script outputs (`rerun-if-changed` compares mtimes) and rebuild them and
+/// everything above them. The bytes are untouched; `deps_key` covers the vendor tree's content.
+pub const VENDOR_MTIME_S: u64 = 946_684_800;
+
+/// `SOURCE_DATE_EPOCH` of every slot build (the stub, the candidate build, G0): one fixed value,
+/// not the commit's time. The `cc` crate (wasmtime's build script) declares
+/// `rerun-if-env-changed=SOURCE_DATE_EPOCH`, so a per-commit value made every promote rebuild
+/// wasmtime and everything above it, cache or not (MERGE-T2CACHE). A constant is as reproducible.
+pub const SLOT_EPOCH_S: i64 = VENDOR_MTIME_S as i64;
+
+/// Set the mtime (and atime) of every directory and regular file under `<src>/vendor` to
+/// [`VENDOR_MTIME_S`]. Symlinks are neither followed nor changed. Returns how many entries were
+/// set; no `vendor/` is 0.
+pub fn pin_vendor_mtimes(src: &Path) -> io::Result<u64> {
+    let root = src.join("vendor");
+    match fs::symlink_metadata(&root) {
+        Ok(m) if m.is_dir() => {}
+        Ok(_) => return Ok(0),
+        Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(0),
+        Err(e) => return Err(e),
+    }
+    let t = std::time::UNIX_EPOCH + Duration::from_secs(VENDOR_MTIME_S);
+    let times = fs::FileTimes::new().set_accessed(t).set_modified(t);
+    let set = |p: &Path| -> io::Result<()> { OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(p)?.set_times(times) };
+    let mut n = 0u64;
+    let mut stack = vec![root.clone()];
+    while let Some(d) = stack.pop() {
+        for e in fs::read_dir(&d)? {
+            let e = e?;
+            let ft = e.file_type()?;
+            if ft.is_dir() {
+                stack.push(e.path());
+            } else if ft.is_file() {
+                set(&e.path())?;
+                n += 1;
+            }
+        }
+        set(&d)?;
+        n += 1;
+    }
+    Ok(n)
+}
+
+/// Delete, by exact path, every artifact of the first-party packages `names` from a stub build's
+/// target dir: in each profile dir (one holding `.fingerprint/`, at most two levels down), the
+/// entries of `.fingerprint/`, `deps/`, `build/`, `examples/` and `incremental/` named
+/// `<n>-…` or `lib<n>-…` (`n` in both the `-` and `_` spellings), and the profile dir's own
+/// `<n>`, `<n>.…` and `lib<n>.…`. The stub's empty `init-body` must never look fresh to a
+/// candidate's build (cargo would skip compiling the candidate). Returns how many entries went.
+pub fn prune_first_party(target: &Path, names: &[String]) -> io::Result<usize> {
+    let mut forms: Vec<String> = Vec::new();
+    for n in names {
+        for f in [n.clone(), n.replace('-', "_")] {
+            if !f.is_empty() && !forms.contains(&f) {
+                forms.push(f);
+            }
+        }
+    }
+    let hashed = |name: &str| forms.iter().any(|f| name.starts_with(&format!("{f}-")) || name.starts_with(&format!("lib{f}-")));
+    let top = |name: &str| forms.iter().any(|f| name == f || name.starts_with(&format!("{f}.")) || name.starts_with(&format!("lib{f}.")));
+    let real_dir = |p: &Path| fs::symlink_metadata(p).map(|m| m.is_dir()).unwrap_or(false);
+    let mut profiles = Vec::new();
+    let mut level = vec![target.to_path_buf()];
+    for _ in 0..3 {
+        let mut next = Vec::new();
+        for d in &level {
+            if real_dir(&d.join(".fingerprint")) {
+                profiles.push(d.clone());
+            }
+            if let Ok(rd) = fs::read_dir(d) {
+                for e in rd.flatten() {
+                    if e.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                        next.push(e.path());
+                    }
+                }
+            }
+        }
+        level = next;
+    }
+    let mut gone = 0;
+    for p in profiles {
+        for sub in [".fingerprint", "deps", "build", "examples", "incremental"] {
+            let Ok(rd) = fs::read_dir(p.join(sub)) else { continue };
+            for e in rd.flatten() {
+                if hashed(&e.file_name().to_string_lossy()) {
+                    remove_exact(&e.path())?;
+                    gone += 1;
+                }
+            }
+        }
+        for e in fs::read_dir(&p)?.flatten() {
+            if top(&e.file_name().to_string_lossy()) {
+                remove_exact(&e.path())?;
+                gone += 1;
+            }
+        }
+    }
+    Ok(gone)
+}
+
 /// Remove a file or directory tree at exactly `p` (absent is fine; a symlink is removed, not
 /// followed).
-fn remove_exact(p: &Path) -> io::Result<()> {
+pub(crate) fn remove_exact(p: &Path) -> io::Result<()> {
     match fs::symlink_metadata(p) {
         Ok(m) if m.is_dir() => fs::remove_dir_all(p),
         Ok(_) => fs::remove_file(p),
@@ -252,14 +479,19 @@ const SAFE_CODEGEN: [&str; 16] = [
 /// (`fn main() {}`), `build = false`, the same dependency, `[features]`, `[profile.*]`,
 /// `[workspace]` and `[patch]` tables; the same `Cargo.lock`; a clone of `vendor/`; and
 /// `.cargo/config.toml` reduced to its source replacement, offline mode, profiles and safe
-/// rustflags. Only vendored crates' code can run when it builds.
-pub fn make_stub_workspace(src_dir: &Path, stub_dir: &Path) -> io::Result<()> {
+/// rustflags. Only vendored crates' code can run when it builds. When the export has
+/// `ext/Cargo.toml` (the extension workspace), the stub gets `ext/` too: its workspace tables and
+/// `Cargo.lock`, and one [`stub_member_manifest`] crate with an empty `src/lib.rs` per member
+/// directory. Returns the stub's first-party package names (for [`prune_first_party`]).
+pub fn make_stub_workspace(src_dir: &Path, stub_dir: &Path) -> io::Result<Vec<String>> {
     if fs::symlink_metadata(stub_dir).is_ok() && fs::read_dir(stub_dir)?.next().is_some() {
         return Err(io::Error::new(io::ErrorKind::AlreadyExists, format!("{} is not empty", stub_dir.display())));
     }
     fs::create_dir_all(stub_dir.join("src"))?;
     let manifest = parse_toml(&crate::fsx::read_nofollow(&src_dir.join("Cargo.toml"), MANIFEST_CAP, false)?)?;
-    write_new(&stub_dir.join("Cargo.toml"), toml_text(&stub_manifest(&manifest)?)?.as_bytes())?;
+    let stub = stub_manifest(&manifest)?;
+    let mut names = vec![package_name(&stub)?];
+    write_new(&stub_dir.join("Cargo.toml"), toml_text(&stub)?.as_bytes())?;
     write_new(&stub_dir.join("src/main.rs"), b"fn main() {}\n")?;
     let lock = crate::fsx::read_nofollow(&src_dir.join("Cargo.lock"), LOCK_CAP, false)?;
     write_new(&stub_dir.join("Cargo.lock"), &lock)?;
@@ -280,11 +512,74 @@ pub fn make_stub_workspace(src_dir: &Path, stub_dir: &Path) -> io::Result<()> {
         Err(e) => return Err(e),
     };
     fs::create_dir_all(stub_dir.join(".cargo"))?;
-    write_new(&stub_dir.join(".cargo/config.toml"), toml_text(&stub_config(&cfg))?.as_bytes())
+    write_new(&stub_dir.join(".cargo/config.toml"), toml_text(&stub_config(&cfg))?.as_bytes())?;
+    let ext = src_dir.join("ext");
+    if fs::symlink_metadata(&ext).map(|m| m.is_dir()).unwrap_or(false) && fs::symlink_metadata(ext.join("Cargo.toml")).map(|m| m.is_file()).unwrap_or(false) {
+        make_ext_stub(&ext, &stub_dir.join("ext"), &mut names)?;
+    }
+    Ok(names)
+}
+
+/// The extension workspace's stub (see [`make_stub_workspace`]).
+fn make_ext_stub(src: &Path, stub: &Path, names: &mut Vec<String>) -> io::Result<()> {
+    let m = parse_toml(&crate::fsx::read_nofollow(&src.join("Cargo.toml"), MANIFEST_CAP, false)?)?;
+    let ws: Table = m.iter().filter(|(k, _)| ["workspace", "profile", "patch", "replace"].contains(&k.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+    fs::create_dir_all(stub)?;
+    write_new(&stub.join("Cargo.toml"), toml_text(&ws)?.as_bytes())?;
+    match crate::fsx::read_nofollow(&src.join("Cargo.lock"), LOCK_CAP, false) {
+        Ok(b) => write_new(&stub.join("Cargo.lock"), &b)?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+        Err(e) => return Err(e),
+    }
+    let mut dirs: Vec<String> = Vec::new();
+    for e in fs::read_dir(src)? {
+        let e = e?;
+        if e.file_type()?.is_dir() && fs::symlink_metadata(e.path().join("Cargo.toml")).map(|m| m.is_file()).unwrap_or(false) {
+            dirs.push(e.file_name().to_string_lossy().into_owned());
+        }
+    }
+    dirs.sort();
+    for d in dirs {
+        let mm = parse_toml(&crate::fsx::read_nofollow(&src.join(&d).join("Cargo.toml"), MANIFEST_CAP, false)?)?;
+        let s = stub_member_manifest(&mm)?;
+        names.push(package_name(&s)?);
+        fs::create_dir_all(stub.join(&d).join("src"))?;
+        write_new(&stub.join(&d).join("Cargo.toml"), toml_text(&s)?.as_bytes())?;
+        write_new(&stub.join(&d).join("src/lib.rs"), b"")?;
+    }
+    Ok(())
+}
+
+fn package_name(m: &Table) -> io::Result<String> {
+    m.get("package").and_then(|p| p.get("name")).and_then(Value::as_str).map(str::to_string).ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "[package] has no name"))
 }
 
 /// The stub `Cargo.toml` (see [`make_stub_workspace`]).
 pub fn stub_manifest(m: &Table) -> io::Result<Table> {
+    let mut out = stub_package(m)?;
+    let bin = Table::from_iter([("name".to_string(), Value::from("init-body")), ("path".to_string(), Value::from("src/main.rs"))]);
+    out.insert("bin".into(), Value::Array(vec![Value::Table(bin)]));
+    Ok(out)
+}
+
+/// An extension member's stub `Cargo.toml`: as [`stub_manifest`], with one `[lib]` at
+/// `src/lib.rs` (keeping only the member's `crate-type`) instead of the bin.
+pub fn stub_member_manifest(m: &Table) -> io::Result<Table> {
+    let mut out = stub_package(m)?;
+    out.remove("workspace");
+    let mut lib = Table::from_iter([("path".to_string(), Value::from("src/lib.rs"))]);
+    if let Some(ct @ Value::Array(a)) = m.get("lib").and_then(|l| l.get("crate-type")) {
+        if a.iter().all(|v| v.as_str().is_some_and(|s| ["cdylib", "rlib", "lib", "staticlib", "dylib"].contains(&s))) {
+            lib.insert("crate-type".into(), ct.clone());
+        }
+    }
+    out.insert("lib".into(), Value::Table(lib));
+    Ok(out)
+}
+
+/// `[package]` cut to [`STUB_PACKAGE`] plus `build = false` and no auto targets, the
+/// [`STUB_TABLES`] verbatim and the target-specific dependency tables.
+fn stub_package(m: &Table) -> io::Result<Table> {
     let Some(Value::Table(pkg)) = m.get("package") else {
         return Err(io::Error::new(io::ErrorKind::InvalidData, "Cargo.toml has no [package]"));
     };
@@ -311,8 +606,6 @@ pub fn stub_manifest(m: &Table) -> io::Result<Table> {
             out.insert("target".into(), Value::Table(kept));
         }
     }
-    let bin = Table::from_iter([("name".to_string(), Value::from("init-body")), ("path".to_string(), Value::from("src/main.rs"))]);
-    out.insert("bin".into(), Value::Array(vec![Value::Table(bin)]));
     Ok(out)
 }
 
@@ -423,7 +716,7 @@ pub struct BuildTimeouts {
 
 impl Default for BuildTimeouts {
     fn default() -> Self {
-        BuildTimeouts { cold: Duration::from_secs(900), warm: Duration::from_secs(300) }
+        BuildTimeouts { cold: Duration::from_secs(3600), warm: Duration::from_secs(1800) }
     }
 }
 
@@ -459,7 +752,7 @@ pub struct BuildSlot {
 }
 
 impl BuildSlot {
-    /// The slot with the default timeouts (900 s / 300 s). Every site that runs a build uses
+    /// The slot with the default timeouts (3600 s / 1800 s). Every site that runs a build uses
     /// [`BuildSlot::configured`] instead, so `kernel/config.toml` applies.
     pub fn new(home: &Path) -> BuildSlot {
         BuildSlot { home: home.to_path_buf(), timeouts: BuildTimeouts::default(), log_cap: BUILD_LOG_CAP }
@@ -514,8 +807,8 @@ impl BuildSlot {
     }
 
     /// The `build` instance for §3.6.2's build command: program `$TOOLCHAIN/bin/cargo`, args
-    /// [`BUILD_ARGS`], exactly the env table (`SOURCE_DATE_EPOCH` = `commit_time`, the committer
-    /// time of the SHA), cwd `slot/src`, params `spawnspec::build_params`.
+    /// [`BUILD_ARGS`], exactly the env table (`SOURCE_DATE_EPOCH` = `commit_time`; the promote
+    /// path passes [`SLOT_EPOCH_S`]), cwd `slot/src`, params `spawnspec::build_params`.
     pub fn build_request(&self, commit_time: i64, sp: &SandboxPaths) -> SpawnRequest {
         let s = |p: PathBuf| p.to_string_lossy().into_owned();
         let tool = sp.toolchain.join("bin");
@@ -875,6 +1168,147 @@ mod tests {
         gone.sort();
         assert_eq!(gone, [keys[2], keys[3]]);
         assert!(c.lookup(keys[0]).is_some(), "the most recently used key stays");
+        crate::testutil::remove_test_dir(&d);
+    }
+
+    /// A staged entry that changes before publishing is refused and deleted; a complete entry
+    /// that changes (content, a removed file, an added file, a lost manifest) fails `verify`.
+    #[test]
+    fn deps_cache_rejects_tampered_and_corrupt_entries() {
+        let d = crate::testutil::test_dir("build-deps-verify");
+        let built = d.join("built");
+        fs::create_dir_all(built.join("debug/deps")).unwrap();
+        fs::write(built.join("debug/deps/liba-1.rlib"), b"rlib a").unwrap();
+        fs::write(built.join("debug/deps/libb-2.rlib"), b"rlib b").unwrap();
+        let c = DepsCache::new(&d.join("home"));
+        let k = "00000000000000aa";
+        // Tampered between stage and publish (a candidate writing into <key>.tmp while it ran).
+        let digest = c.stage(k, &built).unwrap().expect("staged");
+        assert_eq!(digest, tree_digest(&built).unwrap(), "the digest is the stub's target");
+        fs::write(c.dir.join(format!("{k}.tmp/target/debug/deps/liba-1.rlib")), b"evil").unwrap();
+        assert!(c.publish(k, &digest).is_err());
+        assert!(!c.dir.join(format!("{k}.tmp")).exists() && c.lookup(k).is_none(), "refused and deleted");
+        // Discarded after a failed candidate.
+        c.stage(k, &built).unwrap().unwrap();
+        c.discard(k).unwrap();
+        assert!(!c.dir.join(format!("{k}.tmp")).exists());
+        // A leftover <key>.tmp of an interrupted build is cleared by the next stage.
+        fs::create_dir_all(c.dir.join("00000000000000bb.tmp/target")).unwrap();
+        let digest = c.stage(k, &built).unwrap().unwrap();
+        assert!(!c.dir.join("00000000000000bb.tmp").exists());
+        assert!(c.publish(k, &digest).unwrap());
+        assert!(c.verify(k));
+        assert_eq!(c.stage(k, &built).unwrap(), None, "a complete key is never written again");
+        let entry = c.lookup(k).unwrap();
+        let corrupt: [&dyn Fn(); 4] = [
+            &|| fs::write(entry.join("debug/deps/libb-2.rlib"), b"rlib B").unwrap(),
+            &|| fs::remove_file(entry.join("debug/deps/libb-2.rlib")).unwrap(),
+            &|| fs::write(entry.join("debug/deps/libc-3.rlib"), b"planted").unwrap(),
+            &|| fs::remove_file(c.dir.join(k).join(DEPS_MANIFEST)).unwrap(),
+        ];
+        for (i, f) in corrupt.iter().enumerate() {
+            c.remove(k).unwrap();
+            assert!(c.commit(k, &built).unwrap());
+            assert!(c.verify(k), "fresh entry {i}");
+            f();
+            assert!(!c.verify(k), "corruption {i} detected");
+        }
+        c.remove(k).unwrap();
+        assert!(c.lookup(k).is_none());
+        crate::testutil::remove_test_dir(&d);
+    }
+
+    #[test]
+    fn prune_first_party_removes_only_the_named_packages() {
+        let d = crate::testutil::test_dir("build-prune");
+        let t = d.join("target");
+        let files = [
+            "debug/.fingerprint/init-body-0123/bin-init-body",
+            "debug/.fingerprint/serde-4567/lib-serde",
+            "debug/.fingerprint/count-lines-89ab/lib-count_lines",
+            "debug/deps/init_body-0123",
+            "debug/deps/init_body-0123.d",
+            "debug/deps/libserde-4567.rlib",
+            "debug/deps/libcount_lines-89ab.rlib",
+            "debug/build/init-body-cdef/out/x",
+            "debug/build/serde-cdef/out/x",
+            "debug/init-body",
+            "debug/init-body.d",
+            "debug/init-bodyx",
+            "wasm32-wasip2/debug/.fingerprint/count-lines-1111/lib-count_lines",
+            "wasm32-wasip2/debug/deps/count_lines-1111.wasm",
+            "wasm32-wasip2/debug/deps/libwit_bindgen-2222.rlib",
+            "wasm32-wasip2/debug/count_lines.wasm",
+            "wasm32-wasip2/debug/libcount_lines.d",
+        ];
+        for f in files {
+            fs::create_dir_all(t.join(f).parent().unwrap()).unwrap();
+            fs::write(t.join(f), b"x").unwrap();
+        }
+        let gone = prune_first_party(&t, &["init-body".to_string(), "count-lines".to_string()]).unwrap();
+        let left: Vec<&str> = files.iter().copied().filter(|f| t.join(f).exists()).collect();
+        assert_eq!(
+            left,
+            [
+                "debug/.fingerprint/serde-4567/lib-serde",
+                "debug/deps/libserde-4567.rlib",
+                "debug/build/serde-cdef/out/x",
+                "debug/init-bodyx",
+                "wasm32-wasip2/debug/deps/libwit_bindgen-2222.rlib",
+            ]
+        );
+        assert_eq!(gone, 12);
+        crate::testutil::remove_test_dir(&d);
+    }
+
+    #[test]
+    fn pin_vendor_mtimes_sets_one_old_time() {
+        let d = crate::testutil::test_dir("build-pin");
+        assert_eq!(pin_vendor_mtimes(&d.join("nothing")).unwrap(), 0);
+        fs::create_dir_all(d.join("vendor/a/src")).unwrap();
+        fs::write(d.join("vendor/a/build.rs"), b"fn main() {}").unwrap();
+        fs::write(d.join("vendor/a/src/lib.rs"), b"").unwrap();
+        fs::write(d.join("main.rs"), b"").unwrap();
+        std::os::unix::fs::symlink("/nonexistent", d.join("vendor/a/dangling")).unwrap();
+        assert_eq!(pin_vendor_mtimes(&d).unwrap(), 5, "3 dirs and 2 files; the symlink is skipped");
+        let want = std::time::UNIX_EPOCH + Duration::from_secs(VENDOR_MTIME_S);
+        for p in ["vendor", "vendor/a", "vendor/a/src", "vendor/a/build.rs", "vendor/a/src/lib.rs"] {
+            assert_eq!(fs::metadata(d.join(p)).unwrap().modified().unwrap(), want, "{p}");
+        }
+        assert_ne!(fs::metadata(d.join("main.rs")).unwrap().modified().unwrap(), want, "first-party files keep theirs");
+        crate::testutil::remove_test_dir(&d);
+    }
+
+    #[test]
+    fn make_stub_workspace_stubs_the_ext_members() {
+        let d = crate::testutil::test_dir("build-stub-ext");
+        let src = d.join("src");
+        for (p, t) in [
+            ("Cargo.toml", "[package]\nname = \"init-body\"\nversion = \"0.1.0\"\n[workspace]\nexclude = [\"ext\"]\n"),
+            ("Cargo.lock", "version = 4\n"),
+            ("ext/Cargo.toml", "[workspace]\nresolver = \"3\"\nmembers = [\"*\"]\n[workspace.dependencies]\nserde = \"1\"\n[profile.dev]\nopt-level = \"s\"\n[alias]\nx = \"y\"\n"),
+            ("ext/Cargo.lock", "version = 4\n# ext\n"),
+            ("ext/count-lines/Cargo.toml", "[package]\nname = \"count-lines\"\nversion = \"0.1.0\"\nedition.workspace = true\nbuild = \"build.rs\"\n[lib]\ncrate-type = [\"cdylib\"]\npath = \"src/other.rs\"\n[dependencies]\nserde.workspace = true\n"),
+            ("ext/count-lines/build.rs", "fn main() {}\n"),
+            ("ext/count-lines/src/lib.rs", "pub fn first_party() {}\n"),
+            ("ext/notes/README", "not a crate\n"),
+        ] {
+            fs::create_dir_all(src.join(p).parent().unwrap()).unwrap();
+            fs::write(src.join(p), t).unwrap();
+        }
+        let stub = d.join("stub");
+        assert_eq!(make_stub_workspace(&src, &stub).unwrap(), ["init-body", "count-lines"]);
+        let ws: Table = toml::from_str(&fs::read_to_string(stub.join("ext/Cargo.toml")).unwrap()).unwrap();
+        assert_eq!(ws.keys().collect::<Vec<_>>(), ["profile", "workspace"], "no [alias]");
+        assert_eq!(fs::read(stub.join("ext/Cargo.lock")).unwrap(), b"version = 4\n# ext\n");
+        let m: Table = toml::from_str(&fs::read_to_string(stub.join("ext/count-lines/Cargo.toml")).unwrap()).unwrap();
+        assert_eq!(m["package"]["build"], Value::Boolean(false));
+        assert_eq!(m["lib"]["path"].as_str(), Some("src/lib.rs"));
+        assert_eq!(m["lib"]["crate-type"], Value::Array(vec![Value::from("cdylib")]));
+        assert_eq!(m["dependencies"]["serde"]["workspace"], Value::Boolean(true));
+        assert!(!m.contains_key("bin") && !m.contains_key("workspace"));
+        assert_eq!(fs::read(stub.join("ext/count-lines/src/lib.rs")).unwrap(), b"");
+        assert!(!stub.join("ext/count-lines/build.rs").exists() && !stub.join("ext/notes").exists());
         crate::testutil::remove_test_dir(&d);
     }
 

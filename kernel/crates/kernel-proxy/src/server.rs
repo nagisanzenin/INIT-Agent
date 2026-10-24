@@ -828,6 +828,16 @@ async fn upstream(
     {
         eh.insert("x-egress-caps", v.clone());
     }
+    // MERGE (body/tools.md §3.7, root/egress.md): a sub-task's label travels to the Root as
+    // `x-egress-subtask`, so its per-turn signals count the main loop apart from `delegate` sub-tasks.
+    // Only a well-formed `x-init-subtask` (§3.6 grammar, ≤ 64 bytes) is forwarded; the Root strips it
+    // before the provider.
+    if let Some(v) = in_headers
+        .get("x-init-subtask")
+        .filter(|v| v.to_str().is_ok_and(request::valid_id))
+    {
+        eh.insert("x-egress-subtask", v.clone());
+    }
     st.provider_stat(&provider, |p| p.requests += 1);
 
     if !route.metered {

@@ -323,7 +323,7 @@ fn deepseek_layout_and_signal_placement() {
         .iter()
         .map(|t| t["function"]["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["bash", "edit", "ext", "read", "write"]);
+    assert_eq!(names, ["bash", "delegate", "edit", "ext", "read", "write"]);
     assert_eq!(v["tools"][0]["type"], "function");
     let m = messages(&r1.body);
     assert_eq!(m.len(), 3);

@@ -23,13 +23,16 @@ import subprocess
 import sys
 
 GIT = "/usr/bin/git"
-STUB = re.compile(r"^(windows|winapi|linux-raw-sys)")
+# crates never built on this host get a stub; LINUX: rustix needs the real linux-raw-sys on Linux
+STUB = re.compile(r"^(windows|winapi|linux-raw-sys)" if sys.platform == "darwin" else r"^(windows|winapi)")
+# copies: APFS clones on macOS (cp -c), reflinks where the filesystem has them on Linux (GNU cp)
+CP = ["/bin/cp", "-c"] if sys.platform == "darwin" else ["/bin/cp", "--reflink=auto", "-p"]
 VENDOR_CFG = '[source.crates-io]\nreplace-with = "vendored-sources"\n[source.vendored-sources]\ndirectory = "vendor"\n[net]\noffline = true\n'
 
 
 def clone(src, to):  # APFS clone (cp -c), keeps the mode
     os.makedirs(os.path.dirname(to), exist_ok=True)
-    subprocess.run(["/bin/cp", "-c", src, to], check=True)
+    subprocess.run(CP + [src, to], check=True)
 
 
 def export(repo, rev, path, dst):
@@ -125,7 +128,7 @@ def cut_vendor(repo, dst):
             stubbed += 1
         else:
             os.makedirs(os.path.dirname(to), exist_ok=True)
-            subprocess.run(["/bin/cp", "-cR", os.path.join(vend, d), to], check=True)
+            subprocess.run(CP + ["-R", os.path.join(vend, d), to], check=True)
             copied += 1
     return copied, stubbed
 

@@ -195,7 +195,10 @@ fn t0_identity_from_the_tar() {
     super::caps::diff(&cb, &ca, &mut out);
     let ops: Vec<(String, String)> = out.iter().map(|v| (v["id"].as_str().unwrap().into(), v["op"].as_str().unwrap().into())).collect();
     assert_eq!(ops, [("prompt/SELF.md".into(), "modify".into()), ("skill/u".into(), "add".into()), ("skill/t".into(), "remove".into())]);
-    for cut in [700, 1024, ta.len() - 1024] {
+    // LINUX: GNU tar pads to a 10240-byte record, so a cut 1 KiB before the end can still hold the zero block; cut
+    // inside the last member's data instead (just before its last non-zero byte), wherever the archive's padding ends.
+    let last = ta.iter().rposition(|b| *b != 0).unwrap();
+    for cut in [700, 1024, last] {
         assert!(tar_files(&ta[..cut]).is_err(), "a tar cut at {cut} is refused");
     }
 }

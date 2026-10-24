@@ -242,6 +242,7 @@ fn main() {
     let stdin = std::io::stdin();
     let mut lines = stdin.lock();
     let mut buf = Vec::new();
+    let mut held: Vec<u64> = Vec::new(); // STEER: `!hold` inputs, neither logged nor acked until retracted
     loop {
         buf.clear();
         if lines.read_until(b'\n', &mut buf).unwrap_or(0) == 0 {
@@ -255,6 +256,10 @@ fn main() {
                 if flag(&p, "crash_on_input") || poison || text == "!crash" {
                     eprintln!("thread 'main' panicked at testbody: crash_on_input");
                     std::process::exit(101);
+                }
+                if text == "!hold" {
+                    held.push(seq);
+                    continue;
                 }
                 if text == "!exit0" {
                     std::process::exit(0);
@@ -302,7 +307,7 @@ fn main() {
                 log.append(json!({"type": "notice", "notice_id": id, "kind": kind, "data": data}));
                 out.send(&FromBody::NoticeAck { id });
             }
-            ToBody::Interrupt => out.display(DisplayKind::Info, "interrupted"),
+            ToBody::Interrupt { .. } => out.display(DisplayKind::Info, "interrupted"),
             ToBody::Stop { .. } => {
                 if flag(&p, "ignore_stop") {
                     continue;
@@ -347,6 +352,11 @@ fn main() {
                 }
             }
             ToBody::Exit { code, .. } => std::process::exit(code),
+            ToBody::Retract { seq } => {
+                let ok = held.contains(&seq);
+                held.retain(|s| *s != seq);
+                out.send(&FromBody::Retracted { seq, ok });
+            }
             ToBody::Resume { .. } | ToBody::Reload { .. } | ToBody::Unknown => {}
         }
     }

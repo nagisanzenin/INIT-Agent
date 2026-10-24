@@ -105,7 +105,7 @@ mod tests {
             serde_json::from_str(include_str!("../context/testdata/tools.json")).unwrap();
         assert_eq!(m["tools"], golden);
         let icj = crate::log::icj::to_string(&golden).unwrap();
-        assert_eq!(icj.len(), 3_405, "tools.md §4.1 is 3,405 bytes minified");
+        assert_eq!(icj.len(), 4_986, "tools.md §4.1 is 4,986 bytes minified");
         assert_eq!(
             m["tools_sha256"].as_str().unwrap(),
             crate::sha256::tagged(icj.as_bytes())
@@ -116,7 +116,7 @@ mod tests {
             .iter()
             .map(|t| t["name"].as_str().unwrap())
             .collect();
-        assert_eq!(names, ["bash", "edit", "ext", "read", "write"]);
+        assert_eq!(names, ["bash", "delegate", "edit", "ext", "read", "write"]);
         // Sorted keys, one line.
         let line = crate::log::icj::to_string(&m).unwrap();
         assert!(!line.contains('\n'));

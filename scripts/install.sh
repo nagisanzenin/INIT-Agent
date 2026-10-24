@@ -1,14 +1,16 @@
 #!/bin/bash
-# Install INIT on this Mac with one command (root/root.md §4.3; RELEASE_PLAN.md "What v0.1.0 means" item 1).
+# Install INIT on this Mac or Linux machine with one command (root/root.md §4.3; RELEASE_PLAN.md "What v0.1.0 means" item 1).
 # Two modes: from a source checkout (builds with release.sh), or from an unpacked release bundle (scripts/bundle.sh;
-# scripts/get.sh runs it there), detected by SHA256SUMS and body/BODY.json next to scripts/. The bundle mode needs
-# no Rust: it installs the prebuilt body (verified bit for bit), and without a toolchain self-evolution is T0 only.
+# scripts/get.sh runs it there), detected by SHA256SUMS and body/BODY.json next to scripts/. The bundle mode installs
+# the prebuilt body (verified bit for bit). get.sh installs the Rust toolchain first (rustup 1.97.1 + wasm32-wasip2,
+# unless --no-rust), which this script records for self-evolution T1/T2; without a toolchain self-evolution is T0 only.
 #
 #   scripts/install.sh [--yes] [--no-service] [--rebuild | --reuse] [--with-tests] [--allow-dirty]
 #                      [--disk-floor GIB] [--charter FILE]
 #
 #   --yes          take every wizard default, ask nothing (non-interactive)
-#   --no-service   do not write or load the launchd service; you run `init-root start` yourself
+#   --no-service   do not write or load the service (launchd on macOS, a systemd user unit on Linux); you run
+#                  `init-root start` yourself
 #   --rebuild      run scripts/release.sh even when target/dist/v<version>/ is fresh
 #   --reuse        use target/dist/v<version>/ as it is (its files verified against MANIFEST.json), never rebuild
 #   --with-tests   let release.sh run its release-mode test guard (root + seed); slower
@@ -23,7 +25,7 @@
 # Steps: preflight → release binaries (release.sh, or reuse a fresh target/dist/v<version>/) → charter wizard →
 # `init-root install --release … --charter … --seed-source <release>/seed/seed-v<version>.bundle` (the Root runs the
 # kernel in install mode: it imports the seed, builds the body cold, and the Root forms the genesis tuple; WP21b,
-# FIX4) → kernel/config.toml (model, prices, reference budgets) → the `init` command → the launchd service (loaded) →
+# FIX4) → kernel/config.toml (model, prices, reference budgets) → the `init` command → the service (launchd, or systemd --user; loaded) →
 # the next steps. This script never reads, writes or asks for a provider key: you run `init-root keys set deepseek`.
 #
 # Test hook (never for a real install): --mock-upstream 127.0.0.1:PORT writes a test-mode charter whose provider
@@ -52,7 +54,12 @@ done
 say() { printf '%s\n' "$*"; }
 step() { printf '\n==> %s\n' "$*"; }
 die() { printf '\ninstall.sh: %s\n' "$*" >&2; exit 1; }
-free_mb() { df -m / | awk 'NR==2{print $4}'; }
+free_mb() { df -Pm "${HOME:-/}" | awk 'NR==2{print $4}'; }
+OS="$(uname -s)"
+# sha256 tools: shasum on macOS, coreutils sha256sum on Linux (same `<hash>  <file>` format)
+if [ "$OS" = Darwin ]; then SHA_CHECK=(/usr/bin/shasum -a 256 -c --quiet); else SHA_CHECK=(sha256sum -c --quiet); fi
+gt() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 > b + 0) }'; } # decimal a > b, without bc
+ge() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 >= b + 0) }'; }
 
 T_START=$(date +%s)
 PW_HOME="$(/usr/bin/python3 -I -c 'import os,pwd;print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || true)"
@@ -74,31 +81,56 @@ fi
 
 # ---------------------------------------------------------------- 1. preflight
 step "1/7 preflight"
-[ "$(uname -s)" = Darwin ] || die "v$VERSION installs on macOS only (Linux confinement is unverified, root/root.md §3.4)"
-MACOS="$(sw_vers -productVersion)"
-[ "${MACOS%%.*}" -ge 14 ] || die "macOS 14 or newer is needed (this is $MACOS)"
-[ -x /usr/bin/sandbox-exec ] || die "/usr/bin/sandbox-exec is missing"
-[ -x /usr/bin/python3 ] || die "/usr/bin/python3 is missing: install the Command Line Tools (xcode-select --install)"
+case "$OS" in
+  Darwin)
+    MACOS="$(sw_vers -productVersion)"
+    [ "${MACOS%%.*}" -ge 14 ] || die "macOS 14 or newer is needed (this is $MACOS)"
+    [ -x /usr/bin/sandbox-exec ] || die "/usr/bin/sandbox-exec is missing"
+    [ -x /usr/bin/python3 ] || die "/usr/bin/python3 is missing: install the Command Line Tools (xcode-select --install)"
+    PLATFORM="macOS $MACOS" ;;
+  Linux)
+    # The zone (docs/platforms.md §3.4): bubblewrap >= 0.13.0 at /usr/bin/bwrap (fd-pinned binds), util-linux unshare,
+    # unprivileged user namespaces. The Root checks the same at install; these say how to fix it first.
+    [ -x /usr/bin/python3 ] || die "/usr/bin/python3 is missing: install python3 (apt install python3 / dnf install python3)"
+    [ -x /usr/bin/unshare ] || die "/usr/bin/unshare is missing: install util-linux"
+    [ -x /usr/bin/bwrap ] || die "/usr/bin/bwrap is missing: INIT needs bubblewrap 0.13.0 or newer (see docs/platforms.md, Linux install)"
+    BWV="$(/usr/bin/bwrap --version 2>/dev/null | awk '{print $NF}')"
+    /usr/bin/python3 -I -c 'import sys; v=tuple(int(x) for x in sys.argv[1].split(".")[:3]); sys.exit(0 if v>=(0,13,0) else 1)' "${BWV:-0}" 2>/dev/null \
+      || die "bubblewrap $BWV is too old: INIT needs 0.13.0 or newer at /usr/bin/bwrap for its fd-pinned mounts (see docs/platforms.md, Linux install)"
+    /usr/bin/bwrap --unshare-user --unshare-pid --die-with-parent --ro-bind / / --proc /proc --dev /dev /bin/true 2>/dev/null \
+      || die "bubblewrap cannot create user and pid namespaces here (unprivileged user namespaces disabled, an AppArmor/SELinux rule, or a container without them); see docs/platforms.md, Linux install"
+    /usr/bin/unshare --user --map-root-user --net /bin/true 2>/dev/null \
+      || die "unshare cannot create a user and network namespace here (needed to keep the zone off the network); see docs/platforms.md, Linux install"
+    if [ $NO_SERVICE = 0 ] && ! systemctl --user show-environment >/dev/null 2>&1; then
+      die "no systemd user session here (systemctl --user does not answer), so the service cannot be installed: pass --no-service and start the Root yourself (init-root start), or log in through a systemd session"
+    fi
+    DISTRO="$( (. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-}") || true)" # a subshell: os-release sets VERSION
+    PLATFORM="Linux $DISTRO $(uname -r) $(uname -m) · bwrap $BWV" ;;
+  *) die "v$VERSION installs on macOS and Linux only (this is $OS)" ;;
+esac
 [ -n "$PW_HOME" ] || die "cannot read your home directory from the passwd database"
-GITV="$(/usr/bin/git --version | awk '{print $3}')"
+GITV="$(git --version | awk '{print $3}')"
 /usr/bin/python3 -I -c 'import sys; v=tuple(int(x) for x in sys.argv[1].split(".")[:3]); sys.exit(0 if v>=(2,39,4) else 1)' "$GITV" \
   || die "git 2.39.4 or newer is needed (found $GITV)"
-RUSTUP_CMD="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.97.1 --target wasm32-wasip2"
+RUSTUP_CMD="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.97.1 --target wasm32-wasip2 --component clippy"
 if [ $BUNDLE = 1 ]; then
-  # The bundle needs no Rust. A rustup on PATH with 1.97.x and wasm32-wasip2 is recorded for self-evolution T1/T2;
-  # anything else installs without a toolchain (T0: skills, prompts, extension source).
+  # get.sh installs Rust 1.97.1 with wasm32-wasip2 before this runs (unless --no-rust). A rustup on PATH with 1.97.x and
+  # wasm32-wasip2 is recorded for self-evolution T1/T2; anything else installs without a toolchain (T0: skills, prompts,
+  # extension source).
   TC=none; TCV="no Rust toolchain (self-evolution T0 only)"
   if RUSTUP="$(command -v rustup)" && RUSTC="$("$RUSTUP" which rustc 2>/dev/null)" && [ -x "$RUSTC" ]; then
     case "$("$RUSTC" -V 2>/dev/null)" in
       rustc\ 1.97.*)
-        if "$RUSTUP" target list --installed 2>/dev/null | grep -qx wasm32-wasip2; then
+        if ! [ -x "$(dirname "$RUSTC")/cargo-clippy" ]; then # the gate's G0 runs cargo clippy
+          TCV="Rust without clippy (self-evolution T0 only until: rustup component add clippy; init-root toolchain --set)"
+        elif "$RUSTUP" target list --installed 2>/dev/null | grep -qx wasm32-wasip2; then
           TC="$(cd "$(dirname "$RUSTC")/.." && pwd -P)"; TCV="$("$RUSTC" -V)"
         else TCV="Rust without wasm32-wasip2 (self-evolution T0 only until: rustup target add wasm32-wasip2; init-root toolchain --set)"; fi ;;
       *) TCV="$("$RUSTC" -V 2>/dev/null) is not 1.97.x (self-evolution T0 only)" ;;
     esac
   fi
 else
-  command -v rustup >/dev/null || [ -x "$PW_HOME/.cargo/bin/rustup" ] || die "rustup not found: install Rust from https://rustup.rs (toolchain 1.97), or install a release bundle (scripts/get.sh), which needs no Rust"
+  command -v rustup >/dev/null || [ -x "$PW_HOME/.cargo/bin/rustup" ] || die "rustup not found: install Rust from https://rustup.rs (toolchain 1.97), or install a release bundle with scripts/get.sh, which installs Rust 1.97.1 for you"
   RUSTUP="$(command -v rustup || echo "$PW_HOME/.cargo/bin/rustup")"
   RUSTC="$("$RUSTUP" which rustc 2>/dev/null)" || die "rustup has no default toolchain: rustup default 1.97.1"
   case "$("$RUSTC" -V)" in rustc\ 1.97.*) ;; *) die "need rustc 1.97.x, found: $("$RUSTC" -V)" ;; esac
@@ -109,15 +141,15 @@ for h in "$RH" "$IH"; do
   case "$h" in /*) ;; *) die "$h is not an absolute path" ;; esac
   [ ${#h} -le 64 ] || die "$h is ${#h} bytes; a home may be at most 64 (the Root's sockets must fit sun_path)"
 done
-[ -e "$RH/install.json" ] && die "already installed ($RH/install.json exists). Run scripts/uninstall.sh first (in-place upgrade is not supported yet)."
+[ -e "$RH/install.json" ] && die "INIT is already installed ($RH/install.json exists). In-place upgrade to v$VERSION is not supported yet: run the uninstall.sh of the current install (it moves both homes to the Trash; nothing is deleted), then run this again."
 if [ -n "$MOCK" ]; then
   [ $NO_SERVICE = 1 ] || die "--mock-upstream is a test hook and requires --no-service"
   case "$MOCK" in 127.0.0.1:[0-9]*) ;; *) die "--mock-upstream takes 127.0.0.1:PORT" ;; esac
 fi
 if [ $NO_SERVICE = 0 ] && [ "$HOME" != "$PW_HOME" ]; then
-  die "HOME ($HOME) is not your passwd home ($PW_HOME); the launchd service needs the real HOME (or pass --no-service)"
+  die "HOME ($HOME) is not your passwd home ($PW_HOME); the service needs the real HOME (or pass --no-service)"
 fi
-say "macOS $MACOS · $TCV · git $GITV · free $(( $(free_mb) / 1024 )) GiB"
+say "$PLATFORM · $TCV · git $GITV · free $(( $(free_mb) / 1024 )) GiB"
 [ $BUNDLE = 1 ] && say "release bundle $REPO"
 say "ROOT_HOME $RH"
 say "INIT_HOME $IH"
@@ -143,7 +175,7 @@ for f, e in m["files"].items():
 PY
 }
 if [ $BUNDLE = 1 ]; then
-  (cd "$DIST" && /usr/bin/shasum -a 256 -c --quiet SHA256SUMS) || die "the bundle's files do not match its SHA256SUMS; download it again"
+  (cd "$DIST" && "${SHA_CHECK[@]}" SHA256SUMS) || die "the bundle's files do not match its SHA256SUMS; download it again"
   say "release bundle v$VERSION: every file matches SHA256SUMS"
 elif [ ! -d "$REPO/vendor" ]; then
   say "vendor/ is missing (a fresh clone): ci/vendor.sh --locked downloads the pinned crates from crates.io"
@@ -193,9 +225,9 @@ if [ -n "$CHARTER_IN" ]; then
   say "using the charter $CHARTER_IN"
 else
   say "Each question has a default in [brackets]; press Enter to take it."
-  ask PURPOSE "What is INIT for (one line)" "My personal agent on this Mac: it helps me with my work and improves itself, within my limits."
-  while :; do ask DAY "Daily spending reference, USD (shown next to the estimated spend; not enforced: you stop INIT with /stop or /panic)" "5"; money_ok "$DAY" && [ "$(echo "$DAY > 0" | bc)" = 1 ] && break; say "  a positive amount like 5 or 2.50"; [ $YES = 1 ] && die "bad default"; done
-  while :; do ask TOTAL "Total (lifetime) spending reference, USD (also not enforced)" "25"; money_ok "$TOTAL" && [ "$(echo "$TOTAL >= $DAY" | bc)" = 1 ] && break; say "  an amount at least the daily reference ($DAY)"; [ $YES = 1 ] && die "bad default"; done
+  ask PURPOSE "What is INIT for (one line)" "My personal agent on this computer: it helps me with my work and improves itself, within my limits."
+  while :; do ask DAY "Daily spending reference, USD (shown next to the estimated spend; not enforced: you stop INIT with /stop or /panic)" "5"; money_ok "$DAY" && gt "$DAY" 0 && break; say "  a positive amount like 5 or 2.50"; [ $YES = 1 ] && die "bad default"; done
+  while :; do ask TOTAL "Total (lifetime) spending reference, USD (also not enforced)" "25"; money_ok "$TOTAL" && ge "$TOTAL" "$DAY" && break; say "  an amount at least the daily reference ($DAY)"; [ $YES = 1 ] && die "bad default"; done
   while :; do ask LEVEL "Highest autonomy level it may ever reach, 0-4 (it starts at 0 and must earn each level)" "4"; [[ "$LEVEL" =~ ^[0-4]$ ]] && break; say "  0, 1, 2, 3 or 4"; done
   while :; do ask PROVIDER "Model provider" "deepseek"; [ "$PROVIDER" = deepseek ] && break; say "  v$VERSION supports deepseek only"; done
   while :; do ask MODEL "Model (deepseek-flash or deepseek-v4-pro)" "deepseek-flash"; case "$MODEL" in deepseek-flash|deepseek-v4-pro) break ;; esac; say "  deepseek-flash or deepseek-v4-pro"; done
@@ -365,14 +397,25 @@ if [ -x "$DIST/init-tui" ]; then # docs/tui.md §9 item 3: next to the launcher,
   say "  $BIN_DIR/init-tui (the TUI)"
 fi
 say "  $BIN_DIR/init (opens the TUI when it is installed, else init-root attach)"
-case ":$PATH:" in *":$BIN_DIR:"*) ;; *) say "  note: $BIN_DIR is not on your PATH; add it: echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.zshrc" ;; esac
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) say "  note: $BIN_DIR is not on your PATH; add it: echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.$(basename "${SHELL:-bash}")rc" ;; esac
 
 # ---------------------------------------------------------------- 7. the service
 step "7/7 the Root service"
 PLIST="$PW_HOME/Library/LaunchAgents/dev.init.root.plist"
+UNIT="$PW_HOME/.config/systemd/user/init-root.service"
 if [ $NO_SERVICE = 1 ]; then
   say "  skipped (--no-service). Start the Root yourself, in its own terminal:"
   say "    INIT_ROOT_HOME=\"$RH\" \"$RH/bin/init-root\" start --foreground"
+elif [ "$OS" = Linux ]; then
+  # LINUX: the systemd user unit init-root install wrote (Restart=always, Delegate=memory for the per-workload
+  # memory.max). It runs while you are logged in; `loginctl enable-linger` keeps it running after logout.
+  [ -f "$UNIT" ] || die "init-root install wrote no $UNIT"
+  systemctl --user daemon-reload 2>/dev/null || die "systemctl --user is not available (no systemd user session); reinstall with --no-service and run init-root start yourself"
+  systemctl --user enable --now init-root.service || die "systemctl --user enable --now init-root.service failed; see: journalctl --user -u init-root"
+  for _ in $(seq 1 120); do [ -S "$RH/run/owner.sock" ] && break; sleep 0.25; done
+  [ -S "$RH/run/owner.sock" ] || die "the Root did not open $RH/run/owner.sock within 30 s; see: journalctl --user -u init-root"
+  say "  enabled $UNIT (systemd --user keeps the Root running and starts it at login; for after logout: loginctl enable-linger)"
+  "${IENV[@]}" "$RH/bin/init-root" status 2>/dev/null | sed 's/^/  /' | head -12 || true
 else
   [ -f "$PLIST" ] || die "init-root install wrote no $PLIST"
   launchctl bootout "gui/$(id -u)/dev.init.root" 2>/dev/null || true
@@ -403,8 +446,8 @@ EOF
 if [ "$TC" = none ]; then
   cat <<EOF
 
-Self-evolution: T0 only (skills, prompts, extension source). Rebuilding itself (T1/T2) needs Rust 1.97.1,
-which INIT does not install for you. When you want it:
+Self-evolution: T0 only (skills, prompts, extension source). Rebuilding itself (T1/T2) needs Rust 1.97.1 with
+wasm32-wasip2. get.sh installs it unless you passed --no-rust (or rustup failed). To add it now:
   $RUSTUP_CMD
   $RH/bin/init-root stop; $RH/bin/init-root toolchain --set; $RH/bin/init-root start
 EOF

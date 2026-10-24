@@ -494,3 +494,44 @@ fn usage_command_is_local_and_keeps_stop_guidance() {
     assert!(!fx.received().iter().any(|r| r.frame["t"] == "line" && r.frame["text"] == "/usage"));
     cleanup(&fx.dir);
 }
+
+/// TUI-UX line mode (§3.12): no animation; the tool calls of a turn end in one summary line, the
+/// run's end prints the turn's tokens, cache rate and cost, and per-request token lines stay out
+/// unless --verbose.
+#[test]
+fn tuiux_line_mode_activity_and_turn_summaries() {
+    let fx = Fixture::start("tux");
+    let d = |kind: &str, text: &str| json!({"boot_seq": 1, "kind": kind, "t": "display", "text": text});
+    let call = |kind: &str, id: &str, name: &str, text: &str, ok: Option<bool>| {
+        let mut v = json!({"boot_seq": 1, "call_id": id, "kind": kind, "name": name, "t": "display", "text": text});
+        if let Some(ok) = ok {
+            v["ok"] = json!(ok);
+        }
+        v
+    };
+    fx.emit(json!({"busy": true, "t": "state"}));
+    fx.emit(d("turn_end", "tokens: in 1000 (cached 900), out 10"));
+    fx.emit(call("tool_start", "c1", "bash", "cargo build", None));
+    fx.emit(call("tool_progress", "c1", "bash", "Compiling x", None));
+    fx.emit(call("tool_end", "c1", "bash", "exit 0", Some(true)));
+    fx.emit(call("tool_start", "c2", "read", "read x", None));
+    fx.emit(call("tool_end", "c2", "read", "error: not_found", Some(false)));
+    fx.emit(call("tool_start", "c3", "bash", "ls", None));
+    fx.emit(call("tool_end", "c3", "bash", "exit 0", Some(true)));
+    fx.emit(d("turn_end", "tokens: in 3000 (cached 2900), out 20"));
+    fx.emit(d("text", "Done."));
+    fx.emit(d("turn_end", "tokens: in 4000, out 5"));
+    fx.emit(json!({"busy": false, "t": "state"}));
+    let o = run(&fx.rh, &["--plain", "--wait-idle", "--timeout", "20"], "", 30);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let out = text(&o);
+    assert!(out.contains("  « error error: not_found\n» bash: ls\n  « ok exit 0\n[tools] ran 3 calls (2 bash, 1 read), 1 failed\nDone.\n"), "{out}");
+    // 3 requests; the last reported no cache field, so the rate is partial (~), never 0%
+    let turn = out.lines().find(|l| l.starts_with("[turn] ")).unwrap_or_else(|| panic!("no turn line: {out}"));
+    assert!(turn.starts_with("[turn] 3 requests: in 8.0k out 35 · cache ~95.0% · $") && turn.ends_with(" (session cache ~95.0%)"), "{turn}");
+    assert!(!out.contains("tokens: in"), "per-request lines only with --verbose: {out}");
+    assert!(!out.contains("Compiling"), "line mode prints no progress: {out}");
+    let o = run(&fx.rh, &["--plain", "--verbose", "--wait-idle", "--timeout", "20"], "", 30);
+    assert!(text(&o).contains("tokens: in 3000 (cached 2900), out 20"), "{}", text(&o));
+    cleanup(&fx.dir);
+}

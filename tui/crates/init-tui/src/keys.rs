@@ -10,8 +10,10 @@ pub enum Action {
     /// Enter: send the box (or turn a trailing `\` into a newline).
     Submit,
     Interrupt,
-    /// Esc while busy: interrupt without arming the quit.
+    /// Esc while busy: interrupt without arming the quit (with a steer pending: interrupt and steer).
     EscInterrupt,
+    /// STEER: Tab while busy with text in the box: queue it as `/later` (the next task).
+    QueueLater,
     ClosePopup,
     /// Ctrl-D on an empty box.
     Detach,
@@ -87,6 +89,8 @@ pub fn map(k: &KeyEvent, cx: &Ctx) -> Action {
         KeyCode::Tab => {
             if cx.popup {
                 Action::Complete
+            } else if cx.busy && !cx.empty {
+                Action::QueueLater
             } else {
                 Action::Insert('\t')
             }
@@ -149,12 +153,15 @@ pub const HELP: &[(&str, &str)] = &[
     ("Enter", "send"),
     ("Shift-Enter · Alt-Enter · Ctrl-J · \\ Enter", "newline"),
     ("Ctrl-C", "interrupt; twice within 2 s: quit init (the agent keeps running)"),
-    ("Esc", "interrupt while busy; close a popup"),
+    ("Esc", "interrupt while busy (a pending steer goes in now); close a popup"),
+    ("Tab (while busy)", "queue the box as the next task (/later)"),
+    ("Up (empty box, pending line)", "take back the newest line not yet read"),
     ("Ctrl-D", "quit on an empty box"),
     ("Up / Down", "lines; history on the first line"),
     ("Ctrl-A/E · Alt-←/→ · Ctrl-W/U/K", "move and delete"),
     ("/", "owner commands (Tab completes)"),
-    ("Ctrl-O", "transcript: expand tool calls"),
+    ("Ctrl-O", "details: the transcript, last tool activity expanded"),
+    ("/details", "print the last tool activity in full"),
     ("Ctrl-T", "show or hide thinking"),
     ("Ctrl-L", "redraw"),
     ("/panic", "stop everything (Root)"),
@@ -189,5 +196,14 @@ mod tests {
         assert_eq!(map(&k(KeyCode::Esc, KeyModifiers::NONE), &Ctx { busy: true, ..CX }), Action::EscInterrupt);
         assert_eq!(map(&k(KeyCode::Esc, KeyModifiers::NONE), &CX), Action::None);
         assert_eq!(map(&k(KeyCode::Char('z'), KeyModifiers::CONTROL), &CX), Action::None);
+    }
+
+    #[test]
+    fn tab_queues_a_follow_up_only_while_busy_with_text() {
+        let tab = k(KeyCode::Tab, KeyModifiers::NONE);
+        assert_eq!(map(&tab, &Ctx { busy: true, ..CX }), Action::QueueLater);
+        assert_eq!(map(&tab, &CX), Action::Insert('\t'));
+        assert_eq!(map(&tab, &Ctx { busy: true, empty: true, ..CX }), Action::Insert('\t'));
+        assert_eq!(map(&tab, &Ctx { busy: true, popup: true, ..CX }), Action::Complete);
     }
 }

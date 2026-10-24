@@ -1,24 +1,25 @@
 {
- "body_sha256": "e46792de2095d97085fdabfb961ab0965915b58c9bb34056f844a077b86b0a30",
- "bundle": "init-v0.2.0-preview-macos-arm64.tar.gz",
- "bundle_bytes": 54298129,
+ "body_sha256": "2d3b5d44583fffda6f4de68f92832eb5e253ca091e113a85ee9e64aeb343e6be",
+ "bundle": "init-v0.3.0-preview-macos-arm64.tar.gz",
+ "bundle_bytes": 54670033,
  "checks": {
   "genesis_body_is_prebuilt": true,
-  "install_plus_first_reply_le_90s": true,
-  "no_toolchain_recorded": true,
-  "published_view_evolution": true,
+  "install_with_rust_plus_first_reply_le_390s": true,
+  "published_view_evolution_t2": true,
   "reply_is_the_mocks": true,
-  "status_json_evolution": true,
-  "status_says_T0_with_rustup": true
+  "status_json_evolution_t2": true,
+  "toolchain_in_test_home": true
  },
  "mock_requests": 2,
  "ok": true,
  "reply": "hello from the mock",
+ "rust": "installed by get.sh into the test home",
  "times_ms": {
-  "drive_wall": 2073,
-  "get_sh_install": 24320,
-  "get_sh_to_first_reply": 29777,
-  "start_to_ready": 2981
+  "drive_wall": 833,
+  "get_sh_install": 74271,
+  "get_sh_to_first_reply": 79029,
+  "start_to_ready": 3599
  },
+ "toolchain": "/Users/quanduong/Documents/INIT Agent/target/test-homes/ube/home/.rustup/toolchains/1.97.1-aarch64-apple-darwin",
  "v": 1
 }

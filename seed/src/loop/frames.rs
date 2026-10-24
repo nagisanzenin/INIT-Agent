@@ -56,7 +56,14 @@ pub struct Notice {
 #[derive(Clone, Debug, PartialEq)]
 pub enum Control {
     Input(InputFrame),
-    Interrupt,
+    /// `then_continue`: `interrupt{then:"continue"}`, interrupt-and-steer (loop.md §3.5).
+    Interrupt {
+        then_continue: bool,
+    },
+    /// `retract{seq}`: answered by the input thread itself (loop.md §3.4); never reaches the loop.
+    Retract {
+        seq: u64,
+    },
     Pause(PauseReq),
     Resume {
         token: String,
@@ -102,7 +109,16 @@ pub fn parse_frame(line: &str) -> Result<Option<Control>, String> {
                 _ => InputMode::Steer, // missing or unknown mode steers (loop.md §3.4)
             },
         }),
-        "interrupt" => Control::Interrupt,
+        // An unknown `then` is a plain interrupt (the safe fallback).
+        "interrupt" => Control::Interrupt {
+            then_continue: m.get("then").and_then(Value::as_str) == Some("continue"),
+        },
+        "retract" => Control::Retract {
+            seq: m
+                .get("seq")
+                .and_then(Value::as_u64)
+                .ok_or("retract: missing seq")?,
+        },
         "pause" => Control::Pause(PauseReq {
             token: need("token")?,
             reason: s(&m, "reason").unwrap_or_else(|| "handoff".into()),
@@ -156,8 +172,16 @@ pub enum Out {
         call_id: Option<String>,
         name: Option<String>,
         ok: Option<bool>,
+        /// `parent_call_id`: the `delegate` call a sub-task's tool frame belongs to (the TUI nests
+        /// it under that call). Absent on the main loop's frames.
+        parent: Option<String>,
     },
     Ack(u64),
+    /// `ok`: input `seq` will never be appended; false: it was already consumed (acked normally).
+    Retracted {
+        seq: u64,
+        ok: bool,
+    },
     NoticeAck(String),
     State(bool),
     Paused {
@@ -182,6 +206,7 @@ impl Out {
             call_id: None,
             name: None,
             ok: None,
+            parent: None,
         }
     }
 
@@ -194,8 +219,12 @@ impl Out {
                 call_id,
                 name,
                 ok,
+                parent,
             } => {
                 let mut m = json!({"t": "display", "kind": kind, "text": text});
+                if let Some(p) = parent {
+                    m["parent_call_id"] = p.clone().into();
+                }
                 if let Some(c) = call_id {
                     m["call_id"] = c.clone().into();
                 }
@@ -208,6 +237,7 @@ impl Out {
                 m
             }
             Out::Ack(seq) => json!({"t": "ack", "seq": seq}),
+            Out::Retracted { seq, ok } => json!({"t": "retracted", "seq": seq, "ok": ok}),
             Out::NoticeAck(id) => json!({"t": "notice_ack", "id": id}),
             Out::State(busy) => json!({"t": "state", "busy": busy}),
             Out::Paused {
@@ -281,14 +311,17 @@ pub fn spawn_output<W: Write + Send + 'static>(
 }
 
 /// The input thread (loop.md §3.1): kernel frames → `ctl`. It triggers the abort itself on
-/// `interrupt` and on EOF, starts reloads itself, and arms the `stop` grace timer.
+/// `interrupt` and on EOF, starts reloads itself, arms the `stop` grace timer, and answers
+/// `retract` at once through `out` (held by `status.gate`; `RetractGate::detach` drops it).
 pub fn spawn_input<R: BufRead + Send + 'static>(
     mut r: R,
     ctl: Sender<Control>,
     abort: Arc<Abort>,
     ext: Option<Arc<dyn ExtHostApi>>,
     status: Arc<Status>,
+    out: OutTx,
 ) -> std::io::Result<JoinHandle<()>> {
+    status.gate.attach(out);
     std::thread::Builder::new()
         .name("input".into())
         .spawn(move || {
@@ -315,7 +348,17 @@ pub fn spawn_input<R: BufRead + Send + 'static>(
                     }
                 };
                 match &c {
-                    Control::Interrupt => abort.trigger(),
+                    Control::Interrupt {
+                        then_continue: false,
+                    } => abort.trigger(),
+                    Control::Interrupt {
+                        then_continue: true,
+                    } => abort.trigger_continue(),
+                    Control::Retract { seq } => {
+                        // Never wait for a boundary: it can be an hour away behind a long bash.
+                        status.gate.retract_and_reply(*seq);
+                        continue;
+                    }
                     Control::Reload(job) => {
                         if let Some(x) = &ext {
                             x.begin_reload(job.kind.clone());

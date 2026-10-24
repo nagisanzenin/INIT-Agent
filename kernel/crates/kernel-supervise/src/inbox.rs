@@ -144,12 +144,25 @@ impl Inbox {
         Ok(n)
     }
 
-    /// The body acked input `seq` (it is durably in the log).
-    pub fn ack(&mut self, seq: u64) {
+    /// The body acked input `seq` (it is durably in the log). True when it was pending.
+    pub fn ack(&mut self, seq: u64) -> bool {
         if self.inputs.remove(&seq).is_some() {
             let _ = self.append(&Line::Ack { v: V1, seq });
             self.maybe_compact();
+            return true;
         }
+        false
+    }
+
+    /// STEER: the owner took input `seq` back before any body logged it. It is closed with an
+    /// `ack` line (so no kernel, old or new, redelivers it). True when it was pending.
+    pub fn retract(&mut self, seq: u64) -> bool {
+        self.ack(seq)
+    }
+
+    /// The unacked input seqs, ascending (the `state` frame's `steer_pending`).
+    pub fn pending_seqs(&self) -> Vec<u64> {
+        self.inputs.keys().copied().collect()
     }
 
     /// The body acked notice `id`.
@@ -225,6 +238,13 @@ mod tests {
         let Offer::Queued(c) = ib2.offer(None, "y", InputMode::Steer).unwrap() else { panic!() };
         assert_eq!(c.seq, 3);
         assert_eq!(Inbox::open(&p).counts(), (1, 0));
+        // STEER: a retracted input is closed for good and leaves the pending list
+        let Offer::Queued(e) = ib2.offer(Some("q5"), "z", InputMode::Steer).unwrap() else { panic!() };
+        assert_eq!(ib2.pending_seqs(), vec![c.seq, e.seq]);
+        assert!(ib2.retract(e.seq));
+        assert!(!ib2.retract(e.seq), "only once");
+        assert!(!ib2.ack(e.seq));
+        assert_eq!(Inbox::open(&p).pending_seqs(), vec![c.seq], "a restart does not redeliver it");
         crate::testutil::remove_test_dir(&d);
     }
 }

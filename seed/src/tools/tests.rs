@@ -34,7 +34,7 @@ fn first_line(r: &Ran) -> String {
 
 #[test]
 fn registry_bytes_are_the_doc_block() {
-    assert_eq!(REGISTRY_JSON.len(), 3_405);
+    assert_eq!(REGISTRY_JSON.len(), 4_986);
     // specs() re-serialized with sorted keys gives the same bytes.
     let v: Vec<Value> = specs().iter().map(|s| s.to_value()).collect();
     let bytes = crate::log::icj::to_vec(&Value::Array(v)).unwrap();
@@ -80,7 +80,7 @@ fn validation_errors_teach() {
     let r = b.run("grep", json!({"pattern": "x"}));
     assert_eq!(
         text(&r),
-        "error: unknown_tool: no tool named \"grep\". Available tools: bash, edit, ext, read, write."
+        "error: unknown_tool: no tool named \"grep\". Available tools: bash, delegate, edit, ext, read, write."
     );
     let mut c = b.call("edit", json!({}));
     c.raw_arguments = Some("{\"path\": \"a".into());
@@ -1017,22 +1017,36 @@ fn run_group_separate_stdin_cancel() {
     assert!(o.cancelled && !o.timed_out);
     assert!(took < Duration::from_millis(100), "{took:?}");
     assert!(!group_alive(pgid.load(Ordering::SeqCst)));
-    // trap '' TERM under cancel: KILL after 2 s.
-    let cancel = AtomicBool::new(true);
-    let t0 = Instant::now();
-    let o = run_group(
-        sh("trap '' TERM; sleep 30"),
-        RunSpec {
-            stdin: None,
-            timeout: Duration::from_secs(60),
-            cancel: Some(&cancel),
-            on_spawn: None,
-            capture: CaptureSpec::Separate { max_each: 1024 },
-        },
-    )
-    .unwrap();
+    // trap '' TERM under cancel: KILL after 2 s. Cancel only once the trap is set (the child touches a
+    // marker after `trap`): a TERM that beats a slow shell start kills sh without the KILL (a G0 flake
+    // under load, REL-G0).
+    let home = super::testutil::TempHome::new("trap-cancel");
+    let marker = home.path.join("trapped");
+    let cancel = AtomicBool::new(false);
+    let t_cancel = std::sync::Mutex::new(None);
+    let o = std::thread::scope(|s| {
+        s.spawn(|| {
+            let t = Instant::now();
+            while !marker.exists() && t.elapsed() < Duration::from_secs(30) {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            *t_cancel.lock().unwrap() = Some(Instant::now());
+            cancel.store(true, Ordering::SeqCst);
+        });
+        run_group(
+            sh(&format!("trap '' TERM; : > '{}'; sleep 30", marker.display())),
+            RunSpec {
+                stdin: None,
+                timeout: Duration::from_secs(60),
+                cancel: Some(&cancel),
+                on_spawn: None,
+                capture: CaptureSpec::Separate { max_each: 1024 },
+            },
+        )
+        .unwrap()
+    });
     assert!(o.cancelled && o.killed);
-    let w = t0.elapsed();
+    let w = t_cancel.lock().unwrap().unwrap().elapsed();
     assert!(
         w >= Duration::from_secs(2) && w < Duration::from_secs(4),
         "{w:?}"

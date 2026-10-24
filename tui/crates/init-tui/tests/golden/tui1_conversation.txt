@@ -6,12 +6,12 @@ I'll check SELF.md first, then write the tool.                                  
 Plan:                                                                           |.....                                                                           
 • read the file                                                                 |...............                                                                 
 • edit src/tools/pty.rs                                                         |.......cccccccccccccccc                                                         
-▸ bash   cat SELF.md                                  ✓ exit 0, 96 lines · 0.3 s|ddbbbb................................................ggdddddddddddddddddddddddd
-▸ edit   src/tools/pty.rs (2 edits)                    ✗ error: no_match · 0.0 s|ddbbbb.................................................rrrrrrrrrrrrrrrrrdddddddd
+▸ ran 2 tools in 1.8 s · bash · edit                                  ✗ 1 failed|dd....................dddddddddddddd..................................rrrrrrrrrr
+  ▸ edit   src/tools/pty.rs (2 edits)                  ✗ error: no_match · 0.0 s|..ddbbbb...............................................rrrrrrrrrrrrrrrrrdddddddd
 ▲ [kernel] promoted                                                             |ggggggggggggggggggg                                                             
-· tokens: in 12345 (cached 11002), out 321                                      |dddddddddddddddddddddddddddddddddddddddddd                                      
 The anchor moved, so I'll read the file again and retry                         |.......................................................                         
-⠸ bash   cargo test -p init-body pty                              running · 12 s|ccbbbb............................................................dddddddddddddd
+⠸ bash cargo test -p init-body pty                                 1 call · 12 s|ccbbbb.............................................................ddddddddddddd
+    running 12 s · still working… no output yet                                 |....ccccccccccccddddddddddddddddddddddddddddddd                                 
 ╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 │ > also add a timeout flag                                                    │|eecc..........................................................................ee
 ╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
@@ -25,26 +25,26 @@ I'll check SELF.md first, then write the tool.                                  
 Plan:                                                                                                                   |.....                                                                                                                   
 • read the file                                                                                                         |...............                                                                                                         
 • edit src/tools/pty.rs                                                                                                 |.......cccccccccccccccc                                                                                                 
-▸ bash   cat SELF.md                                                                          ✓ exit 0, 96 lines · 0.3 s|ddbbbb........................................................................................ggdddddddddddddddddddddddd
-▸ edit   src/tools/pty.rs (2 edits)                                                            ✗ error: no_match · 0.0 s|ddbbbb.........................................................................................rrrrrrrrrrrrrrrrrdddddddd
+▸ ran 2 tools in 1.8 s · bash · edit                                                                          ✗ 1 failed|dd....................dddddddddddddd..........................................................................rrrrrrrrrr
+  ▸ edit   src/tools/pty.rs (2 edits)                                                          ✗ error: no_match · 0.0 s|..ddbbbb.......................................................................................rrrrrrrrrrrrrrrrrdddddddd
 ▲ [kernel] promoted                                                                                                     |ggggggggggggggggggg                                                                                                     
-· tokens: in 12345 (cached 11002), out 321                                                                              |dddddddddddddddddddddddddddddddddddddddddd                                                                              
 The anchor moved, so I'll read the file again and retry                                                                 |.......................................................                                                                 
-⠸ bash   cargo test -p init-body pty                                                                      running · 12 s|ccbbbb....................................................................................................dddddddddddddd
+⠸ bash cargo test -p init-body pty                                             1 tool call · 1 running · 0 failed · 12 s|ccbbbb.........................................................................ddddddddddddddddddddddddddddddddddddddddd
+    running 12 s · still working… no output yet                                                                         |....ccccccccccccddddddddddddddddddddddddddddddd                                                                         
 ╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 │ > also add a timeout flag                                                                                            │|eecc..................................................................................................................ee
 ╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
  L0 (cap L1) · deepseek-flash · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg · ⠸ busy 17 s |.bbbbbbbbbbbdddddddddddddddddddddddddddddddddddddddddd.................ddd.......ddd.................dddddddccccccccccc 
 cursor 27,14
 == 40x12 ==
-▸ bash   cat SELF…  ✓ exit 0, 96 lines …|ddbbbb...........d..ggdddddddddddddddddd
-▸ edit   src/tool…  ✗ error: no_match ·…|ddbbbb...........d..rrrrrrrrrrrrrrrrrddd
+• edit src/tools/pty.rs                 |.......cccccccccccccccc                 
+▸ ran 2 tools in 1.8 s · ba…  ✗ 1 failed|dd....................dddddd..rrrrrrrrrr
+  ▸ edit   src/too…  ✗ error: no_match …|..ddbbbb..........d..rrrrrrrrrrrrrrrrrdd
 ▲ [kernel] promoted                     |ggggggggggggggggggg                     
-· tokens: in 12345 (cached 11002), out  |dddddddddddddddddddddddddddddddddddddd  
-  321                                   |..ddd                                   
 The anchor moved, so I'll read the file |....................................... 
 again and retry                         |...............                         
-⠸ bash   cargo test -p …  running · 12 s|ccbbbb.................d..dddddddddddddd
+⠸ bash cargo test -p ini…  1 call · 12 s|ccbbbb..................d..ddddddddddddd
+    running 12 s · still working… no ou…|....ccccccccccccdddddddddddddddddddddddd
 ╭──────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
 │ > also add a timeout flag            │|eecc..................................ee
 ╰──────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee

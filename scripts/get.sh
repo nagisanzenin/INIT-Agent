@@ -1,22 +1,25 @@
 #!/bin/sh
-# Install INIT from a prebuilt release bundle, no Rust needed (docs/ux-v1.md §3.2.3; lane UX-BUNDLE).
+# Install INIT from a prebuilt release bundle; it installs the Rust toolchain itself (docs/ux-v1.md §3.2.3; lane UX-BUNDLE).
 #
 #   curl -fsSL "$INIT_DIST_URL/get.sh" | sh                       download the current bundle and install it
-#   sh scripts/get.sh --from init-v0.2.0-preview-macos-arm64.tar.gz [--sha256 HEX] [-- <install.sh args>]
+#   sh scripts/get.sh --from init-v0.3.0-preview-macos-arm64.tar.gz [--sha256 HEX] [-- <install.sh args>]
 #   (Linux: init-v<version>-linux-arm64.tar.gz on aarch64, init-v<version>-linux-x86_64.tar.gz on x86_64)
 #
 #   --from PATH|URL   a local bundle (.tar.gz) or a URL; default "$INIT_DIST_URL/init-v<version>-<target>.tar.gz", the
 #                     version from "$INIT_DIST_URL/latest.json" and the target from this machine
 #   --sha256 HEX      the bundle's expected sha256; default: the <bundle>.sha256 file next to it (or latest.json's)
 #   --unpack-only     verify and unpack, do not install
+#   --no-rust         skip the Rust toolchain (INIT then rewrites only its skills and prompts, tier T0)
 #   -- ARGS           passed to the bundle's scripts/install.sh, after --yes (for example --no-service, --disk-floor 10)
 #
 # Steps: macOS 14+ on Apple silicon or Linux on aarch64/x86_64, not root → download (curl) → sha256 → unpack into
 # ~/.local/share/init/<version>/ (INIT_APP_DIR overrides ~/.local/share/init) → check every file against the
 # bundle's SHA256SUMS → the bundle's scripts/install.sh --yes, which installs with the defaults (ROOT_HOME
 # ~/.init-root, INIT_HOME ~/.init, the `init` command in ~/.local/bin, the LaunchAgent or the systemd user unit unless
-# --no-service). The provider, key and model are chosen on the first run of `init` (the TUI's setup). Nothing here
-# needs Rust, sudo or a key.
+# --no-service). Self-rewrite is the point of INIT, so get.sh also makes sure the Rust toolchain it rebuilds itself
+# with is present: rustup's toolchain 1.97.1 with the wasm32-wasip2 target and clippy, which the gate runs (installed with rustup if missing, without
+# touching your shell files or your default toolchain). The provider, key and model are chosen on the first run of
+# `init` (the TUI's setup). Nothing here needs sudo or a key.
 #
 # INIT_DIST_URL defaults to the latest GitHub release of nagisanzenin/INIT-Agent. POSIX sh: it runs under sh, dash and
 # zsh's sh mode.
@@ -24,14 +27,15 @@ set -eu
 umask 022
 
 DIST_URL="${INIT_DIST_URL:-https://github.com/nagisanzenin/INIT-Agent/releases/latest/download}"
-FROM=""; WANT=""; UNPACK_ONLY=0
+FROM=""; WANT=""; UNPACK_ONLY=0; NO_RUST=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) FROM="$2"; shift 2 ;;
     --sha256) WANT="$2"; shift 2 ;;
     --unpack-only) UNPACK_ONLY=1; shift ;;
+    --no-rust) NO_RUST=1; shift ;;
     --) shift; break ;;
-    -h|--help) sed -n '2,23p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
     *) echo "get.sh: unknown argument $1 (see --help)" >&2; exit 64 ;;
   esac
 done
@@ -85,7 +89,9 @@ case "$FROM" in
       LTARGET="$(sed -n 's/^ *"target": "\([^"]*\)".*/\1/p' "$TMP/latest.json")"
       [ -n "$LVER" ] || die "$DIST_URL/latest.json names no version"
       FILE="init-v$LVER-$TARGET.tar.gz"
-      # latest.json carries one target's checksum; any other target's comes from its .sha256 next to it
+      # latest.json carries "sha256_<target>" per target (and "sha256" for its "target"); a target it does not
+      # list takes the checksum from the .sha256 next to the bundle
+      [ -n "$WANT" ] || WANT="$(sed -n "s/^ *\"sha256_$TARGET\": \"\([0-9a-f]\{64\}\)\".*/\1/p" "$TMP/latest.json")"
       [ -n "$WANT" ] || [ "$LTARGET" != "$TARGET" ] || WANT="$(sed -n 's/^ *"sha256": "\([0-9a-f]\{64\}\)".*/\1/p' "$TMP/latest.json")"
       FROM="$DIST_URL/$FILE"
     fi
@@ -133,6 +139,35 @@ else
 fi
 say "  $(( $(date +%s) - T0 )) s so far"
 [ $UNPACK_ONLY = 0 ] || { say "Unpacked only. Install: $DEST/scripts/install.sh --yes"; exit 0; }
+
+# ---------------------------------------------------------------- the Rust toolchain INIT rebuilds itself with
+RUST_TC=1.97.1
+if [ $NO_RUST = 0 ]; then
+  RUSTUP_HOME="${RUSTUP_HOME:-$HOME/.rustup}"; CARGO_HOME="${CARGO_HOME:-$HOME/.cargo}"; export RUSTUP_HOME CARGO_HOME
+  CARGO_BIN="$CARGO_HOME/bin"
+  RUSTUP="$(command -v rustup 2>/dev/null || true)"
+  [ -n "$RUSTUP" ] || { [ -x "$CARGO_BIN/rustup" ] && RUSTUP="$CARGO_BIN/rustup"; } || true
+  if [ -z "$RUSTUP" ]; then
+    say "  ..  installing Rust $RUST_TC with rustup (self-rewrite needs it; about 1-2 min; --no-rust skips it)"
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+      | sh -s -- -y --quiet --no-modify-path --profile minimal --component clippy --default-toolchain "$RUST_TC" --target wasm32-wasip2 \
+        >"$TMP/rustup.log" 2>&1 \
+      || { tail -5 "$TMP/rustup.log" >&2; die "installing Rust failed; rerun with --no-rust to install without self-rewrite (T0 only), or install rustup yourself"; }
+    RUSTUP="$CARGO_BIN/rustup"
+  else
+    say "  ..  making sure rustup has Rust $RUST_TC with wasm32-wasip2 (your default toolchain is left alone)"
+    "$RUSTUP" toolchain install "$RUST_TC" --profile minimal --component clippy --target wasm32-wasip2 --no-self-update >/dev/null 2>&1 \
+      || die "rustup could not install toolchain $RUST_TC; rerun with --no-rust to skip self-rewrite"
+  fi
+  "$RUSTUP" target add --toolchain "$RUST_TC" wasm32-wasip2 >/dev/null 2>&1 || die "rustup could not add wasm32-wasip2"
+  # the gate's G0 runs cargo clippy; a toolchain installed earlier with the minimal profile lacks it
+  "$RUSTUP" component add --toolchain "$RUST_TC" clippy >/dev/null 2>&1 || die "rustup could not add clippy (the gate's G0 runs it)"
+  ok "Rust $("$RUSTUP" run "$RUST_TC" rustc -V 2>/dev/null | awk '{print $2}') with wasm32-wasip2 and clippy: INIT can rewrite its tools (T1) and its core (T2)"
+  # install.sh records the toolchain rustup resolves; pin it to the one above for this run only.
+  PATH="$(dirname "$RUSTUP"):$PATH"; RUSTUP_TOOLCHAIN="$RUST_TC"; export PATH RUSTUP_TOOLCHAIN
+else
+  say "  --  no Rust (--no-rust): INIT will rewrite only its skills and prompts (T0). Later: install Rust $RUST_TC, then init-root toolchain --set"
+fi
 
 # ---------------------------------------------------------------- install (non-interactive, defaults)
 say ""

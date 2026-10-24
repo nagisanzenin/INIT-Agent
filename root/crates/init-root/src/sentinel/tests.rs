@@ -574,11 +574,11 @@ fn turns_owner_background_and_caps() {
     let closed: Vec<Turn> = out.iter().filter_map(|a| if let Act::TurnClosed(t) = a { Some(t.clone()) } else { None }).collect();
     assert_eq!((closed[0].kind.as_str(), closed[0].cost_musd), ("background", 7));
     assert_eq!(closed[0].caps["ext/a"], (3, "root".to_string()));
-    e.line(&cx(T0 + 3000), "o2", "and also"); // a steer
-    assert!(e.turn.as_ref().unwrap().correction);
+    e.line(&cx(T0 + 3000), "o2", "and also"); // a steer: a weak signal, never a correction (MERGE)
+    assert_eq!((e.turn.as_ref().unwrap().correction, e.turn.as_ref().unwrap().steered), (false, 1));
     let acts = e.tick(&cx(T0 + 2000 + engine::QUIET_MS));
     let t = acts.iter().find_map(|a| if let Act::TurnClosed(t) = a { Some(t.clone()) } else { None }).unwrap();
-    assert_eq!((t.kind.as_str(), t.zspend_musd, t.correction), ("owner", 7, true), "background spend goes to the next owner turn");
+    assert_eq!((t.kind.as_str(), t.zspend_musd, t.correction, t.steered), ("owner", 7, false, 1), "background spend goes to the next owner turn");
     e.interrupt(&cx(T0 + 100_000)); // a Root-handled correction just after the turn
     assert!(e.recent.back().unwrap().correction);
     // the cap: a turn with a request in flight ends at 15 minutes as `capped`, a harmed turn
@@ -745,4 +745,144 @@ fn rf11_full_size() {
         eprintln!("FULL {name}: null {:.2}% ± {:.2} {by:?}; 3x power: cost (H5b) {:.1}% ± {:.1}, wall {w:.1}%, requests {q:.1}%, bytes {b:.1}%",
             rate * 100.0, se(rate, n), p * 100.0, se(p, n / 2));
     }
+}
+
+// ------------------------------------------------------------------------------------------------ MERGE
+
+/// An engine with one owner turn open at `T0` (the line that starts it is neither a steer nor a correction).
+fn open_turn() -> Engine {
+    let mut e = Engine::new(Some("tP"));
+    e.frame(&cx(T0), "s0", &json!({"t": "line", "text": "fix the flaky test"}));
+    let t = e.turn.as_ref().unwrap();
+    assert_eq!((t.kind.as_str(), t.correction, t.steered), ("owner", false, 0));
+    e
+}
+
+fn now_turn(e: &Engine) -> (bool, u32) {
+    let t = e.turn.as_ref().unwrap();
+    (t.correction, t.steered)
+}
+
+/// MERGE (STEER's "Root sentinel" proposal): a turn's correction comes only from owner interrupts. Plain steers count
+/// as `steered` (a weak signal), `/later` lines count as nothing, and a retracted steer gives its count back.
+#[test]
+fn corrections_are_owner_interrupts_only() {
+    let line = |text: &str| json!({"t": "line", "text": text});
+    // a plain steer: no correction
+    let mut e = open_turn();
+    e.frame(&cx(T0 + 1000), "s1", &line("and also rename the test"));
+    assert_eq!(now_turn(&e), (false, 1), "a steer is not a correction");
+    // `/later …`, and the kernel's read-only commands: neither
+    let mut e = open_turn();
+    for (i, l) in ["/later then update the changelog", "/status", "/kernel"].iter().enumerate() {
+        e.frame(&cx(T0 + 1000 + i as i64), &format!("l{i}"), &line(l));
+    }
+    assert_eq!(now_turn(&e), (false, 0), "a follow-up is not a correction");
+    // a retracted steer: its count goes back (the kernel echo's seq names it); an unknown seq changes nothing
+    let mut e = open_turn();
+    e.frame(&cx(T0 + 1000), "s1", &line("use nextest"));
+    e.frame(&cx(T0 + 1100), "s2", &line("and also the docs"));
+    e.ack("s1");
+    e.echoed(7, "use nextest");
+    e.ack("s2");
+    e.echoed(8, "and also the docs");
+    assert_eq!(now_turn(&e), (false, 2));
+    e.frame(&cx(T0 + 2000), "r1", &json!({"t": "retract", "seq": 99}));
+    assert_eq!(now_turn(&e), (false, 2), "an unknown seq takes nothing back");
+    e.frame(&cx(T0 + 2000), "r2", &json!({"t": "retract", "seq": 8}));
+    assert_eq!(now_turn(&e), (false, 1), "the retracted line no longer counts");
+    e.frame(&cx(T0 + 2100), "r3", &json!({"t": "retract", "seq": 8}));
+    assert_eq!(now_turn(&e), (false, 1), "a retract counts once");
+    // a long steer whose echo the kernel cut to fit the owner line still matches; after the turn closed, the closed
+    // turn gives the count back
+    let mut e = open_turn();
+    let long = "x".repeat(5000);
+    e.frame(&cx(T0 + 1000), "s1", &line(&long));
+    e.echoed(3, &format!("{} [kernel: showing 900 of 5000 bytes, cut to fit the owner line; the session log has the full record]", &long[..900]));
+    e.tick(&cx(T0 + 1000 + engine::QUIET_MS));
+    assert!(e.turn.is_none());
+    e.frame(&cx(T0 + 40_000), "r1", &json!({"t": "retract", "seq": 3}));
+    let last = e.recent.back().unwrap();
+    assert_eq!((last.correction, last.steered), (false, 0));
+    // owner interrupts: Esc (and Ctrl-C), interrupt-and-steer, `/stop`, `/panic`, `/undo`, `/reject`
+    type Case = (&'static str, fn(&mut Engine));
+    let cases: [Case; 6] = [
+        ("esc", |e| drop(e.frame(&cx(T0 + 1000), "i1", &json!({"t": "interrupt"})))),
+        ("then:continue", |e| drop(e.frame(&cx(T0 + 1000), "i1", &json!({"t": "interrupt", "then": "continue"})))),
+        ("/stop", |e| drop(e.frame(&cx(T0 + 1000), "i1", &json!({"t": "line", "text": "/stop"})))),
+        ("/panic", |e| drop(e.panic(&cx(T0 + 1000)))),
+        // `owner_text` marks it (`interrupt`), then the line is relayed
+        ("/undo", |e| {
+            e.interrupt(&cx(T0 + 1000));
+            e.frame(&cx(T0 + 1000), "i1", &json!({"t": "line", "text": "/undo"}));
+        }),
+        ("/reject", |e| drop(e.frame(&cx(T0 + 1000), "i1", &json!({"t": "line", "text": "/reject job-1"})))),
+    ];
+    for (name, f) in cases {
+        let mut e = open_turn();
+        f(&mut e);
+        let corr = e.turn.as_ref().map_or_else(|| e.recent.back().unwrap().correction, |t| t.correction);
+        assert!(corr, "{name} is a correction");
+    }
+    // `/stop` with words after it is a line to the body (the kernel reads `/stop` alone): a steer
+    let mut e = open_turn();
+    e.frame(&cx(T0 + 1000), "s1", &line("/stop the tests from flaking"));
+    assert_eq!(now_turn(&e), (false, 1));
+}
+
+/// MERGE: several corrections in one turn count once (the flag is per turn), so the closed turn adds one corrected
+/// turn to the rings and to the corrections trend's `owner_corrected`.
+#[test]
+fn several_corrections_in_one_turn_count_once() {
+    let mut e = open_turn();
+    e.frame(&cx(T0 + 1000), "s1", &json!({"t": "line", "text": "and also"}));
+    e.frame(&cx(T0 + 2000), "i1", &json!({"t": "interrupt"}));
+    e.frame(&cx(T0 + 3000), "i2", &json!({"t": "interrupt", "then": "continue"}));
+    e.frame(&cx(T0 + 4000), "s2", &json!({"t": "line", "text": "/stop"}));
+    e.interrupt(&cx(T0 + 5000));
+    let acts = e.tick(&cx(T0 + 5000 + engine::QUIET_MS));
+    let closed: Vec<Turn> = acts.iter().filter_map(|a| if let Act::TurnClosed(t) = a { Some(t.clone()) } else { None }).collect();
+    assert_eq!(closed.len(), 1);
+    assert_eq!((closed[0].correction, closed[0].steered), (true, 1));
+    assert_eq!(e.recent.iter().filter(|t| t.kind == "owner" && t.correction).count(), 1, "one corrected turn");
+}
+
+/// MERGE (DELEGATE's proposal): `delegate` sub-task requests (`x-egress-subtask`) are counted apart on the turn, so N
+/// sub-task requests a turn (4× the main loop's requests and 8× its cost) leave H10 and H5b unchanged; the same
+/// traffic from the main loop still fires. (H5a, the hourly burst, still counts every request.)
+#[test]
+fn subtask_traffic_is_not_a_per_turn_spike() {
+    fn sub_turn(e: &mut Engine, t: &mut i64, sub: bool) -> Vec<Act> {
+        e.session_started();
+        let q = format!("q{t}");
+        let mut out = e.line(&cx(*t), &q, "go");
+        e.ack(&q);
+        for j in 0..2 {
+            let id = format!("m{t}-{j}");
+            out.extend(e.req_start_as(&cx(*t + 500), &id, 1000, false));
+            out.extend(e.req_end(&cx(*t + 10_000), &id, 510, false));
+        }
+        for j in 0..8 {
+            let id = format!("d{t}-{j}");
+            out.extend(e.req_start_as(&cx(*t + 600), &id, 0, sub));
+            out.extend(e.req_end(&cx(*t + 9_000), &id, 1000, false));
+        }
+        *t += 10_000 + 31_000;
+        out.extend(e.tick(&cx(*t)));
+        *t += 60_000;
+        out
+    }
+    let (mut e, mut t) = armed();
+    let acts: Vec<Act> = (0..20).flat_map(|_| sub_turn(&mut e, &mut t, true)).collect();
+    assert!(harm(&acts).is_none(), "sub-task traffic fired a signal: {acts:?}");
+    let last = e.recent.iter().rev().find(|x| x.kind == "owner").unwrap();
+    assert_eq!((last.requests, last.sub_requests, last.cost_musd, last.sub_cost_musd), (10, 8, 2 * 510 + 8 * 1000, 8 * 1000));
+    assert_eq!(last.zspend_musd, 2 * 510 + 8 * 1000, "the zone spend still counts every request");
+    let b = &e.groups[0].win[0];
+    assert_eq!((b.req, b.cost), (2, 2 * 510), "H10 and H5b see the main loop's share");
+    // the same traffic from the main loop is a spike
+    let (mut e, mut t) = armed();
+    let acts: Vec<Act> = (0..5).flat_map(|_| sub_turn(&mut e, &mut t, false)).collect();
+    let h = harm(&acts).expect("a main-loop spike fires");
+    assert!(h["signal"] == "H5b" || h["signal"] == "H10", "{h}");
 }

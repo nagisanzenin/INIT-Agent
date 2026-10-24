@@ -266,7 +266,7 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert_eq!(rx.recv().unwrap(), BodyMsg::Eof);
-        assert!(io.send(&ToBody::Interrupt));
+        assert!(io.send(&ToBody::Interrupt { then: None }));
         let mut got = String::new();
         let mut r = std::fs::File::from(OwnedFd::from(in_r));
         io.close_stdin();

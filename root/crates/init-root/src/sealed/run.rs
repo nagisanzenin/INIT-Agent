@@ -205,7 +205,9 @@ pub fn sandboxed(env: &Env, run: &RunRoot, lane: Option<&Path>, argv: &[OsString
             let filter = crate::sys::linux_seccomp().map_err(|e| e.to_string())?;
             use std::os::fd::AsRawFd;
             let mut c = Command::new(env.rh.join("bin/init-root"));
-            c.args(["exec-clean", "--keep", "5"]);
+            // fds 3 and 4: the control link a probe kernel gets (sup/kprobe.rs maps them, as the zone's kernel launch
+            // does); every other Root descriptor is close-on-exec, so nothing else can sit there
+            c.args(["exec-clean", "--keep", "3", "--keep", "4", "--keep", "5"]);
             for fd in &mounts { c.arg("--keep").arg(fd.as_raw_fd().to_string()); }
             c.arg("--").args(launcher).arg("--").args(argv);
             crate::sys::map_seccomp(&mut c, filter.as_raw_fd());
@@ -332,7 +334,14 @@ pub fn supervise(mut c: Command, run: &RunRoot, lim: &Limits, wall: Duration, in
     if input.is_some() {
         c.stdin(Stdio::piped());
     }
+    // LINUX: the run starts inside its own memory.max, where a delegated cgroup v2 subtree exists (cgroup.rs)
+    #[cfg(target_os = "linux")]
+    let cg = crate::cgroup::workload(&format!("sealed-{}", run.id), lim.cap);
+    #[cfg(target_os = "linux")]
+    if let Some(fd) = &cg { crate::sys::join_cgroup_on_exec(&mut c, std::os::fd::AsRawFd::as_raw_fd(fd)); }
     let mut child = c.spawn().map_err(|e| format!("sealed spawn: {e}"))?;
+    #[cfg(target_os = "linux")]
+    drop(cg);
     let pid = child.id() as i32;
     lock(&HELD).insert(run.id.clone(), pid);
     let mut stdin = child.stdin.take();
@@ -368,11 +377,14 @@ pub fn supervise(mut c: Command, run: &RunRoot, lim: &Limits, wall: Duration, in
         std::thread::sleep(Duration::from_millis(25));
     };
     // the run's units, then the leader's group: a body's tool calls are process groups of their own
-    for (_, u) in w.plan(std::slice::from_ref(&leader), &crate::sys::proc_table(), u64::MAX, &|_| None).units {
+    let (seen, table) = memwatch::observed(std::slice::from_ref(&leader));
+    for (_, u) in w.plan(&seen, &table, u64::MAX, &|_| None).units {
         memwatch::kill_members(&u.members);
     }
     crate::sys::signal(pid, libc::SIGKILL, true); // the leader if it still runs, and anything left in its group
     let code = child.wait().ok().and_then(|s| s.code());
+    #[cfg(target_os = "linux")]
+    crate::cgroup::release(&format!("sealed-{}", run.id));
     lock(&HELD).remove(&run.id);
     drop(stdin);
     Ok(match why {
@@ -390,7 +402,8 @@ fn watch_run(run: &RunRoot, lim: &Limits, leader: &Leader, w: &mut Watch) -> Opt
         memwatch::alert(&run.rh, "disk_floor", &format!("[root] sealed run {}: {}; the run is stopped", run.id, lim.disk_msg(free)));
         return Some("disk_floor");
     }
-    let plan = w.plan(std::slice::from_ref(leader), &crate::sys::proc_table(), lim.cap, &crate::sys::footprint);
+    let (seen, table) = memwatch::observed(std::slice::from_ref(leader));
+    let plan = w.plan(&seen, &table, lim.cap, &crate::sys::footprint);
     let mut whole = None;
     for v in plan.verdicts {
         match v {
@@ -714,6 +727,83 @@ mod tests {
         assert!(!live(&read("sib")), "the sibling is killed at the end of the run");
         drop(run);
         fs::remove_dir_all(&rh).unwrap();
+    }
+
+    /// LINUX, live ($0, no disk fill): the macOS test above under the real Linux confinement. The leader is the outer
+    /// bwrap of `linux::sealed` (exec-clean → unshare → bwrap → the namespace's init → `sh`); inside, `sh` starts a
+    /// 400 MiB hog, a sibling and a setsid sibling. With a 256 MiB cap the watchdog kills the hog alone (not the whole
+    /// instance behind the bwrap hops), records it by the pid `sh` knows it by (its pid-namespace pid), alerts the
+    /// owner, and kills the siblings at the end of the run. Processes are found from the host by unique argv markers.
+    #[cfg(target_os = "linux")]
+    #[test]
+    #[ignore = "requires native Linux namespaces, bubblewrap >= 0.13.0 and INIT_TEST_ROOT_BIN"]
+    fn linux_a_workload_over_the_cap_is_killed_alone_behind_bwrap_and_recorded() {
+        use std::os::fd::AsRawFd;
+        let binary = std::env::var_os("INIT_TEST_ROOT_BIN").expect("set INIT_TEST_ROOT_BIN");
+        let base = fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target")).unwrap();
+        let rh = base.join(format!("test-homes/memwatch/linux-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&rh); // exact path, created by this test
+        fs::create_dir_all(rh.join("sealed/run")).unwrap();
+        let tool = rh.join("..").join(format!("linux-tool-{}", std::process::id()));
+        fs::create_dir_all(&tool).unwrap();
+        let tool = fs::canonicalize(&tool).unwrap();
+        let run = RunRoot::new(&rh).unwrap();
+        let t = run.dir.join("tmp");
+        let tag = format!("lmw{}", std::process::id());
+        let script = format!("echo $$ > '{t}/leader'; \
+            /usr/bin/python3 -c 'import time; x = bytearray(400 << 20); time.sleep(60)' {tag}-hog & echo $! > '{t}/hog'; \
+            /usr/bin/python3 -c 'import time; time.sleep(60)' {tag}-sib & echo $! > '{t}/sib'; \
+            /usr/bin/python3 -c 'import os, time; os.setsid(); time.sleep(60)' {tag}-sid & echo $! > '{t}/sid'; wait", t = t.display());
+        let mut launcher = init_sandbox_profiles::linux::sealed(&run.dir, &rh, &tool, None).unwrap();
+        let mut mounts = crate::sys::linux_bind_fds(&mut launcher).unwrap();
+        let filter = crate::sys::linux_seccomp().unwrap();
+        let mut c = Command::new(binary);
+        c.args(["exec-clean", "--keep", "5"]);
+        for fd in &mounts { c.arg("--keep").arg(fd.as_raw_fd().to_string()); }
+        c.arg("--").args(launcher).args(["--", "/bin/sh", "-c", &script, &format!("{tag}-leader")])
+            .env_clear().env("PATH", "/usr/bin:/bin").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).process_group(0);
+        crate::sys::map_seccomp(&mut c, filter.as_raw_fd());
+        crate::sys::inherit_fds(&mut c, mounts.iter().map(AsRawFd::as_raw_fd).collect());
+        mounts.push(filter);
+        crate::sys::hold_spawn_fds(&mut c, mounts);
+        // a process of this run, found by its argv marker (the files hold pid-namespace pids)
+        let live = |what: &str| {
+            let want = format!("{tag}-{what}");
+            fs::read_dir("/proc").into_iter().flatten().flatten().any(|e| {
+                let pid = e.file_name().to_string_lossy().to_string();
+                fs::read(format!("/proc/{pid}/cmdline")).is_ok_and(|c| c.split(|b| *b == 0).any(|a| a == want.as_bytes()))
+                    && fs::read_to_string(format!("/proc/{pid}/stat")).is_ok_and(|s| s.rsplit_once(") ").is_some_and(|(_, f)| !f.starts_with('Z')))
+            })
+        };
+        let lim = Limits { cap: 256 * memwatch::MIB, floor: 0 };
+        let read = |f: &str| fs::read_to_string(t.join(f)).map(|s| s.trim().to_string()).unwrap_or_default();
+        let (t0, mut seen) = (Instant::now(), None);
+        let (code, why, _) = supervise(c, &run, &lim, Duration::from_secs(60), None, || {
+            if seen.is_none() && !read("hog").is_empty() && !read("sid").is_empty() && !live("hog") {
+                seen = Some((t0.elapsed(), live("leader"), live("sib"), live("sid")));
+            }
+            if seen.is_some() || t0.elapsed() > Duration::from_secs(30) { Some("done") } else { None }
+        }).unwrap();
+        assert_eq!((code, why), (None, "done"));
+        let (after, leader, sib, sid) = seen.expect("the hog was killed within 30 s");
+        assert!(leader && sib && sid, "the leader {leader}, the sibling {sib} and the setsid sibling {sid} survive the kill");
+        assert!(after < Duration::from_secs(10), "killed {after:?} after start");
+        let recs: Vec<Value> = fs::read_to_string(run.events_path()).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect();
+        assert_eq!(recs.len(), 1, "one unit, not the whole instance behind bwrap: {recs:?}");
+        let r = &recs[0];
+        assert_eq!((r["event"].as_str(), r["scope"].as_str(), r["cap_mib"].as_u64(), r["kind"].as_str()), (Some("mem_cap"), Some("unit"), Some(256), Some("sealed")));
+        assert_eq!(r["pgid"].as_i64().map(|p| p.to_string()), Some(read("hog")), "the record names the hog by the pid sh knows");
+        assert!(r["footprint_mib"].as_u64().unwrap() > 256, "{r}");
+        let alerts = fs::read_to_string(rh.join("alerts.jsonl")).unwrap();
+        assert!(alerts.contains("\"code\":\"mem_cap\"") && alerts.contains("sandbox.mem_cap_mib = 256 MiB"), "{alerts}");
+        let t1 = Instant::now();
+        while (live("sid") || live("sib") || live("leader")) && t1.elapsed() < Duration::from_secs(5) {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        assert!(!live("sid") && !live("sib") && !live("leader"), "the run's processes end with it");
+        drop(run);
+        fs::remove_dir_all(&rh).unwrap();
+        fs::remove_dir_all(&tool).unwrap();
     }
 
     /// MEM-RUNAWAY: below the workload disk floor a sealed run is refused before anything spawns (a fake floor far

@@ -212,9 +212,27 @@ pub fn usd(musd: i64) -> String {
     format!("${}.{:02}", cents / 100, cents % 100)
 }
 
+/// A small estimate with a tenth of a cent: `$0.004`, `$0.123`; `$1.23` from a dollar up.
+pub fn usd_fine(musd: i64) -> String {
+    if musd >= 1_000_000 {
+        return usd(musd);
+    }
+    let m = (musd.max(0) + 500) / 1000;
+    format!("${}.{:03}", m / 1000, m % 1000)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn usd_fine_formats() {
+        assert_eq!(usd_fine(0), "$0.000");
+        assert_eq!(usd_fine(4_200), "$0.004");
+        assert_eq!(usd_fine(123_456), "$0.123");
+        assert_eq!(usd_fine(999_600), "$1.000");
+        assert_eq!(usd_fine(1_230_000), "$1.23");
+    }
 
     #[test]
     fn usd_formats() {

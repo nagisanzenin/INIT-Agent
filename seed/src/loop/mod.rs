@@ -6,6 +6,7 @@
 //! `frames.rs`; the heartbeat is in `status.rs`; tool workers live for one batch
 //! (`std::thread::scope`, at most 16), each call wrapped in `catch_unwind`.
 
+pub mod delegate;
 pub mod frames;
 pub mod hooks;
 pub mod status;
@@ -35,7 +36,8 @@ use crate::model::{
     StopReason, StreamEvent, ToolCall, ToolResult, Usage,
 };
 use crate::tools::{
-    ExtHostApi, Mode, PathCx, Prepared, Ran, ReloadReport, Snapshot, ToolCx, Tools, error_result,
+    ExtHostApi, Job, Mode, PathCx, Prepared, Ran, ReloadReport, Snapshot, ToolCx, Tools,
+    error_result,
 };
 
 /// Workers per batch (§3.7).
@@ -49,6 +51,8 @@ pub const IDLE_RELOAD_POLL: Duration = Duration::from_millis(100);
 pub const LENGTH_STRIKES: u32 = 3;
 
 pub const ABORTED_TEXT: &str = "error: aborted: not executed (owner abort)";
+/// Interrupt-and-steer continues the run (§3.5).
+pub const CONTINUE_TEXT: &str = "interrupted · continuing with your note";
 
 /// How a run ended. `Exit(code)`: the process must exit now (handoff 75, stop 0, fatal 1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +71,8 @@ struct Guards {
     length_strikes: u32,
     overflow_retried: bool,
     next_max: Option<u32>,
+    /// The last boundary appended a steer (interrupt-and-steer may answer it, §3.5).
+    last_steer: bool,
 }
 
 impl Guards {
@@ -86,6 +92,8 @@ struct Queue {
 
 enum Class {
     Duplicate,
+    /// The owner retracted it before it was consumed (§3.4): dropped silently.
+    Retracted,
     Command,
     Plain,
     FollowUp,
@@ -186,6 +194,10 @@ fn provider_error(code: &str, message: impl Into<String>, data: Option<Value>) -
         message: message.into(),
         data,
     }
+}
+
+fn aborted_in_retry() -> ErrorEv {
+    provider_error("aborted_in_retry", "aborted while waiting to retry", None)
 }
 
 fn owner_input(f: &InputFrame) -> OwnerInput {
@@ -354,6 +366,7 @@ impl Session {
                         self.out.send(Out::Ack(i.seq));
                         None
                     }
+                    Class::Retracted => None,
                     Class::Command => self.idle_boundary(BoundaryInput {
                         commands: vec![owner_input(&i)],
                         ..Default::default()
@@ -380,8 +393,9 @@ impl Session {
                     self.pending_pause = Some(p);
                     None
                 }
-                Control::Interrupt => None, // nothing running; the flag is reset by the next run
+                Control::Interrupt { .. } => None, // nothing running; the next run resets it
                 Control::Stop { .. } | Control::Eof => return self.exit(0),
+                Control::Retract { .. } => None, // answered by the input thread
                 other @ (Control::Resume { .. } | Control::Exit { .. }) => {
                     self.protocol_warning(&other);
                     None
@@ -441,6 +455,8 @@ impl Session {
     fn classify(&self, i: &InputFrame) -> Class {
         if self.ctx.has_input(&i.id) {
             Class::Duplicate
+        } else if self.status.gate.is_retracted(i.seq) {
+            Class::Retracted
         } else if is_command(&i.text) {
             Class::Command
         } else if i.mode == InputMode::FollowUp {
@@ -455,11 +471,13 @@ impl Session {
         match c {
             Control::Input(i) => match self.classify(&i) {
                 Class::Duplicate => self.out.send(Out::Ack(i.seq)),
+                Class::Retracted => {}
                 Class::Command => self.queue.commands.push(i),
                 Class::FollowUp => self.queue.follow_ups.push_back(i),
                 Class::Plain => self.queue.steers.push(i),
             },
-            Control::Interrupt => {} // Abort::trigger already ran on the input thread
+            Control::Interrupt { .. } => {} // the input thread already triggered the abort
+            Control::Retract { .. } => {}   // answered by the input thread
             Control::Pause(p) => self.pending_pause = Some(p),
             Control::Stop { .. } | Control::Eof => self.stopping = true,
             Control::Reload(job) => self.pending_reload.push(job),
@@ -478,8 +496,36 @@ impl Session {
 
     // -- the boundary ---------------------------------------------------------------------------
 
+    /// The retract gate (§3.4), right before an append: drops retracted owner inputs, steers and
+    /// commands, and marks the rest consumed, under the lock the input thread answers `retract`
+    /// with. Returns true when it dropped something.
+    fn admit(&self, input: &mut BoundaryInput) -> bool {
+        let mut g = self.status.gate.lock();
+        let n = input.owner.len() + input.steers.len() + input.commands.len();
+        for v in [&mut input.owner, &mut input.steers, &mut input.commands] {
+            v.retain(|o| !g.retracted.contains(&o.seq));
+        }
+        for o in input.owner.iter().chain(&input.steers).chain(&input.commands) {
+            g.consume(o.seq);
+        }
+        n != input.owner.len() + input.steers.len() + input.commands.len()
+    }
+
+    /// The single choke point before `ctx.boundary_append`: the gate, then the append.
+    fn append(&mut self, mut input: BoundaryInput) -> Result<BoundaryOut, RunEnd> {
+        let dropped = self.admit(&mut input);
+        self.append_admitted(input, dropped)
+    }
+
     /// `ctx.boundary_append`, then acks, notice acks, command outcomes and reload replies.
-    fn append(&mut self, input: BoundaryInput) -> Result<BoundaryOut, RunEnd> {
+    fn append_admitted(
+        &mut self,
+        input: BoundaryInput,
+        dropped: bool,
+    ) -> Result<BoundaryOut, RunEnd> {
+        if dropped && input.is_empty() {
+            return Ok(BoundaryOut::default()); // everything in it was retracted
+        }
         let seqs: Vec<u64> = input
             .owner
             .iter()
@@ -662,9 +708,22 @@ impl Session {
                 .owner
                 .extend(self.queue.follow_ups.drain(..).map(|f| owner_input(&f)));
         }
-        self.append(std::mem::take(input))?;
+        let had_owner_text = !input.owner.is_empty() || !input.steers.is_empty();
+        let only_owner_text = input.results.is_empty() && input.harness_text.is_none();
+        let dropped = self.admit(input);
+        let has_owner_text = !input.owner.is_empty() || !input.steers.is_empty();
+        let steer_now = !input.steers.is_empty();
+        let answerable = steer_now || g.last_steer;
+        g.last_steer = steer_now;
+        self.append_admitted(std::mem::take(input), dropped)?;
         if self.abort.is_set() {
-            return Err(self.end_aborted_at_boundary());
+            if self.abort.wants_continue() && answerable {
+                // Interrupt-and-steer (§3.5): the aborted results and the note are in the log.
+                self.abort.reset();
+                self.out.send(Out::display("info", CONTINUE_TEXT));
+            } else {
+                return Err(self.end_aborted_at_boundary());
+            }
         }
         if let Some(p) = self.pending_pause.take()
             && let PauseEnd::Exit(c) = self.pause(p)
@@ -673,6 +732,10 @@ impl Session {
         }
         if self.stopping {
             return Err(RunEnd::Stopping);
+        }
+        if had_owner_text && !has_owner_text && only_owner_text {
+            // Everything new was retracted (§3.4): no request with nothing to answer.
+            return Err(self.end_idle());
         }
         let max = g.take_max(self.info());
         let info = self.model.info().clone();
@@ -735,6 +798,13 @@ impl Session {
                     self.ctx.request_emergency_compaction(); // log-context §3.12.6
                     continue;
                 }
+                TurnOutcome::Failed(ProviderError::Aborted, _) if self.steer_to_answer(&g) => {
+                    input = BoundaryInput {
+                        errors: vec![aborted_in_retry()],
+                        ..Default::default()
+                    };
+                    continue;
+                }
                 TurnOutcome::Failed(e, attempts) => return self.end_provider_failure(e, attempts),
             };
             g.overflow_retried = false;
@@ -784,6 +854,9 @@ impl Session {
             match &msg.stop {
                 StopReason::Aborted => {
                     input.results = self.fixed_results(&prepared, |_| ABORTED_TEXT.to_string());
+                    if self.steer_to_answer(&g) {
+                        continue; // the next boundary appends the results and the note (§3.5)
+                    }
                     return self.end_aborted(input);
                 }
                 StopReason::Refusal { category } => {
@@ -840,12 +913,22 @@ impl Session {
                 return self.end_idle();
             }
             self.set_phase(Phase::Tools);
-            match self.execute_batch(prepared) {
+            match self.execute_batch(prepared, req.out.task_id.as_deref()) {
                 Ok(results) => input.results = results,
                 Err(end) => return end,
             }
             self.status.turn.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    /// Interrupt-and-steer (§3.5): the abort asked to continue, and there is a note to answer
+    /// (queued now, or appended by the last boundary). The next boundary still re-checks it.
+    fn steer_to_answer(&mut self, g: &Guards) -> bool {
+        if !self.abort.wants_continue() {
+            return false;
+        }
+        self.drain_ctl();
+        g.last_steer || !self.queue.steers.is_empty()
     }
 
     /// The same text for every call of the reply (aborted, refused, length cut-off).
@@ -937,10 +1020,9 @@ impl Session {
                 message.clone(),
             ),
             ProviderError::Aborted => {
-                let ev = provider_error("aborted_in_retry", "aborted while waiting to retry", None);
                 let end = self.end_with(
                     BoundaryInput {
-                        errors: vec![ev],
+                        errors: vec![aborted_in_retry()],
                         ..Default::default()
                     },
                     RunEnd::Aborted,
@@ -992,6 +1074,7 @@ impl Session {
             purpose: Purpose::Turn,
             session: &session,
             task: r.out.task_id.as_deref(),
+            subtask: None,
         };
         let t0 = Instant::now();
         let mut ttft: Option<u64> = None;
@@ -1077,6 +1160,7 @@ impl Session {
     fn execute_batch(
         &mut self,
         prepared: Vec<Prepared>,
+        task: Option<&str>,
     ) -> Result<Vec<(String, ToolResult)>, RunEnd> {
         let n = prepared.len();
         let mut slots: Vec<Option<ToolResult>> = vec![None; n];
@@ -1085,6 +1169,10 @@ impl Session {
         for (i, p) in prepared.iter().enumerate() {
             match p {
                 Prepared::Done { result, .. } => slots[i] = Some(result.clone()),
+                Prepared::Ready {
+                    job: Job::Delegate(_),
+                    ..
+                } => {} // run below, before the rest of the batch
                 Prepared::Ready { .. } => match self.tools.path_key(p) {
                     Some(k) => match by_path.iter().find(|(q, _)| *q == k) {
                         Some(&(_, u)) => units[u].push(i),
@@ -1119,20 +1207,42 @@ impl Session {
             }
             _ => None,
         };
-        for p in prepared.iter().filter(|p| p.is_ready()) {
-            self.out.send(Out::Display {
-                kind: "tool_start",
-                text: self.tools.start_text(p),
-                call_id: Some(p.call_id().to_string()),
-                name: Some(p.name().to_string()),
-                ok: None,
-            });
-        }
         let spill_dir = self
             .home
             .join("state")
             .join("spill")
             .join(self.ctx.session_id());
+        // delegate (loop/delegate.rs): the loop owns its model calls. A batch's delegates run
+        // first, concurrently (writers one at a time); each sends its own `tool_start`/`tool_end`.
+        let delegates: Vec<usize> = (0..n)
+            .filter(|&i| {
+                matches!(
+                    prepared[i],
+                    Prepared::Ready {
+                        job: Job::Delegate(_),
+                        ..
+                    }
+                )
+            })
+            .collect();
+        if !delegates.is_empty() {
+            let done = self.run_delegates(&prepared, &delegates, reg.as_ref(), task, &spill_dir);
+            for (i, ran) in done {
+                slots[i] = Some(ran.result);
+            }
+        }
+        for (i, p) in prepared.iter().enumerate() {
+            if p.is_ready() && slots[i].is_none() {
+                self.out.send(Out::Display {
+                    kind: "tool_start",
+                    text: self.tools.start_text(p),
+                    call_id: Some(p.call_id().to_string()),
+                    name: Some(p.name().to_string()),
+                    ok: None,
+                    parent: None,
+                });
+            }
+        }
         let info = self.model.info().clone();
         let crash_after_first = self.fault.is_some() && self.fault("loop.batch.after_first_result");
         let (tools, abort, out, status) = (&self.tools, &*self.abort, &self.out, &*self.status);
@@ -1276,7 +1386,7 @@ impl Session {
                 // D11: stop while paused exits 0 at once; the log is synced and unlocked, and
                 // nothing more is written. stdin EOF likewise.
                 Ok(Control::Stop { .. }) | Ok(Control::Eof) | Err(_) => return PauseEnd::Exit(0),
-                Ok(Control::Interrupt) => {}
+                Ok(Control::Interrupt { .. }) => {}
                 Ok(c @ Control::Pause(_)) => self.protocol_warning(&c),
                 Ok(other) => self.enqueue(other), // held until after resume
             }
@@ -1292,6 +1402,7 @@ fn send_end(out: &OutTx, p: &Prepared, r: &Ran) {
         call_id: Some(p.call_id().to_string()),
         name: Some(p.name().to_string()),
         ok: Some(!r.result.is_error),
+        parent: None,
     });
 }
 

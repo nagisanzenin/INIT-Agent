@@ -558,7 +558,7 @@ mod tests {
             let f = display(1, Display { kind: DisplayKind::ToolStart, text: format!("{i}"), call_id: Some(format!("c{i}")), name: Some("bash".into()), ok: None }, BTreeMap::new());
             out.extend(p.push(f, true, t0));
         }
-        let st = |busy| OwnerOutFrame::State { busy, level: 0, members: 0, mode: "normal".into(), model: None, queued: 0, sha12: "x".into(), slot: "running".into(), task_musd: None, evolution_checks_today_musd: None };
+        let st = |busy| OwnerOutFrame::State { busy, level: 0, members: 0, mode: "normal".into(), model: None, queued: 0, sha12: "x".into(), slot: "running".into(), task_musd: None, evolution_checks_today_musd: None, steer_pending: None, steer_seen: None, steer_retracted: None };
         out.extend(p.push(st(true), false, t0));
         out.extend(p.push(st(false), false, t0)); // replaces the waiting one
         assert_eq!(out.len(), BURST as usize);

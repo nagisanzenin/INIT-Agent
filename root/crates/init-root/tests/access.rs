@@ -150,6 +150,8 @@ impl Drop for Daemon {
 /// Spec item 2 over owner.sock: each refusal reason, a symlinked cwd canonicalized, the workspace in `status`.
 /// Then full mode: `root.confirm` until the phrase, once per session; a new `workspace.set` ends it.
 /// Then the snapshot retention (5 per workspace) and the 2 GiB skip (a sparse file: no disk is used).
+// LINUX: workspace mode and full mode are capped off on Linux (access.rs LINUX_HOME_GRANTS); macOS only
+#[cfg(target_os = "macos")]
 #[test]
 fn workspace_validation_full_mode_retention_and_size_skip() {
     let h = home("v");
@@ -238,14 +240,22 @@ fn charter_disables_full_mode_and_home_reads() {
     let v = h.ok("access.get", json!({}));
     assert_eq!((v["access"].as_str(), v["allow_full"].as_bool(), v["read_home"].as_bool()), (Some("none"), Some(false), Some(false)));
     let e = h.refused("full.set", json!({"on": true, "confirm": "confirm"}));
-    assert_eq!((e["code"].as_str(), e["data"]["reason"].as_str()), (Some("root.mode"), Some("charter")));
-    assert_eq!(h.ok("workspace.set", json!({"cwd": h.s("proj")}))["access"]["access"], "workspace");
+    // LINUX: the platform cap answers first (no workspace, no full mode; access.rs LINUX_HOME_GRANTS)
+    let linux = cfg!(target_os = "linux");
+    assert_eq!((e["code"].as_str(), e["data"]["reason"].as_str()), (Some("root.mode"), Some(if linux { "platform" } else { "charter" })));
+    let w = h.ok("workspace.set", json!({"cwd": h.s("proj")}));
+    assert_eq!(w["access"]["access"], if linux { "none" } else { "workspace" });
+    if linux {
+        assert_eq!(w["refused"]["code"], "platform", "{w}");
+    }
 }
 
 /// The e2e core at the Root (spec "Tests: e2e"): with the fake kernel, a body spawned through the broker gets the
 /// Root's INIT_ACCESS / INIT_WORKSPACE (over the kernel's), writes a file in the workspace and cannot write
 /// elsewhere in the home; the kernel hears `access` with `restart:"idle"` while that body runs; `/undo` is refused
 /// while the body is busy, needs the typed confirmation, restores the snapshot and can itself be undone.
+// LINUX: workspace mode and full mode are capped off on Linux (access.rs LINUX_HOME_GRANTS); macOS only
+#[cfg(target_os = "macos")]
 #[test]
 fn body_writes_the_workspace_and_undo_restores_it() {
     let h = home("e");

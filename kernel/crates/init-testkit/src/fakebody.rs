@@ -588,7 +588,7 @@ pub fn main() -> i32 {
                 busy.store(false, Ordering::SeqCst);
                 out.send(&FromBody::State { busy: false });
             }
-            ToBody::Interrupt => out.display(
+            ToBody::Interrupt { .. } => out.display(
                 DisplayKind::Info,
                 "interrupted (fake body: no turn running)",
             ),
@@ -636,7 +636,7 @@ pub fn main() -> i32 {
                 }
                 out.send(&FromBody::NoticeAck { id });
             }
-            ToBody::Unknown => {}
+            ToBody::Retract { .. } | ToBody::Unknown => {}
         }
     }
 }

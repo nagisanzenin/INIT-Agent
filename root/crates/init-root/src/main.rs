@@ -6,6 +6,8 @@
 mod access; // ADR-009 workspace, full mode, snapshots and /undo (SBX-009)
 mod benchmark; // owner-controlled experiment freeze and external gateway binding
 mod charter; // R5 (WP20)
+#[cfg(target_os = "linux")]
+mod cgroup; // LINUX: per-workload cgroup v2 memory.max under a delegated subtree (the memwatch backstop)
 mod cli; // the CLI (WP20; exec-clean: WP21)
 mod doctor; // `doctor --sweep-dry-run` (R-SAFE, ADR-008): the D1 selection, read-only
 mod egress; // R2/R3 (WP22; C11 validation: WP20)

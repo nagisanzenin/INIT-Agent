@@ -5,7 +5,7 @@
 use super::live::{self, Ui};
 use super::{Line, grid};
 use crate::input::Editor;
-use crate::model::{Conn, Info, Kind, OwnerSt, Transcript};
+use crate::model::{Conn, Info, Kind, OwnerSt, Transcript, Tray, TrayOut};
 use crate::proto::{Display, DisplayKind};
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -39,6 +39,7 @@ fn check(name: &str, got: &str) {
 
 struct World {
     t: Transcript,
+    tray: Tray,
     ed: Editor,
     info: Info,
     base: Instant,
@@ -46,11 +47,11 @@ struct World {
 }
 
 fn d(kind: DisplayKind, text: &str) -> Display {
-    Display { kind, text: text.into(), call_id: None, name: None, ok: None, boot_seq: Some(1), detail: None }
+    Display { kind, text: text.into(), call_id: None, name: None, ok: None, boot_seq: Some(1), detail: None, parent: None }
 }
 
 fn tool(kind: DisplayKind, id: &str, name: &str, text: &str, ok: Option<bool>) -> Display {
-    Display { kind, text: text.into(), call_id: Some(id.into()), name: Some(name.into()), ok, boot_seq: Some(1), detail: None }
+    Display { kind, text: text.into(), call_id: Some(id.into()), name: Some(name.into()), ok, boot_seq: Some(1), detail: None, parent: None }
 }
 
 fn status(slot: &str, mode: &str) -> Value {
@@ -72,7 +73,7 @@ impl World {
         info.on_status(status("running", "normal"), base);
         info.on_egress(egress(1_230_000, 5_000_000));
         info.on_state(json!({"slot": "running", "mode": "normal", "busy": true, "sha12": "3f9c0a1b2c4d", "queued": 0, "level": 0, "members": 0}), base);
-        World { t: Transcript::default(), ed: Editor::default(), info, base, scroll: Vec::new() }
+        World { t: Transcript::default(), tray: Tray { tracked: true, ..Tray::default() }, ed: Editor::default(), info, base, scroll: Vec::new() }
     }
     fn at(&self, secs: f64) -> Instant {
         self.base + Duration::from_secs_f64(secs)
@@ -86,12 +87,12 @@ impl World {
         let now = self.at(secs);
         let spin = 3;
         let max = {
-            let ui = Ui { t: &self.t, ed: &self.ed, info: &self.info, verbose, overlay: false, hint: None, now, now_ms: NOW_MS, no_color: false, spin };
+            let ui = Ui { t: &self.t, tray: &self.tray, ed: &self.ed, info: &self.info, verbose, overlay: false, hint: None, now, now_ms: NOW_MS, no_color: false, spin };
             live::max_live(&ui, w, h)
         };
         let commits = live::commit(&mut self.t, w, max, verbose, now, spin);
         self.scroll.extend(commits);
-        let ui = Ui { t: &self.t, ed: &self.ed, info: &self.info, verbose, overlay: false, hint: None, now, now_ms: NOW_MS, no_color: false, spin };
+        let ui = Ui { t: &self.t, tray: &self.tray, ed: &self.ed, info: &self.info, verbose, overlay: false, hint: None, now, now_ms: NOW_MS, no_color: false, spin };
         let region = live::region(&ui, w, h);
         let mut all: Vec<Line> = self.scroll.clone();
         all.extend(region.rows.iter().cloned());
@@ -108,6 +109,66 @@ impl World {
         }
         s
     }
+}
+
+/// STEER: a line typed while the agent works, echoed by the kernel as `seq` (or not yet, or Root-held).
+fn typed(w: &mut World, id: u64, text: &str, follow_up: bool, echo: Option<OwnerSt>, seq: u64) {
+    w.tray.add(id, text, follow_up, w.base);
+    if let Some(st) = echo {
+        assert_eq!(w.tray.on_echo(id, st, (st == OwnerSt::Delivered).then_some(seq)), None);
+    }
+}
+
+/// STEER (§3.7.1): the pending tray above the input box in each state, and a steer moving into the
+/// transcript, marked seen, once the body acks it, with the activity frozen and no false `? no result`.
+#[test]
+fn steer_tray_states() {
+    let mut out = String::new();
+    // 1. a long bash call runs: a steer waits behind it, a follow-up waits for the next task, one is
+    //    still on its way
+    let mut w = World::new();
+    w.t.push(Kind::Owner { id: 1, text: "fix the flaky test".into(), st: OwnerSt::Delivered }, NOW_MS);
+    w.show(tool(DisplayKind::ToolStart, "c1", "bash", "cargo test -p init-root --offline", None), 0.0);
+    typed(&mut w, 2, "fix the test name too", false, Some(OwnerSt::Delivered), 7);
+    typed(&mut w, 3, "then update the changelog", true, Some(OwnerSt::Delivered), 8);
+    typed(&mut w, 4, "also run clippy\nand fmt", false, None, 0);
+    out.push_str(&w.screen(80, 16, 41.0, false));
+    // 2. the reply is being written: after this reply; a line being taken back
+    let mut w = World::new();
+    w.show(d(DisplayKind::Text, "Running the tests now."), 0.0);
+    typed(&mut w, 2, "use --nocapture", false, Some(OwnerSt::Delivered), 9);
+    typed(&mut w, 3, "never mind", false, Some(OwnerSt::Delivered), 10);
+    assert_eq!(w.tray.retract_newest(), Ok(10));
+    out.push_str(&w.screen(80, 12, 2.0, false));
+    // 3. INIT is updating (the body is paused) and the Root holds a line while the kernel restarts
+    let mut w = World::new();
+    w.info.on_state(json!({"slot": "pausing", "mode": "normal", "busy": true, "sha12": "3f9c0a1b2c4d", "queued": 1, "level": 0, "members": 0}), w.base);
+    typed(&mut w, 2, "keep going after the update", false, Some(OwnerSt::Delivered), 11);
+    typed(&mut w, 3, "and say when done", false, Some(OwnerSt::Queued), 0);
+    out.push_str(&w.screen(80, 12, 1.0, false));
+    // 4. many lines: the oldest fold
+    let mut w = World::new();
+    for i in 0..6u64 {
+        typed(&mut w, 10 + i, &format!("note {i}"), false, Some(OwnerSt::Delivered), 20 + i);
+    }
+    out.push_str(&w.screen(80, 14, 1.0, false));
+    // 5. the batch ends, the body acks seq 7: the steer is in the transcript, marked seen
+    let mut w = World::new();
+    w.t.push(Kind::Owner { id: 1, text: "fix the flaky test".into(), st: OwnerSt::Delivered }, NOW_MS);
+    w.show(tool(DisplayKind::ToolStart, "c1", "bash", "cargo test -p init-root --offline", None), 0.0);
+    typed(&mut w, 2, "fix the test name too", false, Some(OwnerSt::Delivered), 7);
+    w.show(tool(DisplayKind::ToolEnd, "c1", "bash", "exit 0, 214 passed", Some(true)), 41.0);
+    w.show(d(DisplayKind::TurnEnd, "tokens: in 900 (cached 800), out 20"), 41.0);
+    for o in w.tray.on_state(&json!({"busy": true, "t": "state", "steer_pending": [], "steer_seen": [7], "steer_retracted": []})) {
+        let TrayOut::Seen(it) = o else { panic!("seen") };
+        w.t.push(Kind::Owner { id: it.id, text: it.text, st: OwnerSt::Seen }, NOW_MS);
+    }
+    w.show(d(DisplayKind::Text, "Renaming it as well."), 42.0);
+    let s5 = w.screen(80, 14, 42.5, false);
+    assert!(!s5.contains("no result"), "{s5}");
+    assert!(s5.contains("· seen"), "{s5}");
+    out.push_str(&s5);
+    check("steer_tray", &out);
 }
 
 /// A conversation: an owner line, streaming Markdown text, thinking, a parallel batch, a turn end.
@@ -295,8 +356,8 @@ fn tui4_sanitizer_in_every_rendered_string() {
         let mut w = World::new();
         w.t.push(Kind::Owner { id: 1, text: evil.into(), st: OwnerSt::Delivered }, NOW_MS);
         w.show(d(DisplayKind::Text, evil), 0.0);
-        w.show(Display { kind: DisplayKind::ToolStart, text: evil.into(), call_id: Some(evil.into()), name: Some(evil.into()), ok: None, boot_seq: Some(1), detail: None }, 0.0);
-        w.show(Display { kind: DisplayKind::ToolEnd, text: evil.into(), call_id: Some(evil.into()), name: Some(evil.into()), ok: Some(false), boot_seq: Some(1), detail: Some(evil.into()) }, 0.1);
+        w.show(Display { kind: DisplayKind::ToolStart, text: evil.into(), call_id: Some(evil.into()), name: Some(evil.into()), ok: None, boot_seq: Some(1), detail: None, parent: None }, 0.0);
+        w.show(Display { kind: DisplayKind::ToolEnd, text: evil.into(), call_id: Some(evil.into()), name: Some(evil.into()), ok: Some(false), boot_seq: Some(1), detail: Some(evil.into()), parent: None }, 0.1);
         w.t.notice("alert", evil, Some("root"), None, NOW_MS);
         w.info.on_state(json!({"busy": true, "sha12": evil, "model": evil, "mode": evil}), w.base);
         w.ed.paste(evil);
@@ -346,11 +407,212 @@ fn tui4_fuzz_random_frames() {
             .collect();
         let k = kinds[(next() % kinds.len() as u64) as usize];
         let id = format!("c{}", next() % 4);
-        w.show(Display { kind: k, text: s.clone(), call_id: Some(id), name: Some(s.clone()), ok: Some(next() % 2 == 0), boot_seq: Some(1 + next() % 2), detail: None }, i as f64 * 1e-4);
+        w.show(Display { kind: k, text: s.clone(), call_id: Some(id), name: Some(s.clone()), ok: Some(next() % 2 == 0), boot_seq: Some(1 + next() % 2), detail: None, parent: None }, i as f64 * 1e-4);
         if i % 997 == 0 {
             w.t.notice("warn", &s, None, None, NOW_MS);
             let screen = w.screen(80, 24, i as f64 * 1e-4, i % 2 == 0);
             assert!(!screen.contains('\u{1b}') && !screen.contains('\u{9b}') && !screen.contains('\u{202e}'), "frame {i}");
         }
     }
+}
+
+// -------------------------------------------------------------------------------------------
+// TUI-UX: the per-turn activity block (§3.6), the heartbeat, and the token segment (§3.9)
+// -------------------------------------------------------------------------------------------
+
+/// A turn as the owner saw it flood by: a short reply, then 8 calls (one fails) with a token line
+/// per request, then a long `cargo build` still running.
+fn busy_turn(w: &mut World) {
+    let id = w.t.len() as u64 + 1;
+    w.t.push(Kind::Owner { id, text: "wire the delegate worktree".into(), st: OwnerSt::Delivered }, NOW_MS);
+    w.info.on_owner_delivered();
+    w.show(d(DisplayKind::Text, "Let me look at the worktree first.\n"), 0.5);
+    let tokens = |w: &mut World, i: u64, secs: f64| {
+        let t = format!("tokens: in {} (cached {}), out {}", 118_497 + i * 1089, 117_760 + i * 1100, 961 - i * 100);
+        w.show(d(DisplayKind::TurnEnd, &t), secs);
+        w.info.on_tokens(&t);
+    };
+    tokens(w, 0, 1.0);
+    let calls = [
+        ("bash", "cd \"$INIT_HOME/work/wt-delegate\" && python3 - <<'EOF'", "exit 0, 3 lines", true),
+        ("read", "read root/crates/init-root/src/link.rs", "412 lines", true),
+        ("bash", "git -C wt-delegate status --short", "exit 0, 7 lines", true),
+        ("edit", "src/delegate.rs (2 edits)", "error: no_match", false),
+        ("read", "read src/delegate.rs", "96 lines", true),
+        ("edit", "src/delegate.rs (1 edit)", "ok", true),
+        ("bash", "rg -n 'fn spawn' src", "exit 0, 4 lines", true),
+    ];
+    let mut at = 1.2;
+    for (i, (name, text, end, ok)) in calls.iter().enumerate() {
+        let cid = format!("c{i}");
+        w.show(tool(DisplayKind::ToolStart, &cid, name, text, None), at);
+        w.show(tool(DisplayKind::ToolEnd, &cid, name, end, Some(*ok)), at + 0.4);
+        tokens(w, i as u64 + 1, at + 1.0);
+        at += 1.5;
+    }
+    w.show(tool(DisplayKind::ToolStart, "c9", "bash", "cd wt-delegate && cargo build --offline 2>&1 | tail -40", None), 12.0);
+}
+
+#[test]
+fn tuiux_activity_running_heartbeat_frozen_expanded() {
+    let mut out = String::new();
+    // collapsed while running: header, +N more, the failure, the last 3, the running call; the
+    // heartbeat after 10 s with no output
+    let mut w = World::new();
+    busy_turn(&mut w);
+    out.push_str("-- running, no output for 52 s (heartbeat)\n");
+    out.push_str(&w.screen(100, 24, 64.0, false));
+    // the newest output line, dim; then stale output with the heartbeat
+    w.show(tool(DisplayKind::ToolProgress, "c9", "bash", "   Compiling init-root v0.2.0 (/x/root/crates/init-root)\n", None), 63.0);
+    out.push_str("-- running, output 1 s ago\n");
+    out.push_str(&w.screen(100, 24, 64.0, false));
+    out.push_str("-- running, output 15 s ago\n");
+    out.push_str(&w.screen(100, 24, 78.0, false));
+    out.push_str("-- running, narrow\n");
+    out.push_str(&w.screen(40, 14, 78.0, false));
+    // frozen when the reply's text arrives: one summary line plus the failure, printed once
+    w.show(tool(DisplayKind::ToolEnd, "c9", "bash", "exit 0, 40 lines", Some(true)), 80.0);
+    w.show(d(DisplayKind::Text, "The delegate builds. One edit missed its anchor; I re-read and fixed it.\n"), 84.0);
+    w.info.on_state(json!({"busy": false}), w.at(85.0));
+    out.push_str("-- frozen\n");
+    out.push_str(&w.screen(100, 24, 86.0, false));
+    // expanded: the transcript view (Ctrl-O) on the activity, and the /details copy
+    let i = w.t.last_activity().unwrap();
+    w.t.get_mut(i).unwrap().expanded = true;
+    let mut vs = super::transcript::ViewState { sel: i, top: i };
+    out.push_str("-- expanded (Ctrl-O)\n== 100x40 ==\n");
+    out.push_str(&grid(&super::transcript::render(&w.t, &mut vs, 100, 40, false, w.at(86.0)), 100));
+    // /details: the same activity printed in full into the main screen (with the first request's
+    // token line, which came before the first call)
+    let d_ = d;
+    let mut d = World::new();
+    assert_eq!(d.t.details(NOW_MS), Err("no tool activity yet"));
+    busy_turn(&mut d);
+    assert!(d.t.details(NOW_MS).is_err(), "still running");
+    d.show(Display { detail: Some("warning: unused import `Read`\n --> src/delegate.rs:3:5".into()), ..tool(DisplayKind::ToolEnd, "c9", "bash", "exit 0, 40 lines", Some(true)) }, 80.0);
+    d.show(d_(DisplayKind::Thinking, "The build passed."), 81.0);
+    d.show(d_(DisplayKind::Text, "Built.\n"), 84.0);
+    d.t.details(NOW_MS).unwrap();
+    let copy = d.t.blocks.back().map(|b| b.kind.clone());
+    assert!(matches!(copy, Some(Kind::Activity(a)) if a.full && matches!(&a.steps[0], crate::model::Step::Tokens(x) if x.starts_with("tokens: in 118497"))));
+    out.push_str("-- /details (printed in full; the tail of the screen)\n");
+    out.push_str(&d.screen(100, 30, 86.0, false));
+    check("tuiux_activity", &out);
+}
+
+#[test]
+fn tuiux_failed_single_and_thinking_states() {
+    let mut out = String::new();
+    // a single call freezes to its own row; two failures both stay visible
+    let mut w = World::new();
+    w.show(tool(DisplayKind::ToolStart, "a", "bash", "cat SELF.md", None), 0.0);
+    w.show(tool(DisplayKind::ToolEnd, "a", "bash", "exit 0, 96 lines", Some(true)), 0.3);
+    w.show(d(DisplayKind::Text, "Read it.\n"), 1.0);
+    for (i, ok) in [true, false, true, true, true, false].iter().enumerate() {
+        let cid = format!("f{i}");
+        w.show(tool(DisplayKind::ToolStart, &cid, "bash", &format!("cargo test -p crate{i}"), None), 2.0 + i as f64);
+        w.show(tool(DisplayKind::ToolEnd, &cid, "bash", if *ok { "exit 0" } else { "exit 101, 12 lines" }, Some(*ok)), 2.5 + i as f64);
+    }
+    out.push_str("-- failures never fold (live)\n");
+    out.push_str(&w.screen(80, 24, 8.0, false));
+    // thinking between calls: the header says so, and verbose shows its tail
+    w.show(d(DisplayKind::Thinking, "Two crates fail.\nBoth on the same assert.\nCheck the fixture first."), 8.2);
+    out.push_str("-- thinking between calls\n");
+    out.push_str(&w.screen(80, 24, 9.0, false));
+    out.push_str(&w.screen(80, 24, 9.0, true));
+    // an interrupt: the run ends with a call still running -> no result, visible
+    w.show(tool(DisplayKind::ToolStart, "z", "bash", "sleep 600", None), 9.5);
+    w.info.on_state(json!({"busy": false}), w.at(12.0));
+    w.t.end_activity(w.at(12.0));
+    out.push_str("-- frozen with failures and an interrupted call\n");
+    out.push_str(&w.screen(80, 24, 12.0, false));
+    check("tuiux_failed", &out);
+}
+
+#[test]
+fn tuiux_token_segment_in_the_status_bar() {
+    let mut out = String::new();
+    let mut observed = egress(1_230_000, 5_000_000);
+    observed["money"]["enforced"] = json!(false);
+    observed["money"]["policy"] = json!("observe");
+    type Setup = Box<dyn Fn(&mut World)>;
+    let cases: Vec<(&str, Setup)> = vec![
+        (
+            "turn with cache",
+            Box::new(|w| {
+                w.info.begin_turn();
+                w.info.on_tokens("tokens: in 118497 (cached 117760), out 961");
+                w.info.on_tokens("tokens: in 119586 (cached 119424), out 79");
+                let mut e = egress(1_234_200, 5_000_000);
+                e["money"]["total_spent_musd"] = json!(1_234_200);
+                w.info.on_egress(e);
+            }),
+        ),
+        (
+            "no cache field",
+            Box::new(|w| {
+                w.info.begin_turn();
+                w.info.on_tokens("tokens: in 5, out 6");
+            }),
+        ),
+        ("no token lines yet", Box::new(|_| {})),
+    ];
+    for (name, f) in cases {
+        for width in [140, 100, 80, 40] {
+            let mut w = World::new();
+            w.info.on_egress(observed.clone());
+            f(&mut w);
+            let l = super::status::bar(&w.info, width, w.at(41.0), NOW_MS, 3, false);
+            out.push_str(&format!("-- {name} @{width}\n"));
+            out.push_str(&grid(&[l], width));
+        }
+    }
+    check("tuiux_status", &out);
+}
+
+fn sub(kind: DisplayKind, parent: &str, id: &str, name: &str, text: &str, ok: Option<bool>) -> Display {
+    Display { parent: Some(parent.into()), ..tool(kind, &format!("{parent}/{id}"), name, text, ok) }
+}
+
+/// DELEGATE: a sub-task's calls (`parent_call_id`) are nested and collapsed under their delegate
+/// row: one `↳` line per delegate while running (with the running inner call), and after; the
+/// expanded view lists them one level deeper. Two parallel delegates each get their own line.
+#[test]
+fn delegate_nested_activity_collapsed_and_expanded() {
+    let mut out = String::new();
+    let mut w = World::new();
+    w.show(tool(DisplayKind::ToolStart, "d1", "delegate", "find every caller of render_subtask", None), 0.0);
+    w.show(tool(DisplayKind::ToolStart, "d2", "delegate", "review src/loop/delegate.rs", None), 0.0);
+    w.show(sub(DisplayKind::ToolStart, "d1", "c1", "bash", "rg -n render_subtask src", None), 0.5);
+    w.show(sub(DisplayKind::ToolEnd, "d1", "c1", "bash", "exit 0, 4 lines", Some(true)), 0.9);
+    w.show(sub(DisplayKind::ToolStart, "d2", "c1", "read", "read src/loop/delegate.rs", None), 0.6);
+    w.show(sub(DisplayKind::ToolEnd, "d2", "c1", "read", "612 lines", Some(true)), 0.7);
+    w.show(sub(DisplayKind::ToolStart, "d2", "c2", "write", "write notes.md", None), 1.0);
+    w.show(sub(DisplayKind::ToolEnd, "d2", "c2", "write", "error: not_available", Some(false)), 1.0);
+    w.show(sub(DisplayKind::ToolStart, "d1", "c2", "read", "read src/context/engine.rs", None), 1.2);
+    out.push_str("-- two delegates running, nested calls collapsed\n");
+    out.push_str(&w.screen(100, 16, 2.0, false));
+    w.show(sub(DisplayKind::ToolEnd, "d1", "c2", "read", "1424 lines", Some(true)), 2.5);
+    w.show(tool(DisplayKind::ToolEnd, "d2", "delegate", "done · 2 calls", Some(true)), 2.6);
+    w.show(tool(DisplayKind::ToolEnd, "d1", "delegate", "done · 2 calls", Some(true)), 3.0);
+    w.show(d(DisplayKind::Text, "Both scouts reported.\n"), 3.5);
+    w.info.on_state(json!({"busy": false}), w.at(3.6));
+    out.push_str("-- frozen: the summary counts the two delegate calls only\n");
+    out.push_str(&w.screen(100, 16, 4.0, false));
+    let i = w.t.last_activity().unwrap();
+    w.t.get_mut(i).unwrap().expanded = true;
+    let mut vs = super::transcript::ViewState { sel: i, top: i };
+    out.push_str("-- expanded (Ctrl-O): sub-task calls one level deeper\n== 100x60 ==\n");
+    out.push_str(&grid(&super::transcript::render(&w.t, &mut vs, 100, 60, false, w.at(4.0)), 100));
+    // one delegate alone: its row and its nested line stay together when frozen
+    let mut s = World::new();
+    s.show(tool(DisplayKind::ToolStart, "d9", "delegate", "count the tests", None), 0.0);
+    s.show(sub(DisplayKind::ToolStart, "d9", "c1", "bash", "cargo test -- --list", None), 0.2);
+    s.show(sub(DisplayKind::ToolEnd, "d9", "c1", "bash", "exit 0, 312 lines", Some(true)), 1.2);
+    s.show(tool(DisplayKind::ToolEnd, "d9", "delegate", "done · 1 call", Some(true)), 1.5);
+    s.show(d(DisplayKind::Text, "312 tests.\n"), 2.0);
+    s.info.on_state(json!({"busy": false}), s.at(2.1));
+    out.push_str("-- one delegate, frozen\n");
+    out.push_str(&s.screen(80, 10, 2.5, false));
+    check("delegate_nested", &out);
 }

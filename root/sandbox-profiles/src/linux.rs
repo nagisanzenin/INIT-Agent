@@ -51,6 +51,16 @@ fn compiler_selectors(v: &mut Vec<OsString>, alternatives: &Path, binaries: &Pat
     Ok(())
 }
 
+/// The calling process's real uid and gid, from `/proc/self/status` (no FFI here).
+fn owner_ids() -> Result<(u32, u32), String> {
+    let status = std::fs::read_to_string("/proc/self/status").map_err(|e| format!("/proc/self/status: {e}"))?;
+    let first = |key: &str| status.lines().find_map(|l| l.strip_prefix(key)).and_then(|v| v.split_whitespace().next()?.parse().ok());
+    match (first("Uid:"), first("Gid:")) {
+        (Some(u), Some(g)) => Ok((u, g)),
+        _ => Err("cannot read the owner's uid and gid from /proc/self/status".into()),
+    }
+}
+
 fn foundation() -> Result<Vec<OsString>, String> {
     // unshare execs bwrap (no shell/fork), retaining the Root-held leader PID. The outer
     // net namespace stays isolated; unlike bwrap --unshare-net it never configures lo,
@@ -59,6 +69,11 @@ fn foundation() -> Result<Vec<OsString>, String> {
     let mut v: Vec<OsString> = ["/usr/bin/unshare", "--user", "--map-root-user", "--net", "--", "/usr/bin/bwrap", "--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid",
         "--unshare-ipc", "--unshare-uts", "--disable-userns", "--cap-drop", "ALL", "--add-seccomp-fd", "5",
         "--proc", "/proc", "--dev", "/dev", "--size", "67108864", "--tmpfs", "/tmp"].into_iter().map(Into::into).collect();
+    // The zone keeps the owner's own uid and gid (as Seatbelt does): `unshare --map-root-user` makes the Root's
+    // uid 0 in the outer namespace, and bwrap maps that 0 back to the owner's ids, so getuid() and the passwd entry
+    // (/etc/passwd is bound) give the owner's HOME_REAL, which the broker's V3 and class rules compare against.
+    let (uid, gid) = owner_ids()?;
+    v.extend(["--uid".into(), uid.to_string().into(), "--gid".into(), gid.to_string().into()]);
     // Host /etc, /run, /home, /root and /sys are deliberately not mounted.
     for s in ["/usr", "/bin", "/sbin", "/lib", "/lib64", "/etc/ld.so.cache", "/etc/ld.so.conf", "/etc/ld.so.conf.d", "/etc/passwd", "/etc/group"] {
         let q = Path::new(s);
@@ -81,7 +96,10 @@ pub fn compose(id: ProfileId, p: &BTreeMap<String, String>, l: &Layout, mark: &P
     canonical(&l.root_home)?;
     canonical(mark)?;
     let mut v = foundation()?;
-    for q in std::iter::once(&l.toolchain).chain(l.extra_read.iter()) {
+    // Without a Rust toolchain the Root names INIT_HOME/kernel as a harmless placeholder (zone.rs `vctx`): the
+    // profile already mounts what it needs of INIT_HOME, so the placeholder adds no mount.
+    let placeholder = l.init_home.join("kernel");
+    for q in std::iter::once(&l.toolchain).filter(|t| **t != placeholder).chain(l.extra_read.iter()) {
         canonical(q)?;
         if overlap(q, &l.root_home) || overlap(q, &l.init_home) || l.read_deny.iter().any(|d| overlap(q, d)) {
             return Err(format!("Linux read mount overlaps protected tree: {}", q.display()));
@@ -90,6 +108,11 @@ pub fn compose(id: ProfileId, p: &BTreeMap<String, String>, l: &Layout, mark: &P
     }
     let mut bind = |key: &str, writable: bool| -> Result<(), String> {
         let q = path(p, key)?;
+        // A lane socket the kernel has not bound yet is left out, as the offline kernel plan leaves out an absent
+        // gateway: an absent socket grants nothing, and a bind of a missing path would refuse the whole spawn.
+        if key.ends_with("_SOCK") && std::fs::symlink_metadata(q).is_err_and(|e| e.kind() == std::io::ErrorKind::NotFound) {
+            return Ok(());
+        }
         canonical(q)?;
         if !q.starts_with(&l.init_home) || overlap(q, &l.root_home) { return Err(format!("Linux {key} outside INIT_HOME")); }
         let frozen = l.frozen && !(id == ProfileId::Body && key == "WORK")
@@ -179,6 +202,9 @@ mod tests {
         let v = compose(ProfileId::Build, &p, &l, &mark, &Grant::default()).unwrap();
         let v: Vec<_> = v.iter().map(|x| x.to_str().unwrap()).collect();
         for option in ["--unshare-user", "--unshare-pid", "--net", "--disable-userns", "--add-seccomp-fd", "--die-with-parent"] { assert!(v.contains(&option)); }
+        // the zone keeps the owner's ids (getuid() inside is the owner's, not the outer namespace's root)
+        let uid = std::fs::metadata("/proc/self").map(|m| std::os::unix::fs::MetadataExt::uid(&m)).unwrap().to_string();
+        assert!(v.windows(2).any(|w| w[0] == "--uid" && w[1] == uid), "{v:?}");
         let writable: Vec<_> = v.windows(3).filter(|w| w[0] == "--bind").map(|w| w[1]).collect();
         assert_eq!(writable, vec![p["OUT"].as_str()]);
         assert!(!v.windows(3).any(|w| w[0] == "--ro-bind" && w[1] == "/"));
@@ -293,6 +319,40 @@ mod tests {
         }).into_iter().collect();
         let build = compose(ProfileId::Build, &p, &l, &mark, &Grant::default()).unwrap();
         assert!(!build.iter().any(|part| part == l.init_home.join("vault").as_os_str()));
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn linux_body_plan_omits_an_unbound_lane_socket_only() {
+        let (dir, l, mark) = fixture("body-socks");
+        let mut p = BTreeMap::new();
+        for (k, sub) in [("BODY", "body"), ("WORK", "work"), ("STATE", "state"), ("STATE_KERNEL", "state/kernel"), ("KERNEL", "kernel"),
+            ("BIN", "bin"), ("LINEAGE", "lineage"), ("PUB", "root")] {
+            let d = l.init_home.join(sub); std::fs::create_dir_all(&d).unwrap(); p.insert(k.to_string(), d.display().to_string());
+        }
+        for (k, target) in [("LINK_KERNEL", "KERNEL"), ("LINK_BIN", "BIN"), ("LINK_LINEAGE", "LINEAGE")] { let v = p[target].clone(); p.insert(k.into(), v); }
+        std::fs::create_dir_all(l.init_home.join("run")).unwrap();
+        let ks = l.init_home.join("run/kernel.sock");
+        p.insert("KERNEL_SOCK".into(), ks.display().to_string());
+        p.insert("PROXY_SOCK".into(), l.init_home.join("run/proxy.sock").display().to_string());
+        let args = compose(ProfileId::Body, &p, &l, &mark, &Grant::default()).unwrap();
+        assert!(!args.iter().any(|a| a.to_string_lossy().ends_with(".sock")), "no unbound socket is mounted");
+        let _k = std::os::unix::net::UnixListener::bind(&ks).unwrap();
+        let args = compose(ProfileId::Body, &p, &l, &mark, &Grant::default()).unwrap();
+        assert!(args.windows(3).any(|w| w[0] == "--ro-bind" && w[1] == ks.as_os_str()), "a bound socket is mounted read-only");
+        p.insert("BODY".into(), l.init_home.join("missing").display().to_string());
+        assert!(compose(ProfileId::Body, &p, &l, &mark, &Grant::default()).is_err(), "a missing directory still refuses");
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+    #[test]
+    fn linux_without_a_toolchain_the_kernel_placeholder_adds_no_mount() {
+        let (dir, mut l, mark) = fixture("no-toolchain");
+        l.toolchain = l.init_home.join("kernel");
+        std::fs::create_dir_all(&l.toolchain).unwrap();
+        let args = compose(ProfileId::Kernel, &BTreeMap::new(), &l, &mark, &Grant::default()).unwrap();
+        assert!(args.windows(3).any(|w| w[0] == "--ro-bind" && w[1] == l.toolchain.as_os_str()), "the kernel dir stays read-only");
+        l.toolchain = l.init_home.join("work");
+        std::fs::create_dir_all(&l.toolchain).unwrap();
+        assert!(compose(ProfileId::Kernel, &BTreeMap::new(), &l, &mark, &Grant::default()).is_err(), "any other INIT_HOME path is refused");
         std::fs::remove_dir_all(dir).unwrap();
     }
     #[test]

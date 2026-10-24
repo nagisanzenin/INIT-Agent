@@ -1,27 +1,28 @@
 == 80x24 ==
 ⠸ thinking… 1.5 s                                                               |ddddddddddddddddd                                                               
 ╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers the current run · /later <text> queues a follow-up            │|eeccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd...........ee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
 ╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
  L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Enter send · Shift-Enter newline · Ctrl-C interrupt (twice: quit) · Ctrl-O tra…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
 cursor 4,2
 == 80x24 ==
 ⠸ thinking… 1.5 s                                                               |ddddddddddddddddd                                                               
   Step one: read.                                                               |..ddddddddddddddd                                                               
   Step two: write.                                                              |..dddddddddddddddd                                                              
 ╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers the current run · /later <text> queues a follow-up            │|eeccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd...........ee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
 ╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
  L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Enter send · Shift-Enter newline · Ctrl-C interrupt (twice: quit) · Ctrl-O tra…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
 cursor 4,4
 == 80x24 ==
-⠸ bash   sleep 5                                                 running · 3.0 s|ccbbbb...........................................................ddddddddddddddd
-▸ read   read docs/tui.md                                    ✓ 512 lines · 0.4 s|ddbbbb.......................................................ggddddddddddddddddd
+⠸ bash sleep 5                                                   2 calls · 3.0 s|ccbbbb...........................................................ddddddddddddddd
+    running 3.0 s                                                               |....ccccccccccccc                                                               
+  ▸ read   read docs/tui.md                                  ✓ 512 lines · 0.4 s|..ddbbbb.....................................................ggddddddddddddddddd
 ╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers the current run · /later <text> queues a follow-up            │|eeccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd...........ee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
 ╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
  L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Enter send · Shift-Enter newline · Ctrl-C interrupt (twice: quit) · Ctrl-O tra…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-cursor 4,3
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
+cursor 4,4

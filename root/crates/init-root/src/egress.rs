@@ -55,6 +55,16 @@ const KERNEL_HEADERS: [&str; 6] = ["content-type", "accept", "anthropic-version"
 const RESP_HEADERS: [&str; 7] = ["content-type", "retry-after", "retry-after-ms", "request-id", "x-request-id", "x-ds-trace-id", "openai-processing-ms"];
 const ALERT_REPEAT_MS: i64 = 600_000;
 
+/// `x-egress-subtask` (MERGE, body/tools.md §3.7): the kernel forwards a `delegate` sub-task's label so the sentinel
+/// counts it apart from the main loop (H10, H5b). Only the §3.6 id grammar counts (≤ 64 bytes,
+/// `[a-zA-Z0-9][a-zA-Z0-9._-]*`); like every zone header it never reaches the provider (`send` relays `KERNEL_HEADERS`).
+fn subtask(h: &Head) -> bool {
+    h.get("x-egress-subtask").is_some_and(|v| {
+        let b = v.as_bytes();
+        !b.is_empty() && b.len() <= 64 && b[0].is_ascii_alphanumeric() && b.iter().all(|c| c.is_ascii_alphanumeric() || matches!(c, b'.' | b'_' | b'-'))
+    })
+}
+
 /// A provider key in memory: no `Debug`, `Display` or `Serialize`; zeroed on drop (§3.2).
 pub struct Secret(Vec<u8>);
 
@@ -571,7 +581,7 @@ impl Egress {
             return self.reply(w, a.family, &refusal("root.ledger", "the Root cannot record usage; refusing (fail closed)"), Vec::new());
         }
         if let Some(root) = self.root.upgrade() {
-            crate::sentinel::egress_start(&root, &a.id, body.len() as u64); // X3: the turn tap
+            crate::sentinel::egress_start(&root, &a.id, body.len() as u64, subtask(h)); // X3: the turn tap
         }
         let mut retries = 0u32;
         let res = loop {
@@ -770,6 +780,20 @@ mod tests {
             level: AtomicI64::new(0), safe: AtomicBool::new(false), panicked: AtomicBool::new(false), inflight: AtomicUsize::new(0),
             open: AtomicUsize::new(0), seq: AtomicU64::new(0), boot: "b".into(), conns: Mutex::new(BTreeMap::new()), agent: ureq::Agent::new_with_defaults(),
             alerted: Mutex::new(BTreeMap::new()) }
+    }
+
+    /// MERGE: only a well-formed `x-egress-subtask` marks a sub-task request, and no zone header is ever relayed upstream.
+    #[test]
+    fn subtask_header_is_validated_and_never_relayed() {
+        let head = |v: Option<&str>| Head { method: "POST".into(), target: "/".into(), close: false,
+            headers: v.map(|v| vec![("x-egress-subtask".to_string(), v.to_string())]).unwrap_or_default() };
+        assert!(subtask(&head(Some("delegate-call_7"))));
+        let long = "a".repeat(65);
+        for bad in [None, Some(""), Some("-x"), Some("a b"), Some("a/b"), Some(long.as_str())] {
+            assert!(!subtask(&head(bad)), "{bad:?}");
+        }
+        assert!(subtask(&head(Some(&long[..64]))));
+        assert!(KERNEL_HEADERS.iter().all(|k| !k.starts_with("x-")), "zone headers stay inside the Root");
     }
 
     #[test]

@@ -20,6 +20,11 @@
 //! Safety: the Root, the mock and every helper are this test's own children, stopped by their held
 //! handles (the Root by `init-root stop`, then SIGTERM to its held pid). Nothing reads the real
 //! DeepSeek key. The run dir is removed by exact path on success and kept on failure.
+//!
+//! LINUX: gated to macOS. A6 drives the Seatbelt zone (sandbox_check zonecheck, the Command Line Tools developer dir,
+//! APFS clones). The Linux zone's invariants are qualified by init-root's `linux_zone_real_isolation`,
+//! `linux_sealed_real_isolation` and the bundle e2e; a Linux A6 port is open (build/status/LINUX.md).
+#![cfg(target_os = "macos")]
 
 use init_testkit::mockllm::http::{Listen, MockServer};
 use init_testkit::mockllm::{Mock, MockConfig, Mode, Script};

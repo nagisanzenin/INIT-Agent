@@ -17,7 +17,7 @@ mod sha256;
 // Normalized model I/O types shared by loop, tools, context and provider (body/provider.md §3.2).
 #[allow(dead_code)]
 mod model;
-// WP11: the agent loop (body/loop.md) and the five tools (body/tools.md).
+// WP11: the agent loop (body/loop.md) and the tools (body/tools.md).
 #[allow(dead_code)]
 mod r#loop;
 #[allow(dead_code)]

@@ -366,6 +366,11 @@ impl World {
 
     /// A candidate on `evo/<id>` in the agent's repo: `plan` (None: X's), the edit, selfmap, commit.
     fn candidate(&self, id: &str, plan: Option<Value>, edit: impl Fn(&Path), subject: &str, regen: bool) -> String {
+        self.candidate_msg(id, plan, edit, subject, MSG_OK, regen)
+    }
+
+    /// [`World::candidate`] with its own trailer block.
+    fn candidate_msg(&self, id: &str, plan: Option<Value>, edit: impl Fn(&Path), subject: &str, msg: &str, regen: bool) -> String {
         let b = self.home.join("body");
         ag(&b, &self.home, &["checkout", "-q", "-B", &format!("evo/{id}"), &self.x]);
         if let Some(p) = plan {
@@ -376,7 +381,7 @@ impl World {
             selfmap_write(&b, &self.home);
         }
         ag(&b, &self.home, &["add", "-A"]);
-        ag(&b, &self.home, &["commit", "-q", "-m", &format!("{subject}\n\n{MSG_OK}")]);
+        ag(&b, &self.home, &["commit", "-q", "-m", &format!("{subject}\n\n{msg}")]);
         ag(&b, &self.home, &["rev-parse", "HEAD"])
     }
 
@@ -534,6 +539,30 @@ fn g31_a3_full_t2_path_to_lkg() {
         }
     }
     assert_eq!(g["n"]["holdout"], GAIN_MIN_HOLDOUT);
+    w.stop();
+}
+
+/// REL-G0: a `Prefix-change: yes` candidate (a new system prompt) passes G0–G3. G3's inner gate used to
+/// check continuity against the live body, whose prefix the candidate replaces by design, and failed
+/// `gate.g3.inner_g2` (continuity, element 0) for every prefix-changing T2 candidate (the owner's
+/// `delegate` tool on a v0.2.0-preview install).
+#[test]
+fn rel_g0_prefix_change_candidate_passes_g3() {
+    let _wd = init_testkit::watchdog::arm("rel_g0_prefix_change_candidate_passes_g3", Duration::from_secs(450));
+    let w = World::new("p", WorldOpts { lkg_plan: ok_plan(), leaky_canary: false, pool: 2, holdout: 1 });
+    w.converse();
+    let msg = "Why: the REL-G0 test needs a prefix-changing candidate.\nPredicts: pass_rate >= parent\nCompensates-for: none (test)\nPrefix-change: yes\nRepro: task:t0\n";
+    let y = w.candidate_msg("px", Some(json!({"system": "You are INIT, a test agent body with a new prompt."})), |b| std::fs::write(b.join("src/main.rs"), main_rs("// px\n")).unwrap(), "refactor(prompt): a new system prompt", msg, true);
+    let (r, j) = w.promote("px");
+    assert_eq!(r.unwrap()["sha"], y.as_str());
+    let done = j.wait(T * 4).expect("promote ended");
+    assert!(done.is_ok(), "promote: {done:?}\nevents: {:?}", j.events.lock().unwrap());
+    let stages: Vec<String> = j.stages().iter().filter(|s| s.pass).map(|s| s.stage.to_string()).collect();
+    assert_eq!(stages, ["G0", "G1", "G2", "G3", "handoff"]);
+    let full: Vec<Value> = common::jsonl(&w.home.join("vault/lineage.jsonl")).into_iter().filter(|l| l["kind"] == "gate").map(|l| l["data"].clone()).collect();
+    let pr = full.iter().find(|r| r["gate_kind"] == "promote").expect("promote record");
+    assert_eq!(pr["stages"]["G2"]["continuity"], "waived", "{}", pr["stages"]["G2"]);
+    assert_ne!(pr["stages"]["G2"]["prefix_hash"], pr["stages"]["G2"]["parent_prefix_hash"]);
     w.stop();
 }
 

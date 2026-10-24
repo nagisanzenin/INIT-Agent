@@ -58,8 +58,12 @@ for copy in "$repo/seed/src/boot/CONSTITUTION.md" "$repo/seed/src/context/testda
 done
 
 step "kernel build" "$repo/kernel" "$kernel_target" cargo build --offline
-step "kernel test" "$repo/kernel" "$kernel_target" cargo test --offline --no-fail-fast
+# The kernel's acceptance tests (WP15) run the seed's init-body and the Root's init-root: build both first, so a fresh
+# checkout (or a fresh Linux container) passes without leftovers from an earlier run.
 step "root build" "$repo/root" "$root_target" cargo build --offline
+step "seed build" "$repo/seed" "$seed_target" cargo build --offline
+step "kernel test" "$repo/kernel" "$kernel_target" env WP15_BODY_BIN="$seed_target/debug/init-body" \
+  WP15_ROOT_BIN="$root_target/debug/init-root" cargo test --offline --no-fail-fast
 step "root test" "$repo/root" "$root_target" cargo test --offline --no-fail-fast
 # The Root's integration tests are gated on `test-fixtures` (fake clock, test ledgers; root/root.md §3.16).
 # The egress tests use the kernel workspace's init-mockllm as their loopback upstream (WP22).
@@ -70,7 +74,19 @@ else
   echo "note: $mock is missing; the init-mockllm egress test looks for another build or skips"
   step "root test (test-fixtures)" "$repo/root" "${ROOT_FX_TARGET_DIR:-$root_target}" cargo test --offline --no-fail-fast -p init-root --features test-fixtures
 fi
-step "seed build" "$repo/seed" "$seed_target" cargo build --offline
+# LINUX: the native zone qualification, never skipped on Linux (an incapable host fails it): bwrap >= 0.13.0 mount and
+# seccomp confinement with a real compiler run (cc1), the sealed profile, pidfd STOP/KILL, and the memory watchdog
+# killing one tool call behind the bwrap hops. INIT_TEST_CGROUP=1 (in a delegated cgroup v2 subtree) adds the
+# memory.max backstop. They need the Root binary itself for exec-clean.
+if [ "$(uname -s)" = Linux ]; then
+  step "linux zone qualification (bwrap, seccomp, pidfd, memwatch)" "$repo/root" "$root_target" \
+    env INIT_TEST_ROOT_BIN="$root_target/debug/init-root" cargo test --offline -p init-root --bin init-root --features test-fixtures \
+    -- --ignored --test-threads=1 linux_
+  if [ "${INIT_TEST_CGROUP:-0}" = 1 ]; then
+    step "linux cgroup v2 memory.max" "$repo/root" "$root_target" cargo test --offline -p init-root --bin init-root \
+      --features test-fixtures -- --ignored --test-threads=1 cgroup::tests::a_workload
+  fi
+fi
 # The seed's provider and boot tests drive init-mockllm when it is built (else they skip, and say so).
 step "seed test" "$repo/seed" "$seed_target" env INIT_MOCKLLM_BIN="$mock" cargo test --offline --no-fail-fast
 step "ext build (wasm32-wasip2)" "$repo/seed/ext" "$seed_target" cargo build --offline --target wasm32-wasip2
@@ -90,8 +106,12 @@ fi
 # broker instance checked (V1-V5, class rules) and composed by the Root's own init-sandbox-profiles code, and G0 and $G
 # under the kernel zone profile. It builds into the kernel target dir (no new target dir); its test homes under
 # kernel/target/test-homes/sb are removed when it passes. The fast G1 check in the same file runs in "kernel test".
-step "promote under Seatbelt (A3, real profiles)" "$repo/kernel" "$kernel_target" \
-  cargo test --offline -p kernel-supervise --test promote_seatbelt -- --ignored
+if [ "$(uname -s)" = Darwin ]; then
+  step "promote under Seatbelt (A3, real profiles)" "$repo/kernel" "$kernel_target" \
+    cargo test --offline -p kernel-supervise --test promote_seatbelt -- --ignored
+else
+  echo "==> promote under Seatbelt (A3): skipped, macOS only (Linux: the bwrap zone steps below)"
+fi
 
 # The TUI workspace (docs/tui.md §8): unit tests with the render goldens and the sanitizer fuzz (TUI-1…4),
 # the fixture owner socket and line mode (TUI-5…10), a pty session (TUI-12).

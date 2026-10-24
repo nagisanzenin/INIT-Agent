@@ -127,8 +127,10 @@ pub struct Base {
 }
 
 impl Base {
+    /// H10 and H5b see the main loop's share: `delegate` sub-task requests and cost are left out (MERGE).
     fn of(t: &Turn) -> Base {
-        Base { seq: t.seq, unit: t.unit, cost: t.cost_musd, wall: t.wall_ms, req: u64::from(t.requests), bytes: t.req_bytes, corr: t.correction, zspend: t.zspend_musd }
+        Base { seq: t.seq, unit: t.unit, cost: t.cost_musd.saturating_sub(t.sub_cost_musd), wall: t.wall_ms,
+            req: u64::from(t.requests.saturating_sub(t.sub_requests)), bytes: t.req_bytes, corr: t.correction, zspend: t.zspend_musd }
     }
 }
 
@@ -188,7 +190,32 @@ pub struct Req {
     pub turn: u64,
     pub start: i64,
     pub end: Option<i64>,
+    /// A `delegate` sub-task's request (`x-egress-subtask`).
+    #[serde(default)]
+    pub sub: bool,
 }
+
+/// A plain steer awaiting its retract (MERGE): the turn it counted in, the line's head (≤ 256 bytes) and length to
+/// match the kernel echo, and the echo's `seq` once seen.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Steer {
+    pub turn: u64,
+    pub head: String,
+    pub len: usize,
+    pub seq: Option<u64>,
+}
+
+impl Steer {
+    /// The kernel echo of this line: the same text, or (cut to fit the owner line) a prefix and the kernel's marker.
+    fn echoes(&self, echo: &str) -> bool {
+        match echo.find(" [kernel: showing ") {
+            None => echo.len() == self.len && echo.starts_with(&self.head),
+            Some(i) => i < self.len && (echo[..i].starts_with(&self.head) || self.head.starts_with(&echo[..i])),
+        }
+    }
+}
+
+const STEERS: usize = 64;
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Pending {
@@ -260,6 +287,9 @@ pub struct Engine {
     pub day: (i64, u32),
     pub kday: (i64, u32),
     pub suppress_until: i64,
+    /// Plain steers that a retract may still take back (not persisted: a restart forgets them).
+    #[serde(skip)]
+    pub steers: VecDeque<Steer>,
 }
 
 /// Thresholds are pure functions of their arguments: cached once computed.
@@ -459,7 +489,21 @@ fn first_word(text: &str) -> &str {
     text.split_whitespace().next().unwrap_or("")
 }
 
+/// Owner corrections typed as lines (MERGE): `/undo`, the kernel's `/stop` (alone on its line, as the kernel reads it),
+/// and the owner's reversals `/reject` and `/rollback`. `/panic` and interrupts (Esc, Ctrl-C, `then:"continue"`) reach
+/// the engine by `panic` and `interrupt`. A plain steer, a `/later` line or a retracted line is never a correction.
 const CORRECTIONS: [&str; 5] = ["/undo", "/stop", "/reject", "/rollback", "/panic"];
+/// Lines that neither correct nor steer the running turn: the kernel's follow-up and its read-only or settling commands.
+const NOT_STEERS: [&str; 6] = ["/later", "/resume", "/status", "/kernel", "/accept", "/bless"];
+
+fn is_correction(text: &str) -> bool {
+    let mut w = text.split_whitespace();
+    match w.next() {
+        Some("/stop") => w.next().is_none(),
+        Some(word) => CORRECTIONS.contains(&word),
+        None => false,
+    }
+}
 
 impl Engine {
     pub fn new(current: Option<&str>) -> Engine {
@@ -581,11 +625,23 @@ impl Engine {
             self.lines.push_back(Line { qid: qid.into(), at: cx.now, ..Line::default() });
         }
         let word = first_word(text);
-        let corr = CORRECTIONS.contains(&word);
+        let corr = is_correction(text);
         match self.turn.as_ref().map(|t| t.kind.as_str()) {
             Some("owner") => {
                 if let Some(t) = self.turn.as_mut() {
-                    t.correction = true; // a steer
+                    if corr {
+                        t.correction = true;
+                    } else if !NOT_STEERS.contains(&word) {
+                        t.steered += 1; // a plain steer: a weak signal, never a correction
+                        let mut cut = text.len().min(256);
+                        while !text.is_char_boundary(cut) {
+                            cut -= 1;
+                        }
+                        self.steers.push_back(Steer { turn: t.seq, head: text[..cut].into(), len: text.len(), seq: None });
+                        if self.steers.len() > STEERS {
+                            self.steers.pop_front();
+                        }
+                    }
                 }
             }
             Some(_) => {
@@ -622,8 +678,47 @@ impl Engine {
         self.session += 1;
     }
 
+    /// An owner interrupt (Esc or Ctrl-C, with or without `then:"continue"`), `/undo` or `/rollback`: a correction.
     pub fn interrupt(&mut self, cx: &Ctx) {
         self.mark_correction(cx.now);
+    }
+
+    /// One owner frame the Root relayed to the kernel (`link.rs` `deliver`, after the redelivery check): `line` starts
+    /// or steers a turn, `interrupt` is a correction, `retract{seq}` takes a steer back.
+    pub fn frame(&mut self, cx: &Ctx, qid: &str, frame: &Value) -> Vec<Act> {
+        match frame["t"].as_str() {
+            Some("interrupt") => {
+                self.interrupt(cx);
+                Vec::new()
+            }
+            Some("line") => self.line(cx, qid, frame["text"].as_str().unwrap_or("")),
+            Some("retract") => {
+                if let Some(seq) = frame["seq"].as_u64() {
+                    self.retract(seq);
+                }
+                Vec::new()
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// The kernel's `echo{seq, text}` of an owner line: binds `seq` to the oldest steer with that text not yet bound.
+    pub fn echoed(&mut self, seq: u64, text: &str) {
+        if let Some(s) = self.steers.iter_mut().find(|s| s.seq.is_none() && s.echoes(text)) {
+            s.seq = Some(seq);
+        }
+    }
+
+    /// A relayed `retract{seq}`: the steer echoed as `seq` no longer counts in its turn (open or recently closed).
+    pub fn retract(&mut self, seq: u64) {
+        let Some(i) = self.steers.iter().position(|s| s.seq == Some(seq)) else { return };
+        let Some(s) = self.steers.remove(i) else { return };
+        let undo = |t: &mut Turn| t.steered = t.steered.saturating_sub(1);
+        if let Some(t) = self.turn.as_mut().filter(|t| t.seq == s.turn) {
+            undo(t);
+        } else if let Some(t) = self.recent.iter_mut().find(|t| t.seq == s.turn) {
+            undo(t);
+        }
     }
 
     pub fn ack(&mut self, qid: &str) {
@@ -634,15 +729,23 @@ impl Engine {
         self.busy = busy;
     }
 
+    /// A main-loop zone request begins (the tests' shorthand for `req_start_as(…, false)`).
+    #[cfg(test)]
     pub fn req_start(&mut self, cx: &Ctx, id: &str, bytes: u64) -> Vec<Act> {
+        self.req_start_as(cx, id, bytes, false)
+    }
+
+    /// A zone request begins; `sub`: a `delegate` sub-task's (`x-egress-subtask`), counted apart for H10 and H5b.
+    pub fn req_start_as(&mut self, cx: &Ctx, id: &str, bytes: u64, sub: bool) -> Vec<Act> {
         if self.turn.is_none() {
             self.start_turn(cx, "background");
         }
         let t = self.turn.as_mut().expect("a turn is open");
         t.requests += 1;
+        t.sub_requests += u32::from(sub);
         t.req_bytes += bytes;
         let seq = t.seq;
-        self.reqs.insert(id.into(), Req { turn: seq, start: cx.now, end: None });
+        self.reqs.insert(id.into(), Req { turn: seq, start: cx.now, end: None, sub });
         self.quiet_since = None;
         self.lines.iter_mut().for_each(|l| l.egress = true);
         Vec::new()
@@ -670,9 +773,10 @@ impl Engine {
         let mut out = Vec::new();
         let Some(r) = self.reqs.get_mut(id) else { return out };
         r.end = Some(cx.now);
-        let seq = r.turn;
+        let (seq, sub) = (r.turn, r.sub);
         if let Some(t) = self.turn.as_mut().filter(|t| t.seq == seq) {
             t.cost_musd += cost;
+            t.sub_cost_musd += if sub { cost } else { 0 };
             t.provider_errors += u32::from(error);
         }
         self.spend.push_back((cx.now, cost));

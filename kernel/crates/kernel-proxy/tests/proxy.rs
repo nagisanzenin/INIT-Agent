@@ -1146,3 +1146,37 @@ fn x5_init_caps_forwarded_as_egress_caps() {
     drop(rig);
     std::fs::remove_dir_all(&home).unwrap();
 }
+
+/// MERGE (body/tools.md §3.7): a well-formed `x-init-subtask` reaches the Root egress as
+/// `x-egress-subtask`, verbatim; a malformed one (bad first byte, bad charset, over 64 bytes), or
+/// none, forwards nothing; the `x-init-subtask` original never leaves the proxy.
+#[test]
+fn subtask_forwarded_as_egress_subtask() {
+    let _wd = init_testkit::watchdog::arm("subtask_forwarded_as_egress_subtask", WD);
+    let t = r#"{"v":1,"kind":"turn","reply":{"text":"ok","stop":"end_turn","usage":{"input":10,"output":2}}}"#;
+    let s = script(&[t, t, t, t, t, t]);
+    let rig = Rig::new("subtask", RigOpts { script: &s, ..RigOpts::default() });
+    let body = chat("mock-frontier-1", "hi", 100);
+    let long = format!("delegate-{}", "a".repeat(60));
+    let cases = [Some("delegate-call_7"), Some("-bad"), Some("delegate call"), Some("delegate/x"), Some(long.as_str()), None];
+    for sub in cases {
+        let mut h = vec![("x-init-session", "20261020-010203-abcdef"), ("x-init-purpose", "turn")];
+        if let Some(v) = sub {
+            h.push(("x-init-subtask", v));
+        }
+        let r = post(&rig.sock, "/mock/chat/completions", &body, &h);
+        assert_eq!(r.status, 200, "{}", r.text());
+    }
+    let seen = rig.eg().seen_posts();
+    assert_eq!(seen.len(), cases.len());
+    assert_eq!(seen[0].header("x-egress-subtask"), Some("delegate-call_7"));
+    for (i, e) in seen.iter().enumerate().skip(1) {
+        assert_eq!(e.header("x-egress-subtask"), None, "case {i} ({:?}) must not be forwarded", cases[i]);
+    }
+    for e in &seen {
+        assert!(!e.headers.iter().any(|(k, _)| k.starts_with("x-init-")), "x-init-* leaked: {:?}", e.headers);
+    }
+    let home = rig.home.clone();
+    drop(rig);
+    std::fs::remove_dir_all(&home).unwrap();
+}

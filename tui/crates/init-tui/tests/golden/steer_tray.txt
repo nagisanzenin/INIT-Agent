@@ -1,0 +1,56 @@
+== 80x16 ==
+› fix the flaky test                                                            |CC..................                                                            
+⠸ bash cargo test -p init-root --offline                           1 call · 41 s|ccbbbb.............................................................ddddddddddddd
+    running 41 s · still working… no output yet                                 |....ccccccccccccddddddddddddddddddddddddddddddd                                 
+› fix the test name too                    after bash: cargo test -p ini… · 41 s|ccddddddddddddddddddddd....................ddddddddddddddddddddddddddddddddddddd
+› then update the changelog                                            next task|ccddddddddddddddddddddddddd............................................ddddddddd
+› also run clippy …                                                     sending…|ccddddddddddddddddd.....................................................dddddddd
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
+ Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cursor 4,7
+== 80x12 ==
+Running the tests now.                                                          |......................                                                          
+› use --nocapture                                               after this reply|ccddddddddddddddd...............................................dddddddddddddddd
+› never mind                                                        taking back…|ccdddddddddd........................................................dddddddddddd
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
+ Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cursor 4,4
+== 80x12 ==
+› keep going after the update                            held while INIT updates|ccddddddddddddddddddddddddddd............................ddddddddddddddddddddddd
+› and say when done                                   queued while INIT restarts|ccddddddddddddddddd...................................dddddddddddddddddddddddddd
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
+ Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cursor 4,3
+== 80x14 ==
+  … +2 more waiting                                                             |ddddddddddddddddddd                                                             
+› note 2                                                        after this reply|ccdddddd........................................................dddddddddddddddd
+› note 3                                                        after this reply|ccdddddd........................................................dddddddddddddddd
+› note 4                                                        after this reply|ccdddddd........................................................dddddddddddddddd
+› note 5                                                        after this reply|ccdddddd........................................................dddddddddddddddd
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
+ Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+cursor 4,6
+== 80x14 ==
+› fix the flaky test                                                            |CC..................                                                            
+▸ bash   cargo test -p init-root --offline           ✓ exit 0, 214 passed · 41 s|ddbbbb...............................................ggddddddddddddddddddddddddd
+                                                                                |                                                                                
+› fix the test name too · seen                                                  |CC......................dddddd                                                  
+Renaming it as well.                                                            |....................                                                            
+╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
+╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
+cursor 4,6
