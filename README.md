@@ -16,7 +16,7 @@ macOS 14+ on Apple silicon · Linux aarch64, experimental ([bubblewrap ≥ 0.13]
 
 **Harnesses are the hand-written features of this era.** The loop, the tools, the memory and the planner were designed by people, for models weaker than those people. Sutton's *bitter lesson* says hand-crafted structure loses to learning and scale. When the model outgrows its designers, every scaffold becomes a ceiling.
 
-**You cannot write the reward for what you did not foresee.** Today's self-improving agents optimize a score someone fixed in advance. The improvements that matter most (a new kind of memory, a tool for a task nobody anticipated, a different loop) have no score until they exist. And a fixed score gets gamed.
+**You cannot write the reward for what you did not foresee.** Research self-improvers (Darwin Gödel Machine and its kin) optimize a score someone fixed in advance; product agents that learn (Hermes Agent's skills, for instance) change only their notes and skills, never the loop or the code that runs them. The improvements that matter most (a new kind of memory, a tool for a task nobody anticipated, a different loop) have no score until they exist. And a fixed score gets gamed.
 
 **So INIT trusts the model the way we trust engineers: with an undo button.** Nobody makes an engineer prove a commit is better before merging. We give them version control, rollback, an audit trail and a stop button. INIT asks only two questions of every self-change: *can we undo it, and did it cause harm?*
 
