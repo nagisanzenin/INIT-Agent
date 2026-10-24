@@ -406,6 +406,8 @@ pub struct Abort {
     flag: AtomicBool,
     /// Interrupt-and-steer (loop.md §3.5): the owner wants the run to continue with a note.
     cont: AtomicBool,
+    /// The owner interrupted (an `interrupt` frame), as opposed to a stop grace, EOF or a fault.
+    owner: AtomicBool,
     stream: Mutex<Option<UnixStream>>,
     groups: Mutex<BTreeSet<i32>>,
     wake: (Mutex<()>, Condvar),
@@ -429,6 +431,7 @@ impl Abort {
         Abort {
             flag: AtomicBool::new(false),
             cont: AtomicBool::new(false),
+            owner: AtomicBool::new(false),
             stream: Mutex::new(None),
             groups: Mutex::new(BTreeSet::new()),
             wake: (Mutex::new(()), Condvar::new()),
@@ -465,6 +468,23 @@ impl Abort {
         self.fire();
     }
 
+    /// An owner interrupt (Esc / Ctrl-C): the run pauses rather than ends the task (loop.md §3.5.1).
+    pub fn trigger_owner(&self) {
+        self.owner.store(true, Ordering::SeqCst);
+        self.trigger();
+    }
+
+    /// Interrupt-and-steer from the owner.
+    pub fn trigger_owner_continue(&self) {
+        self.owner.store(true, Ordering::SeqCst);
+        self.trigger_continue();
+    }
+
+    /// The abort came from the owner (cleared by `reset`).
+    pub fn by_owner(&self) -> bool {
+        self.owner.load(Ordering::SeqCst)
+    }
+
     /// The last trigger was `trigger_continue` (cleared by `trigger` and `reset`).
     pub fn wants_continue(&self) -> bool {
         self.cont.load(Ordering::SeqCst)
@@ -491,6 +511,7 @@ impl Abort {
         *lock(&self.stream) = None;
         lock(&self.groups).clear();
         self.cont.store(false, Ordering::SeqCst);
+        self.owner.store(false, Ordering::SeqCst);
         self.flag.store(false, Ordering::SeqCst);
     }
 

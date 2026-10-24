@@ -350,10 +350,10 @@ pub fn spawn_input<R: BufRead + Send + 'static>(
                 match &c {
                     Control::Interrupt {
                         then_continue: false,
-                    } => abort.trigger(),
+                    } => abort.trigger_owner(),
                     Control::Interrupt {
                         then_continue: true,
-                    } => abort.trigger_continue(),
+                    } => abort.trigger_owner_continue(),
                     Control::Retract { seq } => {
                         // Never wait for a boundary: it can be an hour away behind a long bash.
                         status.gate.retract_and_reply(*seq);

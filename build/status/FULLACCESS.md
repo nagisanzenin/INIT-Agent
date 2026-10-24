@@ -177,7 +177,8 @@ literals are path-based: under sandbox-exec, creating the literal again after an
 - 19:58 macOS no-op T2 (no knobs): job succeeded, G0–G3 + handoff pass (promote 1089 s); only the time bound fails.
 - 19:59 / 20:00 network back to about 4 MB/s: macOS e2e and Linux e2e rerun, both **PASS** (all checks).
 - 20:00 T2 rerun started for a verdict with every check green.
-- 20:19 T2 rerun **PASS** (all checks); docs and verdicts committed.
+- 20:19 T2 rerun **PASS** (all checks); docs and verdicts committed (f89497a) and pushed.
+- 20:22 public mirror commit, tag and GitHub release published; public download verified at 20:23.
 
 ### Bundles (binaries from e4215ed)
 Both built by `scripts/bundle.sh` from e4215ed (fa-ci's G1 bless; MANIFEST.json and latest.json `commit`). HEAD moved
@@ -231,8 +232,39 @@ per-target files `bundle.sh` wrote; same version and commit asserted).
 ### Owner state
 Snapshot (names, sizes, mtimes, modes; names only for the paths the running owner install rewrites on timers) of
 `~/.init`, `~/.init-root` (sealed/ unlisted), `~/.local/bin`, `~/.local/share/init`, `~/Library/LaunchAgents` and the
-shell rc files: unchanged across every e2e run and the smoke run (each harness diffs before/after), and between the
-lane's start (18:19) and its end: see "Cleanup". Nothing of the owner's live install was written or signalled.
+shell rc files: unchanged across every e2e run and the smoke run (each harness diffs before/after), and between a
+snapshot at the lane's start (18:19) and its end (20:24): 0 lines of diff. Nothing of the owner's live install was
+written or signalled; signals went only to this lane's own PIDs.
+
+### Release
+- Private: pushed to origin main (f89497a; the CI lane had pushed 1a8e016 and 9895477 green first).
+- Public mirror (`nagisanzenin/INIT-Agent`): synced to `git archive HEAD` (f89497a) with deletions, excluding
+  `build/real-artifacts`, `build/slice1-artifacts`, `build/ci`, `research_notes/INIT reddit launch`,
+  `research_notes/HN essay craft`, `research_notes/HN title candidates for INIT`, `reports/HN title candidates for
+  INIT.md`, `.claude`. Scans on the mirror tree: DeepSeek key 0 files; owner e-mails 0 files; tokens 0 files (the bare
+  prefixes `ghp_`/`github_pat_` appear only as names in redaction patterns in docs/providers-v2.md, docs/ux-v1.md, a
+  research note and REL-030.md; no `ghp_`/`github_pat_` followed by token characters, no private-key header). One
+  commit "INIT v0.3.1-preview" (`158fea7`) and the annotated tag `v0.3.1-preview` (tag object `8dc09f6`), both by the
+  noreply identity; main and the tag pushed.
+- GitHub release `v0.3.1-preview`, marked latest (not a prerelease, not a draft):
+  https://github.com/nagisanzenin/INIT-Agent/releases/tag/v0.3.1-preview, title "INIT v0.3.1-preview (full access by
+  default; macOS + Linux aarch64 research preview)", notes from docs/release-notes/v0.3.1-preview.md, assets: both
+  tarballs, both `.sha256`, `latest.json`, `get.sh`. Published 2026-10-24 13:22:51 UTC; `releases/latest` = v0.3.1-preview.
+
+### Public download (after publishing)
+- `…/releases/latest/download/get.sh`, `latest.json` and both `.sha256`: HTTP 200; latest.json says `0.3.1-preview` and
+  carries both `sha256_<target>` values.
+- `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh -s -- --unpack-only` in a
+  temp HOME (PATH `/usr/bin:/bin:/usr/sbin:/sbin`): downloaded the macOS bundle, checksum matched latest.json's
+  (`45d99bb1…`), unpacked `0.3.1-preview`, SHA256SUMS verified; 13 s. Temp home removed by exact path.
+
+### Cleanup
+Docker: containers `fa-build`, `fa-e2e` (both instances), volume `fa-vol`, images `debian:bookworm-slim` and
+`ubuntu:24.04` (absent at 17:16 today) removed by name; no other container, image or volume touched. Test homes
+`target/test-homes/{ube,ub2,rels}` removed by the harnesses or by exact path; `target/ub`, `target/release-src`,
+`target/dist/v0.3.1` removed by bundle.sh; `target/dist/v0.3.1.logs` and this lane's scratch files (logs, harness
+scripts, snapshots, mirror export) removed by exact path. Kept: `target/dist/v0.3.1-preview/` (the published assets,
+116 MB). Free disk at the end: 23 GB.
 
 ## CI lane (FULLACCESS-ci, 2026-10-24)
 

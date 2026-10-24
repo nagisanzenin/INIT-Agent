@@ -493,7 +493,7 @@ impl App {
         } else {
             self.esc_steer_at = None;
             self.send_frame(&proto::interrupt());
-            self.set_hint("interrupt sent", 2);
+            self.set_hint("pausing · type to continue, or say what to do instead", 3);
         }
     }
 

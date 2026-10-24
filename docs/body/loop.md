@@ -314,11 +314,15 @@ Rules:
 **After an abort:**
 1. Each complete tool call of an aborted reply gets an error result: `error: aborted: not executed (owner abort)`. Every `tool_use` needs a matching result before the conversation can continue on any API.
 2. The final boundary appends the results, queued steers and notices (steps 1–4), then syncs.
-3. The loop emits `display{kind:"info", text:"aborted"}`, goes idle, and sends `state{busy:false}`. There is no automatic continuation, except through interrupt-and-steer.
+3. The loop emits `display{kind:"info", text:"aborted"}` (`"paused · type to continue, or say what to do instead"` after an owner interrupt, §3.5.1), goes idle, and sends `state{busy:false}`. There is no automatic continuation, except through interrupt-and-steer.
 
 **Interrupt-and-steer.** `interrupt{then:"continue"}` means the owner typed a note and wants it handled now. The kernel sends the note's `input` frame first. The input thread calls `Abort::trigger_continue()`, which records the wish and then triggers the same abort. A plain `trigger()`, a second Ctrl-C, the `stop` grace or EOF clears the wish, and so does `reset()`. When the stream abort, the abort in a retry wait, or the boundary abort check after a batch finds the wish *and* a steer to answer (one queued now, or one appended by this boundary or the last), the run continues. That boundary appends the aborted results (built exactly as in steps 1–2) and then the steer, calls `Abort::reset()`, and emits `display{kind:"info", text:"interrupted · continuing with your note"}` in place of `aborted`. The next model request follows. Follow-ups stay queued for after the run. Without a steer, or when its steer was retracted, the interrupt is a plain stop as above. An interrupt while paused stays a no-op, because the reset on resume clears the wish. An older body ignores `then` and simply stops, which is the documented safe fallback.
 
 The abort is visible in the log through `stop_reason:"aborted"` and the `aborted` results. No separate event type is needed.
+
+#### 3.5.1 An owner interrupt is a pause
+
+The owner's Esc or Ctrl-C should behave like a pause in other coding agents: the task stays open, and the next thing the owner says continues it. The input thread therefore calls `Abort::trigger_owner()` (or `trigger_owner_continue()`), which records that the abort came from the owner; the `stop` grace, EOF and fault aborts do not set it, and `reset()` clears it. When a run ends aborted with that record (stream abort, retry wait, or the boundary check after a batch), the final boundary also appends a harness message (`source:"harness"`, after the results) with the text of `PAUSED_NOTE`: the turn was paused, not cancelled; finished work stands; calls marked `aborted: not executed` did not run; on the owner's next message, resume where it stopped unless that message changes or drops the task, and say so in one line. Without it, an abort that lands before the first token leaves an empty assistant message, and the next run reads the owner's words as a new request. The note is appended once per paused run and is never rewritten, so the prefix cache is unaffected. Interrupt-and-steer that continues the run appends no note.
 
 **Races:**
 - A bash call that registers its group *after* the flag is set sees `register_group == false` and kills its own group at once.
@@ -511,7 +515,7 @@ One JSON object per line, `"v":1`, key `t`. Unknown `t` values and unknown field
 | Kernel → body | Loop behavior |
 |---|---|
 | `input{id, seq, text, ts, mode}` | §3.4 (`mode`: `steer` default, `follow_up`). `ack{seq}` after the appending boundary syncs. `id` is also the task id of the run it starts (§3.3) |
-| `interrupt{then?}` | the input thread calls `Abort::trigger()`, or `Abort::trigger_continue()` for `then:"continue"` (interrupt-and-steer; any other `then` is plain), then `Control::Interrupt` (§3.5) |
+| `interrupt{then?}` | the input thread calls `Abort::trigger_owner()`, or `Abort::trigger_owner_continue()` for `then:"continue"` (interrupt-and-steer; any other `then` is plain), then `Control::Interrupt` (§3.5) |
 | `retract{seq}` | answered by the input thread at once with `retracted{seq, ok}` (§3.4); never reaches the loop |
 | `pause{token, reason}` | §3.8.1 |
 | `resume{token, update_failed}` | §3.8.1, only while paused; otherwise a protocol warning on stderr |

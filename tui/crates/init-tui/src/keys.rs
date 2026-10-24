@@ -153,7 +153,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("Enter", "send"),
     ("Shift-Enter · Alt-Enter · Ctrl-J · \\ Enter", "newline"),
     ("Ctrl-C", "interrupt; twice within 2 s: quit init (the agent keeps running)"),
-    ("Esc", "interrupt while busy (a pending steer goes in now); close a popup"),
+    ("Esc", "pause while busy: your next message continues the task (a pending steer goes in now); close a popup"),
     ("Tab (while busy)", "queue the box as the next task (/later)"),
     ("Up (empty box, pending line)", "take back the newest line not yet read"),
     ("Ctrl-D", "quit on an empty box"),

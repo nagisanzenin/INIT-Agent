@@ -935,7 +935,7 @@ fn t08_interrupt_mid_stream() {
         t_idle - t_int
     );
     assert!(
-        h.pos(|f| f["t"] == "display" && f["kind"] == "info" && f["text"] == "aborted")
+        h.pos(|f| f["t"] == "display" && f["kind"] == "info" && f["text"] == PAUSED_TEXT)
             .is_some()
     );
     let evs = h.events();
@@ -954,10 +954,20 @@ fn t08_interrupt_mid_stream() {
         of_type(&evs, "tool_call").is_empty(),
         "never executed: no marker"
     );
-    // The next input starts a run normally.
+    // §3.5.1: an owner interrupt is a pause: a harness note tells the next run to resume.
+    let notes: Vec<&Value> = of_type(&evs, "message")
+        .into_iter()
+        .filter(|m| m["source"] == "harness")
+        .collect();
+    assert_eq!(notes.len(), 1);
+    assert_eq!(notes[0]["content"][0]["text"], PAUSED_NOTE);
+    // The next input starts a run normally, and the request carries the note before it.
     h.input(ID2, 2, "again");
     h.idle(2);
     assert_eq!(h.model.seen().len(), 2);
+    let texts = user_texts(&h.model.seen()[1].messages);
+    let n = texts.len();
+    assert!(n >= 2 && texts[n - 2] == PAUSED_NOTE && texts[n - 1].contains("again"), "{texts:?}");
     h.finish();
 }
 
@@ -1915,7 +1925,7 @@ fn t26_interrupt_and_steer_during_a_batch() {
         "{:?}",
         t_idle - t_int
     );
-    assert!(h.pos(is_info("aborted")).is_none());
+    assert!(h.pos(is_info(PAUSED_TEXT)).is_none());
     assert!(h.pos(|f| f["t"] == "ack" && f["seq"] == 2).is_some());
     let seen = h.model.seen();
     assert_eq!(seen.len(), 2);
@@ -1962,7 +1972,7 @@ fn t26b_interrupt_and_steer_mid_stream() {
     h.send(json!({"t": "interrupt", "then": "continue"}));
     h.idle(1);
     assert!(h.pos(is_info(CONTINUE_TEXT)).is_some());
-    assert!(h.pos(is_info("aborted")).is_none());
+    assert!(h.pos(is_info(PAUSED_TEXT)).is_none());
     let evs = h.events();
     assert_paired_before_steer(&evs);
     let a = of_type(&evs, "message")
@@ -1999,7 +2009,7 @@ fn t26c_continue_without_a_steer_stops() {
     h.wait(is_display("tool_start"));
     h.send(json!({"t": "interrupt", "then": "continue"}));
     h.idle(1);
-    assert!(h.pos(is_info("aborted")).is_some());
+    assert!(h.pos(is_info(PAUSED_TEXT)).is_some());
     assert!(h.pos(is_info(CONTINUE_TEXT)).is_none());
     assert_eq!(h.model.seen().len(), 1, "no request after the abort");
     assert_paired_before_steer(&h.events());
@@ -2021,7 +2031,7 @@ fn t26d_plain_interrupt_with_a_steer_stops() {
     h.input(ID2, 2, "a note");
     h.send(json!({"t": "interrupt", "then": "something-new"}));
     h.idle(1);
-    assert!(h.pos(is_info("aborted")).is_some());
+    assert!(h.pos(is_info(PAUSED_TEXT)).is_some());
     assert!(h.pos(is_info(CONTINUE_TEXT)).is_none());
     assert_eq!(h.model.seen().len(), 1);
     let evs = h.events();

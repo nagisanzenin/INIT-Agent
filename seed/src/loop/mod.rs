@@ -53,6 +53,10 @@ pub const LENGTH_STRIKES: u32 = 3;
 pub const ABORTED_TEXT: &str = "error: aborted: not executed (owner abort)";
 /// Interrupt-and-steer continues the run (§3.5).
 pub const CONTINUE_TEXT: &str = "interrupted · continuing with your note";
+/// An owner interrupt pauses the task (§3.5.1); a stop, EOF or fault abort still says "aborted".
+pub const PAUSED_TEXT: &str = "paused · type to continue, or say what to do instead";
+/// Appended after an owner interrupt so the next run knows the task is paused, not done.
+pub const PAUSED_NOTE: &str = "[init:paused] The owner interrupted this turn (Esc / Ctrl-C). It is a pause, not a cancel: finished work stands, and calls marked \"aborted: not executed\" did not run. On the owner's next message, resume the task where it stopped (re-issue only the calls that did not run, redo nothing that finished) unless that message changes or drops the task; when resuming, say so in one line.";
 
 /// How a run ended. `Exit(code)`: the process must exit now (handoff 75, stop 0, fatal 1).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1000,17 +1004,36 @@ impl Session {
         }
     }
 
-    fn end_aborted(&mut self, input: BoundaryInput) -> RunEnd {
+    fn end_aborted(&mut self, mut input: BoundaryInput) -> RunEnd {
+        input.harness_text = self.paused_note();
         let end = self.end_with(input, RunEnd::Aborted);
         if end == RunEnd::Aborted {
-            self.out.send(Out::display("info", "aborted"));
+            self.say_aborted();
         }
         end
     }
 
     fn end_aborted_at_boundary(&mut self) -> RunEnd {
-        self.out.send(Out::display("info", "aborted"));
+        if let Some(t) = self.paused_note()
+            && let Err(e) = self.append(BoundaryInput {
+                harness_text: Some(t),
+                ..Default::default()
+            })
+        {
+            return e;
+        }
+        self.say_aborted();
         RunEnd::Aborted
+    }
+
+    /// §3.5.1: an owner interrupt leaves a note, so the owner's next words resume the task.
+    fn paused_note(&self) -> Option<String> {
+        self.abort.by_owner().then(|| PAUSED_NOTE.to_string())
+    }
+
+    fn say_aborted(&self) {
+        let text = if self.abort.by_owner() { PAUSED_TEXT } else { "aborted" };
+        self.out.send(Out::display("info", text));
     }
 
     fn end_provider_failure(&mut self, e: ProviderError, attempts: u32) -> RunEnd {
@@ -1023,12 +1046,13 @@ impl Session {
                 let end = self.end_with(
                     BoundaryInput {
                         errors: vec![aborted_in_retry()],
+                        harness_text: self.paused_note(),
                         ..Default::default()
                     },
                     RunEnd::Aborted,
                 );
                 if end == RunEnd::Aborted {
-                    self.out.send(Out::display("info", "aborted"));
+                    self.say_aborted();
                 }
                 return end;
             }

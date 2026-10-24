@@ -2,6 +2,29 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.3.2-preview (2026-10-25)
+
+Workspaces are at version 0.3.2 (seed tag `seed-v0.3.2`). Release notes: docs/release-notes/v0.3.2-preview.md.
+
+### An owner interrupt pauses the task (67cf3c1, docs/body/loop.md §3.5.1)
+- Esc or Ctrl-C while busy used to end the task; an interrupt before the first token left an empty assistant
+  message, and the next run read the owner's words as a new request. The input thread now records owner interrupts
+  (`Abort::trigger_owner`, `trigger_owner_continue`), and a run that ends aborted with that record appends one harness
+  message `[init:paused] …` after the results: finished work stands, calls marked `aborted: not executed` did not
+  run, and the owner's next message resumes the task unless it changes or drops it. The loop shows `paused · type to
+  continue, or say what to do instead` instead of `aborted`.
+- The `stop` grace, EOF and faults still abort, show `aborted` and add no note; interrupt-and-steer that continues
+  the run adds no note. The note is appended once and never rewritten (the prefix cache is unaffected).
+- TUI: the Esc hint says `pausing · type to continue, or say what to do instead`; the Esc help line says pause.
+
+### Release (lane REL-032, build/status/REL-032.md)
+- Two prebuilt bundles, `init-v0.3.2-preview-macos-arm64.tar.gz` and `init-v0.3.2-preview-linux-arm64.tar.gz`, each
+  with a `.sha256`, and one `latest.json` for both, built from 37be317 (`seed/self.json` re-blessed for the seed
+  change). Verified on these exact bundles: fresh macOS and Ubuntu 24.04 installs, a no-op T2 promote (G0–G3
+  and handoff, 13 min cold on an M2), the pause on both bundles (a stalled turn paused by SIGINT, then resumed with
+  the `[init:paused]` note in the next request) and one live DeepSeek turn.
+- Docs: docs/guide.md and docs/tui.md say Ctrl-C and Esc pause the turn.
+
 ## v0.3.1-preview (2026-10-24)
 
 Workspaces are at version 0.3.1 (seed tag `seed-v0.3.1`). Release notes: docs/release-notes/v0.3.1-preview.md.
