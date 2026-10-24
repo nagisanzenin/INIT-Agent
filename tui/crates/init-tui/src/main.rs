@@ -22,10 +22,12 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 const USAGE: &str = "usage: init-tui [--root-home DIR] [--plain | --raw] [--no-replay] [--verbose] [--wait] [--wait-idle]
-                [--timeout S] [--full] [--latency-report] [--version] [--help]
+                [--timeout S] [--full | --workspace] [--latency-report] [--version] [--help]
 
-  The current directory becomes the agent's workspace (ADR-009): it may edit it, and /undo restores
-  the snapshot the Root took first. Launched in ~ (or outside your home), there is no workspace.
+  Access is full by default (ADR-012): the agent may read and write anywhere you can and use the
+  network, except INIT's Root (~/.init-root, its service, INIT's launchers). The current directory
+  is the workspace: /undo restores the snapshot the Root took of it first; nothing else has /undo.
+  Launched in ~ (or outside your home), there is no workspace.
 
   --root-home DIR    the Root's home (else INIT_ROOT_HOME, else ~/.init-root)
   --plain            line mode even on a TTY
@@ -35,8 +37,10 @@ const USAGE: &str = "usage: init-tui [--root-home DIR] [--plain | --raw] [--no-r
   --wait             line mode: wait for an unreachable Root instead of exiting 69
   --wait-idle        line mode: after stdin EOF stay attached until the agent is idle
   --timeout S        line mode: overall bound in seconds (default 600 with --wait-idle)
-  --full             full mode: the agent may write your whole home except secrets and the Root
-                     (the Root asks you to confirm; /full off ends it)
+  --full             full access for this session (the default; the Root asks you to confirm only
+                     when the charter sets sandbox.mode = \"workspace\"); /full off ends it
+  --workspace        confine this session: write only the workspace and ~/.init, read your home
+                     except secrets, no network but the model provider (/full on lifts it)
   --latency-report   at exit, print latency histograms to stderr
 ";
 
@@ -52,6 +56,7 @@ struct Args {
     timeout: Option<f64>,
     latency: bool,
     full: bool,
+    workspace: bool,
     version: bool,
     help: bool,
 }
@@ -83,6 +88,7 @@ fn parse(argv: &[String]) -> Result<Args, String> {
             }
             "--latency-report" => a.latency = true,
             "--full" => a.full = true,
+            "--workspace" => a.workspace = true,
             "--version" | "-V" => a.version = true,
             "--help" | "-h" => a.help = true,
             other => return Err(format!("unknown argument {other:?}")),
@@ -90,6 +96,9 @@ fn parse(argv: &[String]) -> Result<Args, String> {
     }
     if a.plain && a.raw {
         return Err("--plain and --raw exclude each other".into());
+    }
+    if a.full && a.workspace {
+        return Err("--full and --workspace exclude each other".into());
     }
     Ok(a)
 }
@@ -155,9 +164,10 @@ fn main() {
             prompt: std::io::stdin().is_terminal() && !a.raw,
             cwd,
             full: a.full,
+            workspace: a.workspace,
         })
     } else {
-        app::run(app::Opts { root_home: rh, replay: !a.no_replay, verbose: a.verbose, latency: a.latency, no_color, cwd, full: a.full })
+        app::run(app::Opts { root_home: rh, replay: !a.no_replay, verbose: a.verbose, latency: a.latency, no_color, cwd, full: a.full, workspace: a.workspace })
     };
     std::process::exit(code);
 }
@@ -176,6 +186,8 @@ mod tests {
         assert_eq!((a.root_home.unwrap(), a.plain, a.wait_idle, a.timeout), (PathBuf::from("/x"), true, true, Some(5.0)));
         assert!(p(&["--which"]).is_err(), "--which is the launcher's");
         assert!(p(&["--plain", "--raw"]).is_err());
+        assert!(p(&["--full", "--workspace"]).is_err());
+        assert!(p(&["--workspace"]).unwrap().workspace);
         assert!(p(&["--timeout", "0"]).is_err());
         assert!(p(&["--root-home"]).is_err());
         assert!(p(&["--full"]).unwrap().full);

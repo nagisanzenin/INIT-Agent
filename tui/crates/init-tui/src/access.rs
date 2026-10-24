@@ -1,9 +1,12 @@
 //! ADR-009 from the owner's side (build/specs/ADR-009-spec.md; the Root's protocol is
 //! build/status/SBX-009.md §A–§C): the TUI's cwd becomes the workspace right after the first
 //! attach (`workspace.set`, before any owner line), `init --full` and `/full on|off` set full mode
-//! (`full.set`), and `/undo` restores the workspace's last snapshot (`undo`). The Root asks for a
-//! typed confirmation (`root.confirm` with `data.phrase`); the TUI shows its message, reads the
-//! owner's next line and resends the request with `confirm` set to that line.
+//! (`full.set`), and `/undo` restores the workspace's last snapshot (`undo`). ADR-012: full access is
+//! the charter's default; `init --workspace` sends `workspace.set{cwd, mode:"workspace"}` to confine
+//! this session to the workspace. The Root asks for a typed confirmation (`root.confirm` with
+//! `data.phrase`) only when it wants one (`/full on` under a charter `sandbox.mode = "workspace"`,
+//! `/undo`); the TUI shows its message, reads the owner's next line and resends the request with
+//! `confirm` set to that line.
 //!
 //! A pure state machine: lines and answers in, [`Out`]s for the front end (TTY or line mode).
 //! The requests go on their own connection (`conn::spawn_access`), never on the attach connection.
@@ -91,6 +94,8 @@ pub struct Flow {
     /// The TUI's cwd as the OS gives it; None when it could not be read.
     cwd: Option<String>,
     want_full: bool,
+    /// `init --workspace` (ADR-012): this session is confined to the workspace.
+    want_workspace: bool,
     ws: Ws,
     inflight: Option<Op>,
     confirm: Option<(Op, String)>,
@@ -117,8 +122,11 @@ pub fn tilde(p: &str, home: Option<&str>) -> String {
 }
 
 impl Flow {
-    pub fn new(cwd: Option<String>, want_full: bool) -> Flow {
-        Flow { cwd, want_full, ws: Ws::NotSent, inflight: None, confirm: None }
+    /// `want_full` (`--full`) and `want_workspace` (`--workspace`) exclude each other (`main`
+    /// refuses both); `want_full` wins if both are set.
+    pub fn new(cwd: Option<String>, want_full: bool, want_workspace: bool) -> Flow {
+        let want_workspace = want_workspace && !want_full;
+        Flow { cwd, want_full, want_workspace, ws: Ws::NotSent, inflight: None, confirm: None }
     }
 
     /// Owner lines wait while the workspace is being set (SBX-009 §A: before any owner line) and
@@ -146,7 +154,11 @@ impl Flow {
             Some(cwd) => {
                 self.ws = Ws::InFlight;
                 self.inflight = Some(Op::Workspace);
-                vec![Out::Send(Req { op: Op::Workspace, args: json!({"cwd": cwd}) })]
+                let mut args = json!({"cwd": cwd});
+                if self.want_workspace {
+                    args["mode"] = json!("workspace");
+                }
+                vec![Out::Send(Req { op: Op::Workspace, args })]
             }
             None => {
                 self.ws = Ws::Done;
@@ -157,12 +169,16 @@ impl Flow {
         }
     }
 
+    /// After the workspace answer: `--full` asks for full mode. `--workspace` without a cwd (no
+    /// `workspace.set` was sent) turns full mode off instead.
     fn then_full(&mut self) -> Vec<Out> {
-        if !std::mem::take(&mut self.want_full) {
+        let confine = std::mem::take(&mut self.want_workspace) && self.cwd.is_none();
+        let on = std::mem::take(&mut self.want_full);
+        if !on && !confine {
             return vec![];
         }
-        self.inflight = Some(Op::Full(true));
-        vec![Out::Send(req(Op::Full(true), None))]
+        self.inflight = Some(Op::Full(on));
+        vec![Out::Send(req(Op::Full(on), None))]
     }
 
     /// A line the owner submitted. `Some`: the access flow took it (a confirmation answer or an
@@ -263,12 +279,12 @@ mod tests {
 
     fn view(ws: Option<&str>, full: bool) -> Value {
         json!({"access": if full { "full" } else if ws.is_some() { "workspace" } else { "read_home" }, "allow_full": true, "full": full,
-               "read_home": true, "restart_pending": false, "snapshot": null, "workspace": ws})
+               "mode": "full", "read_home": true, "restart_pending": false, "snapshot": null, "workspace": ws})
     }
 
     #[test]
     fn workspace_first_then_lines() {
-        let mut f = Flow::new(Some("/Users/o/proj".into()), false);
+        let mut f = Flow::new(Some("/Users/o/proj".into()), false, false);
         assert!(!f.holds_lines());
         let out = f.on_attached();
         assert_eq!(out, [Out::Send(Req { op: Op::Workspace, args: json!({"cwd": "/Users/o/proj"}) })]);
@@ -282,12 +298,12 @@ mod tests {
 
     #[test]
     fn no_workspace_notice_only_when_the_root_does_not_announce_it() {
-        let mut f = Flow::new(Some("/Users/o".into()), false);
+        let mut f = Flow::new(Some("/Users/o".into()), false, false);
         f.on_attached();
         let home = json!({"access": view(None, false), "changed": false, "refused": {"code": "home", "message": "the home itself"}});
         let out = f.on_answer(Op::Workspace, Ok(home));
         assert_eq!(out[1], Out::Notice(format!("{NO_WORKSPACE} (the home itself)")));
-        let mut f = Flow::new(Some("/Users/o".into()), false);
+        let mut f = Flow::new(Some("/Users/o".into()), false, false);
         f.on_attached();
         let changed = json!({"access": view(None, false), "changed": true, "refused": {"code": "home", "message": "x"}});
         assert_eq!(f.on_answer(Op::Workspace, Ok(changed)).len(), 1, "the Root's code:access notice says it");
@@ -295,7 +311,7 @@ mod tests {
 
     #[test]
     fn full_flag_follows_the_workspace_and_confirms() {
-        let mut f = Flow::new(Some("/p".into()), true);
+        let mut f = Flow::new(Some("/p".into()), true, false);
         f.on_attached();
         let out = f.on_answer(Op::Workspace, Ok(json!({"access": view(Some("/p"), false), "changed": false})));
         assert_eq!(out.last(), Some(&Out::Send(Req { op: Op::Full(true), args: json!({"on": true}) })));
@@ -312,9 +328,35 @@ mod tests {
         assert!(!f.busy());
     }
 
+    /// ADR-012: `--workspace` confines the session in the `workspace.set` itself; `/full on` under a
+    /// full-default charter is answered at once (no confirmation), and `--full` asks without one.
+    #[test]
+    fn workspace_flag_confines_and_full_needs_no_confirmation_by_default() {
+        let mut f = Flow::new(Some("/p".into()), false, true);
+        assert_eq!(f.on_attached(), [Out::Send(Req { op: Op::Workspace, args: json!({"cwd": "/p", "mode": "workspace"}) })]);
+        let out = f.on_answer(Op::Workspace, Ok(json!({"access": view(Some("/p"), false), "changed": true})));
+        assert_eq!(out, [Out::Access(view(Some("/p"), false))], "no full.set follows --workspace");
+        assert!(!f.busy());
+        assert_eq!(f.on_line("/full on").unwrap(), [Out::Send(Req { op: Op::Full(true), args: json!({"on": true}) })]);
+        let out = f.on_answer(Op::Full(true), Ok(json!({"access": view(Some("/p"), true), "changed": true, "snapshot": null})));
+        assert_eq!(out, [Out::Access(view(Some("/p"), true))]);
+        assert!(!f.busy() && f.awaiting().is_none());
+        // without a cwd there is no workspace.set, so --workspace turns full mode off directly
+        let mut f = Flow::new(None, false, true);
+        let out = f.on_attached();
+        assert!(matches!(&out[0], Out::Warn(_)));
+        assert_eq!(out[1], Out::Send(Req { op: Op::Full(false), args: json!({"on": false}) }));
+        // the default launch sends no mode
+        let mut f = Flow::new(Some("/p".into()), false, false);
+        assert_eq!(f.on_attached(), [Out::Send(Req { op: Op::Workspace, args: json!({"cwd": "/p"}) })]);
+        // --full wins over --workspace (main refuses both together)
+        let mut f = Flow::new(Some("/p".into()), true, true);
+        assert_eq!(f.on_attached(), [Out::Send(Req { op: Op::Workspace, args: json!({"cwd": "/p"}) })]);
+    }
+
     #[test]
     fn undo_asks_then_restores_or_cancels() {
-        let mut f = Flow::new(Some("/p".into()), false);
+        let mut f = Flow::new(Some("/p".into()), false, false);
         f.on_attached();
         f.on_answer(Op::Workspace, Ok(json!({"access": view(Some("/p"), false), "changed": false})));
         assert_eq!(f.on_line("/undo").unwrap(), [Out::Send(Req { op: Op::Undo, args: json!({}) })]);
@@ -334,7 +376,7 @@ mod tests {
 
     #[test]
     fn refusals_and_old_roots() {
-        let mut f = Flow::new(Some("/p".into()), true);
+        let mut f = Flow::new(Some("/p".into()), true, false);
         f.on_attached();
         let out = f.on_answer(Op::Workspace, refused("root.unknown_cmd", Value::Null));
         assert!(matches!(&out[..], [Out::Send(Req { op: Op::Full(true), .. })]), "an older Root: silent; --full still asked: {out:?}");
@@ -349,7 +391,7 @@ mod tests {
         f.on_line("/full off");
         assert!(matches!(&f.on_line("/undo").unwrap()[0], Out::Warn(t) if t.contains("still running")));
         assert_eq!(f.on_answer(Op::Full(false), Ok(json!({"access": view(Some("/p"), false)}))), [Out::Access(view(Some("/p"), false))]);
-        let mut f = Flow::new(None, false);
+        let mut f = Flow::new(None, false, false);
         assert!(matches!(&f.on_attached()[0], Out::Warn(_)));
         assert!(!f.holds_lines());
     }

@@ -202,7 +202,7 @@ pub fn sandboxed(env: &Env, run: &RunRoot, lane: Option<&Path>, argv: &[OsString
             let toolchain = env.info["toolchain"].as_str().ok_or("sealed Linux run requires installed toolchain")?;
             let mut launcher = init_sandbox_profiles::linux::sealed(&run.dir, &env.rh, Path::new(toolchain), lane)?;
             let mut mounts = crate::sys::linux_bind_fds(&mut launcher).map_err(|e| e.to_string())?;
-            let filter = crate::sys::linux_seccomp().map_err(|e| e.to_string())?;
+            let filter = crate::sys::linux_seccomp(false).map_err(|e| e.to_string())?;
             use std::os::fd::AsRawFd;
             let mut c = Command::new(env.rh.join("bin/init-root"));
             // fds 3 and 4: the control link a probe kernel gets (sup/kprobe.rs maps them, as the zone's kernel launch
@@ -756,7 +756,7 @@ mod tests {
             /usr/bin/python3 -c 'import os, time; os.setsid(); time.sleep(60)' {tag}-sid & echo $! > '{t}/sid'; wait", t = t.display());
         let mut launcher = init_sandbox_profiles::linux::sealed(&run.dir, &rh, &tool, None).unwrap();
         let mut mounts = crate::sys::linux_bind_fds(&mut launcher).unwrap();
-        let filter = crate::sys::linux_seccomp().unwrap();
+        let filter = crate::sys::linux_seccomp(false).unwrap();
         let mut c = Command::new(binary);
         c.args(["exec-clean", "--keep", "5"]);
         for fd in &mounts { c.arg("--keep").arg(fd.as_raw_fd().to_string()); }

@@ -1,5 +1,6 @@
 //! SBX-009, ADR-009 (build/specs/ADR-009-spec.md, root/root.md §3.17): the owner's workspace, full mode, the
-//! grant of each body spawn, workspace snapshots and `/undo`. The wire protocol is build/status/SBX-009.md
+//! grant of each body spawn, workspace snapshots and `/undo`. ADR-012 (v0.3.1): full access is the charter's default
+//! (`sandbox.mode`); the owner's session can confine it (`init --workspace`, `/full off`) or turn it back on. The wire protocol is build/status/SBX-009.md
 //! ("Protocol for WIRE-009"). What a grant allows is the sandbox crate's (`init_sandbox_profiles::access`).
 //! Lock order: `access` is a leaf; nothing is appended, emitted or sent while it is held.
 
@@ -18,11 +19,13 @@ pub const PHRASE: &str = "confirm";
 const SNAP_MAX_BYTES: u64 = 2 << 30;
 const SNAP_KEEP: usize = 5;
 
-/// The Root's access state (ROOT_HOME/state/access.json holds the workspace; full mode never survives a restart).
+/// The Root's access state. ROOT_HOME/state/access.json holds the workspace and a session's confinement (`"full":
+/// false`), so a Root restart never widens access; a session's full override (`Some(true)`) never survives a restart.
 #[derive(Default)]
 pub struct St {
     workspace: Option<PathBuf>,
-    full: bool,
+    /// ADR-012: the owner session's choice over the charter's `sandbox.mode` (None: the charter's default).
+    full: Option<bool>,
     /// Full mode was confirmed in this owner session (each `workspace.set` starts one).
     confirmed: bool,
     /// The live body last spawned: instance id, `INIT_ACCESS`, `INIT_WORKSPACE`.
@@ -40,7 +43,16 @@ pub fn load(p: &crate::install::Paths) -> St {
     let fixed = fixed_of(p);
     let deny = pa::read_deny(&fixed.0, &[]);
     let workspace = v["workspace"].as_str().and_then(|w| pa::validate_workspace(w, &fixed.as_fixed(), &deny).ok()).filter(|w| w.as_os_str() == v["workspace"].as_str().unwrap_or(""));
-    St { workspace, ..St::default() }
+    St { workspace, full: (v["full"] == false).then_some(false), ..St::default() }
+}
+
+/// state/access.json: the workspace and the session's confinement (only `Some(false)` is kept, see [`St`]).
+fn persist(root: &Root) {
+    let (ws, full) = { let a = lock(&root.access); (a.workspace.clone(), a.full) };
+    let rec = json!({"v": 1, "workspace": ws, "full": if full == Some(false) { json!(false) } else { Value::Null }, "set_at": rfc3339(now_ms())});
+    if let Err(e) = write_atomic(&root.p.r("state/access.json"), format!("{rec}\n").as_bytes(), 0o600) {
+        util::log(&root.p.rh, "warn", &format!("state/access.json: {e}"));
+    }
 }
 
 /// Home (canonical), ROOT_HOME, INIT_HOME and the service directory.
@@ -62,33 +74,59 @@ pub fn home(p: &crate::install::Paths) -> PathBuf {
     fs::canonicalize(&p.home).unwrap_or_else(|_| p.home.clone())
 }
 
-/// The charter's `[sandbox]` ADR-009 keys: (read_home, allow_full, read_deny entries).
-/// LINUX: the bwrap zone has no deny overlays for a home bind yet (init-sandbox-profiles `linux.rs` refuses broad home
-/// reads and workspace writes), so the platform caps both off: the body works in INIT_HOME only, and every view the
-/// owner sees says so. Fail closed, never an unconfined fallback.
-fn charter(root: &Root) -> (bool, bool, Vec<PathBuf>) {
-    let st = lock(&root.st);
-    let (read_home, allow_full, deny) = st.charter.as_ref().map_or((true, true, vec![]), |l| {
-        let s = &l.ch.sandbox;
-        (s.read_home, s.allow_full, s.read_deny.iter().filter_map(|x| pa::charter_entry(x)).collect())
-    });
-    if LINUX_HOME_GRANTS { (read_home, allow_full, deny) } else { (false, false, deny) }
+/// The charter's `[sandbox]` access keys.
+struct Ch {
+    read_home: bool,
+    allow_full: bool,
+    deny: Vec<PathBuf>,
+    /// ADR-012 `sandbox.mode == "full"` (the default).
+    default_full: bool,
 }
 
-/// Whether this platform's zone can grant home reads, workspace writes and full mode (ADR-009).
+/// The charter's `[sandbox]` access keys.
+/// LINUX: the bwrap zone has no deny overlays for workspace mode's home bind (init-sandbox-profiles `linux.rs` refuses
+/// broad home reads and workspace writes), so the platform caps the home read off: in workspace mode the body works in
+/// INIT_HOME only, and every view the owner sees says so. Full access (ADR-012) has its own overlays and is allowed.
+/// Fail closed, never an unconfined fallback.
+fn charter(root: &Root) -> Ch {
+    let st = lock(&root.st);
+    let mut c = st.charter.as_ref().map_or(Ch { read_home: true, allow_full: true, deny: vec![], default_full: true }, |l| {
+        let s = &l.ch.sandbox;
+        Ch { read_home: s.read_home, allow_full: s.allow_full, deny: s.read_deny.iter().filter_map(|x| pa::charter_entry(x)).collect(),
+            default_full: s.mode == crate::charter::SANDBOX_MODES[0] }
+    });
+    c.read_home &= LINUX_HOME_GRANTS;
+    c
+}
+
+/// Whether this platform's zone can grant workspace mode's home reads and workspace writes (ADR-009).
 const LINUX_HOME_GRANTS: bool = !cfg!(target_os = "linux");
+
+/// ADR-012's one-line description of full access (the confirmation, the notices).
+pub const FULL_TEXT: &str = "read and write anywhere you can and use the network, except INIT's Root files (~/.init-root, its service, \
+    INIT's launchers); writes outside the start folder are not undoable";
 /// The owner's notice when a workspace is asked for where the zone cannot grant one.
 const NO_WS_LINUX: &str = "[root] workspace mode is not available on Linux yet: the agent works in its own home (INIT_HOME) and cannot read or edit your files (docs/platforms.md)";
 
 /// The read deny list (`Z_DENY_<i>`): the built-in list, then the charter's.
 pub fn deny(root: &Root) -> Vec<PathBuf> {
-    pa::read_deny(&home(&root.p), &charter(root).2)
+    pa::read_deny(&home(&root.p), &charter(root).deny)
 }
 
 /// The write deny list (`Z_WDENY_<i>`, tail Z3a): the built-in list, then INIT's bin directory (`install.json`).
 pub fn write_deny(root: &Root) -> Vec<PathBuf> {
     let bin: Vec<PathBuf> = root.info["bin_dir"].as_str().map(PathBuf::from).into_iter().collect();
     pa::write_deny(&home(&root.p), &bin)
+}
+
+/// ADR-012: a full grant's read deny list: INIT's key directory, then the charter's `sandbox.read_deny`.
+pub fn deny_full(root: &Root) -> Vec<PathBuf> {
+    pa::full_read_deny(&home(&root.p), &charter(root).deny)
+}
+
+/// ADR-012: a full grant's write deny list: the Root's service directories, then INIT's launchers in `bin_dir`.
+pub fn write_deny_full(root: &Root) -> Vec<PathBuf> {
+    pa::full_write_deny(&home(&root.p), root.info["bin_dir"].as_str().map(Path::new))
 }
 
 /// What a workspace may not lie in: both deny lists.
@@ -98,10 +136,15 @@ fn ws_deny(root: &Root) -> Vec<PathBuf> {
     d
 }
 
+/// The effective access: full = the session's choice, else the charter's `sandbox.mode`, and never without
+/// `sandbox.allow_full`. LINUX: the workspace is kept only while full access is in effect, so a non-full Linux grant
+/// never carries a write (workspace mode stays capped off there).
 fn state(root: &Root) -> AccessState {
-    let (read_home, allow_full, _) = charter(root);
+    let c = charter(root);
     let a = lock(&root.access);
-    AccessState { read_home, workspace: a.workspace.clone(), full: a.full && allow_full }
+    let full = a.full.unwrap_or(c.default_full) && c.allow_full;
+    let workspace = a.workspace.clone().filter(|_| full || LINUX_HOME_GRANTS);
+    AccessState { read_home: c.read_home, workspace, full }
 }
 
 /// The grant of a `body`-profile spawn `inst` (kind `body` or `probe`; `live`: its INIT_HOME is the real one).
@@ -111,7 +154,9 @@ fn state(root: &Root) -> AccessState {
 pub fn spawn_grant(root: &Root, inst: &str, kind: &str, live: bool) -> SpawnGrant {
     let st = state(root);
     let g = pa::grant_for(kind, live, &st, &home(&root.p));
-    let (n, Some(ws)) = (if kind == "body" && !live { crate::grant::workspace_writers(root) } else { 0 }, st.workspace) else { return g };
+    // LINUX: a member's workspace write would be a workspace-mode grant, which the Linux zone refuses
+    let writers = if kind == "body" && !live && LINUX_HOME_GRANTS { crate::grant::workspace_writers(root) } else { 0 };
+    let (n, Some(ws)) = (writers, st.workspace) else { return g };
     if n <= 0 {
         return g;
     }
@@ -125,7 +170,7 @@ pub fn spawn_grant(root: &Root, inst: &str, kind: &str, live: bool) -> SpawnGran
         return g;
     }
     a.writers.insert(inst.to_string(), now);
-    SpawnGrant { grant: pa::Grant { read_home: g.grant.read_home, write: Some(ws.clone()) }, access: "workspace", workspace: Some(ws) }
+    SpawnGrant { grant: pa::Grant { read_home: g.grant.read_home, write: Some(ws.clone()), full: false }, access: "workspace", workspace: Some(ws) }
 }
 
 /// A spawn that never started gives its member write slot back.
@@ -149,12 +194,13 @@ fn snap_dir(root: &Root) -> PathBuf {
     root.p.r("snapshots")
 }
 
-/// `AccessView` (build/status/SBX-009.md).
+/// `AccessView` (build/status/SBX-009.md; ADR-012 adds `mode`, the charter's default: "full" or "workspace").
 pub fn view(root: &Root) -> Value {
     let st = state(root);
-    let (read_home, allow_full, _) = charter(root);
+    let c = charter(root);
     let snap = st.workspace.as_ref().and_then(|w| snaps(root, w).pop());
-    json!({"access": st.level(), "allow_full": allow_full, "full": st.full, "read_home": read_home,
+    let mode = crate::charter::SANDBOX_MODES[usize::from(!c.default_full)];
+    json!({"access": st.level(), "allow_full": c.allow_full, "full": st.full, "mode": mode, "read_home": c.read_home,
         "restart_pending": restart_pending(root), "snapshot": snap, "workspace": st.workspace})
 }
 
@@ -185,6 +231,17 @@ fn no_ws_text() -> &'static str {
     "[root] no workspace: cd into a project and run init to let me edit it"
 }
 
+/// The owner's notice for a session's access (after `workspace.set`).
+fn session_text(st: &AccessState, refused_linux: bool) -> String {
+    match (&st.workspace, st.full) {
+        (Some(w), true) => format!("[root] workspace: {} · access FULL: {FULL_TEXT}", w.display()),
+        (None, true) => format!("[root] no workspace (nothing has /undo) · access FULL: {FULL_TEXT}"),
+        (Some(w), false) => format!("[root] workspace: {}", w.display()),
+        (None, false) if refused_linux => NO_WS_LINUX.to_string(),
+        (None, false) => no_ws_text().to_string(),
+    }
+}
+
 fn snap_notice(root: &Root, r: &Result<Value, String>) {
     match r {
         Ok(s) => root.notice_code("info", "snapshot", &format!("[root] snapshot {} of {} taken (/undo restores it)", s["id"].as_str().unwrap_or(""), s["workspace"].as_str().unwrap_or(""))),
@@ -192,32 +249,36 @@ fn snap_notice(root: &Root, r: &Result<Value, String>) {
     }
 }
 
-/// `workspace.set{cwd}` (spec items 2, 4, 5): a new owner session. Never an error for an invalid cwd.
+/// `workspace.set{cwd, mode?}` (spec items 2, 4, 5): a new owner session. Never an error for an invalid cwd.
+/// ADR-012: the session takes the charter's default access, or workspace mode with `mode: "workspace"` (`init --workspace`).
 pub fn workspace_set(root: &Root, a: &Value) -> Result<Value, Err3> {
     let cwd = a["cwd"].as_str().ok_or(("root.args", "workspace.set needs cwd (a string)".to_string(), Value::Null))?;
+    let session_full = match a.get("mode").and_then(Value::as_str) {
+        None if a.get("mode").is_none_or(Value::is_null) => None,
+        Some("workspace") => Some(false),
+        _ => return Err(("root.args", "workspace.set mode must be \"workspace\" (or absent: the charter's sandbox.mode)".into(), Value::Null)),
+    };
     let own = fixed_of(&root.p);
     let new = pa::validate_workspace(cwd, &own.as_fixed(), &ws_deny(root));
-    let ws = new.as_ref().ok().cloned().filter(|_| LINUX_HOME_GRANTS);
-    let (old, was_full) = {
+    let ws = new.as_ref().ok().cloned();
+    let before = state(root);
+    {
         let mut st = lock(&root.access);
-        let old = (st.workspace.clone(), st.full);
-        (st.workspace, st.full, st.confirmed) = (ws.clone(), false, false);
-        old
-    };
-    let rec = json!({"v": 1, "workspace": ws, "set_at": rfc3339(now_ms())});
-    if let Err(e) = write_atomic(&root.p.r("state/access.json"), format!("{rec}\n").as_bytes(), 0o600) {
-        util::log(&root.p.rh, "warn", &format!("state/access.json: {e}"));
+        (st.workspace, st.full, st.confirmed) = (ws.clone(), session_full, false);
     }
+    persist(root);
+    let after = state(root);
     crate::twin::session_started(root, None); // X9: a new owner session; its first line is replayable only with a snapshot
     crate::sentinel::session_started(root); // X3: the sentinel's units never span owner sessions
-    if let Some(w) = &ws {
+    if let Some(w) = &after.workspace {
         let r = take(root, w, "session", true);
         snap_notice(root, &r);
         crate::twin::session_started(root, r.as_ref().ok());
     }
-    let change = old != ws || was_full;
-    let text = ws.as_ref().map_or_else(|| if LINUX_HOME_GRANTS || new.is_err() { no_ws_text() } else { NO_WS_LINUX }.to_string(),
-        |w| format!("[root] workspace: {}", w.display()));
+    let change = (before.workspace.clone(), before.full) != (after.workspace.clone(), after.full);
+    // LINUX: a valid cwd gives no workspace while the session is not full (workspace mode is capped off there)
+    let linux_refused = new.is_ok() && after.workspace.is_none();
+    let text = session_text(&after, linux_refused);
     if change {
         changed(root, "workspace", &text);
     } else {
@@ -225,7 +286,7 @@ pub fn workspace_set(root: &Root, a: &Value) -> Result<Value, Err3> {
     }
     let refused = match new {
         Err(r) => Some(json!({"code": r.code(), "message": r.message()})),
-        Ok(_) if !LINUX_HOME_GRANTS => Some(json!({"code": "platform", "message": NO_WS_LINUX.trim_start_matches("[root] ")})),
+        Ok(_) if linux_refused => Some(json!({"code": "platform", "message": NO_WS_LINUX.trim_start_matches("[root] ")})),
         Ok(_) => None,
     };
     Ok(json!({"access": view(root), "changed": change, "refused": refused}))
@@ -235,50 +296,55 @@ fn confirm(a: &Value) -> bool {
     a["confirm"].as_str() == Some(PHRASE)
 }
 
-/// `full.set{on, confirm?}` (spec item 3).
+/// `full.set{on, confirm?}` (spec item 3; ADR-012). Off: the session is confined to workspace mode. On: with the
+/// charter's default full (`sandbox.mode = "full"`) at once; with `"workspace"` after the typed confirmation, once per
+/// owner session. Refused while `sandbox.allow_full = false`.
 pub fn full_set(root: &Root, a: &Value) -> Result<Value, Err3> {
     let on = a["on"].as_bool().ok_or(("root.args", "full.set needs on (a boolean)".to_string(), Value::Null))?;
-    let (_, allow_full, _) = charter(root);
-    let (full, confirmed, ws) = { let st = lock(&root.access); (st.full && allow_full, st.confirmed, st.workspace.clone()) };
+    let c = charter(root);
+    let (full, ws) = { let st = state(root); (st.full, st.workspace) };
     if !on {
-        lock(&root.access).full = false;
+        lock(&root.access).full = Some(false);
+        persist(root);
         if full {
-            changed(root, "full_off", "[root] full mode off: the body goes back to its workspace grant when it restarts at its next idle point");
+            changed(root, "full_off", "[root] full access off: the agent works in its workspace (workspace mode) from its next restart at an idle point");
         }
         return Ok(json!({"access": view(root), "changed": full, "snapshot": null}));
     }
-    if !allow_full && !LINUX_HOME_GRANTS {
-        return Err(("root.mode", "full mode is not available on Linux yet (docs/platforms.md)".into(), json!({"reason": "platform"})));
-    }
-    if !allow_full {
-        return Err(("root.mode", "full mode is disabled by the charter (sandbox.allow_full = false)".into(), json!({"reason": "charter"})));
+    if !c.allow_full {
+        return Err(("root.mode", "full access is disabled by the charter (sandbox.allow_full = false)".into(), json!({"reason": "charter"})));
     }
     if full {
         return Ok(json!({"access": view(root), "changed": false, "snapshot": null}));
     }
-    if !confirmed && !confirm(a) {
+    let confirmed = lock(&root.access).confirmed;
+    if !c.default_full && !confirmed && !confirm(a) {
         let snap = ws.as_ref().map_or_else(|| " There is no workspace, so no snapshot covers it.".to_string(),
             |w| format!(" {} is snapshotted first.", w.display()));
-        let m = format!("Full mode lets the agent write anywhere in your home except your secrets and the Root's files.{snap} \
-            Type `{PHRASE}` to turn it on.");
+        let m = format!("Full access lets the agent {FULL_TEXT}.{snap} Type `{PHRASE}` to turn it on.");
         return Err(("root.confirm", m, json!({"phrase": PHRASE})));
     }
+    // the session's workspace becomes visible again on Linux once full access is in effect
+    let ws = ws.or_else(|| lock(&root.access).workspace.clone());
     let snap = ws.as_ref().map(|w| take(root, w, "full_on", true));
     {
         let mut st = lock(&root.access);
-        (st.full, st.confirmed) = (true, true);
+        // the charter's default needs no session override (a later charter switch to "workspace" then applies)
+        st.full = if c.default_full { None } else { Some(true) };
+        st.confirmed |= !c.default_full;
     }
+    persist(root);
     if let Some(r) = &snap {
         snap_notice(root, r);
     }
-    let tail = if ws.is_some() { "" } else { " No workspace is set, so no snapshot covers full mode." };
-    changed(root, "full_on", &format!("[root] full mode on: the agent may write your whole home except secrets and the Root (from its next restart).{tail}"));
+    let tail = if ws.is_some() { "" } else { " No workspace is set, so nothing has /undo." };
+    changed(root, "full_on", &format!("[root] full access on: the agent may {FULL_TEXT} (from its next restart).{tail}"));
     Ok(json!({"access": view(root), "changed": true, "snapshot": snap.and_then(Result::ok)}))
 }
 
 /// `undo{confirm?}` (spec item 4): restore the latest snapshot of the workspace, saving the current state first.
 pub fn undo(root: &Root, a: &Value) -> Result<Value, Err3> {
-    let ws = lock(&root.access).workspace.clone().ok_or(("root.mode", "no workspace is set".to_string(), json!({"reason": "no_workspace"})))?;
+    let ws = state(root).workspace.ok_or(("root.mode", "no workspace is set".to_string(), json!({"reason": "no_workspace"})))?;
     let latest = snaps(root, &ws).pop().ok_or(("root.not_found", format!("no snapshot of {}", ws.display()), Value::Null))?;
     // While a turn runs the body may be writing the workspace: refuse (the owner retries when it is idle).
     if root.sup.kernel().is_some_and(|k| k.busy.load(std::sync::atomic::Ordering::SeqCst)) {
@@ -299,7 +365,8 @@ pub fn undo(root: &Root, a: &Value) -> Result<Value, Err3> {
         root.notice_code("alert", "snapshot", &format!("[root] {m}"));
         return Err(internal(m));
     }
-    root.append("access", json!({"access": state(root).level(), "event": "undo", "full": state(root).full, "workspace": true}));
+    let st = state(root);
+    root.append("access", json!({"access": st.level(), "event": "undo", "full": st.full, "workspace": true}));
     root.notice_code("info", "snapshot", &format!("[root] /undo restored {} to the snapshot taken {}; the state before it is snapshot {}",
         ws.display(), latest["at"].as_str().unwrap_or("?"), saved["id"].as_str().unwrap_or("")));
     Ok(json!({"restored": latest, "saved": saved}))
@@ -311,8 +378,8 @@ pub fn line(root: &Root, t: &str) -> bool {
         let v = view(root);
         let ws = v["workspace"].as_str().unwrap_or("none");
         let full = if v["full"] == true { " · FULL" } else { "" };
-        root.notice_code("info", "access", &format!("[root] access {}{full} · workspace {ws} · read_home {} · allow_full {}", v["access"].as_str().unwrap_or(""),
-            v["read_home"], v["allow_full"]));
+        root.notice_code("info", "access", &format!("[root] access {}{full} · workspace {ws} · default {} · read_home {} · allow_full {}",
+            v["access"].as_str().unwrap_or(""), v["mode"].as_str().unwrap_or(""), v["read_home"], v["allow_full"]));
     };
     let reply = |root: &Root, r: Result<Value, Err3>, again: &str| match r {
         Ok(_) => {}
@@ -331,12 +398,9 @@ pub fn line(root: &Root, t: &str) -> bool {
     true
 }
 
-/// After `charter.apply`: a changed `[sandbox]` is an access change; `allow_full = false` ends full mode.
+/// After `charter.apply`: a changed `[sandbox]` is an access change (`sandbox.mode` is the session's default unless the
+/// owner chose otherwise this session); `allow_full = false` ends full access (the state computes it).
 pub fn charter_applied(root: &Root) {
-    let (_, allow_full, _) = charter(root);
-    if !allow_full {
-        lock(&root.access).full = false;
-    }
     changed(root, "charter", &format!("[root] the charter's sandbox settings changed: access {}", state(root).level()));
 }
 

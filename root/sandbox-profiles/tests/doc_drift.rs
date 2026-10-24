@@ -1,5 +1,6 @@
 //! The profile texts compiled into `init-root` must be byte-identical to the docs' code blocks
-//! (kernel/sandbox.md §3.3.1, §3.4, §3.5; root/root.md §3.3.1–§3.3.3 and the §3.3.6 sealed text).
+//! (kernel/sandbox.md §3.3.1, §3.4, §3.5; root/root.md §3.3.1–§3.3.3 with §3.3.2a's full-access tail, and the §3.3.6
+//! sealed text).
 //! The docs are the spec.
 #![cfg(target_os = "macos")]
 
@@ -36,10 +37,11 @@ fn sandbox_md_texts_are_verbatim() {
 #[test]
 fn root_md_texts_are_verbatim() {
     let b = scheme_blocks("root/root.md");
-    assert_eq!(b.len(), 4, "root/root.md scheme blocks");
+    assert_eq!(b.len(), 5, "root/root.md scheme blocks");
     assert_eq!(b[0], ROOT_ALLOWS_TEMPLATE, "§3.3.1 ROOT_ALLOWS");
     assert_eq!(b[1], ZONE_TAIL, "§3.3.2 zone tail");
-    assert_eq!(b[2], KERNEL_SECTION, "§3.3.3 kernel SECTION");
-    assert_eq!(b[3], SEALED_TAIL, "§3.3.6 sealed text");
-    assert_eq!(render_sealed(), format!("{PRELUDE}{}", b[3]), "§3.3.1 profile(kind sealed) = PRELUDE + the sealed text");
+    assert_eq!(b[2], ZONE_TAIL_FULL, "§3.3.2a full-access tail (ADR-012)");
+    assert_eq!(b[3], KERNEL_SECTION, "§3.3.3 kernel SECTION");
+    assert_eq!(b[4], SEALED_TAIL, "§3.3.6 sealed text");
+    assert_eq!(render_sealed(), format!("{PRELUDE}{}", b[4]), "§3.3.1 profile(kind sealed) = PRELUDE + the sealed text");
 }

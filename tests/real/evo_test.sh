@@ -85,7 +85,7 @@ REAL_HOME="$(/usr/bin/python3 -I -c 'import os,pwd;print(pwd.getpwuid(os.getuid(
 TC="$(cd "$REAL_HOME/.rustup/toolchains/stable-aarch64-apple-darwin" && pwd -P)"
 DEVDIR=/Library/Developer/CommandLineTools
 KEYFILE="$REAL_HOME/.config/init-agent/deepseek.key"
-SEED_TAG=seed-v0.3.0
+SEED_TAG=seed-v0.3.1
 WATCH_MIN="$(pre watch_min_free_mb)"; MEMCAP="$(pre mem_cap_mb)"
 [ ${#RH} -le 64 ] && [ ${#IH} -le 64 ] || die "homes exceed 64 bytes ($RH)"
 case "$D" in "$REAL_HOME/.init"*|"$REAL_HOME/.init-root"*) die "refusing a live home path" ;; esac

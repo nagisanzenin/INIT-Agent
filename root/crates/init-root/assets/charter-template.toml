@@ -42,7 +42,10 @@ reserve_output_tokens = 65536
 extra_read = []
 read_home = true       # v0.1.1: read your home, except secrets (ADR-009); false = no home reads outside a workspace or full mode
 read_deny = []         # extra paths the agent may never read or write, e.g. "/Users/you/Private"
-allow_full = true      # allow `init --full` / `/full on`: write the whole home except secrets and the Root
+mode = "full"          # v0.3.1 (ADR-012): the agent reads and writes anything you can and uses the network, except INIT's
+                       # Root files (~/.init-root, its service, INIT's launchers). "workspace": read your home except
+                       # secrets, write only the folder you start `init` in (ADR-009). Per session: init --workspace, /full off|on
+allow_full = true      # false: never full access (mode = "full" then acts as "workspace"; /full on is refused)
 # mem_cap_mib = 4096   # kill any workload process tree whose memory (resident + compressed) passes this; 512–65536 MiB
 # disk_floor_gib = 5   # below this much free disk, refuse new workloads and kill running ones; 1–1024 GiB
 

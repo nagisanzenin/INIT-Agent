@@ -1,0 +1,24 @@
+; ==== Z. init-root zone tail, full access (ADR-012; deny-only; appended last instead of the zone tail) ====
+; Z1. the Root's home is invisible and unreachable: no file access and no Unix socket inside it (owner.sock, egress.sock)
+(deny file-read* file-write* (literal (param "Z_ROOT_HOME")) (subpath (param "Z_ROOT_HOME")))
+(deny network-outbound (remote unix-socket (subpath (param "Z_ROOT_HOME"))))
+(deny network-bind (local unix-socket (subpath (param "Z_ROOT_HOME"))))
+; Z2. the Root's paths outside ROOT_HOME: its service file, no writes in its directory
+(deny file-read* file-write* (literal (param "Z_ROOT_SVC")))
+(deny file-write* (literal (param "Z_ROOT_SVC_DIR")) (subpath (param "Z_ROOT_SVC_DIR")))
+; one line per full read deny entry i: INIT's provider key directory, then the charter's sandbox.read_deny:
+(deny file-read* file-write* (literal (param "Z_DENY_<i>")) (subpath (param "Z_DENY_<i>")))
+; Z3a. never the Root's service directories or INIT's launchers (<bin_dir>/init, <bin_dir>/init-tui); one line per entry i:
+(deny file-write* (literal (param "Z_WDENY_<i>")) (subpath (param "Z_WDENY_<i>")))
+; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced
+(deny file-write* (literal (param "Z_INIT_HOME")) (literal (param "Z_RUN")) (literal (param "Z_ZONE_MARK"))
+  (literal (param "Z_KERNEL")) (subpath (param "Z_KERNEL"))
+  (literal (param "Z_PUB")) (subpath (param "Z_PUB"))
+  (literal (param "Z_MARKS")) (subpath (param "Z_MARKS"))
+  (literal (param "Z_KGIT")) (subpath (param "Z_KGIT")))
+; Z5. an instance reads only its own mark (other marks and the decoy are denied)
+(deny file-read* (require-all (subpath (param "Z_MARKS")) (require-not (literal (param "Z_MARK")))))
+; Z7. no XPC services; no signals or inspection outside the instance's own sandbox
+(deny mach-lookup (xpc-service-name-prefix ""))
+(deny signal (require-not (target same-sandbox)))
+(deny process-info* (require-not (target same-sandbox)))

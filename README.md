@@ -10,6 +10,7 @@ init        # first run: pick a provider, paste a key, pick a model
 
 macOS 14+ on Apple silicon · Linux aarch64, experimental ([bubblewrap ≥ 0.13](docs/platforms.md) built from source) · about 1–2 min; get.sh also installs the Rust toolchain INIT rebuilds itself with · Apache-2.0
 **Spend is metered, not capped.** Set a limit at your provider. Details: [user guide](docs/guide.md).
+**Full access by default:** the agent reads and writes your files and uses the network, like your own shell; only the Root (`~/.init-root`, its service, INIT's launchers) is off-limits. `init --workspace` confines it to the folder you start it in ([ADR-012](docs/adr/012-full-access-by-default.md)).
 
 ## Why
 
@@ -111,7 +112,7 @@ A fixed harness caps the agent at the imagination of the people who built it. IN
 | **Frozen twin** | A pre-change copy replays your sessions nightly; an exact signed-rank test runs over 14 nights. It only reports; it never blocks. |
 | **Selection by use** | Unused capabilities decay into an archive; ones that keep coinciding with trouble are quarantined by a Fisher exact test. |
 | **Knows itself from evidence** | Models are poor at introspection, so INIT gets verified files instead: `SELF.md` (its own map), `self.json` (inventory, checked at G1), a boot block saying why it woke up, and live signals for context, cache, spend and level. ([awareness.md](docs/awareness.md)) |
-| **The sandbox** | Seatbelt profiles composed by the Root: no IP at all, one Unix socket to the Root's egress, secrets on a deny-list. The agent never holds your API key. |
+| **The sandbox** | Seatbelt profiles composed by the Root. By default the agent reads and writes anything you can and uses the network, but never the Root's files, its service or INIT's launchers; workspace mode (`init --workspace`) adds no IP, a secrets deny-list and writes only in the start folder. The agent never holds your API key. ([ADR-012](docs/adr/012-full-access-by-default.md)) |
 | **Undo and history** | APFS clones before every change; every promotion, rollback, grant and panic goes into an Ed25519-signed, append-only lineage. |
 | **Watchdog** | Every workload is polled each second; a runaway process tree is killed by PID; work stops below a disk floor. |
 
@@ -119,12 +120,12 @@ About 200k lines of Rust in four workspaces (Root, kernel, body, TUI), on `std` 
 
 ## Status: v0.3 research preview
 
-- **Works:** the edit → gate → hot-swap → rollback loop has run end to end on a real model. The Root holds against our red-team suite. On macOS, 1,870 CI tests pass; the few failures are known load flakes that pass when rerun alone.
+- **Works:** the edit → gate → hot-swap → rollback loop has run end to end on a real model. The Root holds against our red-team suite. On macOS, 1,897 CI tests pass (v0.3.1); known load flakes pass when rerun alone.
 - **New in v0.3:** **steering** (type while the agent works: a pending tray shows your line until the agent reads it; Esc interrupts and continues with it; Up takes back an unread line) and **built-in `delegate` sub-agents**, based on the tool INIT wrote for itself (parallel read-only scouts, one writer at a time, bounded per sub-task, no recursion). Linux aarch64 is experimental.
-- **Self-rewrite out of the box:** get.sh installs Rust 1.97.1 with wasm32-wasip2 and clippy (`--no-rust` skips it), so T1 tools and T2 core changes work on a fresh install. The first T2 promote on a fresh install builds cold: about 16 min for build and tests (G0), 26 min end to end with G3's self-edit check, measured on an M2. Later ones reuse the dependency cache: about 2 min end to end for a small change.
+- **Self-rewrite out of the box:** get.sh installs Rust 1.97.1 with wasm32-wasip2 and clippy (`--no-rust` skips it), so T1 tools and T2 core changes work on a fresh install. The first T2 promote on a fresh install builds cold: 10–16 min for build and tests (G0), 17–26 min end to end with G3's self-edit check, measured on an M2. Later ones reuse the dependency cache: about 2 min end to end for a small change.
 - **Not shown yet:** that self-evolution makes today's models better. On a small model, our one real self-change was neither kept nor shown harmful. In a missing-mechanism test, wherever INIT failed, a well-known agent on the same model failed too. A harness built to be outgrown only shows its value once the model can outgrow it. If you run frontier models, we would love your results. ([technical report](reports/INIT%20technical%20report.md))
 - **Limits:**
-  - **Linux is experimental:** aarch64 only, tested in Docker (Debian 12, Ubuntu 24.04) on the mock model. It needs bubblewrap ≥ 0.13 at `/usr/bin/bwrap`, built from source because no LTS distro ships it ([docs/platforms.md §3.4.0](docs/platforms.md)). There is no workspace mode on Linux: the agent works in its own home and cannot read or edit your files. x86_64 compiles but is untested.
+  - **Linux is experimental:** aarch64 only, tested in Docker (Debian 12, Ubuntu 24.04) on the mock model. It needs bubblewrap ≥ 0.13 at `/usr/bin/bwrap`, built from source because no LTS distro ships it ([docs/platforms.md §3.4.0](docs/platforms.md)). Full access works as on macOS; workspace mode on Linux keeps the agent in its own home (it cannot read or edit your files). x86_64 compiles but is untested.
   - Autonomy is capped at L0. DeepSeek is tested live; OpenAI-compatible, Anthropic, Responses and local servers are experimental. Windows is unsupported (WSL2 untested).
 
 **More:** [user guide](docs/guide.md) · [design overview](docs/overview.md) · [ADRs](docs/adr/) · [changelog](CHANGELOG.md) · contributors and agents start at [HANDOFF.md](HANDOFF.md).

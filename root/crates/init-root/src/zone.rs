@@ -82,14 +82,16 @@ fn vctx(root: &Root) -> ValidationCtx {
 }
 
 /// §3.3.1: PRELUDE + SECTION + ROOT_ALLOWS + the zone tail, as a `sandbox-exec` argv (values only as `-D`).
-/// ADR-009 (SBX-009): the deny lists for every instance, and a body's `grant`.
+/// ADR-009 (SBX-009): the deny lists for every instance, and a body's `grant`. ADR-012: a full grant takes the full
+/// lists (and the full tail).
 #[cfg(target_os = "macos")]
 fn launcher(root: &Root, id: ProfileId, given: &BTreeMap<String, String>, mark: &Path, grant: &Grant) -> Result<Vec<OsString>, String> {
     use init_sandbox_profiles::seatbelt::{ZoneLayout, compose};
     let c = vctx(root);
     let svc = crate::install::service_path(&root.p);
     let home = crate::access::home(&root.p);
-    let (read_deny, write_deny) = (crate::access::deny(root), crate::access::write_deny(root)); // tail Z2, Z3a
+    let (read_deny, write_deny) = if grant.full { (crate::access::deny_full(root), crate::access::write_deny_full(root)) }
+        else { (crate::access::deny(root), crate::access::write_deny(root)) }; // tail Z2, Z3a
     let layout = ZoneLayout { root_home: root.p.rh.clone(), init_home: root.p.ih.clone(), root_svc: svc, extra_read: c.extra_read, home, read_deny, write_deny };
     let given = if id == ProfileId::Kernel { &layout.kernel_profile_params(&c.toolchain, &c.devdir, &c.home_real) } else { given };
     compose(id, given, &layout, mark, grant).map(|r| r.sandbox_exec_argv()).map_err(|e| e.to_string())
@@ -98,8 +100,20 @@ fn launcher(root: &Root, id: ProfileId, given: &BTreeMap<String, String>, mark: 
 #[cfg(target_os = "linux")]
 fn launcher(root: &Root, id: ProfileId, given: &BTreeMap<String, String>, mark: &Path, grant: &Grant) -> Result<Vec<OsString>, String> {
     let c = vctx(root);
+    // ADR-012: a full grant takes the full lists; workspace-mode grants stay refused by the Linux plan
+    let (read_deny, write_deny) = if grant.full { (crate::access::deny_full(root), crate::access::write_deny_full(root)) } else { (crate::access::deny(root), vec![]) };
+    let home = crate::access::home(&root.p);
+    if grant.full {
+        // systemd reads `init-root.service.d/` drop-ins from each user unit directory: a missing one would get no mount
+        // and the zone could create it, so the Root creates it empty first (the plan then binds it read-only)
+        for d in init_sandbox_profiles::access::LINUX_UNIT_DIRS {
+            if let Err(e) = fs::create_dir_all(home.join(d)) {
+                return Err(format!("full access: cannot create {}: {e}", home.join(d).display()));
+            }
+        }
+    }
     let layout = init_sandbox_profiles::linux::Layout { root_home: root.p.rh.clone(), init_home: root.p.ih.clone(),
-        toolchain: c.toolchain, extra_read: c.extra_read, read_deny: crate::access::deny(root),
+        toolchain: c.toolchain, extra_read: c.extra_read, read_deny, write_deny, home,
         frozen: root.benchmark.as_ref().is_some_and(|p| p.frozen()), benchmark: root.benchmark.is_some() };
     init_sandbox_profiles::linux::compose(id, given, &layout, mark, grant)
 }
@@ -186,7 +200,7 @@ fn launch(root: &Root, id: &str, profile: ProfileId, given: &BTreeMap<String, St
             c.args(["--keep", "3", "--keep", "4"]);
         }
         #[cfg(target_os = "linux")]
-        let seccomp = sys::linux_seccomp().map_err(|e| e.to_string())?;
+        let seccomp = sys::linux_seccomp(grant.full).map_err(|e| e.to_string())?;
         #[cfg(target_os = "linux")]
         c.args(["--keep", "5"]);
         #[cfg(target_os = "linux")]
@@ -329,6 +343,9 @@ pub fn spawn(root: &Arc<Root>, a: &Value) -> Result<(Value, [OwnedFd; 3]), Err3>
     if let Some(g) = &g {
         env.insert("INIT_ACCESS".into(), g.access.into());
         env.insert("INIT_WORKSPACE".into(), g.workspace.as_ref().map(|w| w.display().to_string()).unwrap_or_default());
+        if g.grant.full {
+            full_env(&mut env, &crate::access::home(&root.p));
+        }
     }
     // MEM-RUNAWAY: a body's side of the watchdog (the cap for its messages, the events file it reads), set by the Root
     if let Some(l) = lim.filter(|_| profile == ProfileId::Body) {
@@ -348,6 +365,35 @@ pub fn spawn(root: &Arc<Root>, a: &Value) -> Result<(Value, [OwnedFd; 3]), Err3>
     save(root); // §3.5.1 step 5: recorded before the answer
     reaper(root.clone(), id.clone(), pid);
     Ok((json!({"instance": id, "pid": pid, "started_at": rfc3339(at)}), [in_w.into(), out_r.into(), err_r.into()]))
+}
+
+/// ADR-012: a full grant's environment is the owner's: `HOME` is the owner's canonical home (so `~/Downloads` is the
+/// owner's), `CARGO_NET_OFFLINE` is gone (the network is open), and the owner's `~/.local/bin` and `~/.cargo/bin` follow
+/// the kernel's `PATH`.
+fn full_env(env: &mut BTreeMap<String, String>, home: &Path) {
+    let h = home.display();
+    env.insert("HOME".into(), h.to_string());
+    env.remove("CARGO_NET_OFFLINE");
+    let path = env.get("PATH").cloned().unwrap_or_else(|| "/usr/bin:/bin:/usr/sbin:/sbin".into());
+    env.insert("PATH".into(), format!("{path}:{h}/.local/bin:{h}/.cargo/bin"));
+}
+
+#[cfg(test)]
+mod full_env_tests {
+    use super::*;
+    #[test]
+    fn full_env_is_the_owners() {
+        let mut env: BTreeMap<String, String> = [("HOME", "/h/.init/work/home"), ("CARGO_NET_OFFLINE", "true"), ("PATH", "/h/.init/kernel/bin:/usr/bin:/bin"),
+            ("TMPDIR", "/h/.init/work/tmp")].into_iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
+        full_env(&mut env, Path::new("/h"));
+        assert_eq!(env["HOME"], "/h");
+        assert!(!env.contains_key("CARGO_NET_OFFLINE"));
+        assert_eq!(env["PATH"], "/h/.init/kernel/bin:/usr/bin:/bin:/h/.local/bin:/h/.cargo/bin");
+        assert_eq!(env["TMPDIR"], "/h/.init/work/tmp", "TMPDIR stays the body's own");
+        let mut bare = BTreeMap::new();
+        full_env(&mut bare, Path::new("/h"));
+        assert_eq!(bare["PATH"], "/usr/bin:/bin:/usr/sbin:/sbin:/h/.local/bin:/h/.cargo/bin");
+    }
 }
 
 /// §3.14 and §3.6.4: the zone's share of `max_instances`, parallel bodies per level (with the `replaces`

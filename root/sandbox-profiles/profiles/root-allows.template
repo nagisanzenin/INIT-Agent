@@ -8,3 +8,14 @@
 ; ADR-009 write grant, the live body only: Z_WRITE is the workspace, or the home in full mode; never INIT_HOME:
 (allow file-read* file-write* file-map-executable (require-all (subpath (param "Z_WRITE")) (require-not (subpath (param "Z_INIT_HOME")))))
 (allow file-read-metadata (path-ancestors (param "Z_WRITE")))
+; ADR-012 full access, the live body only (sandbox.mode = "full"): read, write and run anything outside INIT_HOME (whose rules
+; stay the SECTION's), IP networking and the services DNS, TLS and file watching use; the full tail keeps the Root's denies:
+(allow file-read* file-write* file-map-executable file-ioctl (require-all (subpath (param "Z_FULL")) (require-not (subpath (param "Z_INIT_HOME")))))
+(allow network*)
+(allow system-socket)
+(allow sysctl-read)
+(allow ipc-posix-shm* ipc-posix-sem)
+(allow mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.networkd") (global-name "com.apple.ocspd")
+  (global-name "com.apple.trustd") (global-name "com.apple.trustd.agent") (global-name "com.apple.SystemConfiguration.DNSConfiguration")
+  (global-name "com.apple.SystemConfiguration.configd") (global-name "com.apple.dnssd.service") (global-name "com.apple.mDNSResponder")
+  (global-name "com.apple.FSEvents"))

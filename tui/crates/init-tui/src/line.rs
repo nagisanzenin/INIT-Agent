@@ -30,9 +30,11 @@ pub struct LineOpts {
     pub style: bool,
     /// The `> ` prompt: stdin is a TTY.
     pub prompt: bool,
-    /// ADR-009: the cwd sent as the workspace at the first attach, and `--full`.
+    /// ADR-009: the cwd sent as the workspace at the first attach, and `--full`; ADR-012:
+    /// `--workspace` confines this session to the workspace.
     pub cwd: Option<String>,
     pub full: bool,
+    pub workspace: bool,
 }
 
 struct Out<W: Write> {
@@ -666,7 +668,7 @@ pub fn run(o: LineOpts) -> i32 {
     spawn_signals(tx.clone());
     let mut feed = Feed::new();
     feed.want_raw = o.raw;
-    let acc = access::Flow::new(o.cwd.clone(), o.full);
+    let acc = access::Flow::new(o.cwd.clone(), o.full, o.workspace);
     let mut info = Info::default();
     info.home = std::env::var("HOME").ok().filter(|h| !h.is_empty());
     let mut app = LineApp {

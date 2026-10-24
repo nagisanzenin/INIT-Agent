@@ -282,14 +282,15 @@ fn tui1_status_bar_states() {
     check("tui1_status", &out);
 }
 
-/// WIRE-009 (ADR-009): the workspace as a short path, `no workspace`, and `FULL`, which is never
-/// dropped; with NO_COLOR, `FULL` is in reverse video.
+/// WIRE-009 (ADR-009, ADR-012): the workspace as a short path, `no workspace`, and the access mode,
+/// `FULL` (red bold) or `WORKSPACE` (yellow), which is never dropped; with NO_COLOR it is in
+/// reverse video.
 #[test]
 fn wire9_access_in_the_status_bar() {
     let mut out = String::new();
     let view = |ws: Option<&str>, full: bool| {
         json!({"access": if full { "full" } else if ws.is_some() { "workspace" } else { "read_home" }, "allow_full": true, "full": full,
-               "read_home": true, "restart_pending": false, "snapshot": null, "workspace": ws})
+               "mode": "full", "read_home": true, "restart_pending": false, "snapshot": null, "workspace": ws})
     };
     let cases: Vec<(&str, Option<&str>, bool)> = vec![
         ("workspace", Some("/Users/o/code/proj"), false),
@@ -313,6 +314,10 @@ fn wire9_access_in_the_status_bar() {
     let mut w = World::new();
     w.info.on_access(view(Some("/Users/o/p"), true));
     out.push_str("-- full NO_COLOR, no HOME @80\n");
+    out.push_str(&grid(&[super::status::bar(&w.info, 80, w.at(41.0), NOW_MS, 3, true)], 80));
+    let mut w = World::new();
+    w.info.on_access(view(Some("/Users/o/p"), false));
+    out.push_str("-- workspace NO_COLOR, no HOME @80\n");
     out.push_str(&grid(&[super::status::bar(&w.info, 80, w.at(41.0), NOW_MS, 3, true)], 80));
     check("wire9_access_status", &out);
     assert_eq!(super::status::short_path("/Users/o/a/b", Some("/Users/o")), "~/a/b");

@@ -173,3 +173,18 @@ pub fn set_exec_clean(cmd: &mut std::process::Command) {
         cmd.pre_exec(move || exec_clean_in_child(limit));
     }
 }
+
+/// The per-user temporary directory macOS gives this user (`confstr(_CS_DARWIN_USER_TEMP_DIR)`, under
+/// `/var/folders/`), whatever `TMPDIR` says. None when it cannot be read.
+#[cfg(target_os = "macos")]
+pub fn darwin_user_temp_dir() -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStringExt;
+    let mut buf = vec![0u8; 1024];
+    // SAFETY: `buf` is a live, writable buffer of the length passed; confstr writes at most that many bytes.
+    let n = unsafe { libc::confstr(libc::_CS_DARWIN_USER_TEMP_DIR, buf.as_mut_ptr().cast(), buf.len()) };
+    if n == 0 || n > buf.len() {
+        return None;
+    }
+    buf.truncate(n - 1); // n counts the terminating NUL
+    Some(std::ffi::OsString::from_vec(buf).into())
+}

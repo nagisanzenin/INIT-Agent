@@ -298,11 +298,14 @@ fn a6_invariants_are_enforced_by_the_real_root_sandbox() {
         mock: Some(mock),
     };
 
-    // Charter: test mode, loopback provider, $1 ceilings, mirror off (S1's mock charter).
+    // Charter: test mode, loopback provider, $1 ceilings, mirror off (S1's mock charter). A6 checks the workspace-mode
+    // invariants (no network but the proxy socket, step 4), so it pins `sandbox.mode = "workspace"`: since v0.3.1
+    // (ADR-012) the default is full access, where loopback TCP is allowed by design (its rows: sandbox.md S-A10…S-A28).
     let charter = format!(
         "schema_version = 1\n[purpose]\ntext = \"WP15 A6: invariants enforced by the OS.\"\n[autonomy]\nmax_level = 4\n\
          [money]\nday_usd = \"1.00\"\ntotal_usd = \"1.00\"\nday_starts_at_utc_offset = \"+00:00\"\n[quotas]\ndisk_min_free_gib = 1\n\
          [sealed]\nreserve_usd = \"0.00\"\naudit_usd = \"0.00\"\n[mirror]\nurl = \"\"\n[root]\ntest_mode = true\n\
+         [sandbox]\nmode = \"workspace\"\n\
          [actions.providers]\ndestinations = [\"127.0.0.1:{port}\"]\npaths = [\"chat/completions\", \"models\", \"user/balance\"]\n\
          [actions.providers.providers.deepseek]\nhost = \"127.0.0.1:{port}\"\n\
          [actions.providers.models.\"deepseek-flash\"]\nmin_level = 0\ninput_musd_per_mtok = 300000\noutput_musd_per_mtok = 1200000\nreserve_output_tokens = 65536\n"

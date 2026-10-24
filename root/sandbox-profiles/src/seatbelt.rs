@@ -3,6 +3,7 @@
 //!
 //! ```text
 //! profile(id) = PRELUDE + SECTION(id) + ROOT_ALLOWS + ZONE_TAIL      (the tail is deny-only and always last)
+//! profile(live body, full access) = PRELUDE + SECTION(body) + ROOT_ALLOWS + ZONE_TAIL_FULL     (ADR-012)
 //! profile(kind sealed) = PRELUDE + SEALED_TAIL                       (root/root.md §3.3.6)
 //! ```
 //!
@@ -37,6 +38,9 @@ pub const KERNEL_SECTION: &str = include_str!("../profiles/kernel.sb");
 pub const ROOT_ALLOWS_TEMPLATE: &str = include_str!("../profiles/root-allows.template");
 /// root/root.md §3.3.2, Z1–Z7 (Z2 per D9; Z2 and Z3 per ADR-009), with `<i>` standing for the deny-list index.
 pub const ZONE_TAIL: &str = include_str!("../profiles/zone-tail.sb");
+/// root/root.md §3.3.2a (ADR-012): the full-access tail, appended last instead of [`ZONE_TAIL`] for a full grant:
+/// Z1, Z2, Z3a (with the full lists), Z4, Z5 and Z7; no Z3, Z3b or Z6.
+pub const ZONE_TAIL_FULL: &str = include_str!("../profiles/zone-tail-full.sb");
 /// root/root.md §3.3.6, the sealed text: instance kind `sealed` is PRELUDE + this, with no SECTION and
 /// no ROOT_ALLOWS (root/sealed-eval.md §3.2, D5). `init-root`'s `sealed::run` renders it.
 pub const SEALED_TAIL: &str = include_str!("../profiles/sealed-tail.sb");
@@ -81,8 +85,9 @@ pub struct Counts {
 }
 
 /// Render a template group by group: a group whose rules hold `<i>` is repeated once per entry of its list
-/// ([`Counts`]), with its comment only when the list is non-empty; a group naming `Z_HOME` only with a read
-/// grant; with `write_cond`, a group naming `Z_WRITE` only with a write grant. Every other group is copied.
+/// ([`Counts`]), with its comment only when the list is non-empty; a group naming `Z_FULL` only with a full grant
+/// (ADR-012); a group naming `Z_HOME` only with a read grant; with `write_cond`, a group naming `Z_WRITE` only with
+/// a write grant. Every other group is copied.
 fn expand(t: &str, n: Counts, grant: &Grant, write_cond: bool) -> String {
     let uses = |rules: &[&str], p: &str| rules.iter().any(|l| l.split(';').next().unwrap_or("").contains(p));
     let mut out = String::new();
@@ -93,6 +98,8 @@ fn expand(t: &str, n: Counts, grant: &Grant, write_cond: bool) -> String {
             n.deny
         } else if uses(&rules, "(param \"Z_WDENY_<i>\")") {
             n.wdeny
+        } else if uses(&rules, "(param \"Z_FULL\")") {
+            usize::from(grant.full)
         } else if uses(&rules, "(param \"Z_HOME\")") {
             usize::from(grant.read_home)
         } else if write_cond && uses(&rules, "(param \"Z_WRITE\")") {
@@ -119,7 +126,8 @@ fn expand(t: &str, n: Counts, grant: &Grant, write_cond: bool) -> String {
 }
 
 /// ROOT_ALLOWS: the instance mark and the zone mark, then two lines per `extra_read` entry (only when the
-/// list is non-empty, D9), then the ADR-009 grant lines the instance has (a body's only).
+/// list is non-empty, D9), then the ADR-009 grant lines the instance has (a body's only), then the ADR-012 full
+/// group (the live body's, with a full grant).
 pub fn root_allows(extra_read: usize, grant: &Grant) -> Result<String, ArgsError> {
     if extra_read > MAX_EXTRA_READ {
         return Err(ArgsError::new("V3", None, "more than 8 extra_read entries"));
@@ -135,12 +143,32 @@ pub fn zone_tail(deny: usize, wdeny: usize) -> Result<String, ArgsError> {
     Ok(expand(ZONE_TAIL, Counts { deny, wdeny, ..Counts::default() }, &Grant::default(), false))
 }
 
-/// The full text of profile `id`: PRELUDE + SECTION(id) + ROOT_ALLOWS + ZONE_TAIL. Only `body` takes a grant.
+/// ADR-012: the full-access tail with one Z2 line per full read deny entry and one Z3a line per full write deny entry.
+pub fn zone_tail_full(deny: usize, wdeny: usize) -> Result<String, ArgsError> {
+    if deny > MAX_DENY || wdeny > MAX_DENY {
+        return Err(ArgsError::new("V3", None, "more than 128 read or write deny entries"));
+    }
+    Ok(expand(ZONE_TAIL_FULL, Counts { deny, wdeny, ..Counts::default() }, &Grant::default(), false))
+}
+
+/// The tail for `grant`: the full tail for a full grant (ADR-012), else the zone tail. A full grant carries no other grant.
+fn tail_for(n: Counts, grant: &Grant) -> Result<String, ArgsError> {
+    if grant.full {
+        if grant.read_home || grant.write.is_some() {
+            return Err(ArgsError::new("V5", None, "a full grant carries no home read or write grant"));
+        }
+        return zone_tail_full(n.deny, n.wdeny);
+    }
+    zone_tail(n.deny, n.wdeny)
+}
+
+/// The full text of profile `id`: PRELUDE + SECTION(id) + ROOT_ALLOWS + the tail (the full tail for a full grant).
+/// Only `body` takes a grant.
 pub fn render(id: ProfileId, n: Counts, grant: &Grant) -> Result<String, ArgsError> {
     if id != ProfileId::Body && *grant != Grant::default() {
         return Err(ArgsError::new("V5", None, format!("profile {:?} takes no ADR-009 grant", id.wire())));
     }
-    Ok([PRELUDE, section(id), &root_allows(n.extra_read, grant)?, &zone_tail(n.deny, n.wdeny)?].concat())
+    Ok([PRELUDE, section(id), &root_allows(n.extra_read, grant)?, &tail_for(n, grant)?].concat())
 }
 
 /// The full text of instance kind `sealed` (root/root.md §3.3.1): PRELUDE + SEALED_TAIL.
@@ -151,7 +179,7 @@ pub fn render_sealed() -> String {
 /// ROOT_ALLOWS + ZONE_TAIL over an arbitrary inner text (root/root.md RR-1: the tail over
 /// `(version 1)(allow default)`, the worst possible inner profile).
 pub fn render_over(inner: &str, n: Counts, grant: &Grant) -> Result<String, ArgsError> {
-    Ok([inner, &root_allows(n.extra_read, grant)?, &zone_tail(n.deny, n.wdeny)?].concat())
+    Ok([inner, &root_allows(n.extra_read, grant)?, &tail_for(n, grant)?].concat())
 }
 
 /// Every `(param "NAME")` a text references, ignoring `;` comments.
@@ -182,9 +210,11 @@ pub struct ZoneLayout {
     pub extra_read: Vec<PathBuf>,
     /// The owner's home, canonical (`Z_HOME` of a read grant; ADR-009).
     pub home: PathBuf,
-    /// The read deny list (`Z_DENY_<i>`, tail Z2; [`crate::access::read_deny`]).
+    /// The read deny list (`Z_DENY_<i>`, tail Z2; [`crate::access::read_deny`], or for a full grant
+    /// [`crate::access::full_read_deny`]).
     pub read_deny: Vec<PathBuf>,
-    /// The write deny list (`Z_WDENY_<i>`, tail Z3a; [`crate::access::write_deny`]).
+    /// The write deny list (`Z_WDENY_<i>`, tail Z3a; [`crate::access::write_deny`], or for a full grant
+    /// [`crate::access::full_write_deny`]).
     pub write_deny: Vec<PathBuf>,
 }
 
@@ -223,7 +253,8 @@ impl ZoneLayout {
     }
 
     /// The tail's and ROOT_ALLOWS' parameters (root/root.md §3.3.2 table) for an instance whose
-    /// mark is `mark` and whose ADR-009 grant is `grant`.
+    /// mark is `mark` and whose ADR-009 grant is `grant`. A full grant (ADR-012) has `Z_FULL` = `/` and no
+    /// `Z_WRITE` or `Z_EGRESS_SOCK`, which only the zone tail's Z3 and Z6 use.
     pub fn zone_params(&self, mark: &Path, grant: &Grant) -> BTreeMap<String, String> {
         let i = &self.init_home;
         let mut m = BTreeMap::new();
@@ -233,7 +264,12 @@ impl ZoneLayout {
         put("Z_ROOT_HOME", &self.root_home);
         put("Z_ROOT_SVC", &self.root_svc);
         put("Z_ROOT_SVC_DIR", self.root_svc.parent().unwrap_or(&self.root_svc));
-        put("Z_WRITE", grant.write.as_deref().unwrap_or(i));
+        if grant.full {
+            put("Z_FULL", Path::new("/"));
+        } else {
+            put("Z_WRITE", grant.write.as_deref().unwrap_or(i));
+            put("Z_EGRESS_SOCK", &self.egress_sock());
+        }
         if grant.read_home {
             put("Z_HOME", &self.home);
         }
@@ -251,7 +287,6 @@ impl ZoneLayout {
         put("Z_MARKS", &self.marks_dir());
         put("Z_MARK", mark);
         put("Z_ZONE_MARK", &self.zone_mark());
-        put("Z_EGRESS_SOCK", &self.egress_sock());
         for (n, p) in self.extra_read.iter().enumerate() {
             put(&format!("Z_EXTRA_READ_{n}"), p);
         }
@@ -368,7 +403,8 @@ mod tests {
 
     #[test]
     fn tail_is_deny_only() {
-        for line in ZONE_TAIL.lines().chain(zone_tail(5, 4).unwrap().lines()) {
+        let full = zone_tail_full(5, 4).unwrap();
+        for line in ZONE_TAIL.lines().chain(zone_tail(5, 4).unwrap().lines()).chain(ZONE_TAIL_FULL.lines()).chain(full.lines()) {
             let code = line.split(';').next().unwrap().trim_start();
             assert!(!code.starts_with("(allow"), "allow in the tail: {line}");
             assert!(!code.contains("define"), "define in the tail: {line}");
@@ -377,7 +413,7 @@ mod tests {
 
     #[test]
     fn no_text_redefines_anything() {
-        for t in [PRELUDE, BODY_SECTION, BUILD_SECTION, GIT_READ_SECTION, KERNEL_SECTION, ROOT_ALLOWS_TEMPLATE, ZONE_TAIL] {
+        for t in [PRELUDE, BODY_SECTION, BUILD_SECTION, GIT_READ_SECTION, KERNEL_SECTION, ROOT_ALLOWS_TEMPLATE, ZONE_TAIL, ZONE_TAIL_FULL] {
             assert!(!t.contains("(define"), "SBPL is Scheme: a define could switch the tail off");
         }
     }
@@ -434,16 +470,18 @@ mod tests {
     /// template itself holds every line.
     #[test]
     fn root_allows_grant_lines() {
-        let read = Grant { read_home: true, write: None };
+        let read = Grant { read_home: true, ..Grant::default() };
         let r = root_allows(0, &read).unwrap();
         assert_eq!(r.lines().count(), 2 + 2);
         assert!(r.contains("(subpath (param \"Z_HOME\"))") && !r.contains("Z_WRITE"));
-        let both = Grant { read_home: true, write: Some("/h/p".into()) };
+        let both = Grant { read_home: true, write: Some("/h/p".into()), full: false };
         let r = root_allows(1, &both).unwrap();
         assert_eq!(r.lines().count(), 2 + 3 + 2 + 3);
         assert!(r.ends_with("(allow file-read-metadata (path-ancestors (param \"Z_WRITE\")))\n"));
         let one = Counts { extra_read: 1, ..Counts::default() };
-        assert_eq!(expand(ROOT_ALLOWS_TEMPLATE, one, &both, true).replace("_0\"", "_<i>\""), ROOT_ALLOWS_TEMPLATE);
+        let every = Grant { full: true, ..both.clone() }; // expand() itself only selects groups
+        assert_eq!(expand(ROOT_ALLOWS_TEMPLATE, one, &every, true).replace("_0\"", "_<i>\""), ROOT_ALLOWS_TEMPLATE);
+        assert!(!r.contains("Z_FULL") && !r.contains("network*"), "no full group without a full grant");
         for l in r.lines().filter(|l| l.contains("Z_HOME") || l.contains("Z_WRITE")).filter(|l| !l.starts_with(';')) {
             assert!(l.contains("(require-not (subpath (param \"Z_INIT_HOME\")))") || l.contains("path-ancestors"), "{l}");
         }
@@ -467,10 +505,16 @@ mod tests {
 
     #[test]
     fn only_body_takes_a_grant() {
-        let g = Grant { read_home: true, write: None };
+        let g = Grant { read_home: true, ..Grant::default() };
+        let full = Grant { full: true, ..Grant::default() };
         assert!(render(ProfileId::Body, Counts::default(), &g).is_ok());
+        assert!(render(ProfileId::Body, Counts::default(), &full).is_ok());
         for id in [ProfileId::Kernel, ProfileId::Build, ProfileId::Check, ProfileId::GitRead] {
             assert_eq!(render(id, Counts::default(), &g).unwrap_err().rule, "V5");
+            assert_eq!(render(id, Counts::default(), &full).unwrap_err().rule, "V5", "{id:?}: full access is a body's only");
+        }
+        for mixed in [Grant { read_home: true, ..full.clone() }, Grant { write: Some("/h/p".into()), ..full }] {
+            assert_eq!(render(ProfileId::Body, Counts::default(), &mixed).unwrap_err().rule, "V5", "a full grant carries nothing else");
         }
     }
 
@@ -481,7 +525,7 @@ mod tests {
         let l = layout();
         let mark = Path::new("/h/.init/run/mark/abc");
         let body: BTreeMap<String, String> = kernel_params(ProfileId::Body).into_iter().map(|n| (n.to_owned(), "/h/.init/x".to_owned())).collect();
-        for g in [Grant::default(), Grant { read_home: true, write: None }, Grant { read_home: true, write: Some("/h/p".into()) }] {
+        for g in [Grant::default(), Grant { read_home: true, ..Grant::default() }, Grant { read_home: true, write: Some("/h/p".into()), full: false }] {
             let r = compose(ProfileId::Body, &body, &l, mark, &g).unwrap();
             assert_eq!(r.params.contains_key("Z_HOME"), g.read_home);
             assert_eq!(r.params["Z_WRITE"], g.write.as_ref().map_or("/h/.init".into(), |w| w.display().to_string()));
@@ -499,6 +543,60 @@ mod tests {
             let listed: BTreeSet<String> = kernel_params(id).into_iter().map(str::to_owned).collect();
             assert_eq!(used, listed, "{id:?}");
         }
+    }
+
+    /// ADR-012: the full tail keeps Z1 (with ROOT_HOME's sockets), Z2, Z3a, Z4, Z5 and Z7, has no Z3, Z3b or Z6,
+    /// one line per entry; the full group is contiguous, the live body's alone, and never covers INIT_HOME.
+    #[test]
+    fn full_tail_and_group() {
+        let t0 = zone_tail_full(0, 0).unwrap();
+        for z in ["; Z1.", "; Z2.", "; Z4.", "; Z5.", "; Z7."] {
+            assert!(t0.contains(z), "{z}");
+        }
+        for gone in ["Z_WRITE", "Z_EGRESS_SOCK", "Z_HOME", ".git/hooks", "; Z3.", "; Z3b.", "; Z6.", "Z_DENY", "Z_WDENY"] {
+            assert!(!t0.contains(gone), "{gone} in the full tail");
+        }
+        assert!(t0.contains("(deny network-outbound (remote unix-socket (subpath (param \"Z_ROOT_HOME\"))))"));
+        let t = zone_tail_full(2, 3).unwrap();
+        assert_eq!(t.lines().count(), t0.lines().count() + 3 + 4);
+        assert!(t.contains("(param \"Z_DENY_1\")") && t.contains("(param \"Z_WDENY_2\")") && !t.contains("<i>"));
+        let one = Counts { deny: 1, wdeny: 1, ..Counts::default() };
+        assert_eq!(expand(ZONE_TAIL_FULL, one, &Grant::default(), false).replace("_0\"", "_<i>\""), ZONE_TAIL_FULL);
+        // the zone tail's Z1, Z2 (first lines), Z4, Z5 and Z7 rules are the full tail's, verbatim
+        for rule in ZONE_TAIL.lines().filter(|l| !l.starts_with(';')) {
+            let shared = ["Z_ROOT_HOME", "Z_ROOT_SVC", "Z_DENY_", "Z_WDENY_", "Z_KERNEL", "Z_PUB", "Z_MARKS", "Z_KGIT", "Z_ZONE_MARK", "xpc-service", "same-sandbox", "(deny file-write* (literal (param \"Z_INIT_HOME\"))"];
+            if shared.iter().any(|k| rule.contains(k)) && !rule.contains("Z_EGRESS_SOCK") && !rule.contains("require-not (require-any") {
+                assert!(ZONE_TAIL_FULL.contains(rule), "missing from the full tail: {rule}");
+            }
+        }
+        let full = Grant { full: true, ..Grant::default() };
+        let r = root_allows(0, &full).unwrap();
+        assert_eq!(r.lines().count(), 2 + 2 + 9);
+        assert!(r.contains("(allow network*)") && r.contains("(global-name \"com.apple.trustd\")"));
+        assert!(!r.contains("launchservicesd") && !r.contains("appleevents"), "no LaunchServices or AppleEvents: no `open` escape");
+        let file = r.lines().find(|l| l.contains("Z_FULL")).unwrap();
+        assert!(file.contains("(require-not (subpath (param \"Z_INIT_HOME\")))"), "{file}");
+        let group = r.split_once("; ADR-012").unwrap().1;
+        assert_eq!(group.lines().filter(|l| l.starts_with(';')).count(), 1, "the group's rules are contiguous: {group}");
+        let b = render(ProfileId::Body, Counts { deny: 2, wdeny: 3, ..Counts::default() }, &full).unwrap();
+        assert!(b.ends_with(&zone_tail_full(2, 3).unwrap()), "the full tail comes last");
+        assert!(!b.contains("; ==== Z. init-root zone tail (deny-only"), "never both tails");
+    }
+
+    /// ADR-012: a full grant's parameters are exactly what its text uses: Z_FULL = "/", no Z_WRITE, no Z_EGRESS_SOCK,
+    /// no Z_HOME; the deny lists as given.
+    #[test]
+    fn full_grant_params_match_the_text() {
+        let l = layout();
+        let mark = Path::new("/h/.init/run/mark/abc");
+        let body: BTreeMap<String, String> = kernel_params(ProfileId::Body).into_iter().map(|n| (n.to_owned(), "/h/.init/x".to_owned())).collect();
+        let r = compose(ProfileId::Body, &body, &l, mark, &Grant { full: true, ..Grant::default() }).unwrap();
+        assert_eq!(r.params["Z_FULL"], "/");
+        for gone in ["Z_WRITE", "Z_EGRESS_SOCK", "Z_HOME"] {
+            assert!(!r.params.contains_key(gone), "{gone}");
+        }
+        assert_eq!((r.params["Z_DENY_1"].as_str(), r.params["Z_WDENY_0"].as_str(), r.params["Z_ROOT_SVC_DIR"].as_str()), ("/h/.aws", "/h/.zshrc", "/h/Library/LaunchAgents"));
+        assert_eq!(referenced_params(&r.text), r.params.keys().cloned().collect::<BTreeSet<_>>());
     }
 
     #[test]

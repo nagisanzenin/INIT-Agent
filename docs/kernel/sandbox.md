@@ -68,7 +68,7 @@ The owner chose Codex-style permissions on 2026-10-20 (ADR-009, CONVENTIONS §6 
 
 | `INIT_ACCESS` | When | Read (beyond §3.1) | Write (beyond §3.1) |
 |---|---|---|---|
-| `full` | full mode is on: `init --full` or `/full on`, after the Root's typed confirmation; refused while the charter says `sandbox.allow_full = false` | the owner's home except the deny list | the whole home except the deny list and the Root's paths |
+| `full` | v0.3.1 (ADR-012, §3.1.2): the default (`sandbox.mode = "full"`); with `sandbox.mode = "workspace"`, `/full on` after the Root's typed confirmation; never while the charter says `sandbox.allow_full = false` | everything outside `INIT_HOME` except the Root-protected set (§3.1.2) | everything outside `INIT_HOME` except the Root-protected set, plus the IP network |
 | `workspace` | a workspace is set: `init` ran in a directory that passed the Root's validation (root/root.md §3.17.1) | as `read_home` when `sandbox.read_home` is true | the workspace subtree |
 | `read_home` | no workspace (`init` ran in `~`, or the cwd was refused), and `sandbox.read_home = true` (the default) | the owner's home except the deny list | nothing: `INIT_HOME` only, as in v0.1.0 |
 | `none` | no workspace and `sandbox.read_home = false` | nothing: the v0.1.0 behaviour | nothing |
@@ -88,6 +88,17 @@ Other instances:
 - **The environment matches the sandbox.** For every `body`-profile spawn (live body, member or probe) the Root sets `INIT_ACCESS` and `INIT_WORKSPACE` in the child's environment, overwriting any value the kernel sent. The spawn's `cwd` stays under `INIT_HOME` (V4), and the body's tools `chdir` to `$INIT_WORKSPACE` when it is not empty (body/boot.md §3.2).
 - **Gate measurements stay hermetic.** A probe never reads the owner's home and no gate instance writes a workspace, so a G4 result cannot depend on the owner's files, and a gate run cannot change the owner's project.
 - **A profile is fixed at spawn.** A new workspace, `/full on|off` or a charter change reaches the live body through a graceful restart at its next idle boundary: the Root sends the kernel an `access` event with `restart:"idle"` (root/root.md §3.17.3). The conversation continues, because the body resumes its session log.
+
+#### 3.1.2 Full access by default (v0.3.1, ADR-012)
+
+The owner chose full access as the default on 2026-10-24 (ADR-012). With the charter's `sandbox.mode = "full"` (the default; `"workspace"` restores §3.1.1's ADR-009 behaviour unchanged), the live body's processes read, write and run anything the owner can and use the IP network, except the **Root-protected set**: `ROOT_HOME` (no file access, no Unix socket inside it, so neither `owner.sock` nor `egress.sock`), the Root's service file and its directory (`~/Library/LaunchAgents`; on Linux `~/.config/systemd/user`, plus the other user unit directories systemd reads drop-ins from, `~/.config/systemd/user.control` and `~/.local/share/systemd/user`), INIT's launchers (`<bin_dir>/init` and `<bin_dir>/init-tui`; the rest of `bin_dir` is writable), `INIT_HOME`'s Root-written parts (Z4) and other marks (Z5), `~/.config/init-agent` and the charter's `sandbox.read_deny`, and no signals, process inspection, XPC, LaunchServices or AppleEvents outside the instance's own sandbox (Z7). Inside `INIT_HOME` this doc's `body` SECTION still rules.
+
+- **Only the live body.** Fleet members and probes are never full (S-A18c–e, S-A19c–d); the kernel and the gate instances are unchanged.
+- **The owner's session choice.** `init --workspace` or `/full off` confine the session to §3.1.1's workspace mode; `/full on` returns to full (with the typed confirmation only when the charter says `"workspace"`). root/root.md §3.17.2.
+- **Dropped in full mode** (still enforced in workspace mode): the ADR-009 secrets deny list (so `git push` over ssh works), Z3's write confinement, Z3a's shell startup files, git config, `~/bin` and `~/.local/bin` directory, Z3b's git hooks, and Z6's no-IP rule.
+- **Enforcement.** macOS: ROOT_ALLOWS' full group (`Z_FULL` = `/`) and the full tail (root/root.md §3.3.1, §3.3.2a). Linux: the host root bound read-write with overlays for the protected set, the host network, and the seccomp program without the socket-domain rule (root/root.md §3.4.1).
+- **The environment.** For a full grant the Root also sets `HOME` to the owner's home (so `~/Downloads` is the owner's), removes `CARGO_NET_OFFLINE`, and appends `<home>/.local/bin` and `<home>/.cargo/bin` to `PATH`.
+- **Residuals.** Files the owner's own tools run later (shell startup files, PATH directories, editor configs, git hooks) run unsandboxed: full mode is trusted like the owner's own shell. Writes outside the workspace have no `/undo`. Any file the agent reads may reach the model provider.
 
 ### 3.2 How Codex CLI does it (the published design the spec follows)
 
@@ -747,7 +758,8 @@ Since v0.3 the **only security boundary is the Root versus everything else** (sp
 | recoverability: bodies cannot write `kernel/`, `bin/`, `lineage/`, `state/kernel/` | as above; the anchors and the `require-not` carve-out stop rename/unlink/create tricks; hard links into protected files are denied (tested). Whole-system recoverability is the Root's (R1): its LKG copies sit in `ROOT_HOME`, out of the zone's reach |
 | honest measuring stick | §3.9 for the body-facing layer; the Root's sealed evaluator (R6) for the agent-proof layer |
 | no keys anywhere in the zone | v0.3: keys live only in the Root (R2, root/egress.md). Nothing under `INIT_HOME` holds a key, and every environment is rebuilt without one (S-X1) |
-| v0.1.1: the owner's secrets stay unreadable, and writes stay in scope | tail Z2 denies ADR-009's deny list and the service directory in every mode, `--full` included (S-A2, S-A12, S-A14, S-A17); tail Z3 confines writes to `INIT_HOME` plus the Root-validated workspace, or the home under `--full` (S-A3, S-A7–S-A10); the grants exclude `INIT_HOME` (S-A13); probes get no grant (S-A19); tails Z3a and Z3b keep shell startup files, git config and hooks, PATH launchers and login items unwritable in every mode (S-A20–S-A26). All use Root-set parameters only |
+| v0.1.1, workspace mode: the owner's secrets stay unreadable, and writes stay in scope | tail Z2 denies ADR-009's deny list and the service directory (S-A2, S-A14, S-A17b); tail Z3 confines writes to `INIT_HOME` plus the Root-validated workspace (S-A3, S-A7–S-A9); the grants exclude `INIT_HOME`; probes get no grant (S-A19); tails Z3a and Z3b keep shell startup files, git config and hooks, PATH launchers and login items unwritable (S-A20). All use Root-set parameters only |
+| v0.3.1, full mode (ADR-012): the Root-protected set holds | the full tail denies `ROOT_HOME` and its sockets (S-A11, S-A15, S-A15c), the service file and directory (S-A14, S-A17b, S-A24), INIT's launchers (S-A23, S-A23b), `INIT_HOME`'s protected parts (S-A13), INIT's key directory and the charter's `read_deny` (S-A12c–f), and signals outside the sandbox (S-A28); members and probes are never full (S-A18–S-A19d) |
 
 Bodies cannot signal, ptrace or inspect the kernel: Seatbelt `same-sandbox` targets (on macOS the kernel is in a different sandbox instance); Linux pid namespace, seccomp `ptrace` deny and Landlock `Scope::Signal`. The zone, in turn, can signal only its own sandbox. S-Z11 tested this against a body instance, and the same `(target same-sandbox)` rule covers the Root and every other process of the owner.
 
@@ -832,7 +844,7 @@ The later S-M47 runs that day listed members first and killed only the escapee t
 | S-M61 | read the Root canary `ROOT_HOME/run/canary` | deny (tested; needed by the sweep's exclusion rule) |
 | S-M57a–f | member parameters (§3.3.5; lane sockets under `run/fleet/<bid>/`): write its own `work/` (allow); write the live `body/` (deny); write its own `state/kernel/` (deny); connect its own lane `kernel.sock` (allow); connect the live `run/kernel.sock` (deny); read `kernel/` through its link (allow) | as listed (tested) |
 | S-M57g | member: bind in its own lane directory `run/fleet/b1/` (kernel-owned) | deny (tested) |
-**ADR-009 access rows (v0.1.1, S-A1–S-A19; `root/sandbox-profiles/src/selftest.rs` `access_checks`, SBX-009).** Each mode's composed profile must also parse (S-M0.read_home, S-M0.workspace, S-M0.full). The rows run against a fake home that the test builds in its scratch tree, with `Documents/`, `.ssh/id`, `.config/init-agent/`, a charter `read_deny` directory, a workspace `ws/` and a stand-in service directory `svc/`. The profile parameters take the home as a value, so the test passes the fake one and never touches the owner's real `~/.ssh` or any other real file; S-A6b, S-A9f and S-A16 only list or policy-query the real home.
+**ADR-009 and ADR-012 access rows (v0.1.1 and v0.3.1, S-A1–S-A28; `root/sandbox-profiles/src/selftest.rs` `access_checks`, SBX-009).** Each mode's composed profile must also parse (S-M0.read_home, S-M0.workspace, S-M0.full). The rows run against a fake home that the test builds in its scratch tree, with `Documents/`, `.ssh/id`, `.config/init-agent/`, a charter `read_deny` directory, a workspace `ws/` and a stand-in service directory `svc/`. The profile parameters take the home as a value, so the test passes the fake one and never touches the owner's real `~/.ssh` or any other real file; S-A6b, S-A9f and S-A16 only list or policy-query the real home. In full mode (`Z_FULL` = `/`) every write row targets a path the run created: the fake home or S-A27's temp directory.
 
 | ID | Mode / instance | Operation | Expect |
 |---|---|---|---|
@@ -848,25 +860,34 @@ The later S-M47 runs that day listed members first and killed only the escapee t
 | S-A9e–f | `workspace` | policy query: write under `/private/tmp`; write the real home | deny |
 | S-A10, S-A10b–c | `full` | write elsewhere in the home; write `~/Documents`; write the workspace | allow |
 | S-A11, S-A11b | `full` | write and read `ROOT_HOME` (Z1) | deny |
-| S-A12, S-A12b–d | `full` | write `~/.ssh`; read `~/.ssh/id`; write `~/.config/init-agent/`; write a `read_deny` path | deny (Z2) |
-| S-A13, S-A13b–e | `full` | write `kernel/` (Z4), `vault/`, `state/kernel/`, `run/mark/` (Z4), `lineage/` (the grants exclude `INIT_HOME`) | deny |
-| S-A14, S-A14b | `full` | add a file next to the Root's service file; overwrite the service file (Z2, `Z_ROOT_SVC_DIR`) | deny |
-| S-A15, S-A15b | `full` | connect the owner socket; TCP connect to `127.0.0.1` (Z6) | deny |
-| S-A16, S-A16b | `full` | policy query: write the real home; write under `/private/tmp` | deny |
-| S-A17, S-A17b | `full` | rename the fake `~/.ssh` away (deny list); rename the service directory (Z2) | deny |
-| S-A18, S-A18b | fleet member, full mode on for the live body | read `~/Documents/x` (read grant); write the workspace (no write grant) | allow; deny |
-| S-A19, S-A19b | probe, full mode on for the live body | read `~/Documents/x`; write the workspace (no grant: hermetic) | deny |
+| S-A11c | `full` | list `ROOT_HOME`'s keys (Z1) | deny |
+| S-A12, S-A12b | `full` | write the fake `~/.ssh`; read `~/.ssh/id` (ADR-012: the secrets list is workspace mode's) | allow |
+| S-A12c–f | `full` | write and read `~/.config/init-agent/`; write and read a `read_deny` path (Z2, the full lists) | deny |
+| S-A13, S-A13b–f | `full` | write `kernel/` (Z4), `vault/`, `state/kernel/`, `run/mark/` (Z4), `lineage/`; read `vault/` (the grants exclude `INIT_HOME`) | deny |
+| S-A14, S-A14b–c | `full` | add a file next to the Root's service file; overwrite it; read it (Z2, `Z_ROOT_SVC_DIR`) | deny |
+| S-A15, S-A15c | `full` | connect the owner socket; connect the egress socket (both in `ROOT_HOME`, Z1) | deny |
+| S-A15b, S-A15d–e | `full` | TCP connect to the suite's own `127.0.0.1` listener; bind a loopback TCP listener; UDP send to the suite's own socket (ADR-012) | allow |
+| S-A16, S-A16b | `full` | policy query: write the real home; write under `/private/tmp` (ADR-012) | allow |
+| S-A16c | `full` | run a program copied into the fake home (map-executable outside `INIT_HOME`) | allow |
+| S-A17 | `full` | rename the fake `~/.ssh` away (ADR-012; the suite renames it back) | allow |
+| S-A17b | `full` | rename the service directory (Z2) | deny |
+| S-A18, S-A18b–d | fleet member, full access on for the live body | read `~/Documents/x` (read grant); write the workspace; write elsewhere in the home; TCP connect to the suite's listener (never full) | allow; deny |
+| S-A18e, S-A19d | fleet member; probe | `grant_for` never gives them full access | pass |
+| S-A19, S-A19b–c | probe, full access on for the live body | read `~/Documents/x`; write the workspace; TCP connect (no grant: hermetic) | deny |
 | S-A20–S-A20d | `workspace` | add `.git/hooks/pre-commit`; write `.git/config`; a submodule's hook and config under `.git/modules/` (Z3b) | deny |
 | S-A20e–g | `workspace` | write a git object, `.git/HEAD`, `.git/config.lock` (the rest of `.git` stays writable; the rename onto `config` is denied) | allow |
 | S-A20h | `workspace` | write `~/.zshrc` (Z3, Z3a) | deny |
 | S-A20i | `workspace` | write `.git/config` of a repository inside `INIT_HOME` (the kernel's clones) | allow |
-| S-A21–S-A21e | `full` | write `~/.zshrc`, `~/.zshenv`, `~/.bash_profile`, `~/.profile`, `~/.config/fish/` (Z3a) | deny |
-| S-A22, S-A22b | `full` | write `~/.gitconfig`, `~/.config/git/` (Z3a) | deny |
-| S-A23–S-A23d | `full` | replace `~/.local/bin/init` and `init-tui`; add a command to `~/.local/bin` and to `~/bin` (Z3a) | deny |
-| S-A24, S-A24b | `full` | add a login item in `~/Library/LaunchAgents`; an entry in `~/.config/autostart` (Z3a) | deny |
-| S-A25–S-A25c | `full` | another repository's hook and `.git/config`; a hook in the workspace (Z3b) | deny |
-| S-A25d | `full` | write a git object in the workspace | allow |
-| S-A26, S-A26b | `full` | rename `~/.local/bin` away; rename the workspace's `.git/hooks` away | deny |
+| S-A21–S-A21e | `full` | write `~/.zshrc`, `~/.zshenv`, `~/.bash_profile`, `~/.profile`, `~/.config/fish/` (ADR-012: deferred execution is a residual) | allow |
+| S-A22, S-A22b | `full` | write `~/.gitconfig`, `~/.config/git/` (ADR-012) | allow |
+| S-A23, S-A23b | `full` | replace `<bin_dir>/init` and `<bin_dir>/init-tui` (Z3a, INIT's launchers) | deny |
+| S-A23c–d | `full` | add a command to `~/.local/bin` and to `~/bin` (ADR-012) | allow |
+| S-A24 | `full` | add a login item in `~/Library/LaunchAgents` (Z3a, the service directory) | deny |
+| S-A24b | `full` | add an entry in `~/.config/autostart` (ADR-012) | allow |
+| S-A25–S-A25d | `full` | another repository's hook and `.git/config`; a hook and a git object in the workspace (ADR-012) | allow |
+| S-A26, S-A26b | `full` | rename `~/.local/bin` away; rename the workspace's `.git/hooks` away (ADR-012; renamed back) | allow |
+| S-A27 | `full` | write a new directory the suite created in the per-user temp directory (`/var/folders/…`, outside the home and `/tmp`; removed by its exact path) | allow |
+| S-A28 | `full` | `kill -0` an unsandboxed `sleep` the suite spawned (the Root stand-in; Z7) | deny |
 
 Last run (SBX-009, cc16577): the whole self-test, 330 pass, 0 fail, 13 skipped (11 disposable-environment rows and S-M38, 2 under `--no-builds`).
 

@@ -707,8 +707,10 @@ mod tests {
 }
 
 /// A sealed anonymous cBPF file. No path in the agent's mount namespace can change it.
+/// ADR-012: `full` (the live body's full grant) drops the non-`AF_UNIX` `socket`/`socketpair` rule, so the body can use
+/// the IP network; every other block stays.
 #[cfg(target_os = "linux")]
-pub fn linux_seccomp() -> io::Result<OwnedFd> {
+pub fn linux_seccomp(full: bool) -> io::Result<OwnedFd> {
     use seccompiler::{BpfProgram, SeccompAction as A, SeccompCmpArgLen as Len, SeccompCmpOp as Op, SeccompCondition as C, SeccompFilter, SeccompRule as R};
     use std::io::{Seek, Write};
     let bad = |e| io::Error::other(format!("Linux seccomp: {e}"));
@@ -720,7 +722,7 @@ pub fn linux_seccomp() -> io::Result<OwnedFd> {
         libc::SYS_unshare, libc::SYS_reboot] { rules.insert(n, vec![]); }
     #[cfg(target_arch = "x86_64")]
     rules.insert(libc::SYS_kexec_file_load, vec![]);
-    for n in [libc::SYS_socket, libc::SYS_socketpair] {
+    for n in [libc::SYS_socket, libc::SYS_socketpair].into_iter().filter(|_| !full) {
         let c = C::new(0, Len::Dword, Op::Ne, libc::AF_UNIX as u64).map_err(|e| bad(e.to_string()))?;
         rules.insert(n, vec![R::new(vec![c]).map_err(|e| bad(e.to_string()))?]);
     }
@@ -936,11 +938,14 @@ mod linux_zone_tests {
 
     #[test]
     fn linux_seccomp_memfd_is_sealed_and_mount_sources_are_pinned() {
-        let fd = linux_seccomp().unwrap();
+        let fd = linux_seccomp(false).unwrap();
         let mut f = fs::File::from(fd);
         let mut bytes = Vec::new(); f.read_to_end(&mut bytes).unwrap();
         assert!(!bytes.is_empty() && bytes.len() % 8 == 0);
         assert!(f.write_all(b"bad").is_err());
+        // ADR-012: the full program is the same sealed shape, smaller by the socket-domain rule only
+        let mut full = Vec::new(); fs::File::from(linux_seccomp(true).unwrap()).read_to_end(&mut full).unwrap();
+        assert!(!full.is_empty() && full.len() % 8 == 0 && full.len() < bytes.len(), "{} vs {}", full.len(), bytes.len());
         let d = fixture("fds");
         let source = d.join("source"); fs::create_dir_all(&source).unwrap();
         let mut args = vec![OsString::from("--bind"), source.clone().into_os_string(), OsString::from("/target")];
@@ -959,7 +964,7 @@ mod linux_zone_tests {
     #[cfg(target_arch = "x86_64")]
     #[test]
     fn linux_seccomp_x32_guard_keeps_architecture_validation_first() {
-        let mut file = fs::File::from(linux_seccomp().unwrap());
+        let mut file = fs::File::from(linux_seccomp(false).unwrap());
         let mut bytes = [0u8; 6 * 8];
         file.read_exact(&mut bytes).unwrap();
         // Evaluate the actual serialized BPF prelude. Native calls continue into
@@ -1002,7 +1007,7 @@ mod linux_zone_tests {
         fs::write(rh.join("secret"), "hidden").unwrap();
         let mut args = init_sandbox_profiles::linux::sealed(&run, &rh, &tool, None).unwrap();
         let mut mounts = linux_bind_fds(&mut args).unwrap();
-        let filter = linux_seccomp().unwrap();
+        let filter = linux_seccomp(false).unwrap();
         let mut cmd = std::process::Command::new(binary);
         cmd.args(["exec-clean", "--keep", "5"]);
         for fd in &mounts { cmd.arg("--keep").arg(fd.as_raw_fd().to_string()); }
@@ -1039,7 +1044,7 @@ for fd in os.listdir('/proc/self/fd'):
     fn linux_zone_real_isolation() {
         let binary = std::env::var_os("INIT_TEST_ROOT_BIN").expect("set INIT_TEST_ROOT_BIN to the freshly-built init-root");
         let dir = fixture("isolation");
-        let l = Layout { root_home: dir.join("rh"), init_home: dir.join("ih"), toolchain: dir.join("tool"), extra_read: vec![], read_deny: vec![], frozen: false, benchmark: false };
+        let l = Layout { root_home: dir.join("rh"), init_home: dir.join("ih"), toolchain: dir.join("tool"), extra_read: vec![], read_deny: vec![], write_deny: vec![], home: dir.clone(), frozen: false, benchmark: false };
         for d in [&l.root_home, &l.init_home, &l.toolchain] { fs::create_dir_all(d).unwrap(); }
         fs::write(l.root_home.join("secret"), "must never be visible").unwrap();
         let mark = l.init_home.join("mark"); fs::write(&mark, "").unwrap();
@@ -1048,7 +1053,7 @@ for fd in os.listdir('/proc/self/fd'):
         fs::write(PathBuf::from(&p["SRC"]).join("readonly"), "source").unwrap();
         let mut args = compose(ProfileId::Build, &p, &l, &mark, &Grant::default()).unwrap();
         let mounts = linux_bind_fds(&mut args).unwrap();
-        let seccomp = linux_seccomp().unwrap();
+        let seccomp = linux_seccomp(false).unwrap();
         let (mut left, right) = std::os::unix::net::UnixStream::pair().unwrap();
         let (mut left4, right4) = std::os::unix::net::UnixStream::pair().unwrap();
         let (a, b) = (dup_high(&right).unwrap(), dup_high(&right4).unwrap());
@@ -1097,6 +1102,143 @@ print('linux isolation passed')
         inherit_fds(&mut cmd, inherited);
         assert!(cmd.status().unwrap().success(), "confinement must actually run; unsupported host is not a pass");
         assert_eq!(fs::read_to_string(PathBuf::from(&p["OUT"]).join("output")).unwrap(), "ok");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    /// ADR-012 native qualification of the live body's full plan (bwrap, user + pid namespaces, the full seccomp
+    /// program): outside INIT_HOME the body writes anywhere (a fresh /var/tmp dir, its home, the rest of the bin dir)
+    /// and reaches a 127.0.0.1 server of the host network; ROOT_HOME is empty and read-only (no file, no socket); the
+    /// Root's service directory, the other user unit directories and INIT's launchers stay unwritable, also by renaming an ancestor away and recreating
+    /// the path; the key directory is hidden; no process outside the zone can be signalled (own pid namespace).
+    #[test]
+    #[ignore = "requires qualified Linux user namespaces, fd-bind bubblewrap and INIT_TEST_ROOT_BIN"]
+    fn linux_full_body_real_isolation() {
+        use init_sandbox_profiles::access::{full_read_deny, full_write_deny};
+        let binary = std::env::var_os("INIT_TEST_ROOT_BIN").expect("set INIT_TEST_ROOT_BIN to the freshly-built init-root");
+        let dir = fixture("full-isolation");
+        let home = dir.join("home");
+        let (keys, svc, bin) = (home.join(".config/init-agent"), home.join(".config/systemd/user"), home.join(".local/bin"));
+        let drop_ins = [home.join(".config/systemd/user.control"), home.join(".local/share/systemd/user")]; // zone.rs creates them before a full spawn
+        for d in [&keys, &svc, &bin].into_iter().chain(&drop_ins) { fs::create_dir_all(d).unwrap(); }
+        fs::write(keys.join("deepseek.key"), "must never be visible").unwrap();
+        let unit = svc.join("init-root.service"); fs::write(&unit, "[Service]\nExecStart=/root-bin\n").unwrap();
+        for n in ["init", "init-tui"] { fs::write(bin.join(n), "#!/bin/sh\n# launcher\n").unwrap(); }
+        let mut l = Layout { root_home: dir.join("rh"), init_home: dir.join("ih"), toolchain: dir.join("tool"), extra_read: vec![],
+            read_deny: vec![], write_deny: vec![], home: home.clone(), frozen: false, benchmark: false };
+        for d in [&l.root_home, &l.init_home, &l.toolchain] { fs::create_dir_all(d).unwrap(); }
+        l.read_deny = full_read_deny(&home, &[]);
+        l.write_deny = full_write_deny(&home, Some(&bin));
+        fs::write(l.root_home.join("secret"), "must never be visible").unwrap();
+        fs::create_dir_all(l.root_home.join("run")).unwrap();
+        let _owner = std::os::unix::net::UnixListener::bind(l.root_home.join("run/owner.sock")).unwrap();
+        let mark = l.init_home.join("mark"); fs::write(&mark, "").unwrap();
+        let mut p = BTreeMap::new();
+        for (k, sub) in [("BODY", "body"), ("WORK", "work"), ("STATE", "state"), ("STATE_KERNEL", "state/kernel"), ("KERNEL", "kernel"),
+            ("BIN", "bin"), ("LINEAGE", "lineage"), ("PUB", "root")] {
+            let d = l.init_home.join(sub); fs::create_dir_all(&d).unwrap(); p.insert(k.to_string(), d.display().to_string());
+        }
+        for (k, target) in [("LINK_KERNEL", "KERNEL"), ("LINK_BIN", "BIN"), ("LINK_LINEAGE", "LINEAGE")] { let v = p[target].clone(); p.insert(k.into(), v); }
+        fs::create_dir_all(l.init_home.join("run")).unwrap();
+        p.insert("KERNEL_SOCK".into(), l.init_home.join("run/kernel.sock").display().to_string());
+        p.insert("PROXY_SOCK".into(), l.init_home.join("run/proxy.sock").display().to_string());
+        fs::write(l.init_home.join("kernel/readonly"), "kernel").unwrap();
+        let mut args = compose(ProfileId::Body, &p, &l, &mark, &Grant { full: true, ..Grant::default() }).unwrap();
+        assert!(!args.iter().any(|a| a == "--net"), "full access keeps the host network: no --net in the plan");
+        let mounts = linux_bind_fds(&mut args).unwrap();
+        let seccomp = linux_seccomp(true).unwrap();
+        // a local test server on the host loopback (the zone shares the host network namespace)
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = server.local_addr().unwrap().port();
+        let accept = std::thread::spawn(move || {
+            let (mut s, _) = server.accept().unwrap();
+            let mut got = [0u8; 8]; s.read_exact(&mut got).unwrap(); s.write_all(b"ok").unwrap();
+            got
+        });
+        // a process outside the zone that is ours (the Root's stand-in besides this test process itself)
+        let mut victim = std::process::Command::new("/bin/sleep").arg("60").spawn().unwrap();
+        let fresh = PathBuf::from(format!("/var/tmp/init-full-{}", std::process::id()));
+        assert!(!fresh.exists());
+        let (mut left, right) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (mut left4, right4) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (a, b) = (dup_high(&right).unwrap(), dup_high(&right4).unwrap());
+        left.write_all(b"control3").unwrap(); left4.write_all(b"control4").unwrap();
+        let mut cmd = std::process::Command::new(binary);
+        cmd.args(["exec-clean", "--keep", "3", "--keep", "4", "--keep", "5"]);
+        for fd in &mounts { cmd.arg("--keep").arg(fd.as_raw_fd().to_string()); }
+        cmd.arg("--").args(args).args(["--", "/usr/bin/python3", "-c", r#"
+import os,socket,sys,errno,signal
+rh,home,fresh,port,root_pid,victim,kernel,work=sys.argv[1:9]
+assert os.read(3,8)==b'control3' and os.read(4,8)==b'control4'
+def refused(what,f):
+ try: f()
+ except OSError as e: return e.errno
+ raise AssertionError(what+' allowed')
+def write(p,s='x'):
+ with open(p,'w') as f: f.write(s)
+# writes outside home and /tmp, in the home, in the rest of the bin dir; the body's own WORK; INIT_HOME's ro parts
+os.mkdir(fresh); write(fresh+'/file','full')
+write(home+'/notes.txt'); write(home+'/.local/bin/other-tool'); os.makedirs(home+'/.local/share/x'); write(home+'/.config/other')
+write(work+'/w')
+refused('INIT_HOME kernel write',lambda: write(kernel+'/readonly'))
+# IP network: TCP to the host's 127.0.0.1 server
+s=socket.create_connection(('127.0.0.1',int(port)),timeout=10); s.sendall(b'full-tcp'); assert s.recv(2)==b'ok'; s.close()
+# ROOT_HOME: empty, read-only, no Unix socket
+assert os.listdir(rh)==[], os.listdir(rh)
+refused('ROOT_HOME read',lambda: open(rh+'/secret').read())
+refused('ROOT_HOME write',lambda: write(rh+'/planted'))
+refused('ROOT_HOME mkdir',lambda: os.mkdir(rh+'/run'))
+u=socket.socket(socket.AF_UNIX); refused('owner.sock connect',lambda: u.connect(rh+'/run/owner.sock')); u.close()
+refused('ROOT_HOME rename',lambda: os.rename(rh,rh+'.moved'))
+# the Root's service file and directory, INIT's launchers: no write, no unlink, no rename, no drop-in
+svc=home+'/.config/systemd/user'
+assert 'ExecStart=/root-bin' in open(svc+'/init-root.service').read()
+refused('unit write',lambda: write(svc+'/init-root.service'))
+refused('unit unlink',lambda: os.unlink(svc+'/init-root.service'))
+refused('unit dir create',lambda: write(svc+'/evil.service'))
+refused('unit drop-in',lambda: os.mkdir(svc+'/init-root.service.d'))
+for d in [home+'/.config/systemd/user.control',home+'/.local/share/systemd/user']:
+ refused('drop-in in '+d,lambda: os.mkdir(d+'/init-root.service.d'))
+ refused('unit in '+d,lambda: write(d+'/init-root.service'))
+for n in ['init','init-tui']:
+ refused(n+' write',lambda: write(home+'/.local/bin/'+n))
+ refused(n+' unlink',lambda: os.unlink(home+'/.local/bin/'+n))
+ refused(n+' rename',lambda: os.rename(home+'/.local/bin/'+n,home+'/.local/bin/'+n+'.old'))
+# renaming an ancestor away and recreating the protected path
+for anc in [home+'/.local/bin',home+'/.local',svc,home+'/.config/systemd',home+'/.config',home+'/.local/share/systemd',home+'/.local/share',home+'/.config/systemd/user.control']:
+ refused('ancestor rename '+anc,lambda: os.rename(anc,anc+'.moved'))
+# the key directory is hidden
+assert os.listdir(home+'/.config/init-agent')==[]
+refused('key read',lambda: open(home+'/.config/init-agent/deepseek.key').read())
+# no signals outside the zone: its own pid namespace
+for pid in [int(root_pid),int(victim)]:
+ try: os.kill(pid,signal.SIGKILL if pid==int(victim) else 0)
+ except ProcessLookupError: pass
+ else: raise AssertionError('signalled a process outside the zone: %d'%pid)
+assert os.getuid()==int(sys.argv[9])
+print('linux full isolation passed')
+"#]).arg(&l.root_home).arg(&home).arg(&fresh).arg(port.to_string()).arg(std::process::id().to_string()).arg(victim.id().to_string())
+            .arg(&p["KERNEL"]).arg(&p["WORK"]).arg(euid().to_string()).current_dir("/").env_clear().env("PATH", "/usr/bin:/bin");
+        map_fds(&mut cmd, [a.as_raw_fd(), b.as_raw_fd()]); map_seccomp(&mut cmd, seccomp.as_raw_fd());
+        inherit_fds(&mut cmd, mounts.iter().map(AsRawFd::as_raw_fd).collect());
+        let status = cmd.status().unwrap();
+        let alive = victim.try_wait().unwrap().is_none();
+        let _ = victim.kill(); let _ = victim.wait();
+        assert!(status.success(), "confinement must actually run; unsupported host is not a pass");
+        assert!(alive, "the process outside the zone survived its SIGKILL attempt");
+        assert_eq!(&accept.join().unwrap(), b"full-tcp");
+        // the host saw the allowed writes and none of the denied ones
+        assert_eq!(fs::read_to_string(fresh.join("file")).unwrap(), "full");
+        assert!(home.join("notes.txt").exists() && bin.join("other-tool").exists() && home.join(".local/share/x").is_dir());
+        assert!(PathBuf::from(&p["WORK"]).join("w").exists());
+        assert_eq!(fs::read_to_string(l.init_home.join("kernel/readonly")).unwrap(), "kernel");
+        assert_eq!(fs::read_dir(&l.root_home).unwrap().count(), 2, "ROOT_HOME unchanged: secret and run/");
+        assert_eq!(fs::read_to_string(l.root_home.join("secret")).unwrap(), "must never be visible");
+        assert_eq!(fs::read_to_string(&unit).unwrap(), "[Service]\nExecStart=/root-bin\n");
+        assert_eq!(fs::read_dir(&svc).unwrap().count(), 1, "no new unit or drop-in");
+        for d in &drop_ins { assert_eq!(fs::read_dir(d).unwrap().count(), 0, "{}", d.display()); }
+        for n in ["init", "init-tui"] { assert_eq!(fs::read_to_string(bin.join(n)).unwrap(), "#!/bin/sh\n# launcher\n"); }
+        for d in [home.join(".local/bin.moved"), home.join(".local.moved"), home.join(".config.moved"), home.join(".local/share.moved")] { assert!(!d.exists(), "{}", d.display()); }
+        fs::remove_dir_all(&fresh).unwrap();
         fs::remove_dir_all(dir).unwrap();
     }
 }

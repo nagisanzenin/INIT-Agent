@@ -239,7 +239,7 @@ Every text is compiled into `init-root` with `include_str!`. The kernel chooses 
 
 As a consequence, any change to a profile text, including the texts kernel/sandbox.md owns, ships as a Root release. Kernel versus body is a stability boundary, not a security one (spec §13). Even so, keeping its text in the Root costs nothing at runtime and removes a whole class of zone-authored policy.
 
-v0.1.1 (ADR-009) adds the last three lines: the Root-generated grants of §3.17.2, a home read (`Z_HOME`) for a body that has one and a write grant (`Z_WRITE`) for the live body, both excluding `Z_INIT_HOME`. The block is `root/sandbox-profiles/profiles/root-allows.template` at SBX-009's 8570638, copied verbatim; `tests/doc_drift.rs` compares it byte for byte, so change the file and this block together.
+v0.1.1 (ADR-009) adds the last three lines: the Root-generated grants of §3.17.2, a home read (`Z_HOME`) for a body that has one and a write grant (`Z_WRITE`) for the live body, both excluding `Z_INIT_HOME`. v0.3.1 (ADR-012) adds the last group, emitted only for the live body's full grant (`Z_FULL` = `/`): read, write, map-executable and ioctl anywhere outside `Z_INIT_HOME`, IP networking, sysctl reads, POSIX shared memory and semaphores, and the mach services DNS, TLS trust and FSEvents need. LaunchServices and AppleEvents are deliberately not in the list, so `open` cannot hand work to an unsandboxed app. A full grant is appended the full tail (§3.3.2a) instead of the zone tail. The block is `root/sandbox-profiles/profiles/root-allows.template` at SBX-009's 8570638, copied verbatim; `tests/doc_drift.rs` compares it byte for byte, so change the file and this block together.
 
 ```scheme
 ; ---- R. init-root instance allows (rendered between SECTION(id) and the tail) ----
@@ -252,6 +252,17 @@ v0.1.1 (ADR-009) adds the last three lines: the Root-generated grants of §3.17.
 ; ADR-009 write grant, the live body only: Z_WRITE is the workspace, or the home in full mode; never INIT_HOME:
 (allow file-read* file-write* file-map-executable (require-all (subpath (param "Z_WRITE")) (require-not (subpath (param "Z_INIT_HOME")))))
 (allow file-read-metadata (path-ancestors (param "Z_WRITE")))
+; ADR-012 full access, the live body only (sandbox.mode = "full"): read, write and run anything outside INIT_HOME (whose rules
+; stay the SECTION's), IP networking and the services DNS, TLS and file watching use; the full tail keeps the Root's denies:
+(allow file-read* file-write* file-map-executable file-ioctl (require-all (subpath (param "Z_FULL")) (require-not (subpath (param "Z_INIT_HOME")))))
+(allow network*)
+(allow system-socket)
+(allow sysctl-read)
+(allow ipc-posix-shm* ipc-posix-sem)
+(allow mach-lookup (global-name "com.apple.SecurityServer") (global-name "com.apple.networkd") (global-name "com.apple.ocspd")
+  (global-name "com.apple.trustd") (global-name "com.apple.trustd.agent") (global-name "com.apple.SystemConfiguration.DNSConfiguration")
+  (global-name "com.apple.SystemConfiguration.configd") (global-name "com.apple.dnssd.service") (global-name "com.apple.mDNSResponder")
+  (global-name "com.apple.FSEvents"))
 ```
 
 The `extra_read` lines are Root-generated from the owner's charter (§3.12.1), never from the kernel. The paths travel as `-D` parameters, so no path is ever spliced into profile text and no escaping is needed. kernel/config.md's `[sandbox] extra_read` is replaced by this charter key (§9.1 X2).
@@ -342,6 +353,49 @@ All tail parameters are chosen by the Root. A kernel-supplied parameter whose na
 | `Z_WRITE` (v0.1.1) | the write grant: the workspace, or the home in full mode, for the live body; `INIT_HOME` for every instance without a grant, so Z3 then reduces to v0.1.0's |
 
 Z3 and Z4 together mean the zone can write only zone-internal paths, which the Root never opens by name (R-F2). From v0.1.1 the live body can also write the workspace (or the home, under `--full`), which the Root opens for snapshots and `/undo` under the rules of §3.17.4. Z4's literals on `INIT_HOME` and `run/` stop the zone from replacing `run/` with a symlink before the Root creates a mark in it. Z4's `run/` literal also denies `file-write-mode`, so the zone cannot chmod `run/` itself, even to its current mode (measured, FIX1). The Root therefore keeps creating `INIT_HOME/run` at 0700 at install, and the kernel chmods a lane directory only when its mode differs, so it never touches `run/`. The `/opt/homebrew/var` and `/opt/homebrew/etc` deny (ESC-2) is not a Root path. It now lives in each inner profile's section 8: in kernel/sandbox.md's `body` profile, and in §3.3.3 for `kernel`.
+
+#### 3.3.2a The full-access tail (v0.3.1, ADR-012)
+
+With `sandbox.mode = "full"` (the default) the live body's grant is `full` (§3.17.2), and its profile is PRELUDE + SECTION(`body`) + ROOT_ALLOWS (with the full group) + this tail, appended last instead of §3.3.2's. It is deny-only and keeps what guarantees the Root's stop, see and rollback: Z1 (`ROOT_HOME`, now also every Unix socket inside it: `owner.sock`, `egress.sock`), Z2 (the service file, no writes in its directory, the full read deny list), Z3a (the full write deny list), Z4, Z5 and Z7, verbatim. It has no Z3 (writes are not confined), no Z3b (git hooks and config are writable) and no Z6 (the IP network is open). Members, probes, the kernel and gate instances never get it.
+
+| Param | Value (full grant only) |
+|---|---|
+| `Z_FULL` | `/` (ROOT_ALLOWS' full group); the full grant has no `Z_WRITE`, `Z_HOME` or `Z_EGRESS_SOCK` |
+| `Z_DENY_<i>` | `~/.config/init-agent` (INIT's provider-key directory), then the charter's `sandbox.read_deny` (still honoured in full mode); read- and write-denied |
+| `Z_WDENY_<i>` | `~/Library/LaunchAgents`, `~/.config/systemd/user`, `~/.config/systemd/user.control`, `~/.local/share/systemd/user` (the Root's service directories, and every user unit directory systemd reads `init-root.service.d/` drop-ins from, on both platforms), and INIT's launchers `<bin_dir>/init` and `<bin_dir>/init-tui` (`bin_dir` from `install.json`, default `~/.local/bin`) as file paths: the rest of `bin_dir` is writable |
+
+The block is `root/sandbox-profiles/profiles/zone-tail-full.sb`, copied verbatim; `tests/doc_drift.rs` compares it byte for byte.
+
+```scheme
+; ==== Z. init-root zone tail, full access (ADR-012; deny-only; appended last instead of the zone tail) ====
+; Z1. the Root's home is invisible and unreachable: no file access and no Unix socket inside it (owner.sock, egress.sock)
+(deny file-read* file-write* (literal (param "Z_ROOT_HOME")) (subpath (param "Z_ROOT_HOME")))
+(deny network-outbound (remote unix-socket (subpath (param "Z_ROOT_HOME"))))
+(deny network-bind (local unix-socket (subpath (param "Z_ROOT_HOME"))))
+; Z2. the Root's paths outside ROOT_HOME: its service file, no writes in its directory
+(deny file-read* file-write* (literal (param "Z_ROOT_SVC")))
+(deny file-write* (literal (param "Z_ROOT_SVC_DIR")) (subpath (param "Z_ROOT_SVC_DIR")))
+; one line per full read deny entry i: INIT's provider key directory, then the charter's sandbox.read_deny:
+(deny file-read* file-write* (literal (param "Z_DENY_<i>")) (subpath (param "Z_DENY_<i>")))
+; Z3a. never the Root's service directories or INIT's launchers (<bin_dir>/init, <bin_dir>/init-tui); one line per entry i:
+(deny file-write* (literal (param "Z_WDENY_<i>")) (subpath (param "Z_WDENY_<i>")))
+; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced
+(deny file-write* (literal (param "Z_INIT_HOME")) (literal (param "Z_RUN")) (literal (param "Z_ZONE_MARK"))
+  (literal (param "Z_KERNEL")) (subpath (param "Z_KERNEL"))
+  (literal (param "Z_PUB")) (subpath (param "Z_PUB"))
+  (literal (param "Z_MARKS")) (subpath (param "Z_MARKS"))
+  (literal (param "Z_KGIT")) (subpath (param "Z_KGIT")))
+; Z5. an instance reads only its own mark (other marks and the decoy are denied)
+(deny file-read* (require-all (subpath (param "Z_MARKS")) (require-not (literal (param "Z_MARK")))))
+; Z7. no XPC services; no signals or inspection outside the instance's own sandbox
+(deny mach-lookup (xpc-service-name-prefix ""))
+(deny signal (require-not (target same-sandbox)))
+(deny process-info* (require-not (target same-sandbox)))
+```
+
+Residuals (ADR-012): files the owner's own tools run later (shell startup files, PATH directories, editor configs, git hooks) run unsandboxed, so full mode is trusted like the owner's own shell; writes outside the workspace have no `/undo`; renaming an ancestor of a protected path (for example `~/.local/bin` itself) is allowed, because the launcher denies are file denies; and, as in every mode, legacy `launchctl remove dev.init.root` works from inside any Seatbelt sandbox, which ends the Root (it handles the resulting SIGTERM by stopping the zone): the agent can end INIT, not escape it.
+
+On Linux the same set is enforced by the bwrap plan of `init_sandbox_profiles::linux` for a full grant (§3.4.1).
 
 #### 3.3.3 The `kernel` profile (sections 5–8)
 
@@ -504,6 +558,21 @@ Prerequisites, checked by `install` and `status --selftest`:
 
 Failing any one → `Halted{tooling}`.
 
+
+#### 3.4.1 Full access on Linux (v0.3.1, ADR-012)
+
+A full grant (the live body only; any other profile or a full grant with another grant is refused) changes the plan of `init_sandbox_profiles::linux::compose`:
+- `/usr/bin/unshare --user --map-root-user --` without `--net`: the body shares the host network. bwrap keeps `--die-with-parent --new-session --unshare-user --unshare-pid --unshare-ipc --unshare-uts --disable-userns --cap-drop ALL --add-seccomp-fd 5`.
+- `--bind / /` first, then a fresh `--proc /proc` and `--dev /dev`; the host `/tmp` stays (no private tmpfs), and no final `--remount-ro /`.
+- every ancestor of every existing deny entry, from just below the owner's home (just below `/` for an entry outside it) down to its parent, bound onto itself read-write, outer first, before `INIT_HOME` is hidden (ancestors of `INIT_HOME` or `ROOT_HOME` excluded). A bind mount follows its dentry, so without this `mv ~/.local/bin x && mkdir ~/.local/bin` would leave the launcher path free (measured by lane fa-linux, bwrap 0.13.0, Linux 6.10); a mount point cannot be renamed (`EBUSY`) and its contents stay writable. On macOS Seatbelt is path-based: moving a parent away is only a denial of service there (§3.3.2a).
+- before the spawn the Root creates the user unit directories (`~/.config/systemd/user`, `user.control`, `~/.local/share/systemd/user`) when they are missing, so they are bound read-only rather than left free to create.
+- `--tmpfs INIT_HOME`, then the `body` binds of the workspace plan (`BODY`, `WORK`, `STATE` read-write, the rest read-only, the `LINK_*` symlinks, the mark), so `INIT_HOME` keeps the body's own rules.
+- `--tmpfs ROOT_HOME --remount-ro ROOT_HOME`: no key, no `owner.sock`, no `egress.sock` exists inside.
+- each existing full read deny entry hidden (a directory under a read-only tmpfs, a file under `/dev/null`); each existing full write deny entry (the unit directories above, `~/Library/LaunchAgents`, `<bin_dir>/init`, `<bin_dir>/init-tui`) bound read-only onto itself. Entries are canonicalized; a missing entry gets no mount, because a mount point would create it in the owner's real tree.
+- `/run/user/<uid>/systemd` under a read-only tmpfs and `/run/user/<uid>/bus` under `/dev/null` when they exist, so `systemctl --user stop init-root` cannot reach the user service manager.
+- the seccomp program (`sys::linux_seccomp(full = true)`) drops the non-`AF_UNIX` `socket`/`socketpair` rule and keeps every other block.
+
+Residuals (ADR-012): abstract Unix sockets of the host network namespace (for example a session's logind or D-Bus abstract names) are reachable. The plan's unit tests run on Linux only and are qualified in Docker by a separate lane.
 ### 3.5 The spawn broker
 
 #### 3.5.1 Procedure
@@ -1144,7 +1213,8 @@ The charter is `ROOT_HOME/charter.toml`, TOML 1.1, parsed with `toml` 1.1.8 into
 | `sandbox.extra_read` | [string] | `[]` | extra read-only paths for every zone profile (D9; §3.3.1). Replaces kernel/config.md's `[sandbox] extra_read` |
 | `sandbox.read_home` | bool | `true` | v0.1.1 (ADR-009): the live body and fleet members read the owner's home except the deny list. With `false` there is no home read outside full mode, and with no workspace the access is `none`, the v0.1.0 behaviour (§3.17.2) |
 | `sandbox.read_deny` | [string] | `[]` | v0.1.1: extra deny-list entries, added to the built-in list; denied for reads and writes in every mode (tail Z2) |
-| `sandbox.allow_full` | bool | `true` | v0.1.1: whether `init --full` and `/full on` are accepted (§3.17.2) |
+| `sandbox.allow_full` | bool | `true` | v0.1.1: whether full access is possible at all; `false` makes `mode = "full"` act as `"workspace"` and refuses `/full on` (§3.17.2) |
+| `sandbox.mode` | string | `"full"` | v0.3.1 (ADR-012): the live body's default access. `"full"`: read, write and run anything the owner can and use the network, except the Root-protected set (§3.3.2a). `"workspace"`: ADR-009's confinement (read the home except the deny list, write the workspace). Each owner session may override it (`init --workspace`, `/full off`, `/full on`; §3.17.2). Rule C18 |
 | `panic.watch_paths` | [string] | `[]` | extra panic files (§3.9.1) |
 | `panic.mirror_ref` | bool | `false` | panic when the mirror has `refs/heads/panic` |
 | `panic.mirror_poll_s` | int | 300 | poll interval for the above |
@@ -1216,7 +1286,10 @@ reserve_output_tokens = 65536
 extra_read = []
 read_home = true       # v0.1.1: read your home, except secrets (ADR-009); false = no home reads outside a workspace or full mode
 read_deny = []         # extra paths the agent may never read or write, e.g. "/Users/you/Private"
-allow_full = true      # allow `init --full` / `/full on`: write the whole home except secrets and the Root
+mode = "full"          # v0.3.1 (ADR-012): the agent reads and writes anything you can and uses the network, except INIT's
+                       # Root files (~/.init-root, its service, INIT's launchers). "workspace": read your home except
+                       # secrets, write only the folder you start `init` in (ADR-009). Per session: init --workspace, /full off|on
+allow_full = true      # false: never full access (mode = "full" then acts as "workspace"; /full on is refused)
 
 [mirror]
 url = ""   # off until M0. Then: "git@github.com:nagisanzenin/INIT-Lineage.git", with keys/mirror_ed25519.pub as its deploy key
@@ -1254,8 +1327,9 @@ text = '''
 | C13 | `root.*` values stay within the production ranges, unless `test_mode` (then each is only ≥ 0). The production minimums are: `kernel_hello_timeout_s` ≥ 10, `kernel_ready_timeout_s` ≥ 60, `hb_interval_s` ≥ 1, `hb_stale_s` ≥ 3, `backoff_initial_ms` ≥ 100, `backoff_max_ms` ≥ 1000, `backoff_reset_after_s` ≥ 60, `crash_window_s` ≥ 60, `crash_limit` ≥ 1, `safe_crash_limit` ≥ 1, `config_error_exits` ≥ 1, `halt_retry_s` ≥ 600, `kernel_probation_s` ≥ 300, `safe_auto_clear_s` ≥ 3600, `stop_grace_s` ≥ 5, `swap_prepare_timeout_s` ≥ 60, `store_keep_tuples` ≥ 2, `kernel_lineage_per_hour` ≥ 1, `lineage_verify_tail` ≥ 100, `replay_frames` ≥ 100, `replay_bytes` ≥ 65,536, `owner_queue_max` ≥ 10. Also `hb_stale_s ≥ 3 × hb_interval_s` and `backoff_max_ms ≥ backoff_initial_ms`. |
 | C14 | each `sandbox.extra_read` entry is absolute, canonical and existing. It is not `/`, not the owner's home itself, and neither inside nor an ancestor of `ROOT_HOME` or `INIT_HOME`. At most 8 entries. Warning if it contains `~/.ssh`, `~/.aws`, `~/.gnupg` or `~/Library/Keychains`. |
 | C15 | v0.1.1: each `sandbox.read_deny` entry is an absolute path (no `~/` form), at most 1,024 bytes, with no NUL and no `.` or `..` component; it need not exist (a deny on a missing path still blocks its creation). It is not `/` and not the owner's home itself. An entry that is an ancestor of `INIT_HOME`, equal to it or inside it is refused, because it would lock the agent out of its own world. At most 32 entries. `read_home` and `allow_full` are booleans. |
+| C18 | v0.3.1 (ADR-012): `sandbox.mode` is `"full"` or `"workspace"`. |
 
-`charter_sha256 = hex(SHA-256(ICJ(serde_json::to_value(&charter_with_defaults))))`. It is the same rule as kernel/config.md's digest, so comments and formatting do not change it. One exception (v0.1.1, SBX-009): the three ADR-009 keys `sandbox.read_home`, `read_deny` and `allow_full` are left out of the effective charter while they hold their defaults, so a v0.1.0 charter keeps its digest (its `charter` records and `hello.charter_sha256`). The digest is published in `charter.json` and `status.json` and given to the kernel in `hello` (kernel/gate.md records it).
+`charter_sha256 = hex(SHA-256(ICJ(serde_json::to_value(&charter_with_defaults))))`. It is the same rule as kernel/config.md's digest, so comments and formatting do not change it. One exception (v0.1.1, SBX-009): the three ADR-009 keys `sandbox.read_home`, `read_deny` and `allow_full`, and v0.3.1's `sandbox.mode`, are left out of the effective charter while they hold their defaults, so a v0.1.0 charter keeps its digest (its `charter` records and `hello.charter_sha256`). The digest is published in `charter.json` and `status.json` and given to the kernel in `hello` (kernel/gate.md records it).
 
 #### 3.12.4 Owner-only edit flow
 
@@ -1283,7 +1357,7 @@ Only the owner can apply:
 | `ladder.*` | apply at the next evaluation |
 | `mirror.*` | the next push goes to the new target, starting with a full push |
 | `root.*` | apply at the next kernel start |
-| `sandbox.read_home`, `sandbox.read_deny`, `sandbox.allow_full` (v0.1.1) | the access state is recomputed (§3.17.2), and the live body gets a new profile through a graceful restart at the next idle boundary (§3.17.3). `allow_full = false` while full mode is on ends it. The new deny entries reach every other instance at its next spawn. |
+| `sandbox.read_home`, `sandbox.read_deny`, `sandbox.allow_full` (v0.1.1), `sandbox.mode` (v0.3.1) | the access state is recomputed (§3.17.2), and the live body gets a new profile through a graceful restart at the next idle boundary (§3.17.3). `allow_full = false` while full access is on ends it. A new `mode` is the default of every session that has not chosen otherwise (`/full off|on`, `init --workspace`). The new deny entries reach every other instance at its next spawn. |
 
 #### 3.12.5 Published view
 
@@ -1516,21 +1590,21 @@ Every `workspace.set` that sets a workspace takes the session snapshot (§3.17.4
 The Root keeps one access state and publishes it as `AccessView`, in the answers of §4.2, in `status.access`, and in `access.get`:
 
 ```text
-AccessView = {"access": "none"|"read_home"|"workspace"|"full", "allow_full": bool, "full": bool, "read_home": bool,
-              "restart_pending": bool, "snapshot": Snap|null, "workspace": "<canonical path>"|null}
+AccessView = {"access": "none"|"read_home"|"workspace"|"full", "allow_full": bool, "full": bool, "mode": "full"|"workspace",
+              "read_home": bool, "restart_pending": bool, "snapshot": Snap|null, "workspace": "<canonical path>"|null}
 Snap       = {"at": "<RFC 3339>", "id": "<snapshot dir name>", "reason": "session"|"full_on"|"pre_undo", "workspace": "<path>"}
 ```
 
-`access` is what a new live body gets: `full` when full mode is on, else `workspace` when a workspace is set, else `read_home` when the charter's `sandbox.read_home` is true (the default), else `none` (the v0.1.0 behaviour). `restart_pending` is true from a change until the next live body spawns with the new grant. `snapshot` is the latest snapshot of the current workspace.
+`access` is what a new live body gets: `full` when full access is in effect, else `workspace` when a workspace is set, else `read_home` when the charter's `sandbox.read_home` is true (the default), else `none` (the v0.1.0 behaviour). `restart_pending` is true from a change until the next live body spawns with the new grant. `snapshot` is the latest snapshot of the current workspace.
 
-**Full mode.** `full.set{on:true}` (or the line `/full on`) turns it on. The first time in an owner session, the Root answers `root.confirm` instead and acts only when the request comes back with the typed phrase (§4.2). With the charter's `sandbox.allow_full = false` it answers `root.mode` with `data.reason = "charter"`. Turning full mode on snapshots the workspace (`reason: "full_on"`); with no workspace, the notice warns that full mode has no snapshot. `full.set{on:false}` (`/full off`) never needs a confirmation. While full mode is on, the TUI's status bar shows `FULL`.
+**Full access (v0.3.1, ADR-012).** `mode` is the charter's default (`sandbox.mode`, `"full"` unless the owner set `"workspace"`). Full access is in effect when the owner session's choice, or else that default, is full, and never while `sandbox.allow_full = false`. Each `workspace.set` starts a session with the default, or confined to workspace mode with `mode: "workspace"` (`init --workspace`). `full.set{on:false}` (`/full off`) confines the session at once and needs no confirmation. `full.set{on:true}` (`/full on`) turns full access back on: with the default `"full"` at once; with `"workspace"` the first time in a session the Root answers `root.confirm` and acts only when the request comes back with the typed phrase (§4.2). With `sandbox.allow_full = false` it answers `root.mode` with `data.reason = "charter"`, on every platform. Turning it on snapshots the workspace (`reason: "full_on"`). A session's confinement is kept in `state/access.json` (`"full": false`), so a Root restart never widens access; a session's `/full on` under a `"workspace"` charter is not kept. On Linux the workspace is part of the state only while full access is in effect (workspace mode's home grants stay off there). While full access is on, the TUI's status bar shows `FULL`, else `WORKSPACE`. The notices: `[root] workspace: <path> · access FULL: <FULL_TEXT>`, `[root] full access on: the agent may <FULL_TEXT> (from its next restart).`, `[root] full access off: the agent works in its workspace (workspace mode) from its next restart at an idle point`, where FULL_TEXT is "read and write anywhere you can and use the network, except INIT's Root files (~/.init-root, its service, INIT's launchers); writes outside the start folder are not undoable".
 
 **Who gets what.** The Root decides from the spawn's kind and the lane of its `INIT_HOME` parameter. The kernel sends the same `spawn` parameters as in v0.1.0 and no new one.
 
 | Instance | Read (beyond v0.1.0) | Write (beyond v0.1.0) | `INIT_ACCESS` · `INIT_WORKSPACE` |
 |---|---|---|---|
-| live body (kind `body`, the live lane, safe mode included) | the home minus the deny list, when `read_home` is true or full mode is on | the workspace; in full mode, the whole home minus the deny list and the Root's paths | `AccessView.access` · the workspace, or `""` |
-| fleet member (kind `body`, `fleet/<bid>`) | the home minus the deny list, when `read_home` is true | none | `read_home` or `none` · `""` |
+| live body (kind `body`, the live lane, safe mode included) | workspace mode: the home minus the deny list, when `read_home` is true; full access: everything outside `INIT_HOME` except the Root-protected set (§3.3.2a) | workspace mode: the workspace; full access: everything outside `INIT_HOME` except the Root-protected set, plus the IP network | `AccessView.access` · the workspace, or `""`. Full access also sets `HOME` to the owner's home, removes `CARGO_NET_OFFLINE` and appends `~/.local/bin:~/.cargo/bin` to `PATH` |
+| fleet member (kind `body`, `fleet/<bid>`) | the home minus the deny list, when `read_home` is true (never full) | none (or the workspace with a `fleet.workspace_write` grant, macOS) | `read_home` or `none` · `""` |
 | probe (kind `probe`) | none: hermetic, as in v0.1.0 | none | `none` · `""` |
 | kernel, `build`, `check`, `git-read` | unchanged; tail Z2's deny list applies to them too | unchanged | — |
 
@@ -1538,7 +1612,7 @@ For every `body`-profile spawn the Root **sets `INIT_ACCESS` and `INIT_WORKSPACE
 
 #### 3.17.3 Applying a change
 
-A body's profile is fixed at spawn. The kernel learns the access state from `hello` (which gains `access`) and from the Root → kernel event `access{access, full, restart, workspace}` (§4.1.4). The Root sends it after every `ready` with `restart: null`, and on every change, with `restart: "idle"` when the live body's grant changed: a new workspace, full mode on or off, or a charter edit to `sandbox.*`. On `"idle"`, the kernel restarts the live body gracefully at its next idle boundary. The body resumes its session log, so the conversation continues, and its new boot event shows the new access line (awareness.md §3.5). Every change also sends attached clients a `notice` with `code: "access"`: `[root] workspace: <path>`, the no-workspace text of §3.17.1, `[root] full mode on: …` or `[root] full mode off …`.
+A body's profile is fixed at spawn. The kernel learns the access state from `hello` (which gains `access`) and from the Root → kernel event `access{access, full, restart, workspace}` (§4.1.4). The Root sends it after every `ready` with `restart: null`, and on every change, with `restart: "idle"` when the live body's grant changed: a new workspace, full mode on or off, or a charter edit to `sandbox.*`. On `"idle"`, the kernel restarts the live body gracefully at its next idle boundary. The body resumes its session log, so the conversation continues, and its new boot event shows the new access line (awareness.md §3.5). Every change also sends attached clients a `notice` with `code: "access"`: `[root] workspace: <path>` (with ` · access FULL: …` under full access), the no-workspace text of §3.17.1, `[root] full access on: …` or `[root] full access off: …`.
 
 #### 3.17.4 Snapshots and `/undo`
 
@@ -1669,13 +1743,13 @@ From v0.1.1 the boot block also carries `"access": {"access", "full", "workspace
 
   | `cmd` | `args` | `result` | Errors |
   |---|---|---|---|
-  | `workspace.set` | `{"cwd": "<the TUI's cwd, absolute>"}` | `{"access": AccessView, "changed": bool, "refused": null \| {"code": Reason, "message"}}` | `root.args` (`cwd` missing or not a string). A refused cwd is not an error (§3.17.1). |
-  | `full.set` | `{"on": bool, "confirm"?: "<what the owner typed>"}` | `{"access": AccessView, "changed": bool, "snapshot": Snap \| null}` | `root.mode` with `data.reason = "charter"` (`sandbox.allow_full = false`); `root.confirm` |
+  | `workspace.set` | `{"cwd": "<the TUI's cwd, absolute>", "mode"?: "workspace"}` (v0.3.1: `mode` from `init --workspace` confines the session; absent, the charter's `sandbox.mode`) | `{"access": AccessView, "changed": bool, "refused": null \| {"code": Reason, "message"}}` | `root.args` (`cwd` missing or not a string; `mode` other than `"workspace"`). A refused cwd is not an error (§3.17.1). |
+  | `full.set` | `{"on": bool, "confirm"?: "<what the owner typed>"}` | `{"access": AccessView, "changed": bool, "snapshot": Snap \| null}` | `root.mode` with `data.reason = "charter"` (`sandbox.allow_full = false`); `root.confirm` (only when `sandbox.mode = "workspace"`) |
   | `undo` | `{"confirm"?: "<what the owner typed>"}` | `{"restored": Snap, "saved": Snap}` | `root.busy` with `data.reason = "body_busy"` (checked before the confirmation); `root.mode` with `data.reason = "no_workspace"`; `root.not_found` (no snapshot); `root.confirm`; `root.internal` |
   | `access.get` | `{}` | `AccessView` | — |
   | `status` (existing) | `{}` | gains `"access": AccessView` | — |
 
-  `workspace.set` is sent once per `init` launch, after the first attach and before any owner line. **Typed confirmation:** `full.set{on:true}` the first time in an owner session, and every `undo`, answer `root.confirm` with `message` (what will happen) and `data.phrase` (today `"confirm"`) unless `args.confirm` equals `data.phrase` exactly. The client shows `message`, reads one line from the owner, and resends the same request with `"confirm": <that line>`. Clients take the phrase from `data.phrase` and never hard-code it.
+  `workspace.set` is sent once per `init` launch, after the first attach and before any owner line. **Typed confirmation:** `full.set{on:true}` the first time in an owner session while the charter's `sandbox.mode` is `"workspace"` (ADR-012: never with the default `"full"`), and every `undo`, answer `root.confirm` with `message` (what will happen) and `data.phrase` (today `"confirm"`) unless `args.confirm` equals `data.phrase` exactly. The client shows `message`, reads one line from the owner, and resends the same request with `"confirm": <that line>`. Clients take the phrase from `data.phrase` and never hard-code it.
 - **v0.1.1 notices** (Root → every attached client, `src:"root"`): `code:"access"` on every workspace or full-mode change, and `code:"snapshot"` when a snapshot is taken, skipped or restored (§3.17.3, §3.17.4).
 
 **Lines the Root handles** (exact match after trimming; everything else goes to the kernel):
@@ -1686,7 +1760,7 @@ From v0.1.1 the boot block also carries `"access": {"access", "full", "workspace
 | `/resume` | when the Root is `Panicked`, `Halted` or `Stopped`: resume (§3.9.5, §3.6.6). Otherwise the line goes to the kernel, which leaves its own `Stopped`. System safe mode has no owner command (D4). |
 | `/root status` · `/root ledger` · `/root stop` · `/root help` | the CLI equivalents |
 | `/workspace` · `/full` (v0.1.1) | a notice with the `AccessView` as text |
-| `/full on` · `/full on confirm` · `/full off` (v0.1.1) | `full.set`. `/full on` answers with a notice that says what will happen and asks for `/full on confirm` (the first time in an owner session; later it acts at once) |
+| `/full on` · `/full on confirm` · `/full off` (v0.1.1) | `full.set`. Under a `sandbox.mode = "workspace"` charter, `/full on` answers with a notice that says what will happen and asks for `/full on confirm` (the first time in an owner session; later it acts at once); under the default `"full"` it acts at once (ADR-012) |
 | `/undo` · `/undo confirm` (v0.1.1) | `undo`. `/undo` answers with a notice naming the snapshot that would be restored and asks for `/undo confirm` |
 
 ### 4.3 The `init-root` CLI
@@ -1994,7 +2068,8 @@ The Root-local unit and integration cases below are `RR-*`, so they do not colli
 | RR-37 | snapshot and `/undo` round trip on a small fixture dir on APFS: `workspace.set` (session snapshot), change and delete files, `undo` without, then with, the phrase; `undo` again | `root.confirm` first; then the tree equals the session snapshot byte for byte and a `pre_undo` snapshot holds the changed state; the second undo restores that state; at most 5 snapshots kept; a symlink in the tree is cloned as a link | ADR-009 |
 | RR-37b | `undo` while the last heartbeat says busy | `root.busy` with `data.reason = "body_busy"`, before any `root.confirm`; nothing restored | ADR-009 |
 | RR-38 | the size and volume skips: a workspace over 2 GiB (sparse files), one on a non-APFS volume (a disk image), one on another volume | no snapshot; a `snapshot` notice each; `undo` answers `root.not_found` | ADR-009 |
-| RR-39 | full mode: `full.set{on:true}` twice in one session; after a new `workspace.set`; with `sandbox.allow_full = false`; `full.set{on:false}` | `root.confirm`, then on at once; `root.confirm` again (new session); `root.mode` `data.reason = "charter"`; off with no confirmation; `access` events with `restart: "idle"`, and `restart_pending` until the next live spawn | ADR-009 |
+| RR-39 | full mode under `sandbox.mode = "workspace"`: `full.set{on:true}` twice in one session; after a new `workspace.set`; with `sandbox.allow_full = false`; `full.set{on:false}` | `root.confirm`, then on at once; `root.confirm` again (new session); `root.mode` `data.reason = "charter"`; off with no confirmation; `access` events with `restart: "idle"`, and `restart_pending` until the next live spawn | ADR-009 |
+| RR-39b | the default `sandbox.mode = "full"`: `workspace.set` with and without `mode: "workspace"`; `full.set{on:false}` then `{on:true}`; a Root restart after `/full off`; a full body spawned through the broker | access `full` with no confirmation; `workspace` with `mode`; off then on with no `root.confirm`; still `workspace` after the restart; the body's `INIT_ACCESS=full`, `HOME` = the owner's home, no `CARGO_NET_OFFLINE`, writes elsewhere in the home, cannot read `ROOT_HOME` | ADR-012 (`tests/access.rs`) |
 | RR-40 | `spawn` of each kind while a workspace is set, with the kernel sending its own `INIT_ACCESS=full` and `INIT_WORKSPACE=/` | the child's environment holds the Root's values (live body: the access and workspace; member: `read_home` or `none` and `""`; probe: `none` and `""`); the composed profiles carry `Z_HOME`/`Z_WRITE` only as §3.17.2's table says | ADR-009, kernel/sandbox.md S-A1–S-A26b |
 
 ## 9. Open questions

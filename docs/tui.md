@@ -104,8 +104,8 @@ Two rules come from how the Root is built:
 
 | `cmd` | When the TUI sends it | Fields the TUI reads |
 |---|---|---|
-| `workspace.set{cwd}` | once per launch, right after the first attach and before any owner line; `cwd` is `std::env::current_dir()` as the OS gives it (the Root canonicalizes and validates it) | `access` (an `AccessView`), `changed`, `refused{code, message}` |
-| `full.set{on, confirm?}` | `--full` at launch, after `workspace.set` | `access`, `snapshot`; the `root.confirm` and `root.mode` errors |
+| `workspace.set{cwd, mode?}` | once per launch, right after the first attach and before any owner line; `cwd` is `std::env::current_dir()` as the OS gives it (the Root canonicalizes and validates it); `mode:"workspace"` only with `--workspace` (ADR-012) | `access` (an `AccessView`, with `mode` from v0.3.1), `changed`, `refused{code, message}` |
+| `full.set{on, confirm?}` | `--full` at launch, after `workspace.set`; `/full on`, `/full off` | `access`, `snapshot`; the `root.confirm` error (only under a `sandbox.mode = "workspace"` charter, ADR-012) and `root.mode` |
 | `access.get` | after any notice with `code:"access"` | `AccessView` |
 | `status` | as before | also `access` (`access`, `full`, `workspace`, `restart_pending`, `snapshot`) |
 
@@ -281,13 +281,13 @@ The TUI still opens no file and holds no secret (T-1, T-2): reading its own cwd 
 | busy | kernel `state.busy` | each `state` frame | `busy 41 s` (elapsed by the TUI's clock), spinner at 10 Hz |
 | queued | Root `status.queued` and kernel `state.queued` | as above | only when > 0 |
 | turn tokens (TUI-UX) | the body's `turn_end` lines (`tokens: in N (cached C), out M`; `in` counts every prompt token, cached ones included) and Root `egress.stats.money.total_spent_musd` | each `turn_end`; egress after each `turn_end` | `turn in 238k out 1.0k · cache 99.6% · $0.004`, then `session cache 97.1%`. Shown once a token line has been seen. A turn starts when the run starts (`state{busy:true}`) or an owner line is delivered while idle (a steer is the same turn). The **cache rate is token-weighted**: Σ cached / Σ input over the turn's (or the session's) requests, not a mean of per-request rates; one request's `119424/119586` is 99.86%, shown as `99.8%` (rounded down, never overstated). A request whose line has no cache field makes the rate `~` (computed over the requests that reported one); with none it is `cache ?`, never `0%`. The cost is the change in the Root's ledger total since the turn began (an estimate from usage and tariffs; it includes any other spend in that time, e.g. gate checks), shown to a tenth of a cent; `$?` without the ledger. Observe-only: no cap or ceiling is implied. "Session" means every token line this TUI process saw, the attach replay included |
-| access (v0.1.1, ADR-009) | Root `status.access` | 2 s poll, and at once after a notice with `code:"access"` | the workspace with the home shown as `~` (`~/code/app`), or `no workspace` (dim) when there is none; `FULL` in red reverse video while `access.full` is true; a trailing `↻` while `restart_pending` (the agent picks up the change at its next idle boundary). Placed right after the level. |
+| access (v0.1.1, ADR-009) | Root `status.access` | 2 s poll, and at once after a notice with `code:"access"` | the workspace with the home shown as `~` (`~/code/app`), or `no workspace` (dim) when there is none; before it the access mode: `FULL` in red bold while `access.full` is true, else `WORKSPACE` in yellow (v0.3.1, ADR-012; reverse video under `NO_COLOR`); a trailing `↻` while `restart_pending` (the agent picks up the change at its next idle boundary). Placed right after the level. |
 
 ```
  L0 · FULL ~/code/app · deepseek-flash · $0.04 run · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg
 ```
 
-- When the terminal is narrow, fields are dropped from the right in this order: queued, busy, model, run cost, body, the session cache rate, the turn tokens, today, the workspace path, level. The Root state and `FULL` are never dropped.
+- When the terminal is narrow, fields are dropped from the right in this order: queued, busy, model, run cost, body, the session cache rate, the turn tokens, today, the workspace path, level. The Root state and the access mode (`FULL` or `WORKSPACE`) are never dropped.
 - **Authority.** The level, money, access and Root state come from Root requests, which no zone process can forge. The body, mode, busy and model fields come from the kernel, which is maintainer code at L0–L2 and agent code from L3; they are informative, not authoritative.
 - `NO_COLOR` set: no colours; states are shown with reverse video and words.
 - **Times.** std has no local time zone, and the TUI adds no crate for one, so it shows relative times (`3 min ago`, `resets in 5 h 12 min`) and, where an absolute time is needed, UTC with a `Z` (`21:04:05Z`).
@@ -431,7 +431,7 @@ The agent may later improve the UI, and none of the routes gives the TUI trust o
 
 ```
 init-tui [--root-home DIR] [--plain | --raw] [--no-replay] [--verbose] [--wait] [--wait-idle]
-         [--timeout S] [--latency-report] [--full] [--version] [--help]
+         [--timeout S] [--latency-report] [--full | --workspace] [--version] [--help]
 ```
 
 From v0.1.1 the TUI's cwd is the agent's workspace (§3.8.1, ADR-009): run `init` in the project you want the agent to edit.
@@ -449,7 +449,8 @@ The launcher passes its arguments through unchanged (`init --plain` runs `init-t
 | `--wait-idle` | line mode: stay attached after stdin EOF until idle (§3.12) |
 | `--timeout S` | line mode: overall bound in seconds |
 | `--latency-report` | at exit, print the latency histograms of §6 to stderr |
-| `--full` | v0.1.1: ask the Root for full mode at launch, which lets the agent write the whole home except secrets and the Root's paths; the Root asks for a typed confirmation the first time (§3.8.1). The charter can forbid it (`sandbox.allow_full`). |
+| `--full` | v0.1.1: ask the Root for full mode at launch (`full.set{on:true}`). v0.3.1 (ADR-012): full access is the charter default, so this matters only under `sandbox.mode = "workspace"`, where the Root asks for a typed confirmation (§3.8.1). The charter can forbid it (`sandbox.allow_full`). Excludes `--workspace`. |
+| `--workspace` | v0.3.1 (ADR-012): confine this session to workspace mode (ADR-009: home reads minus secrets, writes only in the workspace and `INIT_HOME`, no network but the provider). Sent as `workspace.set{cwd, mode:"workspace"}`; without a cwd, as `full.set{on:false}`. Excludes `--full`. |
 | `--version` | `init-tui (INIT Agent TUI) <version>`, plus `built from tui/ at <sha12>` when the build set `INIT_TUI_GIT_SHA` |
 
 Environment read: `INIT_ROOT_HOME`, `HOME`, `TERM`, `NO_COLOR`. Nothing else, in particular no `INIT_TEST*` and no `INIT_HOME`. From v0.1.1 the TUI also reads its cwd (`std::env::current_dir()`, not `$PWD`) and sends it as the workspace.

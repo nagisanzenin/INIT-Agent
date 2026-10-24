@@ -39,7 +39,7 @@ pub enum SyncMode {
 pub struct GitEnv {
     pub git: PathBuf,
     /// `None`: inherit this process's environment (production). `Some`: exactly this map (tests).
-    /// `GIT_TERMINAL_PROMPT=0` and `GIT_EDITOR=true` are always added.
+    /// `GIT_TERMINAL_PROMPT=0`, `GIT_EDITOR=true` and `GIT_CONFIG_GLOBAL=/dev/null` are always added.
     pub base_env: Option<BTreeMap<String, String>>,
     pub timeout: Duration,
 }
@@ -295,8 +295,11 @@ impl Cx<'_> {
         if let Some(parent) = self.body.parent().filter(|p| !p.as_os_str().is_empty()) {
             cmd.env("GIT_CEILING_DIRECTORIES", parent);
         }
+        // ADR-012: in full mode HOME is the owner's home, so the owner's ~/.gitconfig must not
+        // change how the body's own repository is synced.
         cmd.env("GIT_TERMINAL_PROMPT", "0")
-            .env("GIT_EDITOR", "true");
+            .env("GIT_EDITOR", "true")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null");
         cmd.arg("-C").arg(self.body).args(args);
         let spec = RunSpec {
             stdin: None,
@@ -686,6 +689,21 @@ mod tests {
             action: Some(action.into()),
             ..GitSync::default()
         }
+    }
+
+    /// ADR-012: in full mode HOME is the owner's home; an owner `~/.gitconfig` (here one that
+    /// breaks every fetch) never reaches the sync, which runs with `GIT_CONFIG_GLOBAL=/dev/null`.
+    #[test]
+    fn owner_global_git_config_is_ignored() {
+        let (mut fx, _c1) = Fx::setup("gcglobal");
+        let c2 = fx.commit("maint", "f.txt", "two\n");
+        fx.publish(&c2);
+        let cfg = fx.p("owner.gitconfig");
+        fs::write(&cfg, "[url \"file:///nonexistent/\"]\n\tinsteadOf = /\n").unwrap();
+        fx.env
+            .insert("GIT_CONFIG_GLOBAL".into(), cfg.to_str().unwrap().into());
+        assert_eq!(fx.sync(SyncMode::Full), ok("ff"));
+        assert_eq!(fx.read("body/f.txt"), "two\n");
     }
 
     #[test]

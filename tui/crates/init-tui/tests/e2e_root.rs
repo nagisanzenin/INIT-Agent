@@ -413,7 +413,7 @@ fn tui_r_real_root_session() {
 
 /// WIRE-009 (ADR-009) end to end, $0: the REAL `init-root` (test mode) with a Python fake kernel
 /// (tests/support/w9_kernel.py) whose body is `/bin/sh` under the real `body` profile, and
-/// `init-mockllm` as the model. `init-tui` (line mode) is launched in a fixture project dir: its cwd
+/// `init-mockllm` as the model. `init-tui` (line mode, `--workspace`) is launched in a fixture project dir: its cwd
 /// becomes the workspace (the Root snapshots it and restarts the body with the grant), the mock's
 /// `write` tool call is carried out by the sandboxed body inside the workspace, and `/undo` (typed
 /// confirmation) restores the file.
@@ -483,9 +483,10 @@ fn wire9_workspace_tool_write_and_undo() {
     let klog = || fs::read_to_string(h.ih.join("state/kernel/w9k.jsonl")).unwrap_or_default();
     wait(20, "the fake kernel's first body", || klog().contains("\"ev\":\"body\""));
 
-    // init-tui in line mode, launched in the project dir
+    // init-tui in line mode, launched in the project dir; ADR-012: full access is the default, so
+    // `--workspace` asks for ADR-009's workspace mode, which this test is about
     let mut c = Command::new(BIN);
-    c.env_clear().env("HOME", &dir).env("PATH", "/usr/bin:/bin").args(["--plain", "--wait", "--root-home"]).arg(&h.rh).current_dir(&proj);
+    c.env_clear().env("HOME", &dir).env("PATH", "/usr/bin:/bin").args(["--plain", "--workspace", "--wait", "--root-home"]).arg(&h.rh).current_dir(&proj);
     let mut tui = c.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).spawn().unwrap();
     let mut tin = tui.stdin.take().unwrap();
     let tout = tui.stdout.take().unwrap();

@@ -522,6 +522,9 @@ fn status(p: &Paths, json_out: bool, proposals: bool, selftest: bool) -> u8 {
         println!("tuples {} · kernel {} · now {}", icj(&v["tuples"]).unwrap_or_default(),
             if k.is_null() { "not running".into() } else { format!("pid {} ({})", k["pid"], s("slot")) },
             v["root"]["now"].as_str().map_or_else(|| rfc3339(now_ms()), String::from));
+        if let Some(line) = access_line(&v["access"], &p.r("charter.toml")) {
+            println!("{line}");
+        }
         let ev = &v["evolution"]; // from install.json (install::evolution)
         let tiers = ev["tiers"].as_array().map(|t| t.iter().filter_map(Value::as_str).collect::<Vec<_>>().join("+")).unwrap_or_default();
         match ev["hint"].as_str() {
@@ -538,6 +541,38 @@ fn status(p: &Paths, json_out: bool, proposals: bool, selftest: bool) -> u8 {
         }
     }
     0
+}
+
+/// ADR-012: the human `status` line for the access mode (`status.access`, an AccessView), with how to change it. None
+/// when the Root is down (no view).
+fn access_line(a: &Value, charter: &std::path::Path) -> Option<String> {
+    let mode = a["mode"].as_str()?;
+    let ws = a["workspace"].as_str().unwrap_or("none");
+    let ch = charter.display();
+    Some(match (a["full"] == true, mode, a["allow_full"] == true) {
+        (true, "full", _) => format!("access: FULL (default) · workspace {ws} · to confine it: init --workspace, /full off, or sandbox.mode = \"workspace\" in {ch}"),
+        (true, _, _) => format!("access: FULL (this session) · workspace {ws} · /full off or a new init launch ends it"),
+        (false, _, false) => format!("access: WORKSPACE · workspace {ws} · full access is off in the charter (sandbox.allow_full = false in {ch})"),
+        (false, "full", _) => format!("access: WORKSPACE (this session) · workspace {ws} · /full on, or init without --workspace, gives full access"),
+        (false, _, _) => format!("access: WORKSPACE (default) · workspace {ws} · full access: /full on, or sandbox.mode = \"full\" in {ch}"),
+    })
+}
+
+#[cfg(test)]
+mod access_line_tests {
+    use super::*;
+    #[test]
+    fn status_shows_the_access_mode_and_how_to_change_it() {
+        let ch = std::path::Path::new("/h/.init-root/charter.toml");
+        let l = |v: Value| access_line(&v, ch).unwrap();
+        assert_eq!(l(json!({"full": true, "mode": "full", "allow_full": true, "workspace": "/h/p"})),
+            "access: FULL (default) · workspace /h/p · to confine it: init --workspace, /full off, or sandbox.mode = \"workspace\" in /h/.init-root/charter.toml");
+        assert!(l(json!({"full": true, "mode": "workspace", "allow_full": true})).starts_with("access: FULL (this session) · workspace none"));
+        assert!(l(json!({"full": false, "mode": "full", "allow_full": true})).starts_with("access: WORKSPACE (this session)"));
+        assert!(l(json!({"full": false, "mode": "workspace", "allow_full": true})).starts_with("access: WORKSPACE (default)"));
+        assert!(l(json!({"full": false, "mode": "full", "allow_full": false})).contains("sandbox.allow_full = false"));
+        assert_eq!(access_line(&Value::Null, ch), None, "the Root is down: no line");
+    }
 }
 
 /// `charter check [<path>] [--apply [--yes]]` (§3.12.4).

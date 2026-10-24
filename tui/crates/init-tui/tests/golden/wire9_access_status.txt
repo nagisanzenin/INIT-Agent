@@ -1,21 +1,21 @@
 -- workspace @120
- L0 · deepseek-flash · +$0.00 since attach · $1.23/$5.00 today · running · ~/code/proj · body 3f9c0a1b2c4d lkg          |.bbdddddddddddddddddddddddddddddddddddddddddd.................ddd.......ddd...........ddd.................dddd          
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · WORKSPACE · ~/code/proj · body 3f9c0a1b2c4d lkg               |.bbddddddddddddddddddddddddd.................ddd.......dddyyyyyyyyyddd...........ddd.................dddd               
 -- workspace @80
- L0 · $1.23/$5.00 today · running · ~/code/proj · body 3f9c0a1b2c4d lkg         |.bbddd.................ddd.......ddd...........ddd.................dddd         
+ L0 · $1.23/$5.00 today · running · WORKSPACE · ~/code/proj                     |.bbddd.................ddd.......dddyyyyyyyyyddd...........                     
 -- workspace @40
- L0 · $1.23/$5.00 today · running       |.bbddd.................ddd.......       
+ L0 · running · WORKSPACE               |.bbddd.......dddyyyyyyyyy               
 -- long workspace @120
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · …/monorepo/services/billing-api · body 3f9c0a1b2c4d lkg       |.bbddddddddddddddddddddddddd.................ddd.......ddd...............................ddd.................dddd       
+ L0 · $1.23/$5.00 today · running · WORKSPACE · …/monorepo/services/billing-api · body 3f9c0a1b2c4d lkg                 |.bbddd.................ddd.......dddyyyyyyyyyddd...............................ddd.................dddd                 
 -- long workspace @80
- L0 · $1.23/$5.00 today · running · …/monorepo/services/billing-api             |.bbddd.................ddd.......ddd...............................             
+ L0 · $1.23/$5.00 today · running · WORKSPACE · …/monorepo/services/billing-api |.bbddd.................ddd.......dddyyyyyyyyyddd............................... 
 -- long workspace @40
- L0 · $1.23/$5.00 today · running       |.bbddd.................ddd.......       
+ L0 · running · WORKSPACE               |.bbddd.......dddyyyyyyyyy               
 -- no workspace @120
- L0 · deepseek-flash · +$0.00 since attach · $1.23/$5.00 today · running · no workspace · body 3f9c0a1b2c4d lkg         |.bbdddddddddddddddddddddddddddddddddddddddddd.................ddd.......dddddddddddddddddd.................dddd         
+ L0 · +$0.00 since attach · $1.23/$5.00 today · running · WORKSPACE · no workspace · body 3f9c0a1b2c4d lkg              |.bbddddddddddddddddddddddddd.................ddd.......dddyyyyyyyyydddddddddddddddddd.................dddd              
 -- no workspace @80
- L0 · $1.23/$5.00 today · running · no workspace · body 3f9c0a1b2c4d lkg        |.bbddd.................ddd.......dddddddddddddddddd.................dddd        
+ L0 · $1.23/$5.00 today · running · WORKSPACE · no workspace                    |.bbddd.................ddd.......dddyyyyyyyyyddddddddddddddd                    
 -- no workspace @40
- L0 · $1.23/$5.00 today · running       |.bbddd.................ddd.......       
+ L0 · running · WORKSPACE               |.bbddd.......dddyyyyyyyyy               
 -- full @120
  L0 · deepseek-flash · +$0.00 since attach · $1.23/$5.00 today · running · FULL · ~/code/proj · body 3f9c0a1b2c4d lkg   |.bbdddddddddddddddddddddddddddddddddddddddddd.................ddd.......dddRRRRddd...........ddd.................dddd   
 -- full @80
@@ -30,3 +30,5 @@
  L0 · $1.23/$5.00 today · running · FULL|.bbddd.................ddd.......dddRRRR
 -- full NO_COLOR, no HOME @80
  L0 · $1.23/$5.00 today · running · FULL · /Users/o/p · body 3f9c0a1b2c4d lkg   |.bbddd.................ddd.......dddRRRRddd..........ddd.................dddd   
+-- workspace NO_COLOR, no HOME @80
+ L0 · $1.23/$5.00 today · running · WORKSPACE · /Users/o/p                      |.bbddd.................ddd.......dddYYYYYYYYYddd..........                      

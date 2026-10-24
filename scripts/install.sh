@@ -442,6 +442,10 @@ Your limits: $RH/charter.toml (edit, then: init-root charter check --apply). Spe
              /usage in the chat or init-root egress stats; set a spend limit at your provider.
 Logs:        $RH/logs/ (the Root), $IH/state/kernel/logs/ (the kernel and the body)
 Uninstall:   $REPO/scripts/uninstall.sh (moves both homes to the Trash)
+
+Access: FULL (default): the agent can read and write your files and use the network;
+        INIT's Root ($RH) stays off-limits. To confine it: init --workspace, /full off,
+        or sandbox.mode = "workspace" in $RH/charter.toml (docs/adr/012-full-access-by-default.md).
 EOF
 if [ "$TC" = none ]; then
   cat <<EOF

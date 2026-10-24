@@ -372,7 +372,7 @@ The `autonomy` and `ceilings` lines render `boot.json.env.root` (§3.5.1, §4.5)
 |---|---|
 | `workspace` | `- access: write the workspace <path> and INIT_HOME (your tools start in the workspace) · read the owner's home, secret stores denied` |
 | `read_home` | `- access: no workspace (init was launched outside a project): write INIT_HOME only · read the owner's home, secret stores denied` |
-| `full` | `- access: FULL: write the owner's whole home except secret stores and the Root · workspace <path or none>` |
+| `full` (the default from v0.3.1, ADR-012) | `- access: FULL: read and write anywhere the owner can, network allowed · ~ is the owner's home · denied: the Root's files (~/.init-root, its service, INIT's launchers) · only the workspace has /undo · workspace <path or none>` |
 | `none` | `- access: INIT_HOME only (no home access; the v0.1 sandbox)` |
 | absent (an older kernel) | no line |
 | anything else | `- access: <value> · workspace <path or none>` |

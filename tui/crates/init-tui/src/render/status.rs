@@ -198,15 +198,18 @@ pub fn bar(info: &Info, width: usize, now: Instant, now_ms: i64, spin: usize, no
         root_line.push(" · reconnected", Style::dim());
     }
     fields.push(Field { drop: 0, line: root_line });
-    // ADR-009: FULL (never dropped) and the workspace (drop 3), from the Root's AccessView
+    // ADR-009, ADR-012: the access mode, FULL (red bold) or WORKSPACE (yellow), both never
+    // dropped, and the workspace (drop 3), from the Root's AccessView
     if let Some(a) = info.access.as_ref().filter(|a| a.is_object()) {
-        if a["full"] == true {
-            let mut st = Style::fg(Color::Red).with_bold();
-            if no_color {
-                st = st.with_reverse();
-            }
-            fields.push(Field { drop: 0, line: Line::from_span("FULL", st) });
+        let (label, mut st) = if a["full"] == true {
+            ("FULL", Style::fg(Color::Red).with_bold())
+        } else {
+            ("WORKSPACE", Style::fg(Color::Yellow))
+        };
+        if no_color {
+            st = st.with_reverse();
         }
+        fields.push(Field { drop: 0, line: Line::from_span(label, st) });
         let ws = match a["workspace"].as_str() {
             Some(w) => Line::from_span(sanitize::inline(&short_path(w, info.home.as_deref()), Style::PLAIN).text(), Style::PLAIN),
             None => Line::from_span("no workspace", Style::dim()),

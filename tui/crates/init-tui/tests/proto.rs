@@ -425,6 +425,55 @@ fn wire9_workspace_first_undo_and_full_confirmations() {
     cleanup(&fx.dir);
 }
 
+/// ADR-012: under a full-default charter `init` gets full access with no confirmation;
+/// `--workspace` confines the session in `workspace.set{cwd, mode:"workspace"}`, and `/full on`
+/// then lifts it at once (the Root asks for no phrase).
+#[test]
+fn fullaccess_default_and_workspace_flag() {
+    let fx = Fixture::start("fa-default");
+    fx.state().access = Some(access_view(None, false));
+    fx.state().charter_full = true;
+    let proj = fx.dir.join("proj");
+    fs::create_dir_all(&proj).unwrap();
+    let o = {
+        let mut c = tui(&fx.rh, &["--plain", "--wait-idle", "--timeout", "20"]);
+        c.current_dir(&proj).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = c.spawn().unwrap();
+        let mut i = child.stdin.take().unwrap();
+        std::thread::spawn(move || {
+            let _ = i.write_all(b"hi\n");
+        });
+        wait_output(child, 30)
+    };
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let ws: Vec<_> = fx.received().iter().filter(|r| r.frame["cmd"] == "workspace.set").map(|r| r.frame["args"].clone()).collect();
+    assert_eq!(ws, [json!({"cwd": proj.to_string_lossy()})], "the default launch sends no mode");
+    assert_eq!(fx.state().access.as_ref().unwrap()["full"], true, "full is the charter default");
+    assert_eq!(fx.received().iter().filter(|r| r.frame["cmd"] == "full.set").count(), 0);
+
+    let mut c = tui(&fx.rh, &["--plain", "--workspace", "--wait-idle", "--timeout", "20"]);
+    c.current_dir(&proj).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut child = c.spawn().unwrap();
+    let mut i = child.stdin.take().unwrap();
+    std::thread::spawn(move || {
+        let _ = i.write_all(b"one\n/full on\ntwo\n");
+    });
+    let o = wait_output(child, 30);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let out = text(&o);
+    let rec = fx.received();
+    let ws: Vec<_> = rec.iter().filter(|r| r.frame["cmd"] == "workspace.set").map(|r| r.frame["args"].clone()).collect();
+    assert_eq!(ws.last(), Some(&json!({"cwd": proj.to_string_lossy(), "mode": "workspace"})));
+    let fulls: Vec<_> = rec.iter().filter(|r| r.frame["cmd"] == "full.set").map(|r| r.frame["args"].clone()).collect();
+    assert_eq!(fulls, [json!({"on": true})], "no confirmation round under a full-default charter");
+    assert!(!out.contains("type confirm"), "{out}");
+    assert!(out.contains("[root] full mode on"), "{out}");
+    assert_eq!(fx.state().access.as_ref().unwrap()["full"], true);
+    let lines: Vec<_> = fx.attach_frames("line").into_iter().map(|f| f["text"].as_str().unwrap_or("").to_string()).collect();
+    assert_eq!(lines, ["hi", "one", "two"]);
+    cleanup(&fx.dir);
+}
+
 /// Launched in `~`: no workspace, and the TUI says so when the Root does not (unchanged);
 /// `--full` asks for full mode once the workspace is set, and the next line confirms it.
 #[test]
@@ -479,6 +528,21 @@ fn wire9_launcher_passes_flags_and_cwd_through() {
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let got = fs::read_to_string(&out).unwrap();
     assert_eq!(got.trim(), format!("{}|--full --plain", fs::canonicalize(&proj).unwrap().display()));
+    let o = std::process::Command::new("/bin/bash")
+        .arg(&launcher)
+        .args(["--workspace"])
+        .current_dir(&proj)
+        .env_clear()
+        .env("HOME", &dir)
+        .env("PATH", "/usr/bin:/bin")
+        .env("INIT_ROOT_HOME", dir.join("rh"))
+        .env("INIT_HOME", dir.join("ih"))
+        .env("INIT_TUI", &stub)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    let got = fs::read_to_string(&out).unwrap();
+    assert_eq!(got.trim(), format!("{}|--workspace", fs::canonicalize(&proj).unwrap().display()), "ADR-012's --workspace too");
     cleanup(&dir);
 }
 

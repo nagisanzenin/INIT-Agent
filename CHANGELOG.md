@@ -2,6 +2,40 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.3.1-preview (2026-10-24)
+
+Workspaces are at version 0.3.1 (seed tag `seed-v0.3.1`). Release notes: docs/release-notes/v0.3.1-preview.md.
+
+### Release (lane FULLACCESS-release, build/status/FULLACCESS.md "Release")
+- Two prebuilt bundles, `init-v0.3.1-preview-macos-arm64.tar.gz` and `init-v0.3.1-preview-linux-arm64.tar.gz`, each
+  with a `.sha256`, and one `latest.json` for both, built from e4215ed. Verified on these exact bundles: fresh macOS
+  and Ubuntu 24.04 installs (access FULL by default), a no-op T2 promote (G0–G3 and handoff, 17 min cold on an M2) and
+  one live DeepSeek turn.
+
+### Full access by default (ADR-012, lane FULLACCESS, build/status/FULLACCESS.md)
+- **The live body now has full access by default:** it reads, writes and runs anything the owner can and uses the IP
+  network, except the Root-protected set: `ROOT_HOME` (files and its sockets), the Root's service file and directory
+  (`~/Library/LaunchAgents`, `~/.config/systemd/user`), INIT's launchers (`<bin_dir>/init`, `<bin_dir>/init-tui`),
+  `INIT_HOME`'s Root-written parts and marks, `~/.config/init-agent` and the charter's `sandbox.read_deny`; no signals,
+  XPC, LaunchServices or AppleEvents outside its sandbox. Fleet members and probes never get it.
+- ADR-009's behaviour is kept, unchanged, as **workspace mode**: charter `[sandbox] mode = "workspace"` (new key,
+  default `"full"`), `init --workspace` for one session, or `/full off`. `/full on` needs a typed confirmation only
+  when the charter says `"workspace"`. `allow_full = false` still forbids full access.
+- A full grant sets the body's `HOME` to the owner's home (so `~/Downloads` is the owner's), drops
+  `CARGO_NET_OFFLINE` and adds `~/.local/bin` and `~/.cargo/bin` to `PATH`. The body's git sync now runs with
+  `GIT_CONFIG_GLOBAL=/dev/null`, so the owner's `~/.gitconfig` does not affect it. The boot block's access line says
+  what full access allows and denies.
+- macOS: a full ROOT_ALLOWS group and a deny-only tail `zone-tail-full.sb`. Linux: bubblewrap without a network
+  namespace, the host root bound read-write with the protected set hidden or read-only, and a seccomp program without
+  the socket-domain rule. Full access works on Linux; workspace mode there stays the agent's own home.
+- TUI: `--workspace` (excludes `--full`), a `FULL` (red) or `WORKSPACE` (yellow) badge that is never dropped, new
+  `/full` help; `init-root status` shows the access mode. `install.sh` states the default and how to confine it.
+- **Residuals** (ADR-012, build/status/RED-TEAM.md §6): writes outside the start folder have no `/undo`; files the
+  owner's tools run later (shell startup files, `PATH` directories, editor configs, git hooks) are writable, so full
+  access is trusted like the owner's shell; anything readable may reach the provider or the network;
+  `launchctl remove dev.init.root` from inside any sandbox stops the Root (fail-safe: it ends INIT, nothing escapes);
+  on Linux, abstract Unix sockets and the system D-Bus (logind) stay reachable.
+
 ## v0.3.0-preview (2026-10-24)
 
 A research preview for macOS (Apple silicon) and, experimentally, Linux aarch64. Workspaces are at version 0.3.0

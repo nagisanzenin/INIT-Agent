@@ -32,9 +32,11 @@ pub struct Opts {
     pub verbose: bool,
     pub latency: bool,
     pub no_color: bool,
-    /// ADR-009: the cwd sent as the workspace at the first attach, and `--full`.
+    /// ADR-009: the cwd sent as the workspace at the first attach, and `--full`; ADR-012:
+    /// `--workspace` confines this session to the workspace.
     pub cwd: Option<String>,
     pub full: bool,
+    pub workspace: bool,
 }
 
 /// Latency samples (§6), in microseconds.
@@ -123,7 +125,7 @@ pub struct App {
 impl App {
     pub fn new(o: Opts, tx: Sender<Ev>, poll: Sender<PollCmd>, w: u16, h: u16) -> App {
         let verbose = o.verbose;
-        let acc = access::Flow::new(o.cwd.clone(), o.full);
+        let acc = access::Flow::new(o.cwd.clone(), o.full, o.workspace);
         let mut info = Info::default();
         info.home = std::env::var("HOME").ok().filter(|h| !h.is_empty());
         App {

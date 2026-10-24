@@ -1073,7 +1073,7 @@ fn one_line(s: &str) -> String {
         .collect()
 }
 
-/// ADR-009: what this body may write and read (`INIT_ACCESS` = `none` · `read_home` · `workspace` ·
+/// ADR-009, ADR-012: what this body may write and read (`INIT_ACCESS` = `none` · `read_home` · `workspace` ·
 /// `full`, set by the Root on every body spawn; SBX-009 §D). It is fixed for the body's lifetime
 /// (a change restarts the body), so it lives in the boot block, never in the head or the signal
 /// line. Absent `INIT_ACCESS` (an older kernel): no line. A value this body does not know, or a
@@ -1101,8 +1101,9 @@ fn access_line(b: &BlockIn) -> Option<String> {
             "- access: INIT_HOME only (no home access; the v0.1 sandbox)".to_string()
         }
         ("read_home", None) => "- access: no workspace (init was launched outside a project): write INIT_HOME only · read the owner's home, secret stores denied".to_string(),
+        // ADR-012: full is the default; the Root keeps only its own files out of reach.
         ("full", _) => format!(
-            "- access: FULL: write the owner's whole home except secret stores and the Root · workspace {ws_or_none}"
+            "- access: FULL: read and write anywhere the owner can, network allowed · ~ is the owner's home · denied: the Root's files (~/.init-root, its service, INIT's launchers) · only the workspace has /undo · workspace {ws_or_none}"
         ),
         (other, _) => format!("- access: {other} · workspace {ws_or_none}"),
     })

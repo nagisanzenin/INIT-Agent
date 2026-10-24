@@ -1,9 +1,15 @@
-//! ADR-009 (build/specs/ADR-009-spec.md): what the agent zone may read and write in the owner's home.
+//! ADR-009 (build/specs/ADR-009-spec.md) and ADR-012: what the agent zone may read and write.
 //!
+//! Workspace mode (ADR-009, `sandbox.mode = "workspace"`):
 //! - **Read:** a body may read the owner's home, except INIT_HOME (whose own rules stay the SECTION's), the
-//!   Root's paths (tail Z1, Z2) and the read deny list ([`read_deny`]; tail Z2, so it holds in full mode too).
-//! - **Write:** the live body may write the owner's workspace ([`validate_workspace`]), or in full mode the
-//!   whole home, again never INIT_HOME's protected parts, the Root's paths or the deny list.
+//!   Root's paths (tail Z1, Z2) and the read deny list ([`read_deny`]; tail Z2).
+//! - **Write:** the live body may write the owner's workspace ([`validate_workspace`]), never INIT_HOME's protected
+//!   parts, the Root's paths or the deny lists.
+//!
+//! - **Full access (ADR-012, v0.3.1, the default):** the live body reads, writes and runs anything outside INIT_HOME
+//!   and uses the IP network, except the Root-protected set: ROOT_HOME, the Root's service file and its directory,
+//!   INIT's launchers, INIT_HOME's Root-written parts, [`FULL_READ_DENY`] and the charter's `sandbox.read_deny`
+//!   ([`full_read_deny`], [`full_write_deny`]; the full tail `zone-tail-full.sb`).
 //!
 //! The Root decides the grant from the spawn's kind and lane ([`grant_for`]); the kernel never supplies it.
 //! Every path reaches a profile as a Root-set `-DZ_*=` parameter, never as text. Platform-neutral.
@@ -63,6 +69,19 @@ pub const BUILTIN_WRITE_DENY: [&str; 20] = [
     ".pam_environment",
 ];
 
+/// ADR-012: what full access still never reads (nor writes), relative to the owner's home: INIT's documented provider
+/// key directory. The charter's `sandbox.read_deny` is added (still honoured in full mode); ROOT_HOME is the full tail's Z1.
+pub const FULL_READ_DENY: [&str; 1] = [".config/init-agent"];
+
+/// ADR-012: what full access still never writes, relative to the owner's home: the directories the Root's service file
+/// lives in on each platform, and every user unit directory systemd reads `init-root.service.d/*.conf` drop-ins from (a
+/// drop-in could override the Root's unit or job). INIT's launchers are added by [`full_write_deny`].
+pub const FULL_WRITE_DENY: [&str; 4] = ["Library/LaunchAgents", ".config/systemd/user", ".config/systemd/user.control", ".local/share/systemd/user"];
+
+/// ADR-012, Linux: the [`FULL_WRITE_DENY`] directories the Root creates (empty) before a full spawn when they are missing,
+/// so the zone can bind them read-only instead of leaving them free to create.
+pub const LINUX_UNIT_DIRS: [&str; 3] = [".config/systemd/user", ".config/systemd/user.control", ".local/share/systemd/user"];
+
 /// The charter's `sandbox.read_deny`: at most this many entries.
 pub const MAX_CHARTER_DENY: usize = 32;
 /// A path parameter's byte limit (V2's).
@@ -73,8 +92,11 @@ pub const MAX_PATH_BYTES: usize = 1024;
 pub struct Grant {
     /// The owner's home except INIT_HOME (ROOT_ALLOWS' read line, `Z_HOME`).
     pub read_home: bool,
-    /// The workspace, or the home in full mode (ROOT_ALLOWS' write line and tail Z3, `Z_WRITE`).
+    /// The workspace (ROOT_ALLOWS' write line and tail Z3, `Z_WRITE`).
     pub write: Option<PathBuf>,
+    /// ADR-012 full access (ROOT_ALLOWS' `Z_FULL` group and the full tail): the live body only, never with
+    /// `read_home` or `write`, which it subsumes.
+    pub full: bool,
 }
 
 /// The Root's access state that a grant is derived from.
@@ -84,7 +106,8 @@ pub struct AccessState {
     pub read_home: bool,
     /// The validated, canonical workspace, if any.
     pub workspace: Option<PathBuf>,
-    /// Full mode (owner-confirmed this session; charter `sandbox.allow_full`).
+    /// Full access in effect (ADR-012: the charter's `sandbox.mode`, or the owner's session choice; never with
+    /// `sandbox.allow_full = false`).
     pub full: bool,
 }
 
@@ -113,16 +136,17 @@ pub struct SpawnGrant {
 
 /// The grant for a spawn of profile `body`: the live body (kind `body`, `live`) gets everything the state
 /// allows; a fleet member (kind `body`, not live) only the home read; a probe (kind `probe`) nothing, so gate
-/// evaluation stays hermetic. In full mode the home read comes with the write grant, whatever `read_home` says.
-pub fn grant_for(kind: &str, live: bool, st: &AccessState, home: &Path) -> SpawnGrant {
+/// evaluation stays hermetic. With full access (ADR-012) the live body gets `full` alone: it subsumes the home
+/// read and the workspace write. Members and probes are never full.
+pub fn grant_for(kind: &str, live: bool, st: &AccessState, _home: &Path) -> SpawnGrant {
     let none = SpawnGrant { grant: Grant::default(), access: "none", workspace: None };
     match (kind, live) {
+        ("body", true) if st.full => SpawnGrant { grant: Grant { read_home: false, write: None, full: true }, access: "full", workspace: st.workspace.clone() },
         ("body", true) => {
-            let write = if st.full { Some(home.to_path_buf()) } else { st.workspace.clone() };
-            let read_home = st.read_home || st.full;
-            SpawnGrant { grant: Grant { read_home, write }, access: st.level(), workspace: st.workspace.clone() }
+            let grant = Grant { read_home: st.read_home, write: st.workspace.clone(), full: false };
+            SpawnGrant { grant, access: st.level(), workspace: st.workspace.clone() }
         }
-        ("body", false) if st.read_home => SpawnGrant { grant: Grant { read_home: true, write: None }, access: "read_home", workspace: None },
+        ("body", false) if st.read_home => SpawnGrant { grant: Grant { read_home: true, ..Grant::default() }, access: "read_home", workspace: None },
         _ => none,
     }
 }
@@ -171,6 +195,20 @@ pub fn read_deny(home: &Path, charter: &[PathBuf]) -> Vec<PathBuf> {
 /// `extra` (INIT's bin directory), resolved as [`read_deny`] does.
 pub fn write_deny(home: &Path, extra: &[PathBuf]) -> Vec<PathBuf> {
     resolved(BUILTIN_WRITE_DENY.iter().map(|r| home.join(r)).chain(extra.iter().cloned()))
+}
+
+/// ADR-012: the full tail's read deny list (`Z_DENY_<i>`): [`FULL_READ_DENY`] under `home`, then the charter's
+/// `sandbox.read_deny`, resolved as [`read_deny`] does.
+pub fn full_read_deny(home: &Path, charter: &[PathBuf]) -> Vec<PathBuf> {
+    resolved(FULL_READ_DENY.iter().map(|r| home.join(r)).chain(charter.iter().cloned()))
+}
+
+/// ADR-012: the full tail's write deny list (`Z_WDENY_<i>`): [`FULL_WRITE_DENY`] under `home`, then INIT's launchers
+/// `<bin_dir>/init` and `<bin_dir>/init-tui` (`bin_dir` from `install.json`, default `~/.local/bin`) as file paths:
+/// the rest of the bin directory is writable in full mode.
+pub fn full_write_deny(home: &Path, bin_dir: Option<&Path>) -> Vec<PathBuf> {
+    let bin = bin_dir.map_or_else(|| home.join(".local/bin"), Path::to_path_buf);
+    resolved(FULL_WRITE_DENY.iter().map(|r| home.join(r)).chain(["init", "init-tui"].iter().map(|n| bin.join(n))))
 }
 
 fn resolved(all: impl Iterator<Item = PathBuf>) -> Vec<PathBuf> {
@@ -282,15 +320,23 @@ mod tests {
         let ws = Some(PathBuf::from("/h/p"));
         let st = AccessState { read_home: true, workspace: ws.clone(), full: false };
         let live = grant_for("body", true, &st, home);
-        assert_eq!(live.grant, Grant { read_home: true, write: ws.clone() });
+        assert_eq!(live.grant, Grant { read_home: true, write: ws.clone(), full: false });
         assert_eq!((live.access, live.workspace.clone()), ("workspace", ws.clone()));
         let member = grant_for("body", false, &st, home);
-        assert_eq!((member.grant, member.access, member.workspace), (Grant { read_home: true, write: None }, "read_home", None));
+        assert_eq!((member.grant, member.access, member.workspace), (Grant { read_home: true, ..Grant::default() }, "read_home", None));
         let probe = grant_for("probe", true, &st, home);
         assert_eq!((probe.grant, probe.access), (Grant::default(), "none"));
-        let full = AccessState { read_home: false, workspace: None, full: true };
-        let g = grant_for("body", true, &full, home);
-        assert_eq!((g.grant, g.access), (Grant { read_home: true, write: Some(home.into()) }, "full"));
+        // ADR-012: full access is the live body's alone, with or without a workspace; it subsumes read and write
+        for ws in [None, ws.clone()] {
+            let full = AccessState { read_home: false, workspace: ws.clone(), full: true };
+            let g = grant_for("body", true, &full, home);
+            assert_eq!((g.grant, g.access, g.workspace), (Grant { read_home: false, write: None, full: true }, "full", ws));
+            let full = AccessState { read_home: true, ..full };
+            assert!(!grant_for("body", false, &full, home).grant.full, "a fleet member is never full");
+            assert_eq!(grant_for("body", false, &full, home).grant, Grant { read_home: true, ..Grant::default() });
+            assert_eq!(grant_for("probe", true, &full, home).grant, Grant::default(), "a probe is never full");
+            assert_eq!(grant_for("probe", false, &full, home).grant, Grant::default());
+        }
         let off = AccessState { read_home: false, workspace: None, full: false };
         assert_eq!(grant_for("body", true, &off, home).access, "none");
         assert_eq!(grant_for("body", false, &off, home).grant, Grant::default());
@@ -316,5 +362,22 @@ mod tests {
         assert!(d.contains(&h.join("Library/Group Containers")));
         assert_eq!(d.last(), Some(&h.join("tax")));
         assert_eq!(d.len(), BUILTIN_READ_DENY.len() + 1, "missing paths resolve to themselves: no duplicates");
+    }
+
+    /// ADR-012: the full lists keep the key directory, the charter's entries, the service directories and INIT's
+    /// two launchers (file paths in bin_dir, default ~/.local/bin), and nothing of the ADR-009 secrets list.
+    #[test]
+    fn full_lists_keep_only_the_root_protected_set() {
+        let h = Path::new("/nonexistent-adr012-home");
+        let r = full_read_deny(h, &[h.join("tax")]);
+        assert_eq!(r, vec![h.join(".config/init-agent"), h.join("tax")]);
+        assert!(!r.contains(&h.join(".ssh")), "the ADR-009 secrets list is dropped in full mode");
+        let w = full_write_deny(h, None);
+        assert_eq!(w, vec![h.join("Library/LaunchAgents"), h.join(".config/systemd/user"), h.join(".config/systemd/user.control"),
+            h.join(".local/share/systemd/user"), h.join(".local/bin/init"), h.join(".local/bin/init-tui")]);
+        assert!(LINUX_UNIT_DIRS.iter().all(|d| FULL_WRITE_DENY.contains(d)));
+        let w = full_write_deny(h, Some(Path::new("/nonexistent-adr012-bin")));
+        assert_eq!(&w[4..], [PathBuf::from("/nonexistent-adr012-bin/init"), PathBuf::from("/nonexistent-adr012-bin/init-tui")]);
+        assert!(!w.contains(&h.join(".zshrc")) && !w.contains(&h.join(".local/bin")), "shell rc and the bin dir are writable in full mode");
     }
 }

@@ -1,4 +1,4 @@
-//! R5: the charter (root/root.md §3.12): schema with every default, validation C1–C17, digest,
+//! R5: the charter (root/root.md §3.12): schema with every default, validation C1–C18, digest,
 //! published view, diff. `egress::validate_actions` (C11) and `sealed::validate` (C12) own their tables.
 //! ADR-011 (X7): the `[extend]` section and its rule C17; `check` re-validates an effective charter (grant.rs).
 
@@ -53,6 +53,10 @@ pub struct Sandbox {
     pub read_deny: Vec<String>,
     #[serde(skip_serializing_if = "is_true")]
     pub allow_full: bool,
+    /// ADR-012 (v0.3.1): the live body's default access, `"full"` (the default) or `"workspace"` (ADR-009's confinement);
+    /// left out of the effective JSON at its default, so existing charters keep their digest. Rule C18.
+    #[serde(skip_serializing_if = "is_full_mode")]
+    pub mode: String,
     /// MEM-RUNAWAY: the physical-footprint cap of one workload process tree (root/root.md §3.14.1), in MiB.
     #[serde(skip_serializing_if = "is_mem_cap_default")]
     pub mem_cap_mib: i64,
@@ -65,12 +69,17 @@ pub const MEM_CAP_MIB: (i64, i64, i64) = (4096, 512, 65_536);
 pub const DISK_FLOOR_GIB: (i64, i64, i64) = (5, 1, 1024);
 impl Default for Sandbox {
     fn default() -> Self {
-        Sandbox { extra_read: Vec::new(), read_home: true, read_deny: Vec::new(), allow_full: true, mem_cap_mib: MEM_CAP_MIB.0,
-            disk_floor_gib: DISK_FLOOR_GIB.0 }
+        Sandbox { extra_read: Vec::new(), read_home: true, read_deny: Vec::new(), allow_full: true, mode: SANDBOX_MODES[0].into(),
+            mem_cap_mib: MEM_CAP_MIB.0, disk_floor_gib: DISK_FLOOR_GIB.0 }
     }
 }
 fn is_true(b: &bool) -> bool {
     *b
+}
+/// `sandbox.mode` values (C18), the default first.
+pub const SANDBOX_MODES: [&str; 2] = ["full", "workspace"];
+fn is_full_mode(m: &String) -> bool {
+    m == SANDBOX_MODES[0]
 }
 // Like the ADR-009 keys: left out of the effective JSON at their defaults, so existing charters keep their digest.
 fn is_mem_cap_default(v: &i64) -> bool {
@@ -436,6 +445,10 @@ fn rules(c: &Charter, cx: &Ctx, e: &mut Vec<Finding>) {
     let (cap_lo, floor_lo) = if test { (64, 0) } else { (MEM_CAP_MIB.1, DISK_FLOOR_GIB.1) };
     ranges(&json!({"mem_cap_mib": c.sandbox.mem_cap_mib, "disk_floor_gib": c.sandbox.disk_floor_gib}), "sandbox", "C16",
         &[("mem_cap_mib", cap_lo, MEM_CAP_MIB.2), ("disk_floor_gib", floor_lo, DISK_FLOOR_GIB.2)], e);
+    // C18 (ADR-012): the live body's default access.
+    if !SANDBOX_MODES.contains(&c.sandbox.mode.as_str()) {
+        e.push(err("sandbox.mode", "C18", "must be \"full\" or \"workspace\""));
+    }
     // C15 (ADR-009): read_deny entries; a deny on a missing path still blocks its creation, so none need exist.
     if c.sandbox.read_deny.len() > init_sandbox_profiles::access::MAX_CHARTER_DENY {
         e.push(err("sandbox.read_deny", "C15", "at most 32 entries"));
@@ -635,6 +648,8 @@ mod tests {
             (t.replace("read_deny = []", "read_deny = [\"/Users/o/.init/work\"]"), "sandbox.read_deny", "C15"),
             (t.replace("read_deny = []", "read_deny = [\"/a/../b\"]"), "sandbox.read_deny", "C15"),
             (t.replace("read_home = true", "read_home = 1"), "sandbox", "C1"),
+            (t.replace("mode = \"full\"", "mode = \"open\""), "sandbox.mode", "C18"),
+            (t.replace("mode = \"full\"", "mode = \"Full\""), "sandbox.mode", "C18"),
             (t.replace("read_deny = []", "read_deny = []\nmem_cap_mib = 511"), "sandbox.mem_cap_mib", "C16"),
             (t.replace("read_deny = []", "read_deny = []\nmem_cap_mib = 65537"), "sandbox.mem_cap_mib", "C16"),
             (t.replace("read_deny = []", "read_deny = []\nmem_cap_mib = \"4G\""), "sandbox", "C1"),
@@ -655,6 +670,23 @@ mod tests {
             valid_template().replace("url = \"\"", "url = \"file:///tmp/m\"").replace("disk_min_free_gib = 20", "disk_min_free_gib = 0"));
         assert!(check(&test).is_ok(), "{:?}", check(&test).err());
         assert!(!keys(&format!("{}\n[root]\ntest_mode = true\ncrash_limit = -1\n", valid_template())).is_empty());
+    }
+
+    /// ADR-012 (C18): `sandbox.mode` defaults to "full", is left out of the effective JSON (and the digest) at its default,
+    /// and "workspace" is a digest change.
+    #[test]
+    fn sandbox_mode_default_and_digest() {
+        let t = valid_template();
+        assert!(t.contains("\nmode = \"full\""), "the template documents sandbox.mode");
+        let (c, d, _) = check(&t).unwrap();
+        assert_eq!(c.sandbox.mode, "full");
+        assert!(effective(&c)["sandbox"].get("mode").is_none(), "left out at its default");
+        let (m, _, _) = check("schema_version = 1\n[purpose]\ntext = \"p\"\n[autonomy]\nmax_level = 0\n").unwrap();
+        assert_eq!(m.sandbox.mode, "full", "a charter without the key gets full access");
+        assert_eq!(check(&t.replace("mode = \"full\"", "")).unwrap().1, d, "an absent key keeps the digest");
+        let (w, dw, _) = check(&t.replace("mode = \"full\"", "mode = \"workspace\"")).unwrap();
+        assert_eq!((w.sandbox.mode.as_str(), effective(&w)["sandbox"]["mode"].as_str()), ("workspace", Some("workspace")));
+        assert_ne!(dw, d);
     }
 
     /// MEM-RUNAWAY (C16): `sandbox.mem_cap_mib` 512–65536 (default 4096) and `sandbox.disk_floor_gib` 1–1024 (default 5);

@@ -1167,15 +1167,36 @@ impl<'a> Runner<'a> {
         }
     }
 
+    /// The layout a grant is composed with: for a full grant (ADR-012) the full deny lists, as the Root's
+    /// `zone::launcher` picks them (with `tax/` as the charter's read_deny entry and the fake home's `.local/bin`
+    /// as INIT's bin directory).
+    fn layout_for(&self, g: &Grant) -> ZoneLayout {
+        let mut layout = self.layout.clone();
+        if g.full {
+            layout.read_deny = access::full_read_deny(&self.h.run, &[self.h.run.join("tax")]);
+            layout.write_deny = access::full_write_deny(&self.h.run, None);
+        }
+        layout
+    }
+
     /// A live body with the grant `access::grant_for` gives kind `body` on the live lane for `st`.
     fn live_body_granted(&mut self, label: &str, st: &AccessState) -> Option<Instance> {
         let i = self.h.i.clone();
-        let layout = self.layout.clone();
-        let g = access::grant_for("body", true, st, &layout.home);
+        let g = access::grant_for("body", true, st, &self.layout.home);
+        let layout = self.layout_for(&g.grant);
         let params = self.body_params(&i, &i.join("run"), &i.join("kernel"), &i.join("bin"), &i.join("kernel"));
         let env = self.base_env(&i.join("work/home"), &i.join("work/tmp"));
         let (exe, cwd) = (i.join("bin/sbx-probe"), i.join("work"));
         self.instance_with(label, Some(("body", ProfileId::Body)), None, params, &layout, exe, cwd, env, &g.grant)
+    }
+
+    /// S-A27's directory: a fresh `init-sbx-full-<run id>` in the per-user temp directory (`/var/folders/…`, outside
+    /// the home and `/tmp`), created here, unsandboxed; removed by its exact path after the full rows.
+    fn full_tmp_dir(&self) -> Option<PathBuf> {
+        let base = sys::darwin_user_temp_dir().or_else(|| Some(std::env::temp_dir())).and_then(|b| canon(&b).ok())?;
+        let name = self.h.run.file_name()?.to_string_lossy().into_owned();
+        let d = base.join(format!("init-sbx-full-{name}"));
+        fs::create_dir(&d).ok().map(|()| d)
     }
 
     /// ADR-009 (build/specs/ADR-009-spec.md, Tests): the read grant, the workspace and full mode, against the
@@ -1248,59 +1269,100 @@ impl<'a> Runner<'a> {
             }
         }
 
+        // ADR-012 full access (the v0.3.1 default): the live body reads, writes and runs anything outside INIT_HOME and
+        // uses the IP network, except the Root-protected set. Z_FULL is "/", so every write row targets a path this
+        // run created (the fake home, or the temp directory below); the real home only gets policy queries.
+        let tmp = self.full_tmp_dir();
         if let Some(b) = self.live_body_granted("body/full", &full) {
             self.parses("S-M0.full", &b);
+            let up = self.udp_port();
+            let tmp_x = tmp.as_ref().map(|d| s(&d.join("x")));
+            let exe = fake.join("other/sbx-probe-copy");
+            let exe_op: Vec<String> = [s(&exe)].into_iter().chain(self.cfg.probe_prefix.iter().cloned()).chain(["noop".to_string()]).collect();
+            let mut exec = ops(&["exec"]);
+            exec.extend(exe_op);
             let rows: Vec<(&str, &str, Vec<String>, Expect)> = vec![
                 ("S-A10", "full: write elsewhere in the home", ops(&["write", &hm("other/x")]), Expect::Allow),
                 ("S-A10b", "full: write ~/Documents", ops(&["write", &hm("Documents/z")]), Expect::Allow),
                 ("S-A10c", "full: write the workspace", ops(&["write", &hm("ws/full.txt")]), Expect::Allow),
                 ("S-A11", "full: write ROOT_HOME (Z1)", ops(&["write", &r("w.txt")]), Expect::Deny),
                 ("S-A11b", "full: read ROOT_HOME (Z1)", ops(&["read", &r("secret")]), Expect::Deny),
-                ("S-A12", "full: write the fake ~/.ssh (deny list)", ops(&["write", &hm(".ssh/authorized_keys")]), Expect::Deny),
-                ("S-A12b", "full: read the fake ~/.ssh/id (deny list)", ops(&["read", &hm(".ssh/id")]), Expect::Deny),
-                ("S-A12c", "full: write ~/.config/init-agent/ (deny list)", ops(&["write", &hm(".config/init-agent/k")]), Expect::Deny),
-                ("S-A12d", "full: write a charter read_deny path", ops(&["write", &hm("tax/x")]), Expect::Deny),
+                ("S-A11c", "full: list ROOT_HOME's keys (Z1)", ops(&["list", &r("keys/providers")]), Expect::Deny),
+                ("S-A12", "full: write the fake ~/.ssh (ADR-012: the secrets list is workspace mode's)", ops(&["write", &hm(".ssh/authorized_keys")]), Expect::Allow),
+                ("S-A12b", "full: read the fake ~/.ssh/id (ADR-012: git push over ssh works)", ops(&["read", &hm(".ssh/id")]), Expect::Allow),
+                ("S-A12c", "full: write ~/.config/init-agent/ (INIT's key dir, still denied)", ops(&["write", &hm(".config/init-agent/k")]), Expect::Deny),
+                ("S-A12d", "full: write a charter read_deny path (still honoured)", ops(&["write", &hm("tax/x")]), Expect::Deny),
+                ("S-A12e", "full: read ~/.config/init-agent/deepseek.key (INIT's key dir)", ops(&["read", &hm(".config/init-agent/deepseek.key")]), Expect::Deny),
+                ("S-A12f", "full: read a charter read_deny path", ops(&["read", &hm("tax/2025.txt")]), Expect::Deny),
                 ("S-A13", "full: write INIT_HOME/kernel/ (Z4)", ops(&["write", &li("kernel/f")]), Expect::Deny),
                 ("S-A13b", "full: write vault/", ops(&["write", &li("vault/f")]), Expect::Deny),
                 ("S-A13c", "full: write state/kernel/", ops(&["write", &li("state/kernel/f")]), Expect::Deny),
                 ("S-A13d", "full: write run/mark/ (Z4)", ops(&["write", &li("run/mark/f")]), Expect::Deny),
                 ("S-A13e", "full: write lineage/", ops(&["write", &li("lineage/f")]), Expect::Deny),
+                ("S-A13f", "full: read vault/ (INIT_HOME keeps the SECTION's rules)", ops(&["read", &li("vault/secret")]), Expect::Deny),
                 ("S-A14", "full: add a file next to the Root's service file (Z2)", ops(&["write", &hm("svc/evil.plist")]), Expect::Deny),
                 ("S-A14b", "full: overwrite the Root's service file (Z2)", ops(&["write", &svc]), Expect::Deny),
-                ("S-A15", "full: connect the owner socket (Z6)", ops(&["connect", &r("run/owner.sock")]), Expect::Deny),
-                ("S-A15b", "full: TCP connect to 127.0.0.1 (Z6)", ops(&["tcp-connect", &tp]), Expect::Deny),
-                ("S-A16", "full: write the real home (policy query)", ops(&["policy-write", &home_real]), Expect::Query(false)),
-                ("S-A16b", "full: write under /private/tmp (policy query)", ops(&["policy-write", "/private/tmp"]), Expect::Query(false)),
-                ("S-A21", "full: overwrite ~/.zshrc (Z3a)", ops(&["write", &hm(".zshrc")]), Expect::Deny),
-                ("S-A21b", "full: create ~/.zshenv (Z3a)", ops(&["write", &hm(".zshenv")]), Expect::Deny),
-                ("S-A21c", "full: overwrite ~/.bash_profile (Z3a)", ops(&["write", &hm(".bash_profile")]), Expect::Deny),
-                ("S-A21d", "full: overwrite ~/.profile (Z3a)", ops(&["write", &hm(".profile")]), Expect::Deny),
-                ("S-A21e", "full: write ~/.config/fish/ (Z3a)", ops(&["write", &hm(".config/fish/config.fish")]), Expect::Deny),
-                ("S-A22", "full: overwrite ~/.gitconfig (Z3a)", ops(&["write", &hm(".gitconfig")]), Expect::Deny),
-                ("S-A22b", "full: write ~/.config/git/ (Z3a)", ops(&["write", &hm(".config/git/config")]), Expect::Deny),
-                ("S-A23", "full: replace ~/.local/bin/init (Z3a)", ops(&["write", &hm(".local/bin/init")]), Expect::Deny),
-                ("S-A23b", "full: replace ~/.local/bin/init-tui (Z3a)", ops(&["write", &hm(".local/bin/init-tui")]), Expect::Deny),
-                ("S-A23c", "full: add a command to ~/.local/bin (Z3a)", ops(&["write", &hm(".local/bin/git")]), Expect::Deny),
-                ("S-A23d", "full: add a command to ~/bin (Z3a)", ops(&["write", &hm("bin/ls")]), Expect::Deny),
-                ("S-A24", "full: add a login item in ~/Library/LaunchAgents (Z3a)", ops(&["write", &hm("Library/LaunchAgents/x.plist")]), Expect::Deny),
-                ("S-A24b", "full: add an autostart entry in ~/.config/autostart (Z3a)", ops(&["write", &hm(".config/autostart/x.desktop")]), Expect::Deny),
-                ("S-A25", "full: add a hook to another repository in the home (Z3b)", ops(&["write", &hm("other/.git/hooks/pre-commit")]), Expect::Deny),
-                ("S-A25b", "full: write another repository's .git/config (Z3b)", ops(&["write", &hm("other/.git/config")]), Expect::Deny),
-                ("S-A25c", "full: add a git hook in the workspace (Z3b)", ops(&["write", &hm("ws/.git/hooks/post-merge")]), Expect::Deny),
+                ("S-A14c", "full: read the Root's service file (Z2)", ops(&["read", &svc]), Expect::Deny),
+                ("S-A15", "full: connect the owner socket in ROOT_HOME (Z1)", ops(&["connect", &r("run/owner.sock")]), Expect::Deny),
+                ("S-A15c", "full: connect the egress socket in ROOT_HOME (Z1)", ops(&["connect", &r("run/egress.sock")]), Expect::Deny),
+                ("S-A15b", "full: TCP connect to the suite's 127.0.0.1 listener (ADR-012)", ops(&["tcp-connect", &tp]), Expect::Allow),
+                ("S-A15d", "full: bind a loopback TCP listener (ADR-012)", ops(&["tcp-bind-loopback"]), Expect::Allow),
+                ("S-A15e", "full: UDP send to the suite's 127.0.0.1 socket (ADR-012)", ops(&["udp-send", &up]), Expect::Allow),
+                ("S-A16", "full: write the real home (policy query; ADR-012)", ops(&["policy-write", &home_real]), Expect::Query(true)),
+                ("S-A16b", "full: write under /private/tmp (policy query; ADR-012)", ops(&["policy-write", "/private/tmp"]), Expect::Query(true)),
+                ("S-A16c", "full: run a program copied into the home (map-executable outside INIT_HOME)", exec, Expect::Allow),
+                ("S-A21", "full: overwrite ~/.zshrc (ADR-012: deferred execution is a residual)", ops(&["write", &hm(".zshrc")]), Expect::Allow),
+                ("S-A21b", "full: create ~/.zshenv (ADR-012)", ops(&["write", &hm(".zshenv")]), Expect::Allow),
+                ("S-A21c", "full: overwrite ~/.bash_profile (ADR-012)", ops(&["write", &hm(".bash_profile")]), Expect::Allow),
+                ("S-A21d", "full: overwrite ~/.profile (ADR-012)", ops(&["write", &hm(".profile")]), Expect::Allow),
+                ("S-A21e", "full: write ~/.config/fish/ (ADR-012)", ops(&["write", &hm(".config/fish/config.fish")]), Expect::Allow),
+                ("S-A22", "full: overwrite ~/.gitconfig (ADR-012)", ops(&["write", &hm(".gitconfig")]), Expect::Allow),
+                ("S-A22b", "full: write ~/.config/git/ (ADR-012)", ops(&["write", &hm(".config/git/config")]), Expect::Allow),
+                ("S-A23", "full: replace <bin_dir>/init (Z3a, INIT's launcher)", ops(&["write", &hm(".local/bin/init")]), Expect::Deny),
+                ("S-A23b", "full: replace <bin_dir>/init-tui (Z3a, INIT's launcher)", ops(&["write", &hm(".local/bin/init-tui")]), Expect::Deny),
+                ("S-A23c", "full: add a command to ~/.local/bin (ADR-012: only the launchers are denied)", ops(&["write", &hm(".local/bin/git")]), Expect::Allow),
+                ("S-A23d", "full: add a command to ~/bin (ADR-012)", ops(&["write", &hm("bin/ls")]), Expect::Allow),
+                ("S-A24", "full: add a login item in ~/Library/LaunchAgents (Z3a, the service directory)", ops(&["write", &hm("Library/LaunchAgents/x.plist")]), Expect::Deny),
+                ("S-A24b", "full: add an autostart entry in ~/.config/autostart (ADR-012)", ops(&["write", &hm(".config/autostart/x.desktop")]), Expect::Allow),
+                ("S-A25", "full: add a hook to another repository in the home (ADR-012)", ops(&["write", &hm("other/.git/hooks/pre-commit")]), Expect::Allow),
+                ("S-A25b", "full: write another repository's .git/config (ADR-012)", ops(&["write", &hm("other/.git/config")]), Expect::Allow),
+                ("S-A25c", "full: add a git hook in the workspace (ADR-012)", ops(&["write", &hm("ws/.git/hooks/post-merge")]), Expect::Allow),
                 ("S-A25d", "full: write a git object in the workspace", ops(&["write", &hm("ws/.git/objects/cd")]), Expect::Allow),
             ];
+            if let Err(e) = fs::copy(&self.cfg.probe_exe, &exe).and_then(|_| fs::set_permissions(&exe, fs::Permissions::from_mode(0o755))) {
+                self.push("SETUP", "body/full", "copy the probe into the fake home", Status::Fail(e.to_string()));
+            }
             for (id, what, op, expect) in rows {
                 self.check(id, &b, what, &op, expect);
             }
-            let last = vec![
-                ("S-A17", "full: rename the fake ~/.ssh away (deny list)", ops(&["rename", &hm(".ssh"), &hm("ssh2")])),
-                ("S-A17b", "full: rename the Root's service directory (Z2)", ops(&["rename", &hm("svc"), &hm("svc2")])),
-                ("S-A26", "full: rename ~/.local/bin away (Z3a)", ops(&["rename", &hm(".local/bin"), &hm(".local/bin2")])),
-                ("S-A26b", "full: rename the workspace's .git/hooks away (Z3b)", ops(&["rename", &hm("ws/.git/hooks"), &hm("ws/.git/h2")])),
-            ];
-            for (id, what, op) in last {
-                self.check(id, &b, what, &op, Expect::Deny);
+            let what = "full: write a new temp directory outside the home and /tmp (ADR-012)";
+            match &tmp_x {
+                Some(x) => self.check("S-A27", &b, what, &ops(&["write", x]), Expect::Allow),
+                None => self.push("S-A27", "body/full", what, Status::Fail("setup: no per-user temp directory".into())),
             }
+            self.kill0_own_sleep("S-A28", &b); // the Root stand-in: a process outside the sandbox this suite spawned
+            let last = vec![
+                ("S-A17", "full: rename the fake ~/.ssh away (ADR-012)", ops(&["rename", &hm(".ssh"), &hm("ssh2")]), Expect::Allow),
+                ("S-A17b", "full: rename the Root's service directory (Z2)", ops(&["rename", &hm("svc"), &hm("svc2")]), Expect::Deny),
+                ("S-A26", "full: rename ~/.local/bin away (ADR-012: the launchers are file denies)", ops(&["rename", &hm(".local/bin"), &hm(".local/bin2")]), Expect::Allow),
+                ("S-A26b", "full: rename the workspace's .git/hooks away (ADR-012)", ops(&["rename", &hm("ws/.git/hooks"), &hm("ws/.git/h2")]), Expect::Allow),
+            ];
+            for (id, what, op, expect) in last {
+                self.check(id, &b, what, &op, expect);
+                // An allowed rename is put back (unsandboxed, by the exact paths): later rows (RR-1x2, RR-2j) use them.
+                if let [_, from, to] = op.as_slice()
+                    && !Path::new(from).exists()
+                    && Path::new(to).exists()
+                    && let Err(e) = fs::rename(to, from)
+                {
+                    self.push("SETUP", "body/full", &format!("rename {to} back"), Status::Fail(e.to_string()));
+                }
+            }
+        }
+        if let Some(d) = &tmp {
+            // Removed by the exact paths this run created (the file only if the row wrote it).
+            let _ = fs::remove_file(d.join("x"));
+            let _ = fs::remove_dir(d);
         }
 
         // A fleet member gets the read grant only; a probe gets nothing (gate evaluation stays hermetic).
@@ -1308,21 +1370,27 @@ impl<'a> Runner<'a> {
         let layout = self.layout.clone();
         let root = i.join("fleet/b1");
         let g = access::grant_for("body", false, &full, &layout.home);
+        let never_full = |g: &Grant| if g.full { Status::Fail(format!("{g:?}")) } else { Status::Pass };
+        self.push("S-A18e", "body/member+grant", "member: grant_for never gives full access, with full on for the live body", never_full(&g.grant));
         let params = self.body_params(&root, &i.join("run/fleet/b1"), &root.join("kernel"), &root.join("bin"), &root.join("kernel"));
         let env = self.base_env(&root.join("work/home"), &root.join("work/tmp"));
         let (exe, cwd) = (root.join("bin/sbx-probe"), root.join("work"));
         if let Some(m) = self.instance_with("body/member+grant", Some(("body", ProfileId::Body)), None, params, &layout, exe, cwd, env, &g.grant) {
             self.check("S-A18", &m, "member: read ~/Documents/x (read grant)", &ops(&["read", &hm("Documents/x")]), Expect::Allow);
             self.check("S-A18b", &m, "member: write the workspace (no write grant)", &ops(&["write", &hm("ws/m.txt")]), Expect::Deny);
+            self.check("S-A18c", &m, "member: write elsewhere in the home (never full)", &ops(&["write", &hm("other/m.txt")]), Expect::Deny);
+            self.check("S-A18d", &m, "member: TCP connect to the suite's 127.0.0.1 listener (never full: Z6)", &ops(&["tcp-connect", &tp]), Expect::Deny);
         }
         let root = i.join("probe/p1");
         let g = access::grant_for("probe", true, &full, &layout.home);
+        self.push("S-A19d", "body/probe+grant", "probe: grant_for never gives full access, with full on for the live body", never_full(&g.grant));
         let params = self.body_params(&root, &root.join("run"), &root.join("kernel"), &root.join("bin"), &root.join("kernel"));
         let env = self.base_env(&root.join("work/home"), &root.join("work/tmp"));
         let (exe, cwd) = (root.join("bin/sbx-probe"), root.join("work"));
         if let Some(p) = self.instance_with("body/probe+grant", Some(("probe", ProfileId::Body)), None, params, &layout, exe, cwd, env, &g.grant) {
             self.check("S-A19", &p, "probe: read ~/Documents/x (no grant)", &ops(&["read", &hm("Documents/x")]), Expect::Deny);
             self.check("S-A19b", &p, "probe: write the workspace (no grant)", &ops(&["write", &hm("ws/p.txt")]), Expect::Deny);
+            self.check("S-A19c", &p, "probe: TCP connect to the suite's 127.0.0.1 listener (never full: Z6)", &ops(&["tcp-connect", &tp]), Expect::Deny);
         }
     }
 

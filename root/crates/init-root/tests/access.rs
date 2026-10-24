@@ -1,7 +1,9 @@
 //! SBX-009 (ADR-009, build/specs/ADR-009-spec.md "Tests: Root"): workspace validation over owner.sock, full mode
 //! and its typed confirmation, snapshots (APFS clones) with retention and the size skip, and `/undo`, against the
 //! real Root daemon in test mode; with the fake kernel, a body spawned through the broker gets INIT_ACCESS and
-//! INIT_WORKSPACE, writes the workspace (and nothing else in the home), and `/undo` restores it.
+//! INIT_WORKSPACE, writes the workspace (and nothing else in the home), and `/undo` restores it. ADR-012 (v0.3.1): full
+//! access is the default (`sandbox.mode = "full"`); the ADR-009 confirmation flow runs under `mode = "workspace"`, and a
+//! full body reads and writes the home but never ROOT_HOME.
 //! Run with `cargo test --offline -p init-root --features test-fixtures`.
 //!
 //! Live-system safety (CONVENTIONS §1): every process is this test's Root daemon or one that Root spawned and holds
@@ -148,14 +150,15 @@ impl Drop for Daemon {
 }
 
 /// Spec item 2 over owner.sock: each refusal reason, a symlinked cwd canonicalized, the workspace in `status`.
-/// Then full mode: `root.confirm` until the phrase, once per session; a new `workspace.set` ends it.
+/// Then full mode under a `sandbox.mode = "workspace"` charter (RR-39): `root.confirm` until the phrase, once per
+/// session; a new `workspace.set` ends it.
 /// Then the snapshot retention (5 per workspace) and the 2 GiB skip (a sparse file: no disk is used).
 // LINUX: workspace mode and full mode are capped off on Linux (access.rs LINUX_HOME_GRANTS); macOS only
 #[cfg(target_os = "macos")]
 #[test]
 fn workspace_validation_full_mode_retention_and_size_skip() {
     let h = home("v");
-    h.install(false, "");
+    h.install(false, "[sandbox]\nmode = \"workspace\"\n");
     let _d = h.daemon("");
     std::os::unix::fs::symlink(h.dir.join("proj"), h.dir.join("link")).unwrap();
     fs::write(h.dir.join("other/file"), "x").unwrap();
@@ -240,9 +243,10 @@ fn charter_disables_full_mode_and_home_reads() {
     let v = h.ok("access.get", json!({}));
     assert_eq!((v["access"].as_str(), v["allow_full"].as_bool(), v["read_home"].as_bool()), (Some("none"), Some(false), Some(false)));
     let e = h.refused("full.set", json!({"on": true, "confirm": "confirm"}));
-    // LINUX: the platform cap answers first (no workspace, no full mode; access.rs LINUX_HOME_GRANTS)
+    // ADR-012: full access is possible on Linux too, so the charter answers on every platform
     let linux = cfg!(target_os = "linux");
-    assert_eq!((e["code"].as_str(), e["data"]["reason"].as_str()), (Some("root.mode"), Some(if linux { "platform" } else { "charter" })));
+    assert_eq!((e["code"].as_str(), e["data"]["reason"].as_str()), (Some("root.mode"), Some("charter")));
+    assert_eq!((v["full"].as_bool(), v["mode"].as_str()), (Some(false), Some("full")), "allow_full = false wins over the default mode");
     let w = h.ok("workspace.set", json!({"cwd": h.s("proj")}));
     assert_eq!(w["access"]["access"], if linux { "none" } else { "workspace" });
     if linux {
@@ -263,7 +267,9 @@ fn body_writes_the_workspace_and_undo_restores_it() {
     let _d = h.daemon("");
     wait(20, "running", || h.ok("status", json!({}))["slot"] == "running");
     let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
-    let r = h.ok("workspace.set", json!({"cwd": h.s("proj")}));
+    // `init --workspace`: the session is confined to ADR-009's workspace mode under the default full charter
+    let r = h.ok("workspace.set", json!({"cwd": h.s("proj"), "mode": "workspace"}));
+    assert_eq!((r["access"]["access"].as_str(), r["access"]["mode"].as_str()), (Some("workspace"), Some("full")), "{r}");
     let first = r["access"]["snapshot"]["id"].as_str().unwrap().to_string();
     wait(10, "access event after the change", || h.fk_events("access").iter().any(|d| d["workspace"].as_str() == proj.to_str()));
     // a body (the kernel's own spawn request, as the fake kernel's `spawn_args`, running /bin/sh)
@@ -322,9 +328,105 @@ fn body_writes_the_workspace_and_undo_restores_it() {
     assert_eq!(r2["restored"]["id"], r["saved"]["id"]);
     assert_eq!(fs::read_to_string(proj.join("agent.txt")).unwrap(), "agent\n");
     assert_eq!(fs::read_to_string(proj.join("src/a.txt")).unwrap(), "v2\n");
-    // full mode while that body still runs: the kernel is asked for a restart at idle
+    // full access while that body still runs (no confirmation: the charter's default is full): a restart at idle
     assert_eq!(h.ok("access.get", json!({}))["restart_pending"], false, "the body holds the current grant");
-    h.ok("full.set", json!({"on": true, "confirm": "confirm"}));
+    h.ok("full.set", json!({"on": true}));
     wait(10, "access{restart:idle}", || h.fk_events("access").iter().any(|d| d["full"] == true && d["restart"] == "idle"));
     assert_eq!(h.ok("access.get", json!({}))["restart_pending"], true);
+}
+
+/// The body's spawn request as the fake kernel sends it (`spawn_args`): kind body, the live lane, running `/bin/sh -c`.
+fn body_request(h: &Home, script: &str, env: Value) -> Value {
+    let ih = fs::canonicalize(&h.ih).unwrap();
+    let i = ih.to_string_lossy().into_owned();
+    let info: Value = serde_json::from_str(&fs::read_to_string(h.rh.join("install.json")).unwrap()).unwrap();
+    let mut p = serde_json::Map::new();
+    for (k, sub) in [("BIN", "/bin"), ("BODY", "/body"), ("CACHE", "/cache"), ("INIT_HOME", ""), ("KERNEL", "/kernel"),
+        ("KERNEL_SOCK", "/run/kernel.sock"), ("LINEAGE", "/lineage"), ("LINK_BIN", "/bin"), ("LINK_KERNEL", "/kernel"),
+        ("LINK_LINEAGE", "/lineage"), ("PROXY_SOCK", "/run/proxy.sock"), ("PUB", "/root"), ("RUN", "/run"),
+        ("STATE", "/state"), ("STATE_KERNEL", "/state/kernel"), ("VAULT", "/vault"), ("WORK", "/work")] {
+        p.insert(k.into(), json!(format!("{i}{sub}")));
+    }
+    p.insert("TOOLCHAIN".into(), info["toolchain"].clone());
+    p.insert("DEVDIR".into(), info["devdir"].clone());
+    p.insert("HOME_REAL".into(), json!(h.dir));
+    json!({"args": ["-c", script], "cwd": format!("{i}/work"), "env": env, "kind": "body", "lane": "live", "params": p, "profile": "body",
+        "program": "/bin/sh"})
+}
+
+/// ADR-012 (RR-39b): the default `sandbox.mode = "full"`: every session starts full with no confirmation, `init
+/// --workspace` (`workspace.set{mode:"workspace"}`) and `/full off` confine it, `/full on` lifts that at once, the
+/// confinement survives a Root restart, and `init-root status` names the mode and how to change it.
+#[test]
+fn default_full_access_and_session_choices() {
+    let h = home("d");
+    h.install(false, "");
+    let linux = cfg!(target_os = "linux");
+    let confined = if linux { "none" } else { "workspace" }; // LINUX: workspace mode has no home grants
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap().to_string_lossy().into_owned();
+    {
+        let _d = h.daemon("");
+        let v = h.ok("access.get", json!({}));
+        assert_eq!((v["access"].as_str(), v["full"].as_bool(), v["mode"].as_str(), v["workspace"].clone()), (Some("full"), Some(true), Some("full"), Value::Null), "{v}");
+        let r = h.ok("workspace.set", json!({"cwd": h.s("proj")}));
+        assert_eq!((r["access"]["access"].as_str(), r["access"]["workspace"].as_str(), r["refused"].clone()), (Some("full"), Some(proj.as_str()), Value::Null), "{r}");
+        assert_eq!(h.refused("workspace.set", json!({"cwd": h.s("proj"), "mode": "open"}))["code"], "root.args");
+        let r = h.ok("workspace.set", json!({"cwd": h.s("proj"), "mode": "workspace"}));
+        assert_eq!((r["access"]["access"].as_str(), r["access"]["full"].as_bool(), r["changed"].as_bool()), (Some(confined), Some(false), Some(true)), "{r}");
+        if linux {
+            assert_eq!(r["refused"]["code"], "platform", "{r}");
+        }
+        let r = h.ok("full.set", json!({"on": true}));
+        assert_eq!((r["access"]["access"].as_str(), r["changed"].as_bool()), (Some("full"), Some(true)), "no confirmation under the default: {r}");
+        assert_eq!(r["access"]["workspace"].as_str(), Some(proj.as_str()), "the session's workspace is kept");
+        let r = h.ok("full.set", json!({"on": false}));
+        assert_eq!((r["access"]["access"].as_str(), r["changed"].as_bool()), (Some(confined), Some(true)));
+        assert_eq!(h.ok("status", json!({}))["access"]["mode"], "full");
+        let o = h.run(&["status"]);
+        let out = String::from_utf8_lossy(&o.stdout);
+        assert!(out.contains("access: WORKSPACE (this session)"), "{out}");
+    }
+    // a Root restart keeps the session's confinement (it never widens access); a new `init` launch takes the default
+    let _d = h.daemon("");
+    assert_eq!(h.ok("access.get", json!({}))["full"], false, "confined across a Root restart");
+    let r = h.ok("workspace.set", json!({"cwd": h.s("proj")}));
+    assert_eq!(r["access"]["access"], "full", "{r}");
+    let out = String::from_utf8_lossy(&h.run(&["status"]).stdout).into_owned();
+    assert!(out.contains("access: FULL (default) · workspace ") && out.contains("init --workspace, /full off, or sandbox.mode = \"workspace\" in "), "{out}");
+    let lin = fs::read_to_string(h.ih.join("root/lineage.jsonl")).unwrap();
+    assert!(!lin.contains(&proj), "no workspace path in the lineage");
+}
+
+/// ADR-012 (RR-39b, macOS): a full body spawned through the broker gets the Root's `INIT_ACCESS=full`, the owner's
+/// `HOME` and `PATH` additions, no `CARGO_NET_OFFLINE`; it writes elsewhere in the home but cannot read ROOT_HOME or
+/// replace INIT's launcher.
+#[cfg(target_os = "macos")]
+#[test]
+fn full_body_writes_the_home_not_the_root() {
+    let h = home("f");
+    h.install(true, "");
+    let _d = h.daemon("");
+    wait(20, "running", || h.ok("status", json!({}))["slot"] == "running");
+    h.ok("workspace.set", json!({"cwd": h.s("proj")}));
+    let i = fs::canonicalize(&h.ih).unwrap().to_string_lossy().into_owned();
+    let (other, charter, launcher) = (h.s("other/full.txt"), h.rh.join("charter.toml").to_string_lossy().into_owned(), h.s(".local/bin/init"));
+    let script = format!(
+        "env > '{i}/work/env.txt'; echo full > '{other}'; ( cat '{charter}' ) >/dev/null 2>&1; echo $? > '{i}/work/rh.rc'; \
+         ( echo x > '{launcher}' ) 2>/dev/null; echo $? > '{i}/work/init.rc'; exec /bin/sleep 30"
+    );
+    let env = json!({"PATH": "/usr/bin:/bin", "INIT_ACCESS": "none", "INIT_WORKSPACE": "/", "CARGO_NET_OFFLINE": "true", "HOME": format!("{i}/work/home")});
+    let (tmp, dst) = (h.ih.join("work/fk-call.tmp"), h.ih.join("work/fk-call.json"));
+    fs::write(&tmp, json!({"cmd": "spawn", "args": body_request(&h, &script, env)}).to_string()).unwrap();
+    fs::rename(tmp, dst).unwrap();
+    wait(20, "the body ran", || h.ih.join("work/init.rc").exists());
+    let env = fs::read_to_string(h.ih.join("work/env.txt")).unwrap();
+    let home = fs::canonicalize(&h.dir).unwrap().to_string_lossy().into_owned();
+    assert!(env.lines().any(|l| l == "INIT_ACCESS=full"), "the Root's value: {env}");
+    assert!(env.lines().any(|l| l == format!("HOME={home}")), "the owner's home: {env}");
+    assert!(env.lines().any(|l| l == format!("PATH=/usr/bin:/bin:{home}/.local/bin:{home}/.cargo/bin")), "{env}");
+    assert!(!env.contains("CARGO_NET_OFFLINE"), "{env}");
+    assert_eq!(fs::read_to_string(h.dir.join("other/full.txt")).unwrap(), "full\n", "full access writes elsewhere in the home");
+    assert_ne!(fs::read_to_string(h.ih.join("work/rh.rc")).unwrap().trim(), "0", "ROOT_HOME stays unreadable");
+    assert_ne!(fs::read_to_string(h.ih.join("work/init.rc")).unwrap().trim(), "0", "INIT's launcher stays unwritable");
+    assert!(!h.dir.join(".local/bin/init").exists());
 }

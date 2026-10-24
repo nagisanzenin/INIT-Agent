@@ -994,11 +994,11 @@ fn access_line_forms_and_position() {
     );
     assert_eq!(
         access(&mut fx, "full", Some(WS)),
-        "- access: FULL: write the owner's whole home except secret stores and the Root · workspace /Users/q/projects/app"
+        "- access: FULL: read and write anywhere the owner can, network allowed · ~ is the owner's home · denied: the Root's files (~/.init-root, its service, INIT's launchers) · only the workspace has /undo · workspace /Users/q/projects/app"
     );
     assert_eq!(
         access(&mut fx, "full", None),
-        "- access: FULL: write the owner's whole home except secret stores and the Root · workspace none"
+        "- access: FULL: read and write anywhere the owner can, network allowed · ~ is the owner's home · denied: the Root's files (~/.init-root, its service, INIT's launchers) · only the workspace has /undo · workspace none"
     );
     // Values this body does not know, or that contradict the workspace, render verbatim.
     assert_eq!(
@@ -1020,7 +1020,7 @@ fn access_line_forms_and_position() {
     // A newline in a directory name cannot add a line.
     assert_eq!(
         access(&mut fx, "full", Some("/Users/q/a\nb")),
-        "- access: FULL: write the owner's whole home except secret stores and the Root · workspace /Users/q/a?b"
+        "- access: FULL: read and write anywhere the owner can, network allowed · ~ is the owner's home · denied: the Root's files (~/.init-root, its service, INIT's launchers) · only the workspace has /undo · workspace /Users/q/a?b"
     );
     // The workspace was not a directory at boot: the tools started in the process cwd.
     fx.probed["cwd"] = json!("/Users/q/.init/work");

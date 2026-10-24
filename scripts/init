@@ -2,7 +2,8 @@
 # `init`: open INIT (docs/tui.md §2). Installed by scripts/install.sh into INIT_BIN_DIR (default ~/.local/bin).
 #
 #   init [args…]       the TUI with these arguments, else `init-root attach [args…]`
-#   init --full        full mode (ADR-009): passed through to the TUI like every other flag
+#   init --full        full access (ADR-012: the default; ADR-009's flag): passed through to the TUI like every other flag
+#   init --workspace   confine this session to the workspace (ADR-012): passed through the same way
 #   init --which       print what would run, and run nothing (the launcher's own flag)
 #
 # The directory `init` is launched in becomes the agent's workspace (ADR-009): `exec` keeps the cwd, and the TUI
@@ -53,6 +54,7 @@ fi
 if [ ! -S "$RH/run/owner.sock" ]; then
   echo "init: the Root is not running ($RH/run/owner.sock is missing)." >&2
   echo "  with the service: launchctl kickstart gui/$(id -u)/dev.init.root" >&2
+  echo "    (if launchd no longer knows the job: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.init.root.plist)" >&2
   echo "  without it:       INIT_ROOT_HOME=\"$RH\" \"$ROOT_BIN\" start --foreground   (in another terminal)" >&2
   exit 69
 fi

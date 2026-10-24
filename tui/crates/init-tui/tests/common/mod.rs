@@ -79,6 +79,10 @@ pub struct State {
     /// ADR-009 (root SBX-009 §A): answer `workspace.set`, `full.set`, `undo` and `access.get`
     /// with this `AccessView`, asking for the phrase `confirm`; None: unknown commands, as v0.1.
     pub access: Option<Value>,
+    /// ADR-012: the charter's `sandbox.mode` is `full` (the default since v0.3.1): `workspace.set`
+    /// resets to full access unless `mode:"workspace"`, and `full.set{on:true}` needs no
+    /// confirmation. false: a `sandbox.mode = "workspace"` charter (the ADR-009 behaviour).
+    pub charter_full: bool,
 }
 
 /// The fixture's `AccessView` (SBX-009 §A).
@@ -109,7 +113,9 @@ fn access_answer(g: &mut State, v: &Value) -> Option<Value> {
             let cwd = a["cwd"].as_str().unwrap_or("").to_string();
             let home = g.home.clone();
             let (ws, refused) = if cwd == home { (None, json!({"code": "home", "message": "the home itself"})) } else { (Some(cwd.clone()), Value::Null) };
-            let new = access_view(ws.as_deref(), false);
+            let full = g.charter_full && a["mode"] != "workspace";
+            let mut new = access_view(ws.as_deref(), full);
+            new["mode"] = json!(if g.charter_full { "full" } else { "workspace" });
             let changed = new["workspace"] != cur["workspace"] || cur["full"] == true;
             g.access = Some(new.clone());
             g.status["access"] = new.clone();
@@ -124,13 +130,16 @@ fn access_answer(g: &mut State, v: &Value) -> Option<Value> {
         }
         "full.set" => {
             let on = a["on"] == true;
-            if on && a["confirm"] != "confirm" {
-                return Some(confirm_err(v, "full mode lets the agent write your whole home except secrets and the Root; type confirm", Value::Null));
+            if on && !g.charter_full && a["confirm"] != "confirm" {
+                return Some(confirm_err(v, "full mode lets the agent read and write anywhere you can and use the network, except INIT's Root files; type confirm", Value::Null));
             }
-            let new = access_view(cur["workspace"].as_str(), on);
+            let mut new = access_view(cur["workspace"].as_str(), on);
+            if !cur["mode"].is_null() {
+                new["mode"] = cur["mode"].clone();
+            }
             g.access = Some(new.clone());
             g.status["access"] = new.clone();
-            let text = if on { "[root] full mode on: the agent may write your home except secrets and the Root" } else { "[root] full mode off" };
+            let text = if on { "[root] full mode on: the agent may read and write anywhere you can, except INIT's Root files" } else { "[root] full mode off" };
             emit(g, json!({"code": "access", "level": "warn", "src": "root", "t": "notice", "text": text, "ts": "x"}));
             ok(json!({"access": new, "changed": true, "snapshot": null}))
         }
@@ -184,6 +193,7 @@ impl Fixture {
             garbage: false,
             conns: 0,
             access: None,
+            charter_full: false,
         }));
         let s2 = st.clone();
         std::thread::spawn(move || {
