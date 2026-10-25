@@ -3,14 +3,14 @@
     "crate": "init-body",
     "edition": "2024",
     "rust_version": null,
-    "version": "0.3.2"
+    "version": "0.3.3"
   },
-  "body_tokens": 415342,
+  "body_tokens": 416048,
   "budget": {
-    "bytes": 1603773,
+    "bytes": 1606540,
     "files": 96,
-    "tests_tokens": 21974,
-    "tokens": 415342,
+    "tests_tokens": 22931,
+    "tokens": 416048,
     "uncounted_tokens": 69075
   },
   "components": [
@@ -277,7 +277,7 @@
       "paths": [
         "src/context/render.rs"
       ],
-      "tokens": 3136
+      "tokens": 3198
     },
     {
       "compensates_for": "none",
@@ -684,7 +684,7 @@
       "paths": [
         "src/provider/deepseek.rs"
       ],
-      "tokens": 13102
+      "tokens": 13531
     },
     {
       "compensates_for": "none",
@@ -739,7 +739,7 @@
       "paths": [
         "src/provider/mock_tests.rs"
       ],
-      "tokens": 10613
+      "tokens": 10828
     },
     {
       "compensates_for": "none",
@@ -2162,14 +2162,14 @@
       "bytes": 49136,
       "counted": false,
       "path": "Cargo.lock",
-      "sha256": "c1797efb9f883f22a8995533732de8785fe39f87c3e9b740b1c7bddbc708817c",
+      "sha256": "e4e635dbc78259f777b5524dc30010a05fbff270c0432a7ca7ee8b6ae8de9861",
       "tokens": 18415
     },
     {
       "bytes": 1840,
       "counted": true,
       "path": "Cargo.toml",
-      "sha256": "875046451c82c79bd2c5342f9627b638d28311b726474d87f8c427c809c8d270",
+      "sha256": "1bf4bc53678e8e02febff387b2b6c007c0218300ab638ac6ab9bb45bd3453469",
       "tokens": 524
     },
     {
@@ -2418,11 +2418,11 @@
       "tokens": 6453
     },
     {
-      "bytes": 12568,
+      "bytes": 12827,
       "counted": true,
       "path": "src/context/render.rs",
-      "sha256": "0a9b79ced2d636694ca108fa5d1e7d05c5c9bfde80f3469c9d36200fa0845184",
-      "tokens": 3136
+      "sha256": "1fa55f423e82524c2967e8b0d1d18b62a0bda090730e5d70132a739f7206f9b4",
+      "tokens": 3198
     },
     {
       "bytes": 16317,
@@ -2768,11 +2768,11 @@
       "tokens": 645
     },
     {
-      "bytes": 55162,
+      "bytes": 56896,
       "counted": true,
       "path": "src/provider/deepseek.rs",
-      "sha256": "e8efe3e54bb41ccc7bc3a5d9b823ab7a173cf36292eff9bf7bc849a9e508528a",
-      "tokens": 13102
+      "sha256": "58cb08bd62885815e6eefb4f81a06c18a5e1b56ddbc89019e591714e978a2536",
+      "tokens": 13531
     },
     {
       "bytes": 5410,
@@ -2803,11 +2803,11 @@
       "tokens": 1891
     },
     {
-      "bytes": 40136,
+      "bytes": 40910,
       "counted": true,
       "path": "src/provider/mock_tests.rs",
-      "sha256": "71db40abb7dcf59f24adc0917d0dace902fad56251adeca63d4d865b978888c5",
-      "tokens": 10613
+      "sha256": "c3500b5d315d131c7bd086d79de2b6ed0d29b444cff362b4e67e7024bc914733",
+      "tokens": 10828
     },
     {
       "bytes": 8249,
@@ -3083,11 +3083,11 @@
       "tokens": 1217
     },
     {
-      "bytes": 71128,
+      "bytes": 74365,
       "counted": false,
       "path": "tests/boot.rs",
-      "sha256": "e59386eec0a57d72e888ef3cd5bdacdfa5c89618fdf4428442d6e15110a73801",
-      "tokens": 19967
+      "sha256": "c0ca7cb0fed6ff3f9ab27263c1a1be1233bbf851bbd0f4af3816ad068cb5fa90",
+      "tokens": 20924
     },
     {
       "bytes": 7445,
@@ -3111,7 +3111,7 @@
   },
   "hooks": [],
   "manifest": {
-    "body_version": "0.3.2",
+    "body_version": "0.3.3",
     "control_channel": "stdio-jsonl/1",
     "env": [
       "HOME",
@@ -7514,33 +7514,33 @@
           "vis": "pub"
         },
         {
-          "end_line": 243,
+          "end_line": 244,
           "kind": "impl",
           "line": 134,
           "name": "impl Renderer",
-          "tokens": 1070,
+          "tokens": 1132,
           "vis": "private"
         },
         {
-          "end_line": 295,
+          "end_line": 296,
           "kind": "fn",
-          "line": 245,
+          "line": 246,
           "name": "assemble",
           "tokens": 412,
           "vis": "pub"
         },
         {
-          "end_line": 329,
+          "end_line": 330,
           "kind": "mod",
-          "line": 297,
+          "line": 298,
           "name": "tests",
           "tokens": 315,
           "vis": "private"
         }
       ],
-      "lines": 329,
+      "lines": 330,
       "path": "src/context/render.rs",
-      "tokens": 3136
+      "tokens": 3198
     },
     {
       "forbid_unsafe": false,
@@ -13546,161 +13546,161 @@
           "vis": "private"
         },
         {
-          "end_line": 39,
+          "end_line": 41,
           "kind": "const",
           "line": 35,
           "name": "EMPTY_REASONING_CAUSE",
-          "tokens": 111,
+          "tokens": 158,
           "vis": "pub"
         },
         {
-          "end_line": 42,
+          "end_line": 44,
           "kind": "const",
-          "line": 40,
+          "line": 42,
           "name": "FLATTEN_CAUSE",
           "tokens": 74,
           "vis": "pub"
         },
         {
-          "end_line": 113,
+          "end_line": 116,
           "kind": "impl",
-          "line": 44,
+          "line": 46,
           "name": "impl Provider for DeepSeek",
-          "tokens": 509,
+          "tokens": 529,
           "vis": "private"
         },
         {
-          "end_line": 133,
+          "end_line": 136,
           "kind": "fn",
-          "line": 115,
+          "line": 118,
           "name": "add_empty_reasoning",
           "tokens": 194,
           "vis": "pub"
         },
         {
-          "end_line": 141,
+          "end_line": 144,
           "kind": "fn",
-          "line": 139,
+          "line": 142,
           "name": "image_part",
           "tokens": 52,
           "vis": "private"
         },
         {
-          "end_line": 145,
+          "end_line": 148,
           "kind": "fn",
-          "line": 143,
+          "line": 146,
           "name": "omitted",
           "tokens": 28,
           "vis": "private"
         },
         {
-          "end_line": 176,
+          "end_line": 179,
           "kind": "fn",
-          "line": 147,
+          "line": 150,
           "name": "content",
           "tokens": 243,
           "vis": "private"
         },
         {
-          "end_line": 221,
+          "end_line": 225,
           "kind": "fn",
-          "line": 178,
+          "line": 181,
           "name": "wire_messages",
-          "tokens": 484,
+          "tokens": 542,
           "vis": "pub"
         },
         {
-          "end_line": 225,
+          "end_line": 229,
           "kind": "fn",
-          "line": 223,
+          "line": 227,
           "name": "chat_tool",
           "tokens": 50,
           "vis": "pub"
         },
         {
-          "end_line": 266,
+          "end_line": 270,
           "kind": "fn",
-          "line": 227,
+          "line": 231,
           "name": "build_body",
           "tokens": 453,
           "vis": "pub"
         },
         {
-          "end_line": 334,
+          "end_line": 338,
           "kind": "fn",
-          "line": 268,
+          "line": 272,
           "name": "flatten_foreign",
           "tokens": 758,
           "vis": "pub"
         },
         {
-          "end_line": 345,
+          "end_line": 349,
           "kind": "struct",
-          "line": 340,
+          "line": 344,
           "name": "PartialCall",
           "tokens": 24,
           "vis": "private"
         },
         {
-          "end_line": 358,
+          "end_line": 362,
           "kind": "struct",
-          "line": 347,
+          "line": 351,
           "name": "DsDecoder",
           "tokens": 68,
           "vis": "pub"
         },
         {
-          "end_line": 411,
+          "end_line": 415,
           "kind": "impl",
-          "line": 360,
+          "line": 364,
           "name": "impl DsDecoder",
           "tokens": 302,
           "vis": "private"
         },
         {
-          "end_line": 426,
+          "end_line": 430,
           "kind": "fn",
-          "line": 413,
+          "line": 417,
           "name": "map_usage",
           "tokens": 136,
           "vis": "pub"
         },
         {
-          "end_line": 430,
+          "end_line": 434,
           "kind": "fn",
-          "line": 428,
+          "line": 432,
           "name": "proto",
           "tokens": 21,
           "vis": "private"
         },
         {
-          "end_line": 445,
+          "end_line": 449,
           "kind": "fn",
-          "line": 432,
+          "line": 436,
           "name": "first_value",
           "tokens": 116,
           "vis": "private"
         },
         {
-          "end_line": 614,
+          "end_line": 618,
           "kind": "impl",
-          "line": 447,
+          "line": 451,
           "name": "impl Decoder for DsDecoder",
           "tokens": 1336,
           "vis": "private"
         },
         {
-          "end_line": 1429,
+          "end_line": 1453,
           "kind": "mod",
-          "line": 616,
+          "line": 620,
           "name": "tests",
-          "tokens": 7850,
+          "tokens": 8154,
           "vis": "crate"
         }
       ],
-      "lines": 1429,
+      "lines": 1453,
       "path": "src/provider/deepseek.rs",
-      "tokens": 13102
+      "tokens": 13531
     },
     {
       "forbid_unsafe": false,
@@ -14370,169 +14370,169 @@
           "vis": "private"
         },
         {
-          "end_line": 501,
+          "end_line": 512,
           "kind": "fn",
           "line": 402,
-          "name": "mock_strict_rejects_missing_reasoning_then_empty_reasoning",
-          "tokens": 887,
+          "name": "mock_strict_foreign_turn_and_missing_reasoning_fallback",
+          "tokens": 1098,
           "vis": "private"
         },
         {
-          "end_line": 578,
+          "end_line": 589,
           "kind": "fn",
-          "line": 503,
+          "line": 514,
           "name": "mock_faults",
           "tokens": 875,
           "vis": "private"
         },
         {
-          "end_line": 637,
+          "end_line": 648,
           "kind": "fn",
-          "line": 580,
+          "line": 591,
           "name": "mock_abort_mid_stream",
           "tokens": 549,
           "vis": "private"
         },
         {
-          "end_line": 680,
+          "end_line": 691,
           "kind": "fn",
-          "line": 639,
+          "line": 650,
           "name": "mock_summarizer",
           "tokens": 433,
           "vis": "private"
         },
         {
-          "end_line": 706,
+          "end_line": 717,
           "kind": "fn",
-          "line": 682,
+          "line": 693,
           "name": "mock_frontier_model_route",
           "tokens": 289,
           "vis": "private"
         },
         {
-          "end_line": 717,
+          "end_line": 728,
           "kind": "enum",
-          "line": 712,
+          "line": 723,
           "name": "Resp",
           "tokens": 43,
           "vis": "private"
         },
         {
-          "end_line": 720,
+          "end_line": 731,
           "kind": "type",
-          "line": 719,
+          "line": 730,
           "name": "Recorded",
           "tokens": 27,
           "vis": "private"
         },
         {
-          "end_line": 727,
+          "end_line": 738,
           "kind": "struct",
-          "line": 722,
+          "line": 733,
           "name": "Stub",
           "tokens": 32,
           "vis": "private"
         },
         {
-          "end_line": 789,
+          "end_line": 800,
           "kind": "impl",
-          "line": 729,
+          "line": 740,
           "name": "impl Stub",
           "tokens": 436,
           "vis": "private"
         },
         {
-          "end_line": 799,
+          "end_line": 810,
           "kind": "impl",
-          "line": 791,
+          "line": 802,
           "name": "impl Drop for Stub",
           "tokens": 61,
           "vis": "private"
         },
         {
-          "end_line": 811,
+          "end_line": 822,
           "kind": "fn",
-          "line": 801,
+          "line": 812,
           "name": "sse_200",
           "tokens": 160,
           "vis": "private"
         },
         {
-          "end_line": 816,
+          "end_line": 827,
           "kind": "fn",
-          "line": 813,
+          "line": 824,
           "name": "error_resp",
           "tokens": 74,
           "vis": "private"
         },
         {
-          "end_line": 820,
+          "end_line": 831,
           "kind": "fn",
-          "line": 818,
+          "line": 829,
           "name": "fixture",
           "tokens": 23,
           "vis": "private"
         },
         {
-          "end_line": 827,
+          "end_line": 838,
           "kind": "fn",
-          "line": 822,
+          "line": 833,
           "name": "ds_client",
           "tokens": 39,
           "vis": "private"
         },
         {
-          "end_line": 894,
+          "end_line": 905,
           "kind": "fn",
-          "line": 829,
+          "line": 840,
           "name": "stub_model_client_seam_and_headers",
           "tokens": 618,
           "vis": "private"
         },
         {
-          "end_line": 965,
+          "end_line": 976,
           "kind": "fn",
-          "line": 896,
+          "line": 907,
           "name": "stub_proxy_errors_and_backoff_jump",
           "tokens": 613,
           "vis": "private"
         },
         {
-          "end_line": 988,
+          "end_line": 999,
           "kind": "fn",
-          "line": 967,
+          "line": 978,
           "name": "stub_connect_errors_retry_then_fail",
           "tokens": 229,
           "vis": "private"
         },
         {
-          "end_line": 1023,
+          "end_line": 1034,
           "kind": "fn",
-          "line": 990,
+          "line": 1001,
           "name": "stub_abort_during_backoff",
           "tokens": 333,
           "vis": "private"
         },
         {
-          "end_line": 1059,
+          "end_line": 1070,
           "kind": "fn",
-          "line": 1025,
+          "line": 1036,
           "name": "stub_idle_timeout_then_content_length_body",
           "tokens": 348,
           "vis": "private"
         },
         {
-          "end_line": 1121,
+          "end_line": 1132,
           "kind": "fn",
-          "line": 1061,
+          "line": 1072,
           "name": "mock_full_turn_anthropic_and_openai",
           "tokens": 762,
           "vis": "private"
         }
       ],
-      "lines": 1121,
+      "lines": 1132,
       "path": "src/provider/mock_tests.rs",
-      "tokens": 10613
+      "tokens": 10828
     },
     {
       "forbid_unsafe": false,
@@ -17435,7 +17435,7 @@
       "tokens": 2680
     }
   ],
-  "source_digest": "sha256:d4bdefa0b5ab02b3851b95bdb682efe61123f4d645dcfc13be87c103d21a98c6",
+  "source_digest": "sha256:2489d19f8776d4e00a5ebc14b1843ba7a342c792ab1d35a64c5bd90ce535a3ff",
   "tools": {
     "list": [
       {

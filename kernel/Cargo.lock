@@ -906,7 +906,7 @@ dependencies = [
 
 [[package]]
 name = "init-kernel"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "init-proto",
  "init-testkit",
@@ -921,7 +921,7 @@ dependencies = [
 
 [[package]]
 name = "init-proto"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "serde",
  "serde_json",
@@ -929,7 +929,7 @@ dependencies = [
 
 [[package]]
 name = "init-sandbox-profiles"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "libc",
  "serde_json",
@@ -937,7 +937,7 @@ dependencies = [
 
 [[package]]
 name = "init-testkit"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "init-proto",
  "libc",
@@ -949,7 +949,7 @@ dependencies = [
 
 [[package]]
 name = "initctl"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "init-proto",
  "init-testkit",
@@ -1000,7 +1000,7 @@ checksum = "8f42a60cbdf9a97f5d2305f08a87dc4e09308d1276d28c869c684d7777685682"
 
 [[package]]
 name = "kernel-evo"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "kernel-gate",
  "kernel-proxy",
@@ -1012,7 +1012,7 @@ dependencies = [
 
 [[package]]
 name = "kernel-gate"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "init-testkit",
  "serde",
@@ -1023,7 +1023,7 @@ dependencies = [
 
 [[package]]
 name = "kernel-proxy"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "http-body-util",
  "hyper",
@@ -1039,7 +1039,7 @@ dependencies = [
 
 [[package]]
 name = "kernel-sandbox"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "landlock",
  "libc",
@@ -1048,7 +1048,7 @@ dependencies = [
 
 [[package]]
 name = "kernel-selfmap"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "anyhow",
  "indexmap",
@@ -1070,7 +1070,7 @@ dependencies = [
 
 [[package]]
 name = "kernel-serve"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "init-proto",
  "init-testkit",
@@ -1083,7 +1083,7 @@ dependencies = [
 
 [[package]]
 name = "kernel-supervise"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "init-proto",
  "init-sandbox-profiles",

@@ -18,7 +18,7 @@ use std::time::{Duration, Instant};
 use serde_json::{Value, json};
 
 use super::client::{Client, cx};
-use super::deepseek::tests::{ds_assistant, result, tools, user};
+use super::deepseek::tests::{ds_assistant, result, strip_reasoning, tools, user};
 use super::http::Cx;
 use super::summarizer::{ProxySummarizer, SummaryCx};
 use super::transport::Transport;
@@ -399,13 +399,15 @@ fn mock_full_turn_strict_reasoning_round_trip() {
     assert_eq!(b3[5]["reasoning_content"], "The sign is wrong.");
 }
 
-/// Strict mode pins the pass-back rule: a foreign tool turn without `reasoning_content` is
-/// rejected (400), and the first §3.10 fallback retries once with `"reasoning_content": ""` and the
-/// tool calls kept (live V-DS-3: DeepSeek accepts that), and succeeds; no flatten is needed.
+/// Strict mode pins the pass-back rule. A foreign tool turn goes out with `"reasoning_content": ""`
+/// and the tool calls kept (live V-DS-3: DeepSeek accepts that), so its first request is accepted.
+/// The safety net: a body without the field is rejected (400), and the first §3.10 fallback retries
+/// once with `"reasoning_content": ""` and succeeds; no flatten is needed.
 #[test]
-fn mock_strict_rejects_missing_reasoning_then_empty_reasoning() {
+fn mock_strict_foreign_turn_and_missing_reasoning_fallback() {
     let script = [
         META,
+        r#"{"v":1,"kind":"turn","reply":{"think":"ok","text":"Accepted.","stop":"end_turn"}}"#,
         r#"{"v":1,"kind":"turn","reply":{"think":"ok","text":"Continuing.","stop":"end_turn"}}"#,
     ]
     .join("\n");
@@ -443,9 +445,18 @@ fn mock_strict_rejects_missing_reasoning_then_empty_reasoning() {
         user("go on"),
     ];
     let a = abort();
-    let mut es = client
-        .send_prompt(&prompt(&msgs, &ts), turn_cx(), &a)
-        .unwrap();
+    // As built: one request, accepted, no fallback.
+    let req = client.provider().build(&prompt(&msgs, &ts)).unwrap();
+    let mut es = client.send_body(req.body.clone(), turn_cx(), &a);
+    let evs: Vec<StreamEvent> = es.by_ref().collect();
+    assert!(es.fallbacks().is_empty(), "{:?}", es.fallbacks());
+    assert!(retries(&evs).is_empty());
+    assert_eq!(done(&evs).text(), "Accepted.");
+    let log = mock.log_n(1);
+    assert_eq!(log.len(), 1);
+    assert!(log[0].get("protocol_error").is_none_or(Value::is_null), "{}", log[0]);
+    // The safety net: the same body without the field.
+    let mut es = client.send_body(strip_reasoning(&req.body), turn_cx(), &a);
     let evs: Vec<StreamEvent> = es.by_ref().collect();
     assert_eq!(es.fallbacks(), [super::deepseek::EMPTY_REASONING_CAUSE]);
     let warn = evs.iter().find_map(|e| match e {
@@ -470,17 +481,17 @@ fn mock_strict_rejects_missing_reasoning_then_empty_reasoning() {
         r[0]
     );
     assert_eq!(done(&evs).text(), "Continuing.");
-    let log = mock.log_n(2);
-    assert_eq!(log.len(), 2);
+    let log = mock.log_n(3);
+    assert_eq!(log.len(), 3);
     assert!(
-        log[0]["protocol_error"]
+        log[1]["protocol_error"]
             .as_str()
             .unwrap()
             .contains("reasoning_content missing"),
         "{}",
-        log[0]
+        log[1]
     );
-    assert!(log[1].get("protocol_error").is_none_or(Value::is_null));
+    assert!(log[2].get("protocol_error").is_none_or(Value::is_null));
     // The retried request kept the foreign turn's structure: the call, its id and its result.
     let b = mock.bodies();
     let m = &b.last().expect("a recorded body")["messages"];

@@ -212,10 +212,11 @@ impl Renderer<'_> {
                 let mut o = Map::new();
                 o.insert("content".into(), text.into());
                 o.insert("role".into(), "assistant".into());
-                if matches!(t.provider.as_str(), "deepseek" | "mock")
-                    && let Some(r) = reasoning
-                {
-                    o.insert("reasoning_content".into(), r.into());
+                // DeepSeek requires the field on every assistant message in tool mode (provider.md
+                // §3.8.1): a message with none of this model's thinking (a pause before the first
+                // token, an empty-reasoning reply, a foreign turn) carries "" (live V-DS-3).
+                if matches!(t.provider.as_str(), "deepseek" | "mock") {
+                    o.insert("reasoning_content".into(), reasoning.unwrap_or_default().into());
                 }
                 if !calls.is_empty() {
                     o.insert("tool_calls".into(), Value::Array(calls));

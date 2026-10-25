@@ -35,7 +35,9 @@ impl DeepSeek {
 /// The fallback causes recorded for the loop's `error` event, in the order they are tried.
 /// First: add `"reasoning_content": ""` to every assistant message without it and keep the tool
 /// calls (live V-DS-3, 2026-10-20: DeepSeek accepts a foreign tool turn with an empty
-/// `reasoning_content`, and the model then uses the foreign tool result as given).
+/// `reasoning_content`, and the model then uses the foreign tool result as given). The request
+/// builders already send `""` on every assistant message without thinking (provider.md §3.8.1),
+/// so this is a safety net for a body that lacks the field, which costs one refused request.
 pub const EMPTY_REASONING_CAUSE: &str = "deepseek_empty_reasoning_foreign_turns";
 /// Second, only if the first retry is refused too: the §3.10 flatten. Live, a flattened history is
 /// accepted but the model re-runs the flattened tool call (V-DS-3b), so it is the last resort.
@@ -75,9 +77,10 @@ impl Provider for DeepSeek {
         }
     }
 
-    /// §3.10 step 2: a 400 on a request that carries foreign tool turns (assistant tool calls with
-    /// no `reasoning_content`) is retried once with `"reasoning_content": ""` added and the tool
-    /// calls kept; if that is refused as well, once more with those turns flattened to text.
+    /// §3.10 step 2: a 400 on a request with an assistant message that has no `reasoning_content`
+    /// (the builders never produce one; a safety net) is retried once with `"reasoning_content": ""`
+    /// added and the tool calls kept; if a request is refused with the field present, once more with
+    /// the foreign tool turns (empty `reasoning_content`) flattened to text.
     fn fallback(
         &self,
         req: &HttpRequest,
@@ -203,9 +206,10 @@ pub fn wire_messages(m: &Message, info: &ModelInfo) -> Vec<Value> {
             let mut o = Map::new();
             o.insert("content".into(), text.into());
             o.insert("role".into(), "assistant".into());
-            if let Some(r) = reasoning {
-                o.insert("reasoning_content".into(), r.into());
-            }
+            // Required on every assistant message in tool mode: "" when the message has none of
+            // this model's thinking (a pause before the first token, an empty-reasoning reply, a
+            // foreign turn; live V-DS-3). Generic Chat servers have it removed in `build_body`.
+            o.insert("reasoning_content".into(), reasoning.unwrap_or_default().into());
             if !calls.is_empty() {
                 o.insert("tool_calls".into(), Value::Array(calls));
             }
@@ -1248,7 +1252,8 @@ pub(crate) mod tests {
         let ts = tools();
         let body = build_body(&prompt(&msgs, &ts), info).unwrap();
         let v: Value = serde_json::from_slice(&body).unwrap();
-        assert!(v["messages"][2].get("reasoning_content").is_none());
+        // The foreign turn carries `"reasoning_content": ""` from the start (§3.8.1).
+        assert_eq!(v["messages"][2]["reasoning_content"], "");
         let flat = flatten_foreign(&body).unwrap();
         let f: Value = serde_json::from_slice(&flat).unwrap();
         assert_eq!(
@@ -1271,10 +1276,16 @@ pub(crate) mod tests {
             retry_after: None,
             request_id: None,
         };
-        // The first fallback keeps the tool calls (`reasoning_content: ""`); the flatten comes second.
-        let (r1, c1) = p.fallback(&req, &e400, &[]).unwrap();
+        // A built body has the field everywhere, so a 400 on it goes straight to the flatten.
+        let (r0, c0) = p.fallback(&req, &e400, &[]).unwrap();
+        assert_eq!((c0, r0.body), (FLATTEN_CAUSE, flat.clone()));
+        // The safety net, for a body without the field: the first fallback keeps the tool calls
+        // (`reasoning_content: ""`, which is the built body again); the flatten comes second.
+        let bare = p.wire(strip_reasoning(&req.body));
+        let (r1, c1) = p.fallback(&bare, &e400, &[]).unwrap();
         assert_eq!(c1, EMPTY_REASONING_CAUSE);
-        let (r2, cause) = p.fallback(&req, &e400, &[c1]).unwrap();
+        assert_eq!(r1.body, req.body);
+        let (r2, cause) = p.fallback(&bare, &e400, &[c1]).unwrap();
         assert_eq!(cause, FLATTEN_CAUSE);
         assert_eq!(r2.body, flat);
         assert_eq!(p.fallback(&r1, &e400, &[c1]).unwrap().0.body, flat);
@@ -1289,11 +1300,22 @@ pub(crate) mod tests {
         assert!(p.fallback(&req, &e500, &[]).is_none());
     }
 
+    /// `body` with `reasoning_content` removed from every assistant message: a body without the
+    /// field, which the builders no longer produce (the fallback's safety-net case).
+    pub(crate) fn strip_reasoning(body: &[u8]) -> Vec<u8> {
+        let mut v: Value = serde_json::from_slice(body).unwrap();
+        for m in v["messages"].as_array_mut().unwrap() {
+            m.as_object_mut().unwrap().remove("reasoning_content");
+        }
+        icj::to_vec(&v).unwrap()
+    }
+
     /// S-REAL V-DS-3 (live, 2026-10-20): DeepSeek refuses a foreign tool turn without
     /// `reasoning_content` (400 "The `reasoning_content` in the thinking mode must be passed back"),
     /// accepts the same turn with `"reasoning_content": ""`, and the model then uses the foreign
-    /// result as given; with the flattened history it re-ran the tool. So the first fallback adds the
-    /// empty field and keeps every other byte; the flatten is the second.
+    /// result as given; with the flattened history it re-ran the tool. So the builder sends the
+    /// empty field from the start; on a body without it, the first fallback adds the field and keeps
+    /// every other byte, and the flatten is the second.
     #[test]
     fn fallback_adds_empty_reasoning_before_flattening() {
         let foreign = Message::Assistant(AssistantMessage {
@@ -1323,7 +1345,8 @@ pub(crate) mod tests {
         ];
         let info = models::lookup("deepseek", "deepseek-flash").unwrap();
         let ts = tools();
-        let body = build_body(&prompt(&msgs, &ts), info).unwrap();
+        let built = build_body(&prompt(&msgs, &ts), info).unwrap();
+        let body = strip_reasoning(&built);
         let p = DeepSeek::new(info);
         let e400 = ProviderError::Http {
             status: 400,
@@ -1351,6 +1374,7 @@ pub(crate) mod tests {
             .remove("reasoning_content");
         assert_eq!(icj::to_vec(&v).unwrap(), body);
         assert_eq!(add_empty_reasoning(&r1.body), None);
+        assert_eq!(r1.body, built, "the fallback's body is what the builder sends");
         // A second 400 flattens; nothing after that.
         let (r2, c2) = p.fallback(&r1, &e400, &[c1]).unwrap();
         assert_eq!(

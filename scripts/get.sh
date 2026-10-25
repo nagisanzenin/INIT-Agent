@@ -2,7 +2,7 @@
 # Install INIT from a prebuilt release bundle; it installs the Rust toolchain itself (docs/ux-v1.md §3.2.3; lane UX-BUNDLE).
 #
 #   curl -fsSL "$INIT_DIST_URL/get.sh" | sh                       download the current bundle and install it
-#   sh scripts/get.sh --from init-v0.3.2-preview-macos-arm64.tar.gz [--sha256 HEX] [-- <install.sh args>]
+#   sh scripts/get.sh --from init-v0.3.3-preview-macos-arm64.tar.gz [--sha256 HEX] [-- <install.sh args>]
 #   (Linux: init-v<version>-linux-arm64.tar.gz on aarch64, init-v<version>-linux-x86_64.tar.gz on x86_64)
 #
 #   --from PATH|URL   a local bundle (.tar.gz) or a URL; default "$INIT_DIST_URL/init-v<version>-<target>.tar.gz", the

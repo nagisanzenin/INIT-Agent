@@ -2,6 +2,24 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.3.3-preview (2026-10-25)
+
+Workspaces are at version 0.3.3 (seed tag `seed-v0.3.3`). Release notes: docs/release-notes/v0.3.3-preview.md.
+
+### DeepSeek: no refused request after a pause (f3f8dbf, docs/body/provider.md §3.8.1, build/status/REL-032.md "Observation")
+- Every assistant message on the DeepSeek wire now carries `reasoning_content`, `""` when it has no DeepSeek
+  thinking: a turn paused before its first token (`[no visible output]`), a tool call whose reasoning came back
+  empty, and a foreign turn after a provider switch. Before, each such resume was refused once (400 `reasoning_content
+  missing`) and the `deepseek_empty_reasoning_foreign_turns` fallback retried; the fallback stays as a safety net.
+  Both request builders (the context renderer the loop sends, and `Provider::build`) changed together.
+- Tests: `pause_before_first_token_resumes_without_400` (seed/tests/boot.rs, strict DeepSeek mock: the resume is one
+  accepted request, no 400, no fallback); the strict-mock foreign-turn test now expects an accepted first request and
+  checks the fallback on a body without the field.
+
+### Release (lane REL-033, build/status/REL-033.md)
+- Bundles for macOS arm64 and Linux arm64 from cb83a41; verified on both (fresh install, the pause with the strict
+  DeepSeek mock: two requests and no 400), a no-op T2 promote on macOS, and one live DeepSeek turn.
+
 ## v0.3.2-preview (2026-10-25)
 
 Workspaces are at version 0.3.2 (seed tag `seed-v0.3.2`). Release notes: docs/release-notes/v0.3.2-preview.md.

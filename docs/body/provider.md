@@ -538,7 +538,7 @@ Field rules:
 - `Message::User`: `content` is a string when it holds only text blocks (joined with `\n\n`). With any image it is a content-part array: `{"type":"text","text":…}` and `{"type":"image_url","image_url":{"url":"data:<media_type>;base64,<data>"}}`. Images are sent only when `ModelInfo.images`; otherwise the handoff filter has already replaced them (§3.10).
 - `Message::Assistant` maps to one message with:
   - `content`: all `Text` blocks concatenated in order, or `""` when there are none. DeepSeek returns `content=''` on tool-call turns, so `""` replays what the model produced.
-  - `reasoning_content`: the `text` of every `Thinking` block whose `provider` is `deepseek` (or `mock`), concatenated. Present whenever the message has any. Required (see below).
+  - `reasoning_content`: the `text` of every `Thinking` block whose `provider` is `deepseek` (or `mock`), concatenated. Required (see below), so it is on every assistant message: `""` when the message has no such block. That covers a turn paused before its first token (loop.md §3.5.1, replayed as `[no visible output]`), a tool call whose reasoning came back empty, and a foreign turn (§3.10). Up to v0.3.2 the field was left out there, so each such request was refused once (400) before the fallback succeeded (REL-032 observation). Generic Chat servers never get the field.
   - `tool_calls`: `[{"id","type":"function","function":{"name","arguments": ToolCall.raw_arguments verbatim}}]` in emitted order. Omitted when there are none.
 - `Message::ToolResults` maps to one `{"role":"tool","tool_call_id":…,"content":…}` message per result, in call order. `content` is a string, or a content-part array when the result has images (the tool message accepts `image_url` parts; DeepSeek API reference, checked 2026-10-19).
   - `is_error` has no wire field. Error results already start with `error:` (tools.md §4.6), so the model can still tell them apart.
@@ -877,9 +877,9 @@ When the owner changes provider or model (`boot.json`, then a `handoff` boot), t
 - Text and tool calls carry over everywhere, as in pi-ai's current rule ("assistant messages from a different model have their thinking blocks dropped; text and tool calls carry over").
 - An assistant message left with no blocks gets one text block, `"[no visible output]"`, so every API accepts it (log-context §3.10.2 uses the same text).
 - **Call id sanitizing (different api only).** Replace every byte outside `[A-Za-z0-9_-]` with `_` and truncate to 64 bytes. If two ids collide after sanitizing, append `_2`, `_3` … in order. The mapping is a pure function of the message list, so it yields the same bytes on every request. Anthropic's exact id pattern is UNVERIFIED; this subset is accepted by all three APIs as far as the docs show.
-- **Into DeepSeek from another provider.** The foreign assistant messages carry tool calls without `reasoning_content`. DeepSeek documents that Chat Completions does not support inserting tool calls the model did not generate, and that missing `reasoning_content` gives 400. Whether a *foreign* tool call without `reasoning_content` is rejected is **UNVERIFIED** (Phase 0 check V-DS-3). The plan:
-  1. Send it as-is, with no `reasoning_content` field.
-  2. If DeepSeek returns 400 on that request, the adapter's fallback flattens every foreign assistant turn into a single `assistant` text message. That text is the turn's text plus one line per call, `[called <name> <raw_arguments>]`. Each foreign tool result becomes a `user` message `"[result of <name> (<call id>)]\n<content>"`. The adapter retries once.
+- **Into DeepSeek from another provider.** The foreign assistant messages carry tool calls and no DeepSeek thinking. DeepSeek documents that Chat Completions does not support inserting tool calls the model did not generate, and that missing `reasoning_content` gives 400. Live V-DS-3 (2026-10-20) found that a foreign tool turn without the field is refused, and the same turn with `"reasoning_content": ""` is accepted, the model using the foreign result as given. The plan:
+  1. Send it with `"reasoning_content": ""` and the tool calls kept (§3.8.1).
+  2. The fallback is a safety net. On a 400, a request with an assistant message that lacks the field (the builders no longer produce one) is retried once with `""` added (`deepseek_empty_reasoning_foreign_turns`). If DeepSeek still returns 400, the adapter's fallback flattens every foreign assistant turn into a single `assistant` text message. That text is the turn's text plus one line per call, `[called <name> <raw_arguments>]`. Each foreign tool result becomes a `user` message `"[result of <name> (<call id>)]\n<content>"`. The adapter retries once.
      Each flattened turn carries `"reasoning_content": ""`, and so does any other assistant message that lacks the field. DeepSeek documents the field as required on every assistant message in tool mode, `--strict` enforces that, and a bare flattened turn would get another 400. V-DS-3 checks this live.
   3. Flattening is deterministic, so later requests hit the cache.
 - A provider or model switch is a full cache miss whatever the filter does (caches are per model). That cost is accepted: switches are rare owner actions.
@@ -1094,7 +1094,7 @@ Writers go through `serde_json::Value`, whose `Map` is a `BTreeMap`, so keys are
 5. DeepSeek `build()`:
    - golden bytes for a 6-message conversation;
    - sorted keys;
-   - `reasoning_content` present on every assistant message that has DeepSeek thinking;
+   - `reasoning_content` present on every assistant message (`""` without DeepSeek thinking);
    - the system message first;
    - the same input built twice gives identical bytes.
 6. Anthropic decoder:

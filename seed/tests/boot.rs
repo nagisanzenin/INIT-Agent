@@ -1104,6 +1104,71 @@ fn crash_restart_continues_pending_run() {
     stop(&mut body);
 }
 
+/// loop.md §3.5.1 on the strict DeepSeek wire: an owner interrupt before the first token pauses the
+/// turn and leaves an assistant message with no thinking. The resume's request carries it as
+/// `[no visible output]` with `"reasoning_content": ""` (provider.md §3.8.1), so the strict mock
+/// accepts it at once: one request for the resume, no 400, no fallback.
+#[test]
+fn pause_before_first_token_resumes_without_400() {
+    let home = Home::new("pz");
+    let script = [
+        r#"{"v":1,"kind":"turn","fault":{"kind":"stall","after_events":0,"ms":60000},"reply":{"text":"never","stop":"end_turn"}}"#,
+        r#"{"v":1,"kind":"turn","expect":{"last_role":"user","last_text_contains":"Go on."},"reply":{"think":"Resume.","text":"Resumed: hi.","stop":"end_turn"}}"#,
+    ]
+    .join("\n");
+    let Some(mock) = Mock::start(&home, "pause_resume", &script, &["--strict", "deepseek"]) else {
+        return;
+    };
+    let bid = "0000000000000d01";
+    home.boot_json(bid, "normal", "cold", json!({}));
+    let mut body = Body::spawn(&home, "normal", "cold", bid, &[]);
+    home.wait_ready(bid, &mut body, Duration::from_secs(20));
+    body.send(json!({"t": "input", "id": "d1d1d1d1d1d1d1d1", "seq": 1, "text": "Say hi.", "ts": "2026-10-20T04:00:00.000Z"}));
+    body.wait_frame("ack", Duration::from_secs(10), |f| f["t"] == "ack");
+    let t = Instant::now();
+    while mock.bodies().is_empty() {
+        assert!(t.elapsed() < Duration::from_secs(10), "no request reached the mock");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    // The owner's Esc before any token: a pause.
+    body.send(json!({"t": "interrupt"}));
+    body.wait_frame("paused", Duration::from_secs(10), |f| {
+        f["kind"] == "info" && f["text"].as_str().is_some_and(|t| t.starts_with("paused"))
+    });
+    body.send(json!({"t": "input", "id": "d2d2d2d2d2d2d2d2", "seq": 2, "text": "Go on.", "ts": "2026-10-20T04:00:01.000Z"}));
+    body.wait_frame("turn_end", Duration::from_secs(20), |f| f["kind"] == "turn_end");
+    // Exactly two requests reached the mock: the paused one and one for the resume.
+    let bodies = mock.bodies();
+    assert_eq!(bodies.len(), 2, "{bodies:#?}");
+    let msgs = bodies[1]["messages"].as_array().unwrap();
+    let paused = msgs
+        .iter()
+        .find(|m| m["role"] == "assistant")
+        .expect("the paused turn's assistant message");
+    assert_eq!(paused["content"], "[no visible output]");
+    assert_eq!(paused["reasoning_content"], "");
+    let log = mock.log();
+    for l in &log {
+        assert!(l["protocol_error"].is_null(), "{l}");
+        assert_ne!(l["status"], 400, "{l}");
+    }
+    let last = log.last().expect("the resume's log line");
+    assert_eq!(last["status"], 200, "{last}");
+    assert_eq!(last["expect_ok"], true, "{last}");
+    // No fallback was applied.
+    let events = home.log();
+    assert!(
+        !events.iter().any(|e| e.to_string().contains("deepseek_empty_reasoning")),
+        "no fallback cause in the session log"
+    );
+    let reply = events
+        .iter()
+        .rfind(|e| e["type"] == "message" && e["role"] == "assistant")
+        .unwrap();
+    assert!(reply["content"].to_string().contains("Resumed: hi."), "{reply}");
+    stop(&mut body);
+}
+
 /// §8 items 9 and 10 (A3/A4 body side), with the kernel's side scripted here: A pauses after its
 /// tool batch; B boots on the same session (its boot event follows A's last event), A exits 75 on
 /// `exit`, B continues the pending run. Then B pauses, a C fails before ready (exit 70), and B
