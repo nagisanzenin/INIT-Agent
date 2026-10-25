@@ -263,6 +263,28 @@ impl Groups {
         self.groups.iter().filter(|g| g.state == "open")
     }
 
+    /// ADR-013 G2: `from` reaches `to` going back through admitted changes that are all `t0` (no
+    /// binary, no kept set changed on the way), so a rollback to `to` is data-only.
+    pub fn data_only_back(&self, from: &str, to: &str) -> bool {
+        let mut cur = from.to_string();
+        for _ in 0..256 {
+            if cur == to {
+                return true;
+            }
+            let Some(c) = self.groups.iter().rev().flat_map(|g| g.changes.iter().rev()).find(|c| c.sha == cur) else { return false };
+            if c.scope != "t0" || c.from_sha.is_empty() {
+                return false;
+            }
+            cur = c.from_sha.clone();
+        }
+        false
+    }
+
+    /// The group whose change is the running version `sha` (the newest that holds it).
+    pub fn holding(&self, sha: &str) -> Option<&GroupRec> {
+        self.groups.iter().rev().find(|g| g.changes.iter().any(|c| c.sha == sha))
+    }
+
     /// The rollback target of `groups` (the parent of the oldest one the kernel knows).
     pub fn parent_of(&self, groups: &[u64]) -> Option<String> {
         groups.iter().filter_map(|g| self.get(*g)).min_by_key(|g| g.group).and_then(|g| g.parent().map(str::to_string))
@@ -410,6 +432,8 @@ pub fn open(env: &Env, link: &dyn ExtendLink, c: &Candidate<'_>) -> Result<Admit
         "candidate": {"body": {"binary": body_binary, "sha": c.sha, "t0": t0}, "ext": {"components": components, "set": set}},
         "caps": caps_of(env, c.validated),
         "prefix_change": c.validated.trailers.prefix_change,
+        // ADR-013: the commit's `Measure: card:<id>[ gate]` requests; the Root queues those readings at admission
+        "measure": c.validated.trailers.measure.iter().filter(|m| matches!(m, kernel_gate::evo::Measure::Card(..))).map(ToString::to_string).collect::<Vec<_>>(),
     });
     if c.scope == Scope::Dep {
         // ADR-011 §7.4: A5 admits a `dep` change only when a live owner grant covers this exact set.
@@ -536,6 +560,10 @@ mod tests {
         assert_eq!(t.parent_of(&[4]).as_deref(), Some("c"));
         assert_eq!(t.parent_of(&[4, 3]).as_deref(), Some("a"));
         assert_eq!(t.parent_of(&[9]), None);
+        // ADR-013 G2: back from b to a is t0 only; from c (t1) or d (t2) it is not data-only
+        assert!(t.data_only_back("b", "a") && t.data_only_back("a", "a"));
+        assert!(!t.data_only_back("c", "a") && !t.data_only_back("d", "c") && !t.data_only_back("b", "z"));
+        assert_eq!((t.holding("c").map(|g| g.group), t.holding("d").map(|g| g.group), t.holding("a").map(|g| g.group)), (Some(3), Some(4), None));
         assert_eq!(t.open_groups().count(), 2);
         let g = record_close(&home, 3, "clean").unwrap();
         assert_eq!((g.state.as_str(), g.outcome.as_deref()), ("closed", Some("clean")));

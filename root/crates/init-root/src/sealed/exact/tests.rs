@@ -304,8 +304,8 @@ mod design {
                     cnt[s] += cnt[s - j];
                     alt[s] = (1.0 - pj) * alt[s] + pj * alt[s - j];
                 }
-                for s in 0..j.min(top + 1) {
-                    alt[s] *= 1.0 - pj;
+                for a in alt.iter_mut().take(j.min(top + 1)) {
+                    *a *= 1.0 - pj;
                 }
                 w *= wj * (rem - k + 1) as f64 / k as f64;
             }
@@ -360,6 +360,7 @@ fn design_screen_error_rates() {
 }
 
 /// m7 §3.2.6's rows: FA, power cells (uniform / concentrated) at +10, +15, +20, +25.
+#[allow(clippy::type_complexity)]
 const TIER_TABLE: [(Tier, f64, [(f64, f64); 4]); 3] = [
     (LEAN, 0.030, [(0.21, 0.19), (0.38, 0.31), (0.61, 0.41), (0.80, 0.48)]),
     (STANDARD, 0.036, [(0.37, 0.34), (0.70, 0.55), (0.90, 0.69), (0.98, 0.74)]),
@@ -380,6 +381,7 @@ fn design_tier_table_strong_power() {
 }
 
 /// P(`better`) ≈ P(screen passes) · P(superior); the slice and the screen use disjoint tasks.
+#[allow(clippy::type_complexity)]
 fn check_tiers(rows: &[(Tier, f64, [(f64, f64); 4])], power: bool) {
     for &(t, fa_design, cells) in rows {
         let (screen0, sup0) = screen_sup(t, 0.0, false);

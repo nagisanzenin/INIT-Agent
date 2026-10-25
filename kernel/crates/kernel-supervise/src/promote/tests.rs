@@ -160,14 +160,14 @@ fn promote_argument_refusals() {
     let e = env("pw-args", sup.clone(), Arc::new(FakeLineage::default()));
     let j = MemJob::new("j-000001");
     let code = |a: PromoteArgs| promote(e.clone(), &a, j.clone()).unwrap_err().code.as_str().to_string();
-    assert_eq!(code(PromoteArgs { git_ref: None, sha: Some("a".repeat(40)), wait: None }), "E_LEVEL");
-    assert_eq!(code(PromoteArgs { git_ref: Some("main".into()), sha: None, wait: None }), "E_ARGS");
-    assert_eq!(code(PromoteArgs { git_ref: Some("evo/Bad Id".into()), sha: None, wait: None }), "E_ARGS");
+    assert_eq!(code(PromoteArgs { git_ref: None, sha: Some("a".repeat(40)), wait: None, check: None }), "E_LEVEL");
+    assert_eq!(code(PromoteArgs { git_ref: Some("main".into()), sha: None, wait: None, check: None }), "E_ARGS");
+    assert_eq!(code(PromoteArgs { git_ref: Some("evo/Bad Id".into()), sha: None, wait: None, check: None }), "E_ARGS");
     *sup.state.lock().unwrap() = st(&"a".repeat(40), &"a".repeat(40), false, true);
-    assert_eq!(code(PromoteArgs { git_ref: Some("evo/ok".into()), sha: None, wait: None }), "E_BUSY");
+    assert_eq!(code(PromoteArgs { git_ref: Some("evo/ok".into()), sha: None, wait: None, check: None }), "E_BUSY");
     *sup.state.lock().unwrap() = st(&"a".repeat(40), &"a".repeat(40), false, false);
     // No lineage here: the fetch fails (`E_FETCH`) and the pipeline slot is released.
-    assert_eq!(code(PromoteArgs { git_ref: Some("evo/ok".into()), sha: None, wait: None }), "E_FETCH");
+    assert_eq!(code(PromoteArgs { git_ref: Some("evo/ok".into()), sha: None, wait: None, check: None }), "E_FETCH");
     assert!(!e.pipeline_busy.load(Ordering::SeqCst));
     crate::testutil::remove_test_dir(&e.home);
 }

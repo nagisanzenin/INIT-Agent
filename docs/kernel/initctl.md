@@ -344,6 +344,7 @@ Gate a branch and, if it passes, hand the conversation to it. On a member lane t
 - Idempotency: `promote --sha S` while a job for S is active returns that job. `promote <ref>` while any pipeline runs gets `E_BUSY` with `data.job`, because the SHA is known only after the fetch (the backend may still return the existing job once it knows the SHA). A SHA that passed G0–G3 within the last 3600 s but whose handoff aborted (for example a pause timeout) reuses the cached gate result and goes straight to `awaiting_boundary` (cache owned by gate.md).
 - errors: `E_ARGS`, `E_NOT_FOUND`, `E_FETCH`, `E_NOT_DESCENDANT`, `E_FOREIGN_COMMIT`, `E_TREE`, `E_TOO_LARGE`, evolution.md codes (`trailer.*` …, with `details[]`), `E_BUSY`, `E_LANE`, `E_SAFE_MODE`, `E_PROVISIONAL_DEPTH`, `E_DISK`, `E_ROOT`, `E_GATE_FAILED` (wait only).
 - Job failure codes after the response: `E_GATE_FAILED`, `E_HANDOFF_FAILED`, `E_PAUSE_TIMEOUT`, `E_CANCELLED`, `E_ROOT` (a synchronous G4 passed but the Root refused `store.put`; `data.root_code`). The calling body also receives them as an `update_failed` notice.
+- **`promote --check`** (`{"ref": "evo/<id>", "check": true}`; v0.4, GBAL G7): the synchronous part only, answered at once. It is the same fetch (into a temporary `refs/init/checks/…` ref, deleted again), the same kernel checks, the evolution validator under the same `extend.mode` (the free path's matrix or the gated one) and the scope decision. Nothing is promoted: no job, no quota ticket, no gate, no record, and the pipeline's `E_BUSY` refusals do not apply. Result: `{"check": true, "ok": true, "sha", "parent", "ref", "mode": "free"|"gated", "scope", "stages", "change_type", "summary"}`; a failing commit gets exactly promote's error (`trailer.*` … with `details[]`). `sha` and `wait` are refused with it (`E_ARGS`). The agent runs it before it files a `goal predict` (seed skills/gbal), so an amend forced by the commit rules never makes a filed prediction stale.
 
 ```json
 {"args":{"ref":"evo/pty-tool"},"cmd":"promote","id":"5","v":1}
@@ -357,6 +358,8 @@ Gate a branch and, if it passes, hand the conversation to it. On a member lane t
 #### `rollback`
 
 Voluntary return to LKG through the overlapped protocol (supervise.md §3.6.7).
+
+On the free path (`extend.mode = "free"`, ADR-013 G2), when the running version is a change in a change group, `rollback` undoes **that group only**, back to its parent (`to`), not to LKG (which would drop every older open group too). An open group is vetoed (`change.veto`, H12: honoured, never counted); the Root's `extend.rollback` to the parent follows and the kernel performs it (data-only when every change after the parent is t0). A group the Root already closed (for example a guardrail veto still being applied) is rolled back here directly. The result then also carries `group`. A parent that is neither LKG nor reachable data-only falls back to the LKG rollback.
 
 - args: `{"reason": string (≤ 500 bytes), "wait"?: bool}` (default `false`). The reason is required on the wire; the CLI sends `"no reason given"` when `--reason` is absent.
 - result: `{"job", "from", "to", "state": "awaiting_boundary"}`

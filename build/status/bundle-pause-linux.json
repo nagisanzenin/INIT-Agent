@@ -1,0 +1,49 @@
+{
+ "body_sha256": "10b1fb4c92730e45585fb42d5030105aead64b85613513cd3d2860e6266f718b",
+ "bundle": "init-v0.4.0-preview-linux-arm64.tar.gz",
+ "bundle_bytes": 66788350,
+ "checks": {
+  "genesis_body_is_prebuilt": true,
+  "idle_after_sigint_le_1s": true,
+  "install_plus_first_reply_le_90s": true,
+  "no_400_no_protocol_error": true,
+  "no_aborted_display": true,
+  "no_toolchain_recorded": true,
+  "note_absent_from_first_request": true,
+  "note_in_resume_request": true,
+  "paused_display": true,
+  "paused_turn_reasoning_empty": true,
+  "published_view_evolution": true,
+  "resume_reply": true,
+  "status_json_evolution": true,
+  "status_says_T0_with_rustup": true,
+  "two_requests_only": true
+ },
+ "drive": {
+  "busy1": true,
+  "busy2": true,
+  "idle1": true,
+  "idle2": true,
+  "idle_after_sigint_ms": 6,
+  "infos1": [
+   "paused \u00b7 type to continue, or say what to do instead"
+  ],
+  "reply": "resumed after the pause",
+  "wall_ms": 2836
+ },
+ "mock_log_lines": 1,
+ "mock_requests": 3,
+ "mode": "pause",
+ "ok": true,
+ "reply": "resumed after the pause",
+ "requests": 2,
+ "rust": "none (--no-rust)",
+ "times_ms": {
+  "drive_wall": 2836,
+  "get_sh_install": 8508,
+  "get_sh_to_first_reply": 11919,
+  "start_to_ready": 535
+ },
+ "toolchain": "None",
+ "v": 1
+}

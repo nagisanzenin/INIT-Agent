@@ -84,6 +84,7 @@ pub enum CommandName {
     EvoStatus,
     EvoAbandon,
     Grant,
+    Goal,
 }
 
 impl CommandName {
@@ -121,6 +122,7 @@ impl CommandName {
         CommandName::EvoStatus,
         CommandName::EvoAbandon,
         CommandName::Grant,
+        CommandName::Goal,
     ];
 
     /// The canonical wire name.
@@ -159,6 +161,7 @@ impl CommandName {
             EvoStatus => "evo.status",
             EvoAbandon => "evo.abandon",
             Grant => "grant",
+            Goal => "goal",
         }
     }
 
@@ -219,7 +222,7 @@ impl CommandName {
     /// link is down. (`level` answers from its cache and returns `E_ROOT` itself when it can't.)
     pub fn needs_root(self) -> bool {
         use CommandName::*;
-        matches!(self, Vendor | TaskSubmit | FleetSpawn | KernelPromote | KernelPropose | Grant)
+        matches!(self, Vendor | TaskSubmit | FleetSpawn | KernelPromote | KernelPropose | Grant | Goal)
     }
 
     /// Refused with `E_ROOT{reason:"outbox_backlog"}` while the outbox is backed up (§3.5 row 2).
@@ -533,6 +536,10 @@ pub struct PromoteArgs {
     /// Default false.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wait: Option<bool>,
+    /// `promote --check` (GBAL G7): run promote's commit checks (fetch, candidate checks, the validator, the scope) and
+    /// answer at once; nothing is promoted and no job starts. Default false.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub check: Option<bool>,
 }
 
 /// `rollback`.
@@ -668,6 +675,30 @@ pub struct GrantArgs {
     pub duration_h: Option<u64>,
     /// Why (≤ 4,096 bytes): the task, the limit hit, the evidence. Kept off the lineage.
     pub why: String,
+}
+
+/// `goal <op> [key=value …]` (ADR-013, GBAL): the agent's side of an owner goal, relayed to the Root as
+/// `goal.status`, `goal.propose`, `goal.predict`, `goal.stop`, `card.read` or `card.measure`. The Root validates the
+/// arguments; the agent can never set a goal (only the owner's `/goal` line does).
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct GoalArgs {
+    /// `status`, `propose`, `predict`, `stop`, `read` or `measure`.
+    pub op: String,
+    #[serde(default)]
+    pub args: Value,
+}
+
+/// The Root command of a `goal` op.
+pub fn goal_cmd(op: &str) -> Option<&'static str> {
+    Some(match op {
+        "status" => "goal.status",
+        "propose" => "goal.propose",
+        "predict" => "goal.predict",
+        "stop" => "goal.stop",
+        "read" => "card.read",
+        "measure" => "card.measure",
+        _ => return None,
+    })
 }
 
 /// `grant`: the Root's answer.
@@ -827,6 +858,7 @@ pub enum Command {
     EvoStatus(EvoStatusArgs),
     EvoAbandon(EvoAbandonArgs),
     Grant(GrantArgs),
+    Goal(GoalArgs),
 }
 
 fn decode<T: DeserializeOwned>(args: &Value) -> Result<T, ErrorBody> {
@@ -876,6 +908,7 @@ impl Command {
             N::EvoStatus => Command::EvoStatus(decode(args)?),
             N::EvoAbandon => Command::EvoAbandon(decode(args)?),
             N::Grant => Command::Grant(decode(args)?),
+            N::Goal => Command::Goal(decode(args)?),
         };
         c.validate()?;
         Ok(c)
@@ -922,6 +955,7 @@ impl Command {
             Command::EvoStatus(_) => N::EvoStatus,
             Command::EvoAbandon(_) => N::EvoAbandon,
             Command::Grant(_) => N::Grant,
+            Command::Goal(_) => N::Goal,
         }
     }
 
@@ -962,6 +996,7 @@ impl Command {
             Command::EvoStatus(a) => v(a),
             Command::EvoAbandon(a) => v(a),
             Command::Grant(a) => v(a),
+            Command::Goal(a) => v(a),
         }
     }
 
@@ -995,6 +1030,9 @@ impl Command {
                 }
                 non_empty("repo", &a.repo, MAX_PATH_BYTES)?;
                 non_empty("rev", &a.rev, 255)
+            }
+            Command::Promote(a) if a.check == Some(true) && (a.sha.is_some() || a.wait.is_some()) => {
+                Err(args_err("`check` takes only `ref` (evo/<id>): no `sha`, no `wait`"))
             }
             Command::Promote(a) => match (&a.git_ref, &a.sha) {
                 (Some(r), None) if validate::is_evo_ref(r) => Ok(()),
@@ -1109,6 +1147,9 @@ impl Command {
                 evo_proposal_id(&a.proposal)?;
                 non_empty("reason", &a.reason, MAX_REASON_BYTES)
             }
+            Command::Goal(a) if goal_cmd(&a.op).is_none() => Err(args_err("`op` is status, propose, predict, stop, read or measure")),
+            Command::Goal(a) if !(a.args.is_object() || a.args.is_null()) => Err(args_err("`args` is an object")),
+            Command::Goal(_) => Ok(()),
             Command::Grant(a) => {
                 non_empty("kind", &a.kind, 64)?;
                 if !a.kind.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b"._-".contains(&b)) {
@@ -1574,7 +1615,7 @@ mod tests {
         assert_eq!(CommandName::parse("propose-kernel"), Some(CommandName::KernelPropose));
         assert_eq!(CommandName::parse("approve"), None);
         assert_eq!(CommandName::parse("panic"), None);
-        assert_eq!(CommandName::ALL.len(), 32);
+        assert_eq!(CommandName::ALL.len(), 33);
     }
 
     #[test]
@@ -1613,6 +1654,7 @@ mod tests {
             (EvoStatus, 0),
             (EvoAbandon, 0),
             (Grant, 0),
+            (Goal, 0),
         ];
         assert_eq!(expect.len(), CommandName::ALL.len());
         for (c, l) in expect {

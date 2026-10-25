@@ -385,6 +385,16 @@ impl World {
         ag(&b, &self.home, &["rev-parse", "HEAD"])
     }
 
+    /// `promote --check evo/<id>`: promote's commit checks only.
+    fn check(&self, id: &str) -> Result<Value, init_proto::envelope::ErrorBody> {
+        promote::check(self.env.clone(), &PromoteArgs { git_ref: Some(format!("evo/{id}")), check: Some(true), ..PromoteArgs::default() })
+    }
+
+    /// The lineage refs under `refs/init/` (candidates, checks).
+    fn init_refs(&self) -> String {
+        git(&self.home.join("lineage/body.git"), &self.home, &["for-each-ref", "--format=%(refname)", "refs/init/candidates", "refs/init/checks"])
+    }
+
     fn job(&self) -> Arc<MemJob> {
         let mut n = self.n.lock().unwrap();
         *n += 1;
@@ -394,7 +404,7 @@ impl World {
     /// `promote evo/<id>`: the synchronous result and the job.
     fn promote(&self, id: &str) -> (Result<Value, init_proto::envelope::ErrorBody>, Arc<MemJob>) {
         let j = self.job();
-        let r = promote::promote(self.env.clone(), &PromoteArgs { git_ref: Some(format!("evo/{id}")), sha: None, wait: None }, j.clone() as Arc<dyn Job>);
+        let r = promote::promote(self.env.clone(), &PromoteArgs { git_ref: Some(format!("evo/{id}")), sha: None, wait: None, check: None }, j.clone() as Arc<dyn Job>);
         (r, j)
     }
 
@@ -608,10 +618,14 @@ fn f1_f2_f3_f4_f9_failures_before_and_at_the_handoff() {
     ag(&b, &w.home, &["checkout", "-q", "-B", "evo/f1", &w.x]);
     std::fs::write(b.join("SELF.md"), "# Test body\nmore\n").unwrap();
     ag(&b, &w.home, &["commit", "-qam", "update things"]);
+    // GBAL G7: `promote --check` refuses it with exactly promote's codes, and starts nothing
+    let c = w.check("f1").unwrap_err();
     let (r, _) = w.promote("f1");
     let e = r.unwrap_err();
     assert!(e.code.as_str().contains('.'), "a dotted validator code: {e:?}");
     assert!(!e.details.is_empty());
+    assert_eq!((c.code.as_str(), c.details.iter().map(|d| d.code.clone()).collect::<Vec<_>>()), (e.code.as_str(), e.details.iter().map(|d| d.code.clone()).collect::<Vec<_>>()),
+        "the check and promote agree");
     assert!(!w.env.pipeline_busy.load(Ordering::SeqCst), "the slot is released");
     // F1: not a descendant of main.
     ag(&b, &w.home, &["checkout", "-q", "--orphan", "evo/f1b"]);
@@ -622,7 +636,13 @@ fn f1_f2_f3_f4_f9_failures_before_and_at_the_handoff() {
     assert_eq!(err_code(&w.promote("NOPE").0), "E_ARGS");
 
     // F3: a clippy warning fails G0; F2: a second promote meanwhile is E_BUSY.
-    w.candidate("f3", None, |b| std::fs::write(b.join("src/main.rs"), main_rs("fn unused_helper() -> u32 { 7 }\n")).unwrap(), "refactor(loop): helper", true);
+    let sha3 = w.candidate("f3", None, |b| std::fs::write(b.join("src/main.rs"), main_rs("fn unused_helper() -> u32 { 7 }\n")).unwrap(), "refactor(loop): helper", true);
+    // GBAL G7: the check passes a well-formed commit (the gates are not its business), promotes nothing, leaves no ref
+    let c = w.check("f3").unwrap();
+    assert_eq!((c["ok"].as_bool(), c["sha"].as_str(), c["mode"].as_str()), (Some(true), Some(sha3.as_str()), Some("gated")), "{c}");
+    assert!(!w.env.pipeline_busy.load(Ordering::SeqCst) && w.init_refs().trim().is_empty(), "nothing left behind: {}", w.init_refs());
+    assert_eq!(w.main(), w.x);
+    assert_eq!(err_code(&w.check("NOPE")), "E_ARGS");
     let (r, j) = w.promote("f3");
     assert!(r.is_ok(), "{r:?}");
     assert_eq!(err_code(&w.promote("f3").0), "E_BUSY");
@@ -746,6 +766,29 @@ fn f7_f11_f13_f14_g4_branches() {
     w.wait("rollback after inconclusive_final", T, || (w.current() == w.x).then_some(()));
     let full: Vec<Value> = common::jsonl(&w.home.join("vault/lineage.jsonl")).into_iter().filter(|l| l["kind"] == "gate" && l["data"]["escalated"] == true).collect();
     assert!(!full.is_empty(), "the escalated record says so");
+
+    // ADR-013 §6 (the fresh-install bug): no pool and no holdout task at all, and no sealed S (this fake Root
+    // answers `root.sealed_none`). Before the fix this went inconclusive → escalated → `inconclusive_final` →
+    // rollback about a second after the swap. Now G4 is `accept: no_instrument` at once (no escalation), the
+    // version becomes LKG on G0–G3 alone, nothing rolls back, and the owner gets one `g4_no_instrument` alert.
+    for set in ["vault/gate/pool", "vault/holdout"] {
+        for e in std::fs::read_dir(w.home.join(set)).unwrap().flatten() {
+            std::fs::remove_dir_all(e.path()).unwrap(); // exact paths: this test's own task dirs
+        }
+    }
+    let y3 = w.candidate("f13b", Some(ok_plan()), |b| std::fs::write(b.join("src/main.rs"), main_rs("// f13b\n")).unwrap(), "refactor(loop): f13b", true);
+    let (r, j) = w.promote("f13b");
+    assert!(r.is_ok(), "{r:?}");
+    assert!(j.wait(T * 4).unwrap().is_ok());
+    let g4 = w.wait("the no-instrument G4", T, || w.jobs.of("g4").get(4).cloned());
+    let res = g4.wait(T * 4).unwrap().unwrap();
+    assert_eq!((res["verdict"].as_str(), res["reason"].as_str()), (Some("accept"), Some("no_instrument")), "{res}");
+    w.wait("LKG on the unmeasured version", T, || (w.lkg() == y3).then_some(()));
+    std::thread::sleep(Duration::from_secs(2));
+    assert_eq!(w.current(), y3, "no rollback after a G4 with no instrument");
+    assert_eq!(w.jobs.of("g4").len(), 5, "no escalated re-run of zero tasks");
+    assert!(std::fs::read_to_string(w.home.join("state/kernel/alerts.jsonl")).unwrap().contains("\"g4_no_instrument\""));
+    assert!(w.root_gates().iter().any(|g| g["reason"] == "no_instrument" && g["verdict"] == "accept"), "the record reaches Root lineage");
     w.stop();
 }
 

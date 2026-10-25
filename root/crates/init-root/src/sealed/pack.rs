@@ -299,6 +299,7 @@ pub fn draw(root: &Root, a: &Value) -> Result<Value, String> {
         None => LEAN.iter().map(|(f, g, r)| (f.to_string(), *g, *r)).collect(),
     };
     let mut rng = Rng(u64::from_be_bytes(util::random::<8>().map_err(|e| e.to_string())?));
+    #[allow(clippy::type_complexity)]
     let (mut slots, mut spares): (Vec<(&Tpl, &str)>, BTreeMap<String, Vec<&Tpl>>) = (Vec::new(), BTreeMap::new());
     for (fam, g, r) in &comp {
         let mut ts = balanced(all.iter().filter(|t| &t.fam == fam && t.canary.is_none()).collect(), &mut rng);

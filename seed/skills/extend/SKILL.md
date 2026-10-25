@@ -66,6 +66,11 @@ from L1. The Root, the TUI, the launcher and the installer are not yours.
    ```
    `Prefix-change: yes` when `GENESIS.md`, `SELF.md`, a skill's name or description, or a tool
    schema changes (one cache miss). `Predicts:`, `Repro:` and `Compensates-for:` are optional.
+   Types: feat, fix, perf, guard, refactor, skill, retire, thin, upstream, revert. A `Repro:` is
+   refs, never prose: `task:<id>`, `event:<session-id>#<16 hex>`, `trace:<16 hex>`,
+   `run:<gate>/<run>`, `friction:<id>`, separated by `, `; leave it out if you have none.
+   `initctl promote --check evo/<id>` runs these rules (and the rest of promote's commit checks)
+   without promoting: run it before you promote, and before any `initctl goal predict`.
 4. Your state must stay readable by your parent: the Root boots the parent on the state your
    candidate leaves (`extend.rollback_incompatible` otherwise). Add fields; do not rename or drop.
 

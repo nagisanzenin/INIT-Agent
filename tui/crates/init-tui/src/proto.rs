@@ -184,6 +184,8 @@ pub fn line_kind(text: &str, root_rootish: bool) -> LineKind {
         // ADR-009 lines the Root answers itself with notices (root SBX-009 §B)
         "/workspace" | "/full" | "/full on confirm" | "/undo confirm" => return LineKind::RootCommand,
         "/resume" if root_rootish => return LineKind::RootCommand,
+        // ADR-013: the owner's goal lines (`/goal`, `/goal "<intent>" …`, `/goal stop`): only the Root reads them
+        _ if t == "/goal" || t.starts_with("/goal ") => return LineKind::RootCommand,
         _ => {}
     }
     let (word, rest) = match t.split_once(char::is_whitespace) {
@@ -209,6 +211,7 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("/full on", "full access: read and write anywhere except INIT's Root, network (the default)"),
     ("/full off", "confine this session: write only the workspace, no network but the provider"),
     ("/workspace", "the workspace and the agent's access"),
+    ("/goal ", "the owner's goal (Root): /goal \"<intent>\" done=card:cost_turn<=N usd=1.00 wall=24h rounds=10 guard=<card>; /goal stop|pause|continue"),
     ("/stop", "stop the current run (kernel)"),
     ("/usage", "show metered cost and tokens locally"),
     ("/details", "print the last tool activity in full (calls, tokens per request)"),
@@ -262,6 +265,9 @@ mod tests {
         assert_eq!(line_kind("/new", false), LineKind::Input);
         assert_eq!(line_kind("/stop\nmore", false), LineKind::Input);
         assert_eq!(line_kind("/workspace", false), LineKind::RootCommand);
+        assert_eq!(line_kind("/goal", false), LineKind::RootCommand);
+        assert_eq!(line_kind("/goal \"cheaper turns\" usd=0.50", false), LineKind::RootCommand);
+        assert_eq!(line_kind("/goals are nice", false), LineKind::Input);
         assert_eq!(line_kind(" /full ", false), LineKind::RootCommand);
         assert_eq!(line_kind("/undo confirm", false), LineKind::RootCommand);
     }

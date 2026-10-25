@@ -219,6 +219,7 @@ fn every_command_request_round_trips() {
         r#"{"args":{},"cmd":"evo.status","id":"d5","v":1}"#.to_string(),
         r#"{"args":{"proposal":"p-000007","reason":"keep_base"},"cmd":"evo.abandon","id":"d6","v":1}"#.to_string(),
         r#"{"args":{"duration_h":48,"kind":"extend.open_groups","value":6,"why":"five tools for one task"},"cmd":"grant","id":"e1","v":1}"#.to_string(),
+        r#"{"args":{"args":{"card":"cost_turn","expect":"better","mode":"A","p_permille":800,"sha":"abc1234"},"op":"predict"},"cmd":"goal","id":"e2","v":1}"#.to_string(),
     ];
     let mut seen = std::collections::BTreeSet::new();
     for r in &reqs {

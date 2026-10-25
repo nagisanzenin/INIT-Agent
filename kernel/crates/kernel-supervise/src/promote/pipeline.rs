@@ -94,12 +94,7 @@ pub fn promote(env: Arc<Env>, args: &PromoteArgs, job: Arc<dyn Job>) -> Result<V
             Some(_) => admit::validate(&env, &running, &sha, kernel_gate::evo::ExtendMode::Free),
             None => stages::validate(&env, &running, &sha),
         }
-        .map_err(|errs| {
-            let first = errs.first().map(|e| e.code.clone()).unwrap_or_else(|| "evo.io".into());
-            let mut e = err(ErrorCode::Other(first.clone()), format!("{} problem(s) in the commit; first: {first}", errs.len()));
-            e.details = errs.iter().map(|x| ErrorDetail { code: x.code.clone(), detail: x.detail.clone() }).collect();
-            e
-        })?;
+        .map_err(validation_error)?;
         let (mut scope, dep_change) = stages::scope(&env, &running, &sha).map_err(|m| err(ErrorCode::Internal, format!("scope: {m}")))?;
         if free.is_some() {
             scope = scope.scope.decision_free(); // no G4 on any scope; G3 after going live (A3)
@@ -132,6 +127,49 @@ pub fn promote(env: Arc<Env>, args: &PromoteArgs, job: Arc<dyn Job>) -> Result<V
             err(ErrorCode::Internal, format!("job thread: {e}"))
         })?;
     Ok(json!({"sha": sha}))
+}
+
+/// `promote --check` (GBAL rerun G7): promote's commit checks on `evo/<id>` and nothing else. The same fetch, the
+/// candidate checks against lineage `main`, the same validator under the same `extend.mode` (the free path's matrix or
+/// the gated one) and the scope decision, so a commit that passes here passes promote's synchronous part as it stands
+/// now. Nothing is promoted: no job, no pipeline slot, no gate, no record; the fetched candidate ref is deleted again.
+/// The agent runs it before it files its `goal predict`, so an amend never makes a filed prediction stale.
+pub fn check(env: Arc<Env>, args: &PromoteArgs) -> Result<Value, ErrorBody> {
+    let Some(r) = args.git_ref.as_deref() else { return Err(err(ErrorCode::Args, "promote --check takes {\"ref\":\"evo/<id>\",\"check\":true}")) };
+    let Some(id) = r.strip_prefix("evo/") else { return Err(err(ErrorCode::Args, "ref must be evo/<id>")) };
+    let git = env.git();
+    if !git.validate_evo_id(id) {
+        return Err(err(ErrorCode::Args, format!("evo id `{id}` must match ^[a-z0-9][a-z0-9._-]{{0,62}}$")));
+    }
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let tmp = format!("refs/init/checks/{}-{}", std::process::id(), N.fetch_add(1, Ordering::SeqCst));
+    let free = env.free_link().is_some();
+    let res = (|| -> Result<Value, ErrorBody> {
+        let sha = stages::fetch(&env, &env.home.join("body"), r, &tmp).map_err(coded)?;
+        let running = git.rev_parse_commit("refs/heads/main").ok_or_else(|| err(ErrorCode::Internal, "lineage has no refs/heads/main"))?;
+        git.check_candidate("refs/heads/main", &sha, "refs/upstream/").map_err(coded)?;
+        let validated = match free {
+            true => admit::validate(&env, &running, &sha, kernel_gate::evo::ExtendMode::Free),
+            false => stages::validate(&env, &running, &sha),
+        }
+        .map_err(validation_error)?;
+        let (mut scope, _) = stages::scope(&env, &running, &sha).map_err(|m| err(ErrorCode::Internal, format!("scope: {m}")))?;
+        if free {
+            scope = scope.scope.decision_free();
+        }
+        Ok(json!({"check": true, "mode": if free { "free" } else { "gated" }, "ok": true, "parent": running, "ref": r,
+            "scope": scope.scope.as_str(), "sha": sha, "stages": scope.stages, "change_type": validated.change_type, "summary": validated.summary}))
+    })();
+    let _ = git.run(&["update-ref", "-d", &tmp], None, std::time::Duration::from_secs(30));
+    res
+}
+
+/// The validator's problems as promote reports them: the first code, and every problem in `details`.
+fn validation_error(errs: Vec<kernel_gate::evo::ValidationError>) -> ErrorBody {
+    let first = errs.first().map(|e| e.code.clone()).unwrap_or_else(|| "evo.io".into());
+    let mut e = err(ErrorCode::Other(first.clone()), format!("{} problem(s) in the commit; first: {first}", errs.len()));
+    e.details = errs.iter().map(|x| ErrorDetail { code: x.code.clone(), detail: x.detail.clone() }).collect();
+    e
 }
 
 /// G0–G3 on `sha` against `running` (shared by promote and `gate --quick`).
@@ -748,6 +786,12 @@ pub fn run_g4_job(env: &Env, job: &dyn Job, sha: &str, v: &kernel_gate::evo::Val
     match resolution {
         Resolution::Final(Verdict::Accept(r)) => {
             let reason = Verdict::Accept(r).reason();
+            if r == accept::AcceptReason::NoInstrument {
+                // ADR-013 §6: kept on G0–G3 alone; the owner learns once per version that G4 measured nothing.
+                rec.failure_text = Some(o.note.clone());
+                alert(env, "g4_no_instrument", &format!("{sha}: G4 has no instrument (no sealed S, empty pool and holdout); \
+                    the version becomes LKG on G0–G3 alone. Draw S (`init-root sealed draw`) to measure T1/T2 changes."), &jid);
+            }
             rec.verdict("accept", reason);
             rec.v["transition"] = json!({"from": "provisional", "to": "lkg"});
             g4run::compact_results(env, &o.runs, true);
@@ -929,13 +973,27 @@ pub fn gate_quick(env: Arc<Env>, repo: &std::path::Path, rev: &str, on_probe_lan
 
 /// `rollback` (initctl.md §4.1): `from`/`to`, or `E_ALREADY_LKG`; then the boundary, then
 /// supervise's rollback (§3.6.7).
+///
+/// ADR-013 G2 (the free path): when the running version is a change in a change group, `rollback`
+/// undoes that group only, back to its parent, instead of going all the way to LKG (which drops
+/// every older open group too). An open group is vetoed (H12; the Root answers `extend.rollback`
+/// to the parent, which the kernel performs); a group the Root already closed is rolled back here.
 pub fn rollback(env: Arc<Env>, args: &RollbackArgs, job: Arc<dyn Job>) -> Result<Value, ErrorBody> {
     let s = env.sup.snapshot().ok_or_else(|| err(ErrorCode::Internal, "the supervisor is gone"))?;
-    if s.current_sha == s.lkg_sha {
-        return Err(err(ErrorCode::AlreadyLkg, "the running version is the LKG"));
-    }
     if s.busy {
         return Err(err(ErrorCode::Busy, "a handoff or rollback is in progress"));
+    }
+    if env.free_link().is_some() {
+        let t = super::admit::Groups::load(&env.home);
+        if let Some(g) = t.holding(&s.current_sha).cloned() {
+            match g.parent().map(str::to_string) {
+                Some(parent) if parent == s.lkg_sha || t.data_only_back(&s.current_sha, &parent) => return group_rollback(env, args, job, s, g, parent),
+                _ => {}
+            }
+        }
+    }
+    if s.current_sha == s.lkg_sha {
+        return Err(err(ErrorCode::AlreadyLkg, "the running version is the LKG"));
     }
     let (from, to) = (s.current_sha.clone(), s.lkg_sha.clone());
     let reason = args.reason.clone();
@@ -954,6 +1012,52 @@ pub fn rollback(env: Arc<Env>, args: &RollbackArgs, job: Arc<dyn Job>) -> Result
         }
     });
     Ok(json!({"from": s.current_sha, "to": s.lkg_sha}))
+}
+
+/// How long `initctl rollback` of an open group waits for the Root's `extend.rollback` to land.
+const GROUP_ROLLBACK_WAIT: std::time::Duration = std::time::Duration::from_secs(300);
+
+/// ADR-013 G2: `initctl rollback` of the change group `g` that holds the running version, to its parent.
+fn group_rollback(env: Arc<Env>, args: &RollbackArgs, job: Arc<dyn Job>, s: super::SupState, g: super::admit::GroupRec, parent: String) -> Result<Value, ErrorBody> {
+    let (from, to, reason) = (s.current_sha.clone(), parent, args.reason.clone());
+    let env2 = env.clone();
+    let (from2, to2) = (from.clone(), to.clone());
+    std::thread::spawn(move || {
+        if !job.awaiting_boundary() {
+            return;
+        }
+        job.progress(JobState::HandingOff, Some(Stage::Handoff), 50, "rollback of the running change group");
+        let why = format!("initctl rollback: {}", kernel_gate::record::cap(&reason, 150));
+        // an open group: the Root's veto (H12, honoured) closes it and sends `extend.rollback` to its parent
+        let vetoed = g.state == "open" && match super::admit::veto(&env2, g.group, &why) {
+            Ok(()) => true,
+            Err(e) => {
+                crate::klog::log("gate", &format!("rollback: change.veto group {}: {e}; rolling back here", g.group));
+                false
+            }
+        };
+        let r = if vetoed {
+            let deadline = std::time::Instant::now() + GROUP_ROLLBACK_WAIT;
+            loop {
+                match env2.sup.snapshot() {
+                    Some(st) if st.current_sha == to2 && !st.busy => break Ok(()),
+                    None => break Err("the supervisor is gone".to_string()),
+                    _ if std::time::Instant::now() >= deadline => break Err(format!("group {} was vetoed but the body did not reach {} within {} s", g.group, &to2[..to2.len().min(12)], GROUP_ROLLBACK_WAIT.as_secs())),
+                    _ => std::thread::sleep(std::time::Duration::from_millis(200)),
+                }
+            }
+        } else {
+            env2.sup.rollback_to(&why, &to2, true)
+        };
+        match r {
+            Ok(()) => {
+                crate::recovery::proposal_event(&env2.home, env2.lineage.as_ref(), &from2, &ProposalEv::NoVerdict { reason: "rollback".into() }); // X0b
+                job.succeed(json!({"job": job.id(), "from": from2, "to": to2, "group": g.group, "state": "succeeded"}))
+            }
+            Err(e) => job.fail(err(ErrorCode::HandoffFailed, e)),
+        }
+    });
+    Ok(json!({"from": from, "to": to, "group": g.group}))
 }
 
 #[cfg(test)]

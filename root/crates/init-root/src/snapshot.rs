@@ -590,7 +590,7 @@ pub fn settled_of(records: &[Value], now: i64) -> Option<String> {
             Some("change_open") => {
                 let Some(g) = d["group"].as_u64() else { continue };
                 groups.entry(s(&d["tuple"])).or_default().insert(g);
-                for c in d["caps"].as_array().into_iter().flatten().filter(|c| c["op"] != "remove") {
+                for c in d["caps"].as_array().into_iter().flatten().filter(|c| !matches!(c["op"].as_str(), Some("remove" | "baseline"))) {
                     caps.entry(g).or_default().insert((s(&c["id"]), s(&c["ver"])));
                 }
             }

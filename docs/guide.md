@@ -38,6 +38,8 @@ The installer never touches your key. It writes `~/.init-root/` (the Root: your 
 | stop everything, now | `/panic` in the chat, or `init-root panic` from any terminal. Every agent process stops, the panic is latched, and the agent drops one autonomy level (when it is above L0). `/resume` (or `init-root resume`) when you are ready. |
 | stop for the day (no demotion) | `init-root stop`; later `init-root start` |
 | see state and level | `init-root status` (slot, mode, level and cap, panic, charter), `init-root ledger` (level history and progress); `/status` in the chat for the kernel's view |
+| take back the agent's last self-change | `/rollback` in the chat: the Root rolls back the newest open change group (free mode) to its parent version and records it as your reversal (harm signal H3). `/rollback <sha\|cap\|settled>` names the target. Only that group's own changes are undone; the seed's skills and prompt files are never quarantined by it. |
+| give the agent a goal to pursue | `/goal "<what you want>" [done=card:cost_turn<=600\|exemplar:<sha256>\|owner] [usd=1.00] [wall=24h] [rounds=10] [guard=requests_turn,…]`. Only you can set a goal; the agent may propose one (`/goal adopt <id>`). `/goal` shows it; `/goal pause\|resume\|stop`; `/goal continue` after the agent checks in; `/goal accept\|reject` judges its last change. The Root meters the goal's spend, records the agent's predictions and the measured outcomes, and rolls back a change that makes a `guard` card worse ([Goals](#goals-goal-v04), [ADR-013](adr/013-goal-based-agentic-loop.md)). |
 | answer the agent's request for more room | `/grants` lists open requests; `/grant <id> [for <n>d\|<n>h]` approves one with a typed confirmation; `/deny <id>` refuses it. |
 | see the frozen twin | `/twin` shows the nightly shadow-replay report (report only; it changes nothing). |
 | change the charter | edit `~/.init-root/charter.toml` (autonomy cap, sandbox, memory cap, disk floor, `[extend]`), then `init-root charter check --apply` |
@@ -50,6 +52,44 @@ Where things are:
 - Kernel and body logs: `~/.init/state/kernel/logs/`; conversations: `~/.init/state/sessions/`.
 - Every metered request with its usage and estimated cost: `~/.init-root/egress/usage/`. Every promotion, rollback, panic, grant and charter change: `~/.init-root/lineage/lineage.jsonl`, signed; check it with `init-root audit verify --full`.
 - The agent's own source and history: `~/.init/body/` and `~/.init/lineage/`.
+
+## Goals (`/goal`, v0.4)
+
+A goal asks INIT to change its own Body toward something you can state: "fewer model requests per turn on short
+questions about this folder", "cheaper turns on big repos". You set it; the agent works on it in rounds; the Root
+keeps the books ([ADR-013](adr/013-goal-based-agentic-loop.md)). It works best in free mode (`[extend] mode = "free"`),
+where a T0 change (a skill or a prompt file) goes live in about a second.
+
+```
+/goal "answer short questions about this folder with fewer model requests per turn" done=card:requests_turn<=2 usd=0.40 wall=3h rounds=8 guard=cost_turn:300,provider_errors
+```
+
+- **`done=`** says when it is done. `card:<id><=N` or `>=N` uses one of the Root's own observation cards, measured on
+  your turns: `cost_turn` (µUSD per turn), `wall_turn` (ms), `requests_turn`, `cache_read` (‰ of input tokens),
+  `provider_errors`, `corrections` (‰ of turns you corrected, undid or stopped). `exemplar:<sha256>` or `owner`
+  (the default) leave the verdict to you (`/goal accept` or `/goal reject` on the agent's last change).
+- **The budget** is yours: `usd=` (the Root charges the goal every metered request while it is active, the same
+  amount as the egress ledger), `wall=`, `rounds=` (one round per prediction). At a spent budget the Root stops the
+  goal itself.
+- **`guard=`** lists cards that must not get worse; `cost_turn:300` allows 30 % before it counts. A change that makes a
+  guard card worse beyond noise is rolled back by the Root (a T0 change in about 4 s in the real runs), and the agent's earlier good changes stay.
+- **How a round runs.** The agent reads the card's noise floor (at least 5 of your turns on the current version),
+  commits a change, checks it against the commit rules (`initctl promote --check`), files a prediction (which card,
+  which direction, how sure), then promotes it. The Root reads your next turns (5 by default) against the turns
+  before, and records Δ, σ, z and a verdict (`better`, `worse`, `noise`). Only a prediction filed before the change went
+  live counts ("registered"). The agent's forecasts are scored (Brier), and that score sets one thing: how many rounds
+  it may run before it checks in with you (3 by default; 1 to 12). At a check-in, read what it did, then `/goal
+  continue` or `/goal stop`.
+- **How it ends.** The agent stops with a reason: `met`, `budget`, `plateau`, `instrument_gap` (it says what evidence it
+  lacks), `owner_stop` or `harm`. For a card goal the Root checks `met`: the card must have reached your threshold *and*
+  one of the agent's registered changes must have moved it beyond noise in the predicted direction. If the threshold is
+  reached some other way (noise, drift, a change it never predicted), the Root records `met_unattributed` and tells
+  you: the goal may be done, but not by anything the agent measured.
+- **What you see.** `/goal` prints the goal, its spend and rounds, the calibration and the pending readings. Every
+  goal, prediction, reading and outcome is a record in `~/.init-root/lineage/lineage.jsonl`.
+- **Limits.** Cards read your turns, so a reading takes as many turns as `n`; at a few turns a day that is slow. An agent
+  can lower `cost_turn` by doing less; `corrections` as a guard is the counterweight. One goal is active at a time (a
+  new `/goal` pauses the old one).
 
 ## Spending
 
@@ -68,7 +108,7 @@ Since 2026-10-23 (owner decision) the Root **observes** spending and does not ca
 1. **The Root** (`init-root`) is a separate process the agent can never write. It holds your key, your charter and the signed lineage, and it runs the agent only inside a macOS sandbox (Seatbelt) it composes. Model requests always go through the Root, which meters and logs them. In full access (the default) the agent's tools also use the network directly, and INIT does not log that traffic; in workspace mode the sandbox has no network at all.
 2. **Spending is observed, not capped** (see [Spending](#spending)). The Root meters and logs every request; you stop it.
 3. **Rollback.** In the default `gated` mode every self-change passes the gate (G0–G4) first. The Root keeps the last known-good system and rolls back the whole tuple when a change fails, and a panic demotes.
-4. **Self-extension (ADR-011).** The charter key `extend.mode` chooses `gated` (the default) or `free`. In `free` mode a change is admitted after mechanical checks only (A0–A5), and the Root then watches it: a harm sentinel (signals H1–H12, such as crashes, refusals, owner stops and undos, cost and error spikes) rolls back the change group that caused harm, using Root-held snapshots and a rollback probe. Autonomy levels L0–L4 are earned from records and owner grants, but **this build caps autonomy at L0**.
+4. **Self-extension (ADR-011).** The charter key `extend.mode` chooses `gated` (the default) or `free`. In `free` mode a change is admitted after mechanical checks only (A0–A5), and the Root then watches it: a harm sentinel (signals H1–H12, such as crashes, refusals, owner stops and undos, cost and error spikes) rolls back the change group that caused harm, using Root-held snapshots and a rollback probe. **Admission takes a snapshot, so it needs free disk of at least `sandbox.disk_floor_gib` plus 2 GiB** (22 GiB with the default 20 GiB floor); below that, every free-path change is refused. Switching `extend.mode` with `init-root charter check --apply` reaches the running kernel at once. In `gated` mode with no sealed S and an empty gate pool (a fresh install), G4 has nothing to measure: a T1/T2 change is kept on G0–G3 alone and you get one `g4_no_instrument` alert (until this fix it was rolled back about a second after the swap). Autonomy levels L0–L4 are earned from records and owner grants, but **this build caps autonomy at L0**.
 5. **Memory and disk.** The Root polls every workload each second. A tool call's process tree that passes `sandbox.mem_cap_mib` (default 4096 MiB) is killed alone, by pid. Below `sandbox.disk_floor_gib` (default 5 GiB) free, the Root refuses new workloads and kills the running ones. The Root and the kernel are never killed.
 6. **Owner-machine mode (ADR-008).** On your live account the Root signals only the processes it holds, by PID; the process sweep (`live-sweep`) is compiled out. Enabling it still requires the disposable-account tests first ([docs/adr/](adr/)).
 7. **Permissions (ADR-012, ADR-009).** By default the agent has full access: it reads and writes anything you can and uses the network, except the Root's files (`~/.init-root`, its service, the `init` and `init-tui` launchers, `~/.config/init-agent`, your `read_deny` list). It can never touch your keys or the lineage, signal the Root, or start apps outside its sandbox. Anything it reads, secrets included, may be sent to the model provider or, in full access, anywhere else on the network. The Root snapshots the folder you started in before the agent can edit it, and `/undo` restores that folder only: changes elsewhere have no undo, and the Root's rollback covers INIT, not your files. Files your own tools run later (shell startup files, `PATH` directories, editor configs, git hooks) are writable and then run with your full rights, so full access is trusted like your own shell. Workspace mode (`init --workspace`, `/full off` or `sandbox.mode = "workspace"`) restores ADR-009: home reads minus secrets, writes only in the folder and `~/.init`, no network but the provider, and shell startup files, git config and hooks, `~/.local/bin`, `~/bin` and login items unwritable. The agent can end INIT itself (`launchctl remove dev.init.root` stops the Root and every agent process; log in again, or `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.init.root.plist`), but it cannot escape it.

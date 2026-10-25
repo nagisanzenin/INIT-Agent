@@ -30,6 +30,10 @@ pub enum AcceptReason {
     ReproFixed,
     /// G4 v2 (M7): the lineage ratchet (m7-design.md §3.2.13); carries `milestone_required`.
     LineageGain,
+    /// GBAL fix (ADR-013 §6): G4 had no instrument at all (no sealed S and no pool or holdout task),
+    /// so there is no G4 evidence either way. The version is kept on G0–G3 alone, as a T0 change is
+    /// (ADR-006 decision 3); the record and an alert say so. Never reached when any task exists.
+    NoInstrument,
 }
 
 /// Reject reasons (§3.9, §3.8.4, §3.12). `needs_owner` no longer exists (D4).
@@ -82,6 +86,9 @@ pub enum InconclusiveReason {
     SealedUnavailable,
     /// G4 v2 (M7): looks exhausted and the rotation failed (`root.sealed_quota`).
     SealedQuota,
+    /// GBAL fix (ADR-013 §6): no instrument (no sealed S, no pool or holdout task). [`resolve`] makes
+    /// it `accept: no_instrument` at once: an escalated re-run of zero tasks would be zero tasks again.
+    NoInstrument,
 }
 
 /// Outcomes where the candidate is not judged: infrastructure, a cancel, runs that never ran
@@ -170,6 +177,7 @@ macro_rules! reason_str {
 reason_str!(AcceptReason {
     PerfGain => "perf_gain", Better => "better", CapabilityGain => "capability_gain",
     Cheaper => "cheaper", Smaller => "smaller", ReproFixed => "repro_fixed", LineageGain => "lineage_gain",
+    NoInstrument => "no_instrument",
 });
 reason_str!(RejectReason {
     Canary => "canary", ScoreInferior => "score_inferior", ScoreInferiorEarly => "score_inferior_early",
@@ -183,7 +191,7 @@ reason_str!(InconclusiveReason {
     Insufficient => "insufficient", Underpowered => "underpowered",
     UnderpoweredHoldout => "underpowered:holdout", NoNoiseEstimate => "no_noise_estimate",
     BudgetInsufficient => "budget_insufficient", Budget => "budget", Timeout => "timeout", Disk => "disk",
-    SealedUnavailable => "sealed_unavailable", SealedQuota => "sealed_quota",
+    SealedUnavailable => "sealed_unavailable", SealedQuota => "sealed_quota", NoInstrument => "no_instrument",
 });
 reason_str!(ErrorReason {
     Infra => "infra", Cancelled => "cancelled",
@@ -781,9 +789,15 @@ pub enum Resolution {
 
 /// Mechanical resolution of inconclusive verdicts (§3.12, D4): the first inconclusive G4 escalates once;
 /// an escalated re-run that is still inconclusive becomes `reject: inconclusive_final` (the incumbent
-/// wins). Nothing waits for an owner.
+/// wins). Nothing waits for an owner. `no_instrument` is final at once, as `accept: no_instrument`.
 pub fn resolve(v: Verdict, escalated: bool, escalate_repeats: u32) -> Resolution {
     match v {
+        // No instrument is "no G4 evidence", not a reason to roll back (ADR-013 §6): before this, a
+        // fresh gated install (no S drawn, empty pool) escalated, ended `inconclusive_final` and rolled
+        // back every T1/T2 change about a second after its swap.
+        Verdict::Inconclusive(InconclusiveReason::NoInstrument) => {
+            Resolution::Final(Verdict::Accept(AcceptReason::NoInstrument))
+        }
         Verdict::Inconclusive(_) if !escalated => Resolution::Escalate {
             repeats: escalate_repeats,
         },

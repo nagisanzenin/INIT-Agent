@@ -37,7 +37,7 @@ pub mod t0blob;
 mod tests;
 
 pub use config::GateCfg;
-pub use pipeline::{gate_quick, promote, provisional_watch, rollback, run_g4_job};
+pub use pipeline::{check, gate_quick, promote, provisional_watch, rollback, run_g4_job};
 pub use proxy::{GateProxy, GateScope, NoGateProxy, RequestView};
 
 use crate::config::KernelCfg;
@@ -77,6 +77,12 @@ pub trait Supervise: Send + Sync {
     /// `initctl rollback` (immediate) or a provisional expiry (at idle).
     fn rollback(&self, reason: &str, immediate: bool) -> Result<(), String>;
     fn snapshot(&self) -> Option<SupState>;
+    /// ADR-013 G2: roll back to the admitted version `to` (data-only when the running version reaches
+    /// it through t0 changes only; to LKG when `to` is LKG). Blocks until the rollback commits or fails.
+    fn rollback_to(&self, reason: &str, to: &str, immediate: bool) -> Result<(), String> {
+        let _ = (reason, to, immediate);
+        Err("rollbacks to a change group's parent are not supported by this supervisor".into())
+    }
     /// A kernel notice to the body (`gate` stage events).
     fn notice(&self, kind: &str, data: Value);
     /// A promotion without a handoff (supervise.md §3.6.8, T0/T1 data): `main` moves, the version
@@ -133,6 +139,11 @@ impl Supervise for crate::supervisor::Handle {
     fn rollback(&self, reason: &str, immediate: bool) -> Result<(), String> {
         let (tx, rx) = std::sync::mpsc::channel();
         self.send(crate::supervisor::Cmd::Rollback { reason: reason.into(), immediate, reply: Some(tx) });
+        rx.recv().unwrap_or_else(|_| Err("the supervisor is gone".into()))
+    }
+    fn rollback_to(&self, reason: &str, to: &str, immediate: bool) -> Result<(), String> {
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.send(crate::supervisor::Cmd::RollbackTo { reason: reason.into(), to: to.into(), immediate, reply: Some(tx) });
         rx.recv().unwrap_or_else(|_| Err("the supervisor is gone".into()))
     }
     fn snapshot(&self) -> Option<SupState> {

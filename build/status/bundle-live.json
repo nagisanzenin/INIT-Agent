@@ -1,0 +1,41 @@
+{
+ "body_sha256": "f6526e9eb2a99465a0cc9bb7cc235b56ad6bdb2ddc5b1f9ab9e87258019f4829",
+ "bundle": "init-v0.4.0-preview-macos-arm64.tar.gz",
+ "bundle_bytes": 54876274,
+ "checks": {
+  "genesis_body_is_prebuilt": true,
+  "install_plus_first_reply_le_90s": true,
+  "key_only_in_the_test_keyfile": true,
+  "live_request_metered": true,
+  "no_toolchain_recorded": true,
+  "published_view_evolution": true,
+  "reply_ok": true,
+  "spend_below_cap": true,
+  "status_json_evolution": true,
+  "status_says_T0_with_rustup": true,
+  "watchdog_quiet": true
+ },
+ "live": {
+  "cap_musd": 10000,
+  "input_tokens": 5839,
+  "key_files": 1,
+  "output_tokens": 72,
+  "requests": 1,
+  "reserved_musd": 0,
+  "spent_musd": 371,
+  "turn_end": "tokens: in 5839 (cached 4992), out 72"
+ },
+ "mock_requests": 0,
+ "mode": "live",
+ "ok": true,
+ "reply": "ok",
+ "rust": "none (--no-rust)",
+ "times_ms": {
+  "drive_wall": 1887,
+  "get_sh_install": 13316,
+  "get_sh_to_first_reply": 17536,
+  "start_to_ready": 2029
+ },
+ "toolchain": "None",
+ "v": 1
+}

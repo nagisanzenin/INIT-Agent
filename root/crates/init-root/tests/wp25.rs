@@ -191,7 +191,7 @@ impl Drop for Daemon {
 
 fn down(l: &Value, from: i64, to: i64, kind: &str, seq: u64) {
     let d = &l["data"];
-    assert_eq!((d["direction"].as_str(), d["cause"].as_str(), d["from"].as_i64(), d["to"].as_i64()), (Some("down"), Some("demotion"), Some(from), Some(to)), "{l}");
+    assert_eq!((d["direction"].as_str(), d["cause"].as_str(), d["from"].as_i64(), d["to"].as_i64()), (Some(if from == 0 { "floor" } else { "down" }), Some("demotion"), Some(from), Some(to)), "{l}");
     assert_eq!((d["trigger"]["kind"].as_str(), d["trigger"]["seq"].as_u64()), (Some(kind), Some(seq)), "{l}");
 }
 
@@ -369,7 +369,10 @@ fn rt_l7_l9_each_trigger_costs_one_level_and_rolls_back() {
     let st = h.restarted(starts);
     assert_eq!((st["mode"].as_str(), h.last("safe")["data"]["on"].as_bool()), (Some("safe"), Some(true)));
     assert!(h.last("rollback")["seq"].as_u64() > l["seq"].as_u64());
-    assert!(fs::read_to_string(h.rh.join("alerts.jsonl")).unwrap().matches("\"code\":\"demoted\"").count() >= 6);
+    // F2: an incident at L0 alerts `incident` (no level lost), a demotion above L0 alerts `demoted`
+    let alerts = fs::read_to_string(h.rh.join("alerts.jsonl")).unwrap();
+    assert!(alerts.matches("\"code\":\"demoted\"").count() + alerts.matches("\"code\":\"incident\"").count() >= 6);
+    assert!(alerts.contains("\"code\":\"incident\""), "the L0 incidents say so");
     h.ok(&["stop"]);
     wait(15, "stopped", || h.status()["slot"] == "stopped");
     drop(d); // the chain verifies once the Root has stopped appending

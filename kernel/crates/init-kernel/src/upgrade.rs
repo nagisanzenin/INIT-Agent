@@ -67,17 +67,17 @@ impl Upgrade {
         if installed {
             // A swap may start before the old kernel receives its RPC response. Bind the
             // restored receipt from Root's boot cause in that case, never an arbitrary event.
-            if sv.boot.boot.reason.as_str() == "kernel_upgrade" {
-                if let Some(cause) = &sv.boot.boot.cause {
-                    if cause["to"] == tuple["current"]["id"] && cause["job"].is_string() {
-                        if r["root_job"].is_null() { r["root_job"] = cause["job"].clone(); }
-                        else if r["root_job"] != cause["job"] { return; }
-                    }
-                }
+            if sv.boot.boot.reason.as_str() == "kernel_upgrade"
+                && let Some(cause) = &sv.boot.boot.cause
+                && cause["to"] == tuple["current"]["id"]
+                && cause["job"].is_string()
+            {
+                if r["root_job"].is_null() { r["root_job"] = cause["job"].clone(); }
+                else if r["root_job"] != cause["job"] { return; }
             }
             if r["root_job"].as_str().is_none() { return; }
-            if let (Some(id), Some(sha)) = (r["job"].as_str(), r["sha"].as_str()) {
-                if let Some(job) = jobs.resume_kernel_swap(id, sha, r["root_job"].as_str()) {
+            if let (Some(id), Some(sha)) = (r["job"].as_str(), r["sha"].as_str())
+                && let Some(job) = jobs.resume_kernel_swap(id, sha, r["root_job"].as_str()) {
                     r["phase"] = json!("installed");
                     let _ = self.save(&r);
                     let root_job = r["root_job"].as_str().unwrap().to_string();
@@ -100,7 +100,6 @@ impl Upgrade {
                         }
                     }
                     return;
-                }
             }
         }
         // Unknown/interrupted/rolled-back upgrades remain failed in the ordinary job store.

@@ -671,6 +671,8 @@ The rollback is reported as `lineage.append body_rollback{from_sha, to_sha, reas
 
 The kernel then restores `bin/` and resets lineage from the boot block's `tuple_body` (§3.9 step 6). The Root never writes `bin/`.
 
+**Data-only rollback to an open version (ADR-013 G2, the free path).** While a change group is open, LKG stays behind, so the parent of a newer group is often not LKG. When `extend.rollback` (or `initctl rollback` of the running group, initctl.md) targets such a parent and every change after it in the kernel's group table is `t0`, the kernel rolls back at once with the same overlapped protocol, but: binary `bin/init-body` (the running one, which is the target's), no `bin/` install and no kept-set swap; lineage `main` moves to the target (with `refs/init/rolled-back/<cur>`) **before** B is spawned, so B's `body/` resync (evolution.md §3.6, including a checkout on the rolled-back commit) builds its head from the target's T0 data; the version stays provisional (its group is open; LKG unchanged); `body_rollback{from_sha, to_sha: target}` confirms to the Root at the commit, well inside its 120 s fallback. An abort moves `main` back. Any other non-LKG target is still left to the Root's whole-system rollback (alert `extend_rollback_root`).
+
 If the LKG body fails to become ready during a G4 rollback, the kernel aborts the rollback, resumes A (the provisional body is better than nothing), reports `rollback_failed`, and retries after 600 s. If the LKG body fails after a provisional crash (there is no A), the normal LKG crash rules apply (§3.7).
 
 #### 3.6.8 Promotions without a handoff (T0/T1 data)

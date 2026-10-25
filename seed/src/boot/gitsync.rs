@@ -173,10 +173,15 @@ fn script(cx: &mut Cx, mode: SyncMode) -> Result<(), Stop> {
         return Err(Stop);
     };
     let old = cx.resolve("refs/heads/main")?;
+    // ADR-013 G2: `body/` checked out on a commit the kernel rolled back (the agent's `evo/<id>`
+    // branch at the change it promoted) is resynced like `main`, so the rollback reaches the T0 data
+    // the head is built from. The branch keeps the commit; nothing is lost.
+    let rolled_head = !on_main && cx.rolled_back_head()?;
 
     // 3./4. The ancestry test decides the branch. A missing local `main` counts as "forward".
     let forward = match old.as_deref() {
         None => true,
+        Some(o) if o == new && rolled_head => return resync(cx, &new),
         Some(o) if o == new => {
             cx.r.action = Some("none".into());
             return Ok(());
@@ -194,6 +199,9 @@ fn script(cx: &mut Cx, mode: SyncMode) -> Result<(), Stop> {
 
     if forward {
         // 3. Lineage `main` only moved forward (promote, data-only promotion).
+        if rolled_head {
+            return resync(cx, &new);
+        }
         if !on_main {
             return cx.move_main(&new);
         }
@@ -225,12 +233,17 @@ fn script(cx: &mut Cx, mode: SyncMode) -> Result<(), Stop> {
     };
     let rb = cx.evidence_branch(&old)?;
     cx.r.rolled_back = Some(rb);
-    if !on_main {
+    if !on_main && !rolled_head {
         return cx.move_main(&new);
     }
+    resync(cx, &new)
+}
+
+/// Keep local changes in a stash, `switch -C main <new>`, then pop that stash (step 4's tail).
+fn resync(cx: &mut Cx, new: &str) -> Result<(), Stop> {
     cx.r.action = Some("resync".into());
     let before = cx.stash_tip()?;
-    let msg = format!("init: resync to {}", short(&new));
+    let msg = format!("init: resync to {}", short(new));
     let push = ["stash", "push", "--include-untracked", "-m", msg.as_str()];
     let out = cx.git(&push)?;
     if !out.ok() {
@@ -245,7 +258,7 @@ fn script(cx: &mut Cx, mode: SyncMode) -> Result<(), Stop> {
         }
     };
     let stashed = after != before;
-    let switch = ["switch", "-C", "main", new.as_str()];
+    let switch = ["switch", "-C", "main", new];
     let switched = match cx.git(&switch) {
         Ok(o) if o.ok() => Ok(()),
         Ok(o) => {
@@ -361,6 +374,13 @@ impl Cx<'_> {
             Some(1) => Ok(None),
             _ => Err(self.failed(&args, &o)),
         }
+    }
+
+    /// `HEAD` is a commit the kernel rolled back: `refs/init/rolled-back/<sha>` came with the fetch
+    /// (the install-time refspec maps it to `refs/remotes/origin/init/rolled-back/<sha>`).
+    fn rolled_back_head(&mut self) -> Result<bool, Stop> {
+        let Some(head) = self.resolve("HEAD")? else { return Ok(false) };
+        Ok(self.resolve(&format!("refs/remotes/origin/init/rolled-back/{head}"))?.is_some())
     }
 
     fn stash_tip(&mut self) -> Result<Option<String>, Stop> {
@@ -776,6 +796,35 @@ mod tests {
         assert_eq!(fx.rev("body", "refs/heads/evo/x"), Some(e1));
         assert_eq!(fx.read("body/f.txt"), "wip\n");
         assert_eq!(fx.read("body/evo.txt"), "evo\n");
+    }
+
+    /// ADR-013 G2: the agent promoted its `evo/x` commit (data-only, no restart), then the kernel rolled
+    /// it back (lineage `main` back to c1, `refs/init/rolled-back/<e1>`). The next boot resyncs the
+    /// tree to `main` (local edits carried over), so the rolled-back T0 file is gone from the head;
+    /// `evo/x` still holds the commit. A branch on a commit that was not rolled back is untouched.
+    #[test]
+    fn g2_head_on_a_rolled_back_commit_is_resynced_to_main() {
+        let (fx, c1) = Fx::setup("evorb");
+        fx.at("body", &["config", "--add", "remote.origin.fetch", "+refs/init/*:refs/remotes/origin/init/*"]);
+        fx.at("body", &["switch", "-q", "-c", "evo/x"]);
+        let e1 = fx.commit("body", "skill.txt", "bad skill\n");
+        fx.at("body", &["push", "-q", "origin", "evo/x:refs/heads/main"]); // the promotion
+        fx.write("body/keep.txt", "wip\n");
+        fx.publish(&c1); // the rollback, and its evidence ref (the kernel's `rollback_main`)
+        fx.at("body", &["push", "-q", "origin", &format!("{e1}:refs/init/rolled-back/{e1}")]);
+        let r = fx.sync(SyncMode::Full);
+        assert_eq!(r, ok("resync"), "{r:?}");
+        assert_eq!(fx.head(), "refs/heads/main");
+        assert_eq!(fx.rev("body", "HEAD"), Some(c1.clone()));
+        assert!(!fx.body().join("skill.txt").exists(), "the rolled-back T0 file left the tree");
+        assert_eq!(fx.read("body/keep.txt"), "wip\n", "local edits are carried over");
+        assert_eq!(fx.rev("body", "refs/heads/evo/x"), Some(e1), "the branch keeps the commit");
+        // a branch on a commit that was never rolled back: only the ref moves (forward_on_evo_branch_moves_only_the_ref)
+        fx.at("body", &["switch", "-q", "-c", "evo/y"]);
+        let e2 = fx.commit("body", "other.txt", "fine\n");
+        let r = fx.sync(SyncMode::Full);
+        assert_eq!(r, ok("none"), "{r:?}");
+        assert_eq!((fx.head(), fx.rev("body", "HEAD")), ("refs/heads/evo/y".to_string(), Some(e2)));
     }
 
     /// Body `main` at c2, then lineage `main` rolled back to c1.

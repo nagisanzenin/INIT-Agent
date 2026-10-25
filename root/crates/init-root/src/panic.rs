@@ -77,7 +77,7 @@ fn record(root: &Root, lg: &mut Option<Lineage>, channel: &str, instances: u64, 
         return (from, from);
     };
     let to = (from - 1).max(0);
-    let down = json!({"cause": "demotion", "direction": "down", "from": from, "to": to, "trigger": {"kind": "panic", "seq": p["seq"]}});
+    let down = json!({"cause": "demotion", "direction": crate::ledger::down_dir(from), "from": from, "to": to, "trigger": {"kind": "panic", "seq": p["seq"]}});
     let _ = root.append_locked(lg, "root", "ladder", down);
     (from, to)
 }

@@ -202,3 +202,35 @@ fn t0_identity_from_the_tar() {
         assert!(tar_files(&ta[..cut]).is_err(), "a tar cut at {cut} is refused");
     }
 }
+
+/// F3 (real-model demo 2026-10-25): the first free-path change on a fresh install has a parent tuple with no t0 blob
+/// (the install's genesis tuple). Its T0 caps (GENESIS.md, SELF.md, the seed skills) were all `add`, so the owner's
+/// `/rollback` attributed them to the group and quarantined six seed files. Now they are `baseline`: the cap table
+/// learns their versions, and no group is attributed with them (the sentinel fold and `change.open`), so no rollback
+/// can quarantine them. The zone's own caps stay attributed.
+#[cfg_attr(not(feature = "test-fixtures"), ignore = "a test home needs the test-fixtures ROOT_HOME bound (80 bytes)")]
+#[test]
+fn f3_seed_caps_on_a_parent_without_t0_are_baseline_never_attributed() {
+    let (dir, root) = crate::grant::tests::test_home("f3", "");
+    let src = dir.join("t0src");
+    std::fs::create_dir_all(src.join("skills/evolve")).unwrap();
+    std::fs::create_dir_all(src.join("agents")).unwrap();
+    std::fs::write(src.join("GENESIS.md"), "g").unwrap();
+    std::fs::write(src.join("SELF.md"), "s").unwrap();
+    std::fs::write(src.join("skills/evolve/SKILL.md"), "e").unwrap();
+    let tar = tar_of(&src, &dir.join("t0.tar"));
+    let sha = crate::tuple::put(&root.p.rh, &mut tar.as_slice(), None, u64::MAX).unwrap();
+    let args = json!({"candidate": {"body": {"t0": sha}}, "caps": [{"id": "tool/bash", "op": "modify", "prev_ver": null, "ver": null}]});
+    let caps = caps::change_caps(&root, &args).unwrap();
+    let ops: BTreeMap<String, String> = caps.as_array().unwrap().iter().map(|c| (c["id"].as_str().unwrap().into(), c["op"].as_str().unwrap().into())).collect();
+    assert_eq!(ops.get("prompt/GENESIS.md").map(String::as_str), Some("baseline"), "{caps}");
+    assert_eq!(ops.get("skill/evolve").map(String::as_str), Some("baseline"));
+    assert_eq!(ops.get("tool/bash").map(String::as_str), Some("modify"), "the zone's own caps are kept");
+    let mut e = crate::sentinel::engine::Engine::new(None);
+    crate::sentinel::fold(&mut e, &[rec("change_open", json!({"caps": caps, "group": 1, "sha": "a".repeat(40), "tuple": "t1", "parent_tuple": "t0"}))]);
+    assert_eq!(e.groups[0].changes[0].caps, vec!["tool/bash".to_string()], "only the change's own cap is attributed");
+    let mut t = Table::default();
+    t.apply("change_open", &json!({"caps": caps, "group": 1}));
+    assert!(t.rows(&BTreeMap::new()).iter().any(|r| r.id == "skill/evolve" && r.state == "active"), "the table learns the seed cap");
+    let _ = std::fs::remove_dir_all(&dir); // exact path, made by test_home
+}

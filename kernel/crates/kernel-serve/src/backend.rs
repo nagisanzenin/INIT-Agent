@@ -278,6 +278,12 @@ pub trait Backend: Send + Sync + 'static {
         Err(not_implemented(CommandName::Promote))
     }
 
+    /// `promote --check` (`check: true`): promote's synchronous commit checks only (fetch, candidate checks, the
+    /// validator under the current `extend.mode`, the scope); the answer is the result, no job starts.
+    fn promote_check(&self, lane: &LaneCtx, args: &PromoteArgs) -> Result<Value, ErrorBody> {
+        Err(not_implemented(CommandName::Promote))
+    }
+
     /// `rollback`: return `from`/`to` (or `E_ALREADY_LKG`), then `job.awaiting_boundary()`.
     fn rollback(&self, lane: &LaneCtx, args: &RollbackArgs, job: JobCtl) -> Result<Begun, ErrorBody> {
         Err(not_implemented(CommandName::Rollback))
@@ -368,6 +374,12 @@ pub trait Backend: Send + Sync + 'static {
 
     /// `grant` (ADR-011 §7.4): relay `grant.request{kind, value, duration_h?, why}` to the Root
     /// and return its answer (`{id, status:"pending"}`). Only the owner decides.
+    /// `goal` (ADR-013): relay `goal.*` / `card.*` to the Root and return its answer.
+    fn goal(&self, lane: &LaneCtx, args: &init_proto::initctl::GoalArgs) -> Result<Value, ErrorBody> {
+        let _ = (lane, args);
+        Err(not_implemented(CommandName::Goal))
+    }
+
     fn grant_request(&self, lane: &LaneCtx, args: &GrantArgs) -> Result<GrantResult, ErrorBody> {
         Err(not_implemented(CommandName::Grant))
     }

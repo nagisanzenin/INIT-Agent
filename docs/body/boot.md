@@ -155,7 +155,7 @@ This is "the model id is checked at boot" (CONVENTIONS §5; spec §11: weak mode
 The script as the body runs it (`B` = `$INIT_HOME/body`; `origin` = `$INIT_HOME/lineage/body.git`, read-only, so fetching writes nothing there):
 
 1. `git fetch --quiet origin` (the install-time refspecs bring `main`, the notes and `refs/init/*`). Failure → `fetched: false`, a warning, and **stop**: never move `main` against a stale `origin/main`.
-2. `on_main` = (`git symbolic-ref -q --short HEAD` prints `main`).
+2. `on_main` = (`git symbolic-ref -q --short HEAD` prints `main`). `rolled_head` (ADR-013 G2) = not `on_main`, and `HEAD` is a commit the kernel rolled back (`refs/remotes/origin/init/rolled-back/<HEAD sha>` exists): the agent's `evo/<id>` branch at a change it promoted data-only and the kernel then rolled back. With `rolled_head`, steps 3 and 4 take the "on `main`" resync below (stash, `switch -C main origin/main`, pop; `action: "resync"`), so the rollback reaches the T0 data the head is built from; the branch keeps the commit.
 3. If `git merge-base --is-ancestor main origin/main` exits 0 (lineage only moved forward):
    - on `main`: `git merge --ff-only --quiet origin/main` → `action: "ff"` (or `"none"` when already equal). If it fails (dirty paths it would touch), leave the tree and set `drift: true`;
    - otherwise: `git branch -f main origin/main` → `action: "ref"`; failure → `drift: true`. The working tree is not touched.

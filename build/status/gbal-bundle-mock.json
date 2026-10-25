@@ -1,0 +1,139 @@
+{
+ "pass": true,
+ "g2_rollbacks": [
+  {
+   "reading_seq": 29,
+   "card": "cost_turn",
+   "to_parent": true,
+   "body_rollback_seq": 35,
+   "latency_s": 4.6,
+   "to_sha": "9f1db00ecae2"
+  }
+ ],
+ "goal_set": true,
+ "stop": {
+  "by": "agent",
+  "reason": "met",
+  "verified": true,
+  "spent": {
+   "musd": 15210,
+   "rounds": 2,
+   "wall_s": 56
+  }
+ },
+ "chain": [
+  {
+   "prediction": "P-000001",
+   "sha": "9f1db00ecae2",
+   "predict_seq": 12,
+   "tuple_seq": 15,
+   "registered": true,
+   "readings": [
+    {
+     "card": "cost_turn",
+     "verdict": "better",
+     "n_before": 5,
+     "n_after": 5,
+     "mean_before_milli": 780000,
+     "mean_after_milli": 390000,
+     "sd_milli": 0,
+     "se_milli": 0,
+     "z_permille": 99999,
+     "action": "none",
+     "registered": true
+    },
+    {
+     "card": "provider_errors",
+     "verdict": "noise",
+     "n_before": 5,
+     "n_after": 5,
+     "mean_before_milli": 0,
+     "mean_after_milli": 0,
+     "sd_milli": 0,
+     "se_milli": 0,
+     "z_permille": 0,
+     "action": "none",
+     "registered": true
+    },
+    {
+     "card": "requests_turn",
+     "verdict": "better",
+     "n_before": 5,
+     "n_after": 5,
+     "mean_before_milli": 2000,
+     "mean_after_milli": 1000,
+     "sd_milli": 0,
+     "se_milli": 0,
+     "z_permille": 99999,
+     "action": "none",
+     "registered": true
+    }
+   ],
+   "outcome": {
+    "o": 1,
+    "source": "card",
+    "p_permille": 700,
+    "brier_ppm": 90000,
+    "n": 1
+   }
+  },
+  {
+   "prediction": "P-000002",
+   "sha": "a55c3463746d",
+   "predict_seq": 23,
+   "tuple_seq": 26,
+   "registered": true,
+   "readings": [
+    {
+     "card": "cost_turn",
+     "verdict": "worse",
+     "n_before": 5,
+     "n_after": 5,
+     "mean_before_milli": 390000,
+     "mean_after_milli": 1560000,
+     "sd_milli": 0,
+     "se_milli": 0,
+     "z_permille": -99999,
+     "action": "rollback",
+     "registered": true
+    },
+    {
+     "card": "provider_errors",
+     "verdict": "noise",
+     "n_before": 5,
+     "n_after": 5,
+     "mean_before_milli": 0,
+     "mean_after_milli": 0,
+     "sd_milli": 0,
+     "se_milli": 0,
+     "z_permille": 0,
+     "action": "none",
+     "registered": true
+    },
+    {
+     "card": "requests_turn",
+     "verdict": "worse",
+     "n_before": 5,
+     "n_after": 5,
+     "mean_before_milli": 1000,
+     "mean_after_milli": 4000,
+     "sd_milli": 0,
+     "se_milli": 0,
+     "z_permille": -99999,
+     "action": "none",
+     "registered": true
+    }
+   ],
+   "outcome": {
+    "o": 1,
+    "source": "card",
+    "p_permille": 800,
+    "brier_ppm": 65000,
+    "n": 2
+   }
+  }
+ ],
+ "guard_rollbacks": 1,
+ "spent_musd": 19500,
+ "cap_usd": "0.60"
+}

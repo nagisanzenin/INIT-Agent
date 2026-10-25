@@ -187,6 +187,9 @@ pub enum Measure {
     Exp(String),
     /// `gog`: the Root's gate-of-gates on a kernel candidate.
     Gog,
+    /// `card:<id>` / `card:<id> gate` (ADR-013): a Root observation-card reading of this change (owner turns before
+    /// and after it); `gate`: the agent's self-imposed gate, rolled back by the Root unless the reading is better.
+    Card(String, bool),
 }
 
 impl std::fmt::Display for Measure {
@@ -196,6 +199,8 @@ impl std::fmt::Display for Measure {
             Measure::G4Gate => f.write_str("g4 gate"),
             Measure::Exp(fam) => write!(f, "exp:{fam}"),
             Measure::Gog => f.write_str("gog"),
+            Measure::Card(id, false) => write!(f, "card:{id}"),
+            Measure::Card(id, true) => write!(f, "card:{id} gate"),
         }
     }
 }
@@ -207,13 +212,21 @@ impl std::str::FromStr for Measure {
             "g4" => Ok(Measure::G4),
             "g4 gate" => Ok(Measure::G4Gate),
             "gog" => Ok(Measure::Gog),
+            _ if s.starts_with("card:") => {
+                let (id, gate) = s["card:".len()..].strip_suffix(" gate").map_or((&s["card:".len()..], false), |i| (i, true));
+                if (1..=32).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_lowercase() || b == b'_') {
+                    Ok(Measure::Card(id.to_string(), gate))
+                } else {
+                    Err(format!("'{s}': the card id must match [a-z_]{{1,32}}"))
+                }
+            }
             _ => match s.strip_prefix("exp:") {
                 Some(fam) if grammar::is_family_id(fam) => Ok(Measure::Exp(fam.to_string())),
                 Some(_) => Err(format!(
                     "'{s}': the family id must match [A-Za-z0-9][A-Za-z0-9._-]{{0,63}}"
                 )),
                 None => Err(format!(
-                    "'{s}': expected 'g4', 'g4 gate', 'gog' or 'exp:<family>'"
+                    "'{s}': expected 'g4', 'g4 gate', 'gog', 'card:<id>[ gate]' or 'exp:<family>'"
                 )),
             },
         }

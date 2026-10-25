@@ -519,6 +519,7 @@ mod linux_filesystem_tests {
     }
 }
 
+#[allow(clippy::unnecessary_cast)] // rlim_t is u64 on macOS and 64-bit Linux, not on every target
 pub fn raise_nofile(want: u64) -> io::Result<(u64, u64, u64)> {
     let get = || {
         let mut r = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
@@ -633,6 +634,7 @@ pub fn signal_tracked(_: &Proc, _: c_int) -> bool {
     false
 }
 
+#[allow(clippy::items_after_test_module)] // the Linux-only helpers below are kept next to their Linux tests
 #[cfg(test)]
 mod tests {
     #[test]

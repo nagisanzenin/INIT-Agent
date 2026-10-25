@@ -22,7 +22,6 @@ use std::time::{Duration, Instant};
 
 /// The harness part of the incumbent cache key: a cache entry made by another sealed driver is never reused.
 const HARNESS: &str = "root-s1a/1";
-/// The per-run planning estimate when there is no history (m7-design.md §3.2.6).
 
 use crate::zone::Err3;
 
@@ -270,6 +269,7 @@ struct Pair<'a> {
 }
 
 /// §3.2.3 items 2–8. Errors and tripwires end it early; the record is written by the caller either way.
+#[allow(clippy::too_many_arguments)]
 fn slice_runs(root: &Root, env: &Env, cand: &Arm, inc: &Arm, tasks: &[Task], r: u32, gate_id: &str, sp: &Spend, det: &mut Value)
     -> Result<SliceStats, End> {
     let par_n = env.ch.sealed.parallel.max(1) as usize;

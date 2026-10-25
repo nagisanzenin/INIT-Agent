@@ -193,7 +193,9 @@ fn mark(root: &Root, id: &str) -> Result<PathBuf, String> {
 fn launch(root: &Root, id: &str, profile: ProfileId, given: &BTreeMap<String, String>, grant: &Grant, prog: &str, args: &[String],
     setup: impl FnOnce(&mut Command)) -> Result<i32, String> {
     let m = mark(root, id)?;
-    let res = launcher(root, profile, given, &m, grant).and_then(|mut argv| {
+    let res = launcher(root, profile, given, &m, grant).and_then(|argv| {
+        #[cfg(target_os = "linux")]
+        let mut argv = argv; // linux_bind_fds rewrites the bind paths to fd paths
         let mut c = Command::new(root.p.r("bin/init-root"));
         c.arg("exec-clean");
         if profile == ProfileId::Kernel {

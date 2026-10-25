@@ -96,6 +96,13 @@ pub fn corrections_trend(reference: (u64, u64), window: (u64, u64)) -> Trend {
 /// their `ladder down` itself; the others go to the supervisor.
 pub const NO_ROLLBACK: [&str; 2] = ["harm_rate", "quarantine_debt"];
 
+/// F2 (demo 2026-10-25): an incident at L0 costs no level, so its `ladder` record says `direction: "floor"`, not
+/// `"down"`. It still opens the incident, answers the pending trigger and counts toward §3.9's repeated-demotion rule
+/// (3 at L0 in 24 h → safe mode) and still holds the climb to L1 back (`demotions_last_7_days` counts incidents).
+pub fn down_dir(from: i64) -> &'static str {
+    if from <= 0 { "floor" } else { "down" }
+}
+
 pub fn cap(max_level: i64) -> i64 {
     max_level.min(SUPPORTED_MAX_LEVEL)
 }
@@ -228,9 +235,9 @@ impl Level {
                 self.enter(r, seq, at);
                 self.last_change = Some(json!({"at": r["at"], "cause": d["cause"], "direction": d["direction"],
                     "from": d["from"], "seq": seq, "to": d["to"], "trigger": d["trigger"]}));
-                if d["direction"] == "down" {
+                if matches!(d["direction"].as_str(), Some("down" | "floor")) {
                     (self.pending, self.incident) = (None, Some((seq, at)));
-                    bounded(&mut self.downs, at, 16);
+                    bounded(&mut self.downs, at, 16); // a floor incident still holds the climb to L1 back for 7 days
                     if d["from"] == 0 {
                         bounded(&mut self.l0_downs, at, L0_REPEAT);
                     }
@@ -423,7 +430,7 @@ pub fn verify(records: &[Value]) -> Vec<String> {
                     }
                 }
                 // a panic always costs one level, even inside an open incident (panic.rs)
-                Some("down") if l.pending.as_ref().is_none_or(|p| d["trigger"]["seq"].as_u64() != Some(p.1)) && d["trigger"]["kind"] != "panic" => {
+                Some("down" | "floor") if l.pending.as_ref().is_none_or(|p| d["trigger"]["seq"].as_u64() != Some(p.1)) && d["trigger"]["kind"] != "panic" => {
                     bad.push(format!("seq {seq}: a demotion that answers no pending trigger"));
                 }
                 _ => {}
@@ -454,7 +461,7 @@ pub fn tick(root: &Root) {
         Step::Down(k, seq) if NO_ROLLBACK.contains(&k.as_str()) => {
             let to = (from - 1).max(0);
             let cause = if k == "harm_rate" { "harm_rate" } else { "demotion" };
-            let down = json!({"cause": cause, "direction": "down", "from": from, "to": to, "trigger": {"kind": k, "seq": seq}});
+            let down = json!({"cause": cause, "direction": down_dir(from), "from": from, "to": to, "trigger": {"kind": k, "seq": seq}});
             (root.append_locked(&mut lg, "root", "ladder", down), false)
         }
         Step::Down(..) => {

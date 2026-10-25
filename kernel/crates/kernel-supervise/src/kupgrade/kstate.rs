@@ -128,7 +128,7 @@ fn tar(entries: &[Entry]) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 fn parse(bytes: &[u8]) -> Result<Vec<Entry>, String> {
-    if bytes.len() > MAX_BYTES || bytes.len() < 1024 || bytes.len() % 512 != 0 {
+    if bytes.len() > MAX_BYTES || bytes.len() < 1024 || !bytes.len().is_multiple_of(512) {
         return Err("invalid kstate archive size".into());
     }
     let (mut pos, mut entries, mut names) = (0, Vec::new(), BTreeSet::new());
@@ -518,7 +518,7 @@ mod tests {
         assert!(parse(&tar(&[entry("a", b""), entry("a", b"")]).unwrap()).is_err());
         assert!(parse(&tar(&[entry("a", b""), entry("a/b", b"")]).unwrap()).is_err());
         let original = tar(&[entry("a", b"data")]).unwrap();
-        for kind in [b'1', b'2', b'3', b'5', b'x', b'g'] {
+        for kind in *b"1235xg" {
             let mut bytes = original.clone();
             bytes[156] = kind;
             checksum(&mut bytes[..512]);

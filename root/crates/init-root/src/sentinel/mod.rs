@@ -68,6 +68,11 @@ pub struct Turn {
     /// Owner turns: the unit (consecutive turns of one owner session, ≤ 6) its statistics are pooled in.
     #[serde(default)]
     pub unit: u64,
+    /// ADR-013 (GBAL cards): input and cache-read tokens of the turn's requests, from the egress tap.
+    #[serde(default)]
+    pub input_tok: u64,
+    #[serde(default)]
+    pub cache_read_tok: u64,
 }
 
 impl Turn {
@@ -120,6 +125,9 @@ pub struct Shared {
     /// A group closed or `lkg` moved: X4's `settled_tick` and `prune` are due (`after_close` runs one at a time).
     closed: AtomicBool,
     after_close: AtomicBool,
+    /// The kernel relayed `state{busy:false}`: the next `tick` (the supervisor's thread, never the kernel link's
+    /// reader, whose turn-close hooks may veto through the kernel) closes a finished owner turn.
+    idle: AtomicBool,
 }
 
 /// The Root's view of the world for one engine call, read before the engine lock is taken.
@@ -241,7 +249,7 @@ pub fn fold(e: &mut Engine, recs: &[Value]) {
             Some("change_open") => {
                 let Some(seq) = d["group"].as_u64() else { continue };
                 e.next_group = e.next_group.max(seq + 1);
-                let caps: Vec<String> = d["caps"].as_array().into_iter().flatten().filter(|c| c["op"] != "remove")
+                let caps: Vec<String> = d["caps"].as_array().into_iter().flatten().filter(|c| !matches!(c["op"].as_str(), Some("remove" | "baseline")))
                     .filter_map(|c| c["id"].as_str().map(String::from)).collect();
                 let sha = d["sha"].as_str().unwrap_or("").to_string();
                 shas.entry(seq).or_default().push((sha.clone(), caps.clone()));
@@ -433,6 +441,12 @@ pub fn hb(root: &Root, busy: bool) {
     });
 }
 
+/// `sup.rs`: the kernel relayed `state{busy:false}` to the owner (the body is idle): the owner turn ends at the next
+/// `tick` (within 200 ms), on the supervisor's thread like the quiet rule's close.
+pub fn idle(root: &Root) {
+    root.sentinel.idle.store(true, SeqCst);
+}
+
 /// `sup.rs` `handle`: a `spawn` the broker granted (H6 churn).
 pub fn spawned(root: &Root) {
     go(root, |e, cx| e.spawned(cx));
@@ -488,6 +502,14 @@ pub fn egress_end(root: &Root, id: &str, cost_musd: u64, status: u16, finish: Op
     go(root, |e, cx| e.req_end(cx, id, cost_musd, error));
 }
 
+/// ADR-013 (GBAL cards): the tap's usage of one zone request (input and cache-read tokens), before its end.
+pub fn egress_usage(root: &Root, id: &str, input: u64, cache_read: u64) {
+    go(root, |e, _| {
+        e.req_usage(id, input, cache_read);
+        Vec::new()
+    });
+}
+
 /// X5's tap: the capabilities one zone egress request used (by its egress id), with their uses and evidence. They
 /// land on that request's turn; the same id with both evidences keeps `root` and sums the uses.
 pub fn req_caps(root: &Root, req_id: &str, caps: &[(String, u32, &'static str)]) {
@@ -501,6 +523,9 @@ pub fn req_caps(root: &Root, req_id: &str, caps: &[(String, u32, &'static str)])
 /// `settled_tick` and `prune` run on their own thread (they read the whole lineage, and `prune` waits for a concurrent
 /// snapshot `take` or `restore`), so the supervisor never waits on them.
 pub fn tick(root: &Arc<Root>) {
+    if root.sentinel.idle.swap(false, SeqCst) {
+        go(root, |e, cx| e.idle(cx));
+    }
     go(root, |e, cx| e.tick(cx));
     if root.sentinel.closed.load(SeqCst) && !root.sentinel.after_close.swap(true, SeqCst) {
         root.sentinel.closed.store(false, SeqCst);
@@ -569,7 +594,9 @@ pub fn change_open(root: &Arc<Root>, a: &Value) -> Result<Value, Err3> {
         None => json!(a["caps"].as_array().cloned().unwrap_or_default().into_iter().filter(|c| c["id"].is_string())
             .map(|mut c| { c["evidence"] = json!("zone"); c }).collect::<Vec<_>>()),
     };
-    let ids: Vec<String> = caps.as_array().into_iter().flatten().filter(|c| c["op"] != "remove").filter_map(|c| c["id"].as_str().map(String::from)).collect();
+    // F3: `baseline` caps (a parent with no t0 blob) are learned, never attributed to this change's group
+    let ids: Vec<String> = caps.as_array().into_iter().flatten().filter(|c| !matches!(c["op"].as_str(), Some("remove" | "baseline")))
+        .filter_map(|c| c["id"].as_str().map(String::from)).collect();
     let tid = crate::tuple::id_of(&t);
     let open = Open { sha: sha.into(), scope: scope.into(), caps: ids, tuple: tid.clone() };
     let plan = with(root, |e, cx| (e.plan(cx, &open), Vec::new())).map_err(|(c, m)| no(c, m))?;
@@ -605,6 +632,7 @@ pub fn change_open(root: &Arc<Root>, a: &Value) -> Result<Value, Err3> {
     }
     let snap = snapshot.as_str().map(String::from);
     go(root, |e, cx| e.commit(cx, &open, &plan, snap));
+    crate::goal::opened(root, a); // ADR-013: the commit's `Measure: card:<id>[ gate]` readings
     let level_now = lock(&root.st).level.level; // its own statement: `limits` takes `st` too
     let w = { let l = limits(root, level_now); if scope == "k" { l.kwin } else { l.win } };
     Ok(json!({"group": plan.group, "seq": rec["seq"], "snapshot": snapshot,

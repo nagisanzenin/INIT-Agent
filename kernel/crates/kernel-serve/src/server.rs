@@ -680,6 +680,13 @@ impl Inner {
         if let Err(e) = gating::check_lane(&cmd, ctx) {
             return reply(id, Err(e));
         }
+        // `promote --check` (GBAL G7): promote's commit checks, answered at once. No job, no quota ticket, and none of
+        // the pipeline's busy refusals: it promotes nothing.
+        if let Command::Promote(a) = &cmd
+            && a.check == Some(true)
+        {
+            return reply(id, self.backend.promote_check(ctx, a));
+        }
         let view = self.backend.view(ctx);
         if let Err(e) = gating::check_state(&cmd, ctx, &view, &self.store_facts(&cmd)) {
             return reply(id, Err(e));
@@ -732,6 +739,7 @@ impl Inner {
                 .and_then(|t| b.evo(ctx, &cmd, Some(&t))),
             Command::EvoFrictions(_) | Command::EvoStatus(_) | Command::EvoAbandon(_) => b.evo(ctx, &cmd, None),
             Command::Grant(a) => to_val(b.grant_request(ctx, a)),
+            Command::Goal(a) => b.goal(ctx, a),
             Command::Reload(_)
             | Command::Gate(_)
             | Command::Promote(_)

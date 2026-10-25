@@ -405,7 +405,7 @@ fn debts(quar: &BTreeMap<String, Quar>, table: &[CapRow]) -> Vec<String> {
 /// was formed ≤ 14 days ago.
 fn without(recs: &[Value], cap: &str, ver: Option<&str>, now: i64) -> Option<String> {
     let intro = recs.iter().rev().filter(|r| r["by"] == "root" && r["kind"] == "change_open").find(|r| {
-        r["data"]["caps"].as_array().into_iter().flatten().any(|c| c["id"] == cap && c["op"] != "remove" && c["ver"].as_str() == ver)
+        r["data"]["caps"].as_array().into_iter().flatten().any(|c| c["id"] == cap && !matches!(c["op"].as_str(), Some("remove" | "baseline")) && c["ver"].as_str() == ver)
     })?;
     let parent = intro["data"]["parent_tuple"].as_str()?.to_string();
     let formed = recs.iter().find(|r| (r["kind"] == "tuple" && r["data"]["id"] == parent.as_str()) || (r["kind"] == "change_open" && r["data"]["tuple"] == parent.as_str()))

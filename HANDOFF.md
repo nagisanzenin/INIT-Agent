@@ -16,7 +16,7 @@
 
 - **v0.2.0-preview is PUBLIC** at https://github.com/nagisanzenin/INIT-Agent, released as the GitHub release `v0.2.0-preview`, marked latest. It was published as one clean commit with the noreply author.
   - It leaves out `build/real-artifacts`, `build/slice1-artifacts` and `build/ci`.
-  - This private repo (INIT-Agent-dev) keeps the full history. Port fixes to the public repo by exporting.
+  - This private repo keeps the full history. Port fixes to the public repo by exporting.
 - **Install:** `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh`, then `init` (first-run setup).
 - **Verified:**
   - Full CI on macOS: 1,807 passing. The `kernel-selfmap` s08/s09/s12 failures are a known load flake and pass alone.
@@ -154,7 +154,7 @@ The sections below record the 2026-10-22 STOPPED state and are retained only as 
   - `~/.init` and `~/.init-root` are intact. That install predates the MEM-RUNAWAY fix.
   - To restore it, take the plist back out of the Trash, then
     `launchctl bootstrap gui/$UID ~/Library/LaunchAgents/dev.init.root.plist`. Only do this if the owner asks.
-- **The repo is in sync with `origin/main`** (private: nagisanzenin/INIT-Agent-dev). It is clean apart from three
+- **The repo is in sync with `origin/main`** (the private development repo). It is clean apart from three
   untracked paths: `build/ci/v011-run1.log`, `build/real-artifacts/m7/mock/` and a research_notes folder.
 - **Start with these:** this file, then `reports/INIT proof sprint verdict.md` (the verdict, with the evolution test at
   the end), then `docs/adr/011-reward-free-self-extension.md` (the current design).

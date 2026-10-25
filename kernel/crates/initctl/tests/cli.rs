@@ -510,6 +510,7 @@ fn every_cli_command_sends_a_parsable_request() {
         vec!["job", "list", "--all"],
         vec!["job", "cancel", "j-000001"],
         vec!["grant", "extend.open_groups", "6", "--why", "five tools for one task"],
+        vec!["goal", "status"],
     ];
     let mut seen = std::collections::BTreeSet::new();
     for f in &forms {

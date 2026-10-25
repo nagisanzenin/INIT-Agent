@@ -238,7 +238,7 @@ fn rf22_rf23_selection_on_a_test_home() {
     assert_eq!((harm.len(), harm[0]["signal"].as_str(), harm[0]["action"].as_str(), harm[0]["caps"][0].as_str()), (1, Some("quarantine_debt"), Some("demote"), Some("tool/x")));
     tick_at(&root, now_ms() + 80 * HOUR);
     assert_eq!(records(&root, "harm").len(), 1, "once per quarantine");
-    let down = records(&root, "ladder").into_iter().rfind(|d| d["direction"] == "down").unwrap();
+    let down = records(&root, "ladder").into_iter().rfind(|d| matches!(d["direction"].as_str(), Some("down" | "floor"))).unwrap(); // F2: "floor" at L0
     assert_eq!((down["trigger"]["kind"].as_str(), down["cause"].as_str()), (Some("quarantine_debt"), Some("demotion")), "R7 demoted, rolling nothing back");
     drop(root);
     fs::remove_dir_all(&dir).unwrap();

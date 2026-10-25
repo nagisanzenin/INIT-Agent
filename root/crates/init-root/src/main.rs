@@ -12,6 +12,7 @@ mod cli; // the CLI (WP20; exec-clean: WP21)
 mod doctor; // `doctor --sweep-dry-run` (R-SAFE, ADR-008): the D1 selection, read-only
 mod egress; // R2/R3 (WP22; C11 validation: WP20)
 mod extend; // ADR-011 §5 attribution: usage ledger, cap table, caps.json (X5)
+mod goal; // ADR-013 GBAL: owner goals, predictions, observation cards, outcomes and calibration
 mod grant; // ADR-011 §7.4 owner grants: requests, /grant and /deny, the overlay with expiry (X7)
 mod install; // the homes, the layout checks and install (WP20)
 mod ledger; // R7 (WP25; the level fold: WP20)
@@ -42,6 +43,7 @@ fn main() -> ExitCode {
     select::register(); // X6: archive/quarantine debts and bloat (A5) before X4's A4; turn and direct-rollback hooks
     sup::kprobe::register(); // X8: the Root conformance probe of a kernel change, before X4's snapshot
     snapshot::register(); // X4: the A4/snapshot admission hook and R2 (sentinel::Hooks)
+    goal::register(); // ADR-013: the cards' closed-turn hook (sentinel::Hooks)
     twin::register(); // X9: the replay store's closed-turn hook (sentinel::Hooks)
     ExitCode::from(cli::run(std::env::args().skip(1).collect()))
 }

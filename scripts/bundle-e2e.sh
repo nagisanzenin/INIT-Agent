@@ -1,10 +1,11 @@
 #!/bin/bash
-# The prebuilt-bundle end-to-end check, at $0 (docs/release.md §2b, §5b; lane UX-BUNDLE): a user without Rust runs
+# The prebuilt-bundle end-to-end check, at $0 except --live (docs/release.md §2b, §5b; lane UX-BUNDLE): a user without Rust runs
 # get.sh on the bundle, then `init`, sends one line and gets the mock model's reply. Everything lives in
 # target/test-homes/ube/; the owner's ~/.init, ~/.init-root, ~/.local/bin, ~/.local/share/init,
 # ~/Library/LaunchAgents and shell startup files are snapshotted before and after and must not change.
 #
-#   scripts/bundle-e2e.sh [--keep] [--t2] [TARBALL]   (default: target/dist/v<version>-preview/init-…-macos-arm64.tar.gz)
+#   scripts/bundle-e2e.sh [--keep] [--t2 | --pause | --live] [TARBALL]
+#                         (default TARBALL: target/dist/v<version>-preview/init-…-macos-arm64.tar.gz)
 #
 #   1. a loopback init-mockllm from the bundle (one turn: "hello from the mock")
 #   2. get.sh --from TARBALL -- --no-service --disk-floor 5 --mock-upstream 127.0.0.1:<port>, with HOME,
@@ -27,14 +28,30 @@
 #      (to check a bundle cut before the 3600 s default); UBE_T2_FROM=<git repo> UBE_T2_REF=<branch> promotes that
 #      commit (it must be by the agent identity, on the same seed) instead of the no-op one; UBE_T2_REPRO_EVENT=1 points
 #      its Repro trailer at an event of this install (the original names the source install's trace).
+#   --pause (REL-032/REL-033; $0, about 30 s; a T0-only install as with UBE_NO_RUST=1): the owner's interrupt is a
+#      pause (docs/body/loop.md §3.5.1) on the strict DeepSeek mock. The mock stalls the first turn before any event;
+#      2 s after `busy` the harness sends SIGINT to `init --raw` (our child; line mode sends `interrupt`), expects the
+#      display `paused · type to continue, or say what to do instead`, no `aborted`, idle within 1 s; then "Please
+#      continue." and the mock's second reply. Checks: exactly 2 model requests, no 400 or protocol error in the strict
+#      mock's log, the `[init:paused]` note in the resume request and not in the first, and the paused turn replayed as
+#      `[no visible output]` with `"reasoning_content": ""` (provider.md §3.8.1). Verdict: build/status/bundle-pause.json.
+#   --live (REL-030/REL-033; COSTS MONEY, about $0.0005): one turn against the live provider in the bundle's charter
+#      (api.deepseek.com), no mock. UBE_LIVE_KEYFILE=<file> (required) holds the DeepSeek key; it is copied into the
+#      test Root's keys/providers/deepseek and never printed or logged. A watchdog stops the turn when the test install's
+#      settled spend (INIT_HOME/root/ceilings.json) reaches UBE_LIVE_CAP_MUSD (default 10000 µUSD = $0.01) or 4 provider
+#      requests. The reply to "Reply with the word ok." must contain `ok`; the harness waits up to 75 s for the Root to
+#      meter the request and records requests, tokens and µUSD. Key hygiene: before the test dir is removed, the key may
+#      be in exactly one file of it (the test Root's key file). Verdict: build/status/bundle-live.json.
 # Verdict: build/status/bundle-e2e.json. Signals go only to the PIDs this script spawned. The test dir is removed
 # (exact path) unless --keep.
 set -euo pipefail
 umask 077
 
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
-KEEP=0; T2=0; TGZ=""
-for a in "$@"; do case "$a" in --keep) KEEP=1 ;; --t2) T2=1 ;; -*) echo "usage: $0 [--keep] [--t2] [TARBALL]" >&2; exit 64 ;; *) TGZ="$a" ;; esac; done
+KEEP=0; T2=0; PAUSE=0; LIVE=0; TGZ=""
+USAGE="usage: $0 [--keep] [--t2 | --pause | --live] [TARBALL]"
+for a in "$@"; do case "$a" in --keep) KEEP=1 ;; --t2) T2=1 ;; --pause) PAUSE=1 ;; --live) LIVE=1 ;; -*) echo "$USAGE" >&2; exit 64 ;; *) TGZ="$a" ;; esac; done
+[ $(( T2 + PAUSE + LIVE )) -le 1 ] || { echo "$USAGE (one mode at most)" >&2; exit 64; }
 CAND=evo/noop
 if [ -n "${UBE_T2_FROM:-}" ]; then
   case "${UBE_T2_REF:-}" in ""|*[!A-Za-z0-9/_.-]*) echo "UBE_T2_FROM needs UBE_T2_REF=<branch> ([A-Za-z0-9/_.-])" >&2; exit 64 ;; esac
@@ -46,6 +63,8 @@ TGZ="${TGZ:-$REPO/target/dist/v$VERSION-preview/$NAME.tar.gz}"
 NAME="$(basename "$TGZ" .tar.gz)"
 D="$REPO/target/test-homes/ube"; VERDICT="$REPO/build/status/bundle-e2e.json"
 if [ $T2 = 1 ]; then D="$REPO/target/test-homes/ub2"; VERDICT="$REPO/build/status/bundle-e2e-t2.json"; fi
+if [ $PAUSE = 1 ]; then D="$REPO/target/test-homes/ubp"; VERDICT="$REPO/build/status/bundle-pause.json"; fi
+if [ $LIVE = 1 ]; then D="$REPO/target/test-homes/rels"; VERDICT="$REPO/build/status/bundle-live.json"; fi
 H="$D/home"; RH="$D/r"; IH="$D/i"; BIN="$H/.local/bin"
 PW_HOME="$(/usr/bin/python3 -I -c 'import os,pwd;print(pwd.getpwuid(os.getuid()).pw_dir)')"
 NORUST_PATH=/usr/bin:/bin:/usr/sbin:/sbin
@@ -58,6 +77,14 @@ if env -i PATH="$NORUST_PATH" /bin/sh -c 'command -v cargo || command -v rustup 
   die "cargo/rustup/rustc is on $NORUST_PATH: cannot simulate a Mac without Rust"
 fi
 NO_RUST="${UBE_NO_RUST:-0}"
+if [ $PAUSE = 1 ] || [ $LIVE = 1 ]; then NO_RUST=1; fi # neither needs a toolchain; skip the Rust download
+KEYFILE=; CAP_MUSD="${UBE_LIVE_CAP_MUSD:-10000}"
+if [ $LIVE = 1 ]; then
+  KEYFILE="${UBE_LIVE_KEYFILE:-}"
+  [ -n "$KEYFILE" ] && [ -s "$KEYFILE" ] || die "--live needs UBE_LIVE_KEYFILE=<a file holding the DeepSeek key>"
+  case "$CAP_MUSD" in ""|*[!0-9]*) die "UBE_LIVE_CAP_MUSD must be a whole number of µUSD" ;; esac
+  log "--live: one live DeepSeek turn (costs money); cap $CAP_MUSD µUSD or 4 requests"
+fi
 [ "$NO_RUST" = 0 ] || [ $T2 = 0 ] || die "--t2 needs the toolchain get.sh installs (unset UBE_NO_RUST)"
 GET_ARGS=()
 [ "$NO_RUST" = 0 ] || { GET_ARGS=(--no-rust); log "UBE_NO_RUST=1: get.sh --no-rust (a T0-only install)"; }
@@ -115,6 +142,9 @@ mkdir -p "$H" "$D/mock" "$D/tmp"
 snap >"$D/owner-before.txt"
 
 # ---------------------------------------------------------------- 1. the $0 mock upstream (from the bundle itself)
+# (--live: none; the charter's provider is the live api.deepseek.com)
+MOCK_ARGS=()
+if [ $LIVE = 0 ]; then
 # UBE_MOCK_BIN: another upstream mock (for example kernel/target/debug/init-mockllm, to check a bundle cut before a
 # mock fix); the installed one under INIT_HOME/kernel/bin, which the seed's own tests use in G0, is always the bundle's.
 if [ -n "${UBE_MOCK_BIN:-}" ]; then
@@ -123,10 +153,18 @@ else
   /usr/bin/tar -xzf "$TGZ" -C "$D" "$NAME/init-mockllm"
   mv "$D/$NAME/init-mockllm" "$D/init-mockllm"; rmdir "$D/$NAME"
 fi
-cat >"$D/ube.mock.jsonl" <<'EOF'
+if [ $PAUSE = 1 ]; then # the first turn stalls before any event (the pause lands before the first token)
+  cat >"$D/ube.mock.jsonl" <<'EOF'
+{"v":1,"kind":"meta","provider":"deepseek","model":"deepseek-flash","name":"bundle-e2e-pause","chunk":16}
+{"v":1,"kind":"turn","expect":{"last_role":"user"},"fault":{"kind":"stall","after_events":0,"ms":30000},"reply":{"text":"never shown","stop":"end_turn"}}
+{"v":1,"kind":"turn","expect":{"last_role":"user"},"reply":{"text":"resumed after the pause","stop":"end_turn","usage":{"input":12000,"cache_read":0,"output":5}}}
+EOF
+else
+  cat >"$D/ube.mock.jsonl" <<'EOF'
 {"v":1,"kind":"meta","provider":"deepseek","model":"deepseek-flash","name":"bundle-e2e-hello","chunk":16}
 {"v":1,"kind":"turn","expect":{"last_role":"user"},"reply":{"text":"hello from the mock","stop":"end_turn","usage":{"input":12000,"cache_read":0,"output":5}}}
 EOF
+fi
 if [ $T2 = 1 ]; then cat >>"$D/ube.mock.jsonl" <<EOF
 {"v":1,"kind":"turn","expect":{"last_role":"user","last_text_contains":"Promote $CAND"},"reply":{"calls":[{"name":"bash","input":{"command":"initctl promote $CAND"}}],"stop":"tool_use","usage":{"input":12100,"cache_read":11776,"output":9}}}
 {"v":1,"kind":"turn","reply":{"text":"promote submitted","stop":"end_turn","usage":{"input":12300,"cache_read":11776,"output":3}}}
@@ -138,6 +176,8 @@ PIDS+=($!)
 for _ in $(seq 1 100); do [ -s "$D/mock.port" ] && break; sleep 0.1; done
 PORT="$(tr -d '\n' <"$D/mock.port")"
 log "mock upstream on 127.0.0.1:$PORT (pid ${PIDS[0]})"
+MOCK_ARGS=(--mock-upstream "127.0.0.1:$PORT")
+fi
 
 # ---------------------------------------------------------------- 2. get.sh, no Rust on PATH
 T0=$(ms)
@@ -145,7 +185,7 @@ set +e
 env -i HOME="$H" PATH="$NORUST_PATH" TMPDIR="$D/tmp/" LANG=en_US.UTF-8 INIT_ROOT_HOME="$RH" INIT_HOME="$IH" \
   RUSTUP_HOME="$H/.rustup" CARGO_HOME="$H/.cargo" \
   /bin/sh "$REPO/scripts/get.sh" --from "$TGZ" ${GET_ARGS[@]+"${GET_ARGS[@]}"} -- --no-service --disk-floor 5 \
-  --mock-upstream "127.0.0.1:$PORT" \
+  ${MOCK_ARGS[@]+"${MOCK_ARGS[@]}"} \
   >"$D/get.log" 2>&1 </dev/null
 GRC=$?
 set -e
@@ -169,7 +209,11 @@ if [ -n "${UBE_COLD_BUILD_S:-}" ]; then
 fi
 
 # ---------------------------------------------------------------- 3. key (harness only) and start
-(umask 077; printf 'test-ube-mock-key' >"$RH/keys/providers/deepseek")
+if [ $LIVE = 1 ]; then # the owner's key: copied, never printed
+  (umask 077; tr -d '\r\n' <"$KEYFILE" >"$RH/keys/providers/deepseek")
+else
+  (umask 077; printf 'test-ube-mock-key' >"$RH/keys/providers/deepseek")
+fi
 RENV=(env -i HOME="$PW_HOME" INIT_ROOT_HOME="$RH" PATH=/usr/bin:/bin)
 T1=$(ms)
 "${RENV[@]}" "$RH/bin/init-root" start --foreground >"$D/root.out" 2>&1 </dev/null &
@@ -189,6 +233,15 @@ log "init-root start (pid $ROOT_PID): ready after $READY_MS ms"
 cat >"$D/drive.py" <<'PY'
 import json, queue, subprocess, sys, threading, time
 init, home, out, say, want = sys.argv[1:6]
+# --live: the test install's ceilings.json and a µUSD cap; the turn stops at the cap or at 4 provider requests
+ceil, cap = (sys.argv[6], int(sys.argv[7])) if len(sys.argv) > 7 else (None, None)
+def metered():
+    try:
+        c = json.load(open(ceil))
+    except (OSError, ValueError):
+        return 0, 0
+    reqs = sum(x.get("requests_today") or 0 for x in c.get("classes", []) if x.get("id") == "providers")
+    return c.get("money", {}).get("total_spent_musd") or 0, reqs
 p = subprocess.Popen([init, "--raw", "--no-replay"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
                      env={"HOME": home, "PATH": "/usr/bin:/bin"}, text=True, bufsize=1)
 q = queue.Queue()
@@ -197,11 +250,17 @@ t0 = time.monotonic()
 time.sleep(0.3)
 p.stdin.write(say + "\n")
 p.stdin.flush()
-texts, busy, idle = [], False, False
+texts, busy, idle, fired, turn_end, polled = [], False, False, None, None, 0.0
 with open(out, "w") as f:
     while time.monotonic() - t0 < 120:
+        if ceil and time.monotonic() - polled >= 0.5: # the spend watchdog
+            polled = time.monotonic()
+            spent, reqs = metered()
+            if spent >= cap or reqs >= 4:
+                fired = {"spent_musd": spent, "requests": reqs}
+                break
         try:
-            line = q.get(timeout=0.5)
+            line = q.get(timeout=0.25 if ceil else 0.5)
         except queue.Empty:
             continue
         if line is None:
@@ -214,6 +273,8 @@ with open(out, "w") as f:
         d = v.get("display") if isinstance(v.get("display"), dict) else v
         if v.get("t") == "display" and (d.get("kind") in ("text", None)) and isinstance(d.get("text"), str):
             texts.append(d["text"])
+        if v.get("t") == "display" and d.get("kind") == "turn_end":
+            turn_end = d.get("text")
         if v.get("t") == "state":
             if v.get("busy") is True:
                 busy = True
@@ -221,22 +282,99 @@ with open(out, "w") as f:
                 idle = True
                 break
 reply = "".join(texts)
-rc = 0 if idle and want in reply else (1 if idle else 2)
+rc = 0 if idle and not fired and want.lower() in reply.lower() else (1 if idle or fired else 2)
 p.stdin.close()
 try:
     p.wait(timeout=3)
 except subprocess.TimeoutExpired:
     p.terminate()  # our own child
     p.wait()
-print(json.dumps({"rc": rc, "idle_after_task": idle, "reply": reply[-200:], "wall_ms": int((time.monotonic() - t0) * 1000)}))
+r = {"rc": rc, "idle_after_task": idle, "reply": reply[-200:], "wall_ms": int((time.monotonic() - t0) * 1000)}
+if ceil:
+    r.update({"watchdog": fired, "turn_end": turn_end})
+print(json.dumps(r))
 sys.exit(rc)
 PY
+cat >"$D/pause.py" <<'PY'
+import json, queue, signal, subprocess, sys, threading, time
+init, home, out = sys.argv[1:4]
+p = subprocess.Popen([init, "--raw", "--no-replay"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+                     env={"HOME": home, "PATH": "/usr/bin:/bin"}, text=True, bufsize=1)
+q = queue.Queue()
+threading.Thread(target=lambda: ([q.put(l.rstrip("\n")) for l in p.stdout], q.put(None)), daemon=True).start()
+f = open(out, "w")
+infos, texts = [], []
+def until(want_busy, limit):  # the next state frame with busy == want_busy; display frames are collected on the way
+    t = time.monotonic()
+    while time.monotonic() - t < limit:
+        try:
+            line = q.get(timeout=0.2)
+        except queue.Empty:
+            continue
+        if line is None:
+            return False
+        f.write(line + "\n")
+        try:
+            v = json.loads(line)
+        except ValueError:
+            continue
+        d = v.get("display") if isinstance(v.get("display"), dict) else v
+        if v.get("t") == "display" and isinstance(d.get("text"), str):
+            if d.get("kind") == "info":
+                infos.append(d["text"])
+            elif d.get("kind") in ("text", None):
+                texts.append(d["text"])
+        if v.get("t") == "state" and v.get("busy") is want_busy:
+            return True
+    return False
+t0 = time.monotonic()
+time.sleep(0.3)
+p.stdin.write("Say hi.\n"); p.stdin.flush()
+r = {"busy1": until(True, 30)}
+time.sleep(2)
+p.send_signal(signal.SIGINT)  # our own child: line mode sends `interrupt`
+ts = time.monotonic()
+r["idle1"] = until(False, 15)
+r["idle_after_sigint_ms"] = int((time.monotonic() - ts) * 1000)
+r["infos1"] = list(infos)
+texts.clear()
+time.sleep(0.5)
+p.stdin.write("Please continue.\n"); p.stdin.flush()
+r["busy2"] = until(True, 30)
+r["idle2"] = until(False, 60)
+r["reply"] = "".join(texts)[-200:]
+r["wall_ms"] = int((time.monotonic() - t0) * 1000)
+p.stdin.close()
+try:
+    p.wait(timeout=3)
+except subprocess.TimeoutExpired:
+    p.terminate()  # our own child
+    p.wait()
+f.close()
+ok = r["busy1"] and r["idle1"] and r["busy2"] and r["idle2"] and "resumed after the pause" in r["reply"]
+print(json.dumps(r))
+sys.exit(0 if ok else 1)
+PY
 set +e
-/usr/bin/python3 -I "$D/drive.py" "$BIN/init" "$H" "$D/attach.jsonl" "Say hello." "hello from the mock" >"$D/drive.json"
+if [ $PAUSE = 1 ]; then
+  /usr/bin/python3 -I "$D/pause.py" "$BIN/init" "$H" "$D/attach.jsonl" >"$D/drive.json"
+elif [ $LIVE = 1 ]; then
+  /usr/bin/python3 -I "$D/drive.py" "$BIN/init" "$H" "$D/attach.jsonl" "Reply with the word ok." "ok" \
+    "$IH/root/ceilings.json" "$CAP_MUSD" >"$D/drive.json"
+else
+  /usr/bin/python3 -I "$D/drive.py" "$BIN/init" "$H" "$D/attach.jsonl" "Say hello." "hello from the mock" >"$D/drive.json"
+fi
 DRC=$?
 set -e
 FIRST_MS=$(( $(ms) - T0 ))
 log "drive: $(cat "$D/drive.json")"
+if [ $LIVE = 1 ]; then # the Root republishes ceilings.json every 60 s and on changes: wait (75 s at most) for the metering
+  for _ in $(seq 1 150); do
+    /usr/bin/python3 -I -c 'import json,sys; c=json.load(open(sys.argv[1])); sys.exit(0 if sum(x.get("requests_today") or 0 for x in c.get("classes",[]) if x.get("id")=="providers")>=1 and (c.get("money",{}).get("total_spent_musd") or 0)>0 else 1)' "$IH/root/ceilings.json" 2>/dev/null && break
+    sleep 0.5
+  done
+  cp "$IH/root/ceilings.json" "$D/ceilings.json" 2>/dev/null || true
+fi
 
 # ---------------------------------------------------------------- 4b. (--t2) a no-op T2 promote of the unmodified seed
 PRC=-; PROMOTE_MS=0
@@ -336,10 +474,13 @@ wait "$ROOT_PID" 2>/dev/null || true
 ROOT_PID=
 set +e
 APP_VER="$(cat "$H/.local/share/init/"*/VERSION 2>/dev/null | head -1)"
+MODE=hello; [ $PAUSE = 1 ] && MODE=pause; [ $LIVE = 1 ] && MODE=live
+KEYHITS= # --live: the test dir's files that hold the key (names only), before anything is removed
+[ $LIVE = 0 ] || KEYHITS="$(grep -rlF -f "$KEYFILE" "$D" 2>/dev/null | sed "s|^$D/||" | tr '\n' ' ' || true)"
 /usr/bin/python3 -I - "$D" "$RH" "$IH" "$H/.local/share/init/$APP_VER/body/BODY.json" "$GET_MS" "$READY_MS" "$FIRST_MS" "$DRC" \
-  "$TOOLCHAIN_REC" "$TGZ" "$VERDICT" "$T2" "$PRC" "$PROMOTE_MS" "$NO_RUST" "$H" <<'PY'
+  "$TOOLCHAIN_REC" "$TGZ" "$VERDICT" "$T2" "$PRC" "$PROMOTE_MS" "$NO_RUST" "$H" "$MODE" "$CAP_MUSD" "$KEYHITS" <<'PY'
 import json, os, re, sys
-d, rh, ih, bodyrec, get_ms, ready_ms, first_ms, drc, tc, tgz, verdict, t2, prc, promote_ms, no_rust, home = sys.argv[1:17]
+d, rh, ih, bodyrec, get_ms, ready_ms, first_ms, drc, tc, tgz, verdict, t2, prc, promote_ms, no_rust, home, mode, cap, keyhits = sys.argv[1:20]
 t2 = t2 == "1"
 no_rust = no_rust == "1"
 body = json.load(open(bodyrec))
@@ -350,9 +491,52 @@ status = json.load(open(os.path.join(d, "status.json")))
 view = json.load(open(os.path.join(ih, "root/status.json")))
 drive = json.load(open(os.path.join(d, "drive.json")))
 mock_reqs = len(os.listdir(os.path.join(d, "mock")))
-checks = {
-    "reply_is_the_mocks": int(drc) == 0 and "hello from the mock" in drive["reply"],
-}
+extra = {}
+if mode == "pause":
+    rec = os.path.join(d, "mock")
+    bodies = []
+    for n in sorted(os.listdir(rec)):
+        if n.endswith(".json"):
+            b = json.load(open(os.path.join(rec, n)))
+            bodies.append(b.get("body", b) if isinstance(b, dict) else {})
+    logp = os.path.join(rec, "mock.log.jsonl")
+    mlog = [json.loads(l) for l in open(logp) if l.strip()] if os.path.isfile(logp) else []
+    has = lambda b, t: any(t in json.dumps(m) for m in b.get("messages", []))
+    resume = bodies[-1] if bodies else {}
+    asst = [m for m in resume.get("messages", []) if m.get("role") == "assistant"]
+    infos = drive.get("infos1", [])
+    checks = {
+        "paused_display": "paused · type to continue, or say what to do instead" in infos,
+        "no_aborted_display": "aborted" not in infos,
+        "idle_after_sigint_le_1s": drive.get("idle1") is True and drive.get("idle_after_sigint_ms", 99999) <= 1000,
+        "resume_reply": int(drc) == 0 and "resumed after the pause" in drive.get("reply", ""),
+        "two_requests_only": len(bodies) == 2,
+        "note_absent_from_first_request": len(bodies) == 2 and not has(bodies[0], "[init:paused]"),
+        "note_in_resume_request": has(resume, "[init:paused]"),
+        "paused_turn_reasoning_empty": any(m.get("content") == "[no visible output]" and m.get("reasoning_content") == ""
+                                           for m in asst),
+        "no_400_no_protocol_error": all(not l.get("protocol_error") and l.get("status") != 400 for l in mlog),
+    }
+    extra = {"requests": len(bodies), "mock_log_lines": len(mlog), "drive": drive}
+elif mode == "live":
+    cp = os.path.join(d, "ceilings.json")
+    c = json.load(open(cp)) if os.path.isfile(cp) else {}
+    m = c.get("money", {})
+    reqs = sum(x.get("requests_today") or 0 for x in c.get("classes", []) if x.get("id") == "providers")
+    checks = {
+        "reply_ok": int(drc) == 0 and "ok" in drive.get("reply", "").lower(),
+        "watchdog_quiet": drive.get("watchdog") is None,
+        "live_request_metered": reqs >= 1 and (m.get("total_spent_musd") or 0) > 0,
+        "spend_below_cap": (m.get("total_spent_musd") or 0) < int(cap),
+        "key_only_in_the_test_keyfile": keyhits.split() == ["r/keys/providers/deepseek"],
+    }
+    extra = {"live": {"requests": reqs, "spent_musd": m.get("total_spent_musd"), "reserved_musd": m.get("total_reserved_musd"),
+                      "input_tokens": m.get("total_input_tokens"), "output_tokens": m.get("total_output_tokens"),
+                      "cap_musd": int(cap), "turn_end": drive.get("turn_end"), "key_files": len(keyhits.split())}}
+else:
+    checks = {
+        "reply_is_the_mocks": int(drc) == 0 and "hello from the mock" in drive["reply"],
+    }
 # without Rust the bound is the UX-BUNDLE target; get.sh's Rust install (a ~150 MB download) is allowed 5 min more
 if no_rust:
     checks["install_plus_first_reply_le_90s"] = int(first_ms) <= 90000
@@ -392,6 +576,9 @@ v = {"v": 1, "bundle": os.path.basename(tgz), "rust": "none (--no-rust)" if no_r
      "times_ms": {"get_sh_install": int(get_ms), "start_to_ready": int(ready_ms), "get_sh_to_first_reply": int(first_ms),
                   "drive_wall": drive.get("wall_ms")},
      "mock_requests": mock_reqs, "reply": drive["reply"], "checks": checks, "ok": all(checks.values())}
+if mode != "hello":
+    v["mode"] = mode
+    v.update(extra)
 if t2:
     v["times_ms"]["promote_wait"] = int(promote_ms)
     v["promote"] = {"job": job.get("id"), "sha": job.get("sha"), "state": job.get("state"), "error": job.get("error"),

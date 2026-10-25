@@ -1,0 +1,49 @@
+{
+ "body_sha256": "f6526e9eb2a99465a0cc9bb7cc235b56ad6bdb2ddc5b1f9ab9e87258019f4829",
+ "bundle": "init-v0.4.0-preview-macos-arm64.tar.gz",
+ "bundle_bytes": 54876274,
+ "checks": {
+  "genesis_body_is_prebuilt": true,
+  "idle_after_sigint_le_1s": true,
+  "install_plus_first_reply_le_90s": true,
+  "no_400_no_protocol_error": true,
+  "no_aborted_display": true,
+  "no_toolchain_recorded": true,
+  "note_absent_from_first_request": true,
+  "note_in_resume_request": true,
+  "paused_display": true,
+  "paused_turn_reasoning_empty": true,
+  "published_view_evolution": true,
+  "resume_reply": true,
+  "status_json_evolution": true,
+  "status_says_T0_with_rustup": true,
+  "two_requests_only": true
+ },
+ "drive": {
+  "busy1": true,
+  "busy2": true,
+  "idle1": true,
+  "idle2": true,
+  "idle_after_sigint_ms": 26,
+  "infos1": [
+   "paused \u00b7 type to continue, or say what to do instead"
+  ],
+  "reply": "resumed after the pause",
+  "wall_ms": 3266
+ },
+ "mock_log_lines": 1,
+ "mock_requests": 3,
+ "mode": "pause",
+ "ok": true,
+ "reply": "resumed after the pause",
+ "requests": 2,
+ "rust": "none (--no-rust)",
+ "times_ms": {
+  "drive_wall": 3266,
+  "get_sh_install": 13451,
+  "get_sh_to_first_reply": 19106,
+  "start_to_ready": 2074
+ },
+ "toolchain": "None",
+ "v": 1
+}

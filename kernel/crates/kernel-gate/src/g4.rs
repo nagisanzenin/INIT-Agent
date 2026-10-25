@@ -800,6 +800,12 @@ pub fn run_g4(plan: &G4Plan, ex: &dyn RunExecutor, mid: &(dyn Fn() + Sync)) -> G
         o.note = runs_failed_note(&runs, planned, why);
         Some(o)
     };
+    // No pool and no holdout task at all (a fresh install without S): no G4 evidence (ADR-013 §6).
+    if plan.tasks.is_empty() {
+        let mut o = finish(&sh, Verdict::Inconclusive(InconclusiveReason::NoInstrument), None, None, BTreeMap::new(), vec![], false, plan.repeats);
+        o.note = "G4 has no instrument: no sealed S is drawn and the frozen pool and holdout hold no task".into();
+        return o;
+    }
     // A task whose cap is below one request's reservation can never run (K-GATE): refuse to start.
     if let Some(note) = task_cap_problem(plan) {
         let mut o = finish(&sh, Verdict::Error(ErrorReason::TaskCostCap), None, None, BTreeMap::new(), vec![], false, plan.repeats);
@@ -1334,6 +1340,25 @@ mod tests {
             1,
             "nothing runs after a canary trip"
         );
+    }
+
+    /// ADR-013 §6: no pool and no holdout task → `inconclusive: no_instrument` before any run (canaries
+    /// included), and `resolve` makes it a final `accept: no_instrument` with no escalation.
+    #[test]
+    fn no_instrument_is_no_evidence_not_a_rollback() {
+        let ex = Counting { inner: table(&[]), n: Arc::new(AtomicUsize::new(0)) };
+        let o = run_g4(&plan(vec![], vec![task("k1", RunSet::Canary)]), &ex, &|| {});
+        assert_eq!(o.verdict, Verdict::Inconclusive(InconclusiveReason::NoInstrument));
+        assert_eq!(ex.n.load(Ordering::SeqCst), 0, "nothing runs");
+        assert!(o.note.contains("no instrument"), "{}", o.note);
+        for escalated in [false, true] {
+            assert_eq!(accept::resolve(o.verdict, escalated, 4),
+                accept::Resolution::Final(Verdict::Accept(accept::AcceptReason::NoInstrument)));
+        }
+        assert_eq!(Verdict::Accept(accept::AcceptReason::NoInstrument).reason(), "no_instrument");
+        // one pool task is an instrument: the old path (insufficient → escalate) still applies
+        let o = run_g4(&plan(vec![task("t1", RunSet::Pool)], vec![]), &table(&[]), &|| {});
+        assert_eq!(accept::resolve(o.verdict, false, 4), accept::Resolution::Escalate { repeats: 4 });
     }
 
     #[test]

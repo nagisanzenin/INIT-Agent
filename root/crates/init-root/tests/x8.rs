@@ -259,7 +259,7 @@ fn rf28_a_candidate_failing_the_conformance_probe_is_refused_before_the_swap() {
     assert!(h.of("snapshot").iter().all(|x| x["data"]["group"].is_null()), "no change snapshot (X9's twin freeze takes one at start)");
     assert_eq!(h.current(), h.parent);
     assert!(fs::read_dir(h.rh.join("sealed/run")).map_or(0, |d| d.count()) == 0, "every probe root is removed by its exact path");
-    assert!(h.of("ladder").iter().all(|l| l["data"]["direction"] != "down"), "a refused candidate demotes nothing");
+    assert!(h.of("ladder").iter().all(|l| !matches!(l["data"]["direction"].as_str(), Some("down" | "floor"))), "a refused candidate demotes nothing");
 }
 
 /// RF-29: the new kernel crashes in probation. The Root (not the new kernel) rolls the whole system back to the previous
@@ -286,7 +286,7 @@ fn rf29_a_probation_crash_rolls_back_to_the_previous_tuple_with_kstate() {
         (group, Some("rolled_back"), Some("H1"), Some("direct")), "{close}");
     std::thread::sleep(Duration::from_secs(3));
     assert_eq!((h.of("rollback").len(), h.of("zone_start").len()), (1, 3), "one rollback, one restart: the sentinel's copy is absorbed");
-    assert!(h.of("ladder").iter().all(|l| l["data"]["direction"] != "down"), "a failed swap is not a demotion");
+    assert!(h.of("ladder").iter().all(|l| !matches!(l["data"]["direction"].as_str(), Some("down" | "floor"))), "a failed swap is not a demotion");
     assert!(fs::read_to_string(h.rh.join("alerts.jsonl")).unwrap().contains("probation_fail"));
 }
 
@@ -371,5 +371,5 @@ fn gog_runs_only_on_request_and_decides_nothing() {
     assert_eq!((h.stage("requested")["gog"].clone(), h.stage("gog")["pass"].clone()), (json!(true), Value::Null));
     h.clock(61);
     wait(10, "probation_pass", || h.stages().iter().any(|x| x == "probation_pass"));
-    assert!(h.of("ladder").iter().all(|l| l["data"]["direction"] != "down"));
+    assert!(h.of("ladder").iter().all(|l| !matches!(l["data"]["direction"].as_str(), Some("down" | "floor"))));
 }

@@ -337,6 +337,10 @@ impl Backend for KernelBackend {
         Ok(Begun::started().with("sha", r["sha"].clone()))
     }
 
+    fn promote_check(&self, _lane: &LaneCtx, args: &PromoteArgs) -> Result<Value, ErrorBody> {
+        promote::check(self.env()?, args)
+    }
+
     fn rollback(&self, _lane: &LaneCtx, args: &RollbackArgs, job: JobCtl) -> Result<Begun, ErrorBody> {
         let r = promote::rollback(self.env()?, args, Arc::new(ServeJob(job)))?;
         Ok(Begun::started().with("from", r["from"].clone()).with("to", r["to"].clone()))
@@ -417,6 +421,13 @@ impl Backend for KernelBackend {
         let req = KernelRequest::ProposalFile(ProposalFileArgs { title: title.to_string(), text: text.to_string() });
         let v = self.sv.link.call(&req, self.sv.link.request_timeout).map_err(|e| ErrorBody::root(RootReason::Refused, format!("proposal.file: {e}")))?;
         v.get("id").and_then(Value::as_str).map(str::to_string).ok_or_else(|| ErrorBody::root(RootReason::Refused, "proposal.file: no id in the Root's answer"))
+    }
+
+    /// ADR-013 (GBAL): `initctl goal <op>` → the Root's `goal.*` / `card.*`.
+    fn goal(&self, _lane: &LaneCtx, args: &init_proto::initctl::GoalArgs) -> Result<Value, ErrorBody> {
+        let cmd = init_proto::initctl::goal_cmd(&args.op).ok_or_else(|| ErrorBody::new(ErrorCode::Args, format!("goal: unknown op {:?}", args.op)))?;
+        let a = if args.args.is_null() { init_proto::serde_json::json!({}) } else { args.args.clone() };
+        self.sv.link.call(&init_proto::root_link::KernelRequest::Goal(cmd, a), self.sv.link.request_timeout).map_err(|e| ErrorBody::root(RootReason::Refused, format!("{cmd}: {e}")))
     }
 
     fn grant_request(&self, _lane: &LaneCtx, args: &GrantArgs) -> Result<GrantResult, ErrorBody> {

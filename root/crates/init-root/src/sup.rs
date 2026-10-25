@@ -446,6 +446,7 @@ fn handle(root: &Arc<Root>, k: &Kctl, id: &str, cmd: &str, a: &Value) -> Result<
             Err(("root.level", format!("{cmd} needs L3; the system is at L{level}"), json!({"level": level, "need": 3})))
         }
         "proposal.file" => proposal(root, a),
+        c if c.starts_with("goal.") || c.starts_with("card.") => crate::goal::kernel(root, c, a), // ADR-013 (GBAL)
         "change.veto" => crate::sentinel::veto(root, a), // X3 (H12); `change.open` runs off this thread (read_loop)
         "grant.request" => crate::grant::request(root, a), // X7 (ADR-011 §7.4): stored and alerted; only the owner decides
         "alert" if !root.sup.rate("alert", 30) => Err(("root.rate", "at most 30 kernel alerts per hour".into(), Value::Null)),
@@ -511,6 +512,9 @@ fn read_loop(root: Arc<Root>, k: Arc<Kctl>, s: UnixStream) {
                 "owner.out" if matches!(v["data"]["frame"]["t"].as_str(), Some("display" | "echo" | "notice" | "state")) => {
                     if v["data"]["frame"]["t"] == "echo" {
                         crate::sentinel::echoed(&root, &v["data"]["frame"]); // MERGE: a retract names its steer by seq
+                    }
+                    if v["data"]["frame"]["t"] == "state" && v["data"]["frame"]["busy"] == false {
+                        crate::sentinel::idle(&root); // the owner turn ends when the body goes idle (GBAL cards)
                     }
                     root.emit(&v["data"]["frame"]);
                 }
@@ -1021,8 +1025,12 @@ impl Run {
         let (trigger, seq) = match pending {
             Some((t, seq)) => {
                 let to = (from - 1).max(0);
-                root.append("ladder", json!({"cause": "demotion", "direction": "down", "from": from, "to": to, "trigger": {"kind": t, "seq": seq}}));
-                root.alert("demoted", &format!("[root] demoted L{from}→L{to} ({t}); the hold time restarts"));
+                root.append("ladder", json!({"cause": "demotion", "direction": ledger::down_dir(from), "from": from, "to": to, "trigger": {"kind": t, "seq": seq}}));
+                if from == 0 {
+                    root.alert("incident", &format!("[root] incident at L0 ({t}): L0 is the floor, no level is lost; the hold time restarts"));
+                } else {
+                    root.alert("demoted", &format!("[root] demoted L{from}→L{to} ({t}); the hold time restarts"));
+                }
                 root.publish();
                 repeated = from == 0 && lock(&root.st).level.repeated_l0(now_ms());
                 (t, json!(seq))

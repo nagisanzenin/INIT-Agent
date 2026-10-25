@@ -295,7 +295,7 @@ impl World {
             *n += 1;
             MemJob::new(&format!("j-0000{:02}", *n))
         };
-        let r = promote::promote(self.env.clone(), &PromoteArgs { git_ref: Some(format!("evo/{id}")), sha: None, wait: None }, j.clone() as Arc<dyn Job>);
+        let r = promote::promote(self.env.clone(), &PromoteArgs { git_ref: Some(format!("evo/{id}")), sha: None, wait: None, check: None }, j.clone() as Arc<dyn Job>);
         (r, j)
     }
 
@@ -453,6 +453,57 @@ fn rf07_free_path_transitions_on_the_fake_root() {
     w.wait("rolled back to Y", T, || (w.main() == y && w.h.snapshot().unwrap().current.sha == y).then_some(()));
     let rb = w.wait("body_rollback", T, || w.root_kinds().into_iter().find(|(k, _)| k == "body_rollback"));
     assert_eq!((rb.1["from_sha"].as_str(), rb.1["to_sha"].as_str()), (Some(z.as_str()), Some(y.as_str())), "{}", rb.1);
+    w.stop();
+}
+
+/// GBAL real-model proof (G2): with groups 1 (Y) and 2 (Z) open, LKG is still X, so the parent of
+/// group 2 (Y) is not LKG. (a) The agent's `initctl rollback` undoes group 2 only: it vetoes group 2
+/// (H12) and, on the Root's `extend.rollback{groups:[2]}`, the kernel rolls back data-only to Y at
+/// once (the running binary, a new body instance, lineage `main` = Y with the evidence ref), and
+/// `body_rollback{to_sha: Y}` confirms to the Root. It used to wait for the Root's 120 s fallback, and
+/// `initctl rollback` went to LKG X, dropping Y. (b) A target the running version does not reach
+/// through t0 changes is still left to the Root.
+#[test]
+fn g2_rollback_to_an_open_groups_parent_is_data_only_and_prompt() {
+    let _wd = init_testkit::watchdog::arm("g2_rollback_to_an_open_groups_parent_is_data_only_and_prompt", Duration::from_secs(400));
+    let w = World::new("g2", Opts::default());
+    w.say("hello", "hello owner");
+    let y = w.candidate("g2a", &w.x, |b| std::fs::write(b.join("SELF.md"), "# Test body\n\nA good edit.\n").unwrap(), "skill: a good edit", "", false);
+    assert_eq!(job_ok(&w.promote("g2a").1)["group"], 1);
+    let z = w.candidate("g2b", &y, |b| std::fs::write(b.join("SELF.md"), "# Test body\n\nA bad edit.\n").unwrap(), "skill: a bad edit", "", false);
+    assert_eq!(job_ok(&w.promote("g2b").1)["group"], 2);
+    let s = w.h.snapshot().unwrap();
+    assert_eq!((s.current.sha.as_str(), s.lkg_sha.as_str(), w.lkg()), (z.as_str(), w.x.as_str(), w.x.clone()), "both groups open: LKG is still X");
+    let (primary, bin) = (s.primary.clone(), std::fs::read(w.home.join("bin/init-body")).unwrap());
+
+    // (a) the agent's rollback: only group 2, to Y
+    let j = MemJob::new("j-000090");
+    let r = promote::rollback(w.env.clone(), &init_proto::initctl::RollbackArgs { reason: "the regression probe".into(), wait: None }, j.clone() as Arc<dyn Job>).unwrap();
+    assert_eq!((r["from"].as_str(), r["to"].as_str(), r["group"].as_u64()), (Some(z.as_str()), Some(y.as_str()), Some(2)), "{r}");
+    let v = w.wait("the veto of group 2", T, || w.fr.seen.0.lock().unwrap().vetoes.first().cloned());
+    assert_eq!(v.group, 2, "{v:?}");
+    let t0 = Instant::now();
+    w.fr.event(&RootEvent::ExtendRollback(ExtendRollbackData { to: "t-y".into(), groups: vec![2], reason: "H12".into() }));
+    let res = match j.wait(T) {
+        Some(Ok(v)) => v,
+        other => panic!("rollback: {other:?}"),
+    };
+    assert_eq!((res["from"].as_str(), res["to"].as_str()), (Some(z.as_str()), Some(y.as_str())), "{res}");
+    assert!(t0.elapsed() < Duration::from_secs(60), "prompt, not the Root's 120 s fallback: {:?}", t0.elapsed());
+    let s = w.h.snapshot().unwrap();
+    assert_eq!((w.main(), s.current.sha.as_str(), s.lkg_sha.as_str()), (y.clone(), y.as_str(), w.x.as_str()), "Y is live, X stays LKG");
+    assert!(matches!(&s.mode, kernel_supervise::machine::Mode::Provisional(p) if p.sha == y), "{:?}", s.mode);
+    assert_ne!(s.primary, primary, "a new body instance boots on Y (its body/ resync takes Y's T0 data)");
+    assert_eq!(std::fs::read(w.home.join("bin/init-body")).unwrap(), bin, "data-only: the running binary stays");
+    git(&w.home.join("lineage/body.git"), &w.home, &["rev-parse", "--verify", &format!("refs/init/rolled-back/{z}")]);
+    let rb = w.wait("body_rollback", T, || w.root_kinds().into_iter().find(|(k, _)| k == "body_rollback"));
+    assert_eq!((rb.1["from_sha"].as_str(), rb.1["to_sha"].as_str()), (Some(z.as_str()), Some(y.as_str())), "{}", rb.1);
+    assert!(!w.root_kinds().iter().any(|(k, _)| k == "alert"), "no extend_rollback_root fallback");
+
+    // (b) a target the kernel cannot reach data-only (not in its table): left to the Root
+    w.fr.event(&RootEvent::ExtendRollback(ExtendRollbackData { to: "t-other".into(), groups: vec![77], reason: "H7".into() }));
+    std::thread::sleep(Duration::from_secs(1));
+    assert_eq!(w.h.snapshot().unwrap().current.sha, y, "an unknown target is never guessed");
     w.stop();
 }
 

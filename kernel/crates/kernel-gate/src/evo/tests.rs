@@ -1526,6 +1526,8 @@ fn rf06_golden_parse_table() {
         (&[("Measure", "g5")], &[], &[], &["trailer.invalid:Measure"]),
         (&[("Measure", "exp:a/b")], &[], &[], &["trailer.invalid:Measure"]),
         (&[("Measure", "G4")], &[], &[], &["trailer.invalid:Measure"]),
+        (&[("Measure", "card:cost_turn"), ("Measure", "card:cache_read gate")], &[], &["card:cost_turn", "card:cache_read gate"], &[]),
+        (&[("Measure", "card:Cost")], &[], &[], &["trailer.invalid:Measure"]),
         (&[("Measure", "g4"), ("Measure", "gog"), ("Measure", "g4 gate"), ("Measure", "exp:a"), ("Measure", "exp:b")], &[], &[], &["trailer.invalid:Measure"]),
     ];
     for (extra, caps, measures, errs) in table {

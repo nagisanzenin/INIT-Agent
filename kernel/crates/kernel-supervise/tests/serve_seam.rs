@@ -118,7 +118,7 @@ fn promote_and_rollback_through_kernel_serve_jobs() {
     let lane = LaneCtx::live();
     // The synchronous part's refusal becomes the response (serve then discards the job).
     let j = store.create(&lane, "promote", json!({"ref": "main"})).unwrap();
-    let e = backend_promote(&env, &PromoteArgs { git_ref: Some("main".into()), sha: None, wait: None }, j).unwrap_err();
+    let e = backend_promote(&env, &PromoteArgs { git_ref: Some("main".into()), sha: None, wait: None, check: None }, j).unwrap_err();
     assert_eq!(e.code.as_str(), "E_ARGS");
     // rollback: `{from, to}`, then the boundary milestone, then exactly one terminal.
     let j = store.create(&lane, "rollback", json!({"reason": "t"})).unwrap();

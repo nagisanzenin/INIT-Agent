@@ -322,6 +322,26 @@ fn repeated_demotion_at_l0() {
     assert!(!Level::fold(&c.0).repeated_l0(at(2.1) + 1), "the first left the 24 h window");
 }
 
+/// F2 (demo 2026-10-25): an incident at L0 is recorded as `direction: "floor"` (no level is lost). It still counts
+/// toward the repeated-demotion rule and still holds the climb to L1 back.
+#[test]
+fn an_incident_at_l0_is_floor_not_a_demotion() {
+    assert_eq!((down_dir(0), down_dir(1), down_dir(3)), ("floor", "down", "down"));
+    let floor = |c: &mut Chain, day: f64| {
+        c.add(day, "ladder", json!({"cause": "demotion", "direction": "floor", "from": 0, "to": 0}));
+    };
+    let at = |d: f64| T0 + (d * DAY as f64) as i64;
+    let mut c = Chain::new(0);
+    floor(&mut c, 1.0);
+    floor(&mut c, 1.1);
+    floor(&mut c, 1.2);
+    let l = Level::fold(&c.0);
+    assert!(l.repeated_l0(at(1.2)), "three floor incidents within 24 h still enter safe mode");
+    let held = l.criteria(at(1.3)).into_iter().find(|x| x["id"] == "demotions_last_7_days").map(|x| (x["have"].clone(), x["met"].clone()));
+    assert_eq!(held, Some((json!(3), json!(false))), "the climb to L1 is still held back");
+    assert_eq!(l.level, 0);
+}
+
 /// WP21 D10: the counters `state/root.json` carries, folded from the records.
 #[test]
 fn root_json_counters_fold_from_the_records() {

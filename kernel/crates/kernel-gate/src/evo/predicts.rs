@@ -10,6 +10,7 @@
 //! task-ref      = "task:" task-id / "label:" label
 //! metric        = "pass_rate" / "cost_usd" / "wall_s" / "cache_hit" / "turns"
 //!               / "tokens_in" / "tokens_out" / "gap_ms_p50" / "body_tokens" / "ext_calls:" name
+//!               / "card:" card-id       ; ADR-013: a Root observation card, card-id = 1*32( %x61-7A / "_" )
 //! scope         = "all" / "pool" / "holdout" / "label:" label / "task:" task-id
 //!               / "sealed"            ; M7: pass_rate on the Root's G4 slice only (evolution.md §3.10.1)
 //! op            = "<=" / ">=" / "<" / ">"
@@ -42,6 +43,14 @@ pub enum Metric {
     GapMsP50,
     BodyTokens,
     ExtCalls(String),
+    /// ADR-013 (GBAL G5): a Root observation card (`card:requests_turn`). The kernel scores no card
+    /// clause: the Root reads the card, and the forecast that counts is `initctl goal predict`.
+    Card(String),
+}
+
+/// A card id as the Root names its cards and `Measure: card:<id>` takes it: `[a-z_]{1,32}`.
+pub fn is_card_id(s: &str) -> bool {
+    (1..=32).contains(&s.len()) && s.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
 }
 
 const SIMPLE_METRICS: [(&str, Metric); 9] = [
@@ -58,8 +67,10 @@ const SIMPLE_METRICS: [(&str, Metric); 9] = [
 
 impl fmt::Display for Metric {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if let Metric::ExtCalls(name) = self {
-            return write!(f, "ext_calls:{name}");
+        match self {
+            Metric::ExtCalls(name) => return write!(f, "ext_calls:{name}"),
+            Metric::Card(id) => return write!(f, "card:{id}"),
+            _ => {}
         }
         let name = SIMPLE_METRICS
             .iter()
@@ -81,6 +92,18 @@ impl FromStr for Metric {
             }
             return Err(format!(
                 "ext_calls:<name> needs a name matching [a-z][a-z0-9-]{{0,31}}, got '{name}'"
+            ));
+        }
+        if let Some(id) = s.strip_prefix("card:") {
+            return if is_card_id(id) {
+                Ok(Metric::Card(id.to_string()))
+            } else {
+                Err(format!("card:<id> needs an id matching [a-z_]{{1,32}}, got '{id}'"))
+            };
+        }
+        if is_card_id(s) {
+            return Err(format!(
+                "unknown metric '{s}' (a Root observation card is written card:{s})"
             ));
         }
         Err(format!("unknown metric '{s}'"))
@@ -560,6 +583,9 @@ mod tests {
             "tokens_out <= parent",
             "body_tokens < parent-1%",
             "ext_calls:pty >= 1",
+            "card:requests_turn < parent",
+            "card:cost_turn@label:interactive <= parent-10%",
+            "card:cache_read > 600",
             "fixes task:2026-10-20-03, label:interactive,task:b",
             "risks label:git",
         ] {
@@ -587,6 +613,10 @@ mod tests {
             "pass_rate@label:Bad >= parent",
             "speed >= parent",
             "ext_calls:Bad >= 1",
+            "card: < parent",
+            "card:Requests < parent",
+            "card:requests-turn < parent",
+            "requests_turn < parent",
             "fixes",
             "fixes ",
             "fixes task:a,",
@@ -608,6 +638,29 @@ mod tests {
             (2, 1),
             "a trailing ';' is an empty clause"
         );
+    }
+
+    /// GBAL real-model proof (G5): `Predicts: requests_turn < parent` was refused as an unknown
+    /// metric and cost the agent two amends. Card clauses parse as `card:<id>`; a bare card id is
+    /// refused with the spelling that works. The kernel scores none of them (no baseline, no perf).
+    #[test]
+    fn g5_card_clauses_parse() {
+        let c = one("card:requests_turn < parent");
+        assert_eq!(
+            c,
+            Clause::Metric {
+                metric: Metric::Card("requests_turn".into()),
+                scope: Scope::All,
+                op: Op::Lt,
+                target: Target::Parent
+            }
+        );
+        assert_eq!(c.to_string(), "card:requests_turn < parent");
+        assert!(!c.is_baseline() && !c.is_strict_perf() && c.capability_label().is_none());
+        let e = parse_clause("requests_turn < parent").unwrap_err();
+        assert!(e.contains("card:requests_turn"), "{e}");
+        let p = parse_predicts("card:requests_turn < parent; cost_usd <= parent");
+        assert!(p.parse_errors.is_empty(), "{:?}", p.parse_errors);
     }
 
     #[test]

@@ -1,0 +1,301 @@
+{
+  "card_reading": [
+    {
+      "action": "none",
+      "card": "requests_turn",
+      "delta_milli": 0,
+      "gate": false,
+      "goal": "G-000001",
+      "guard": 0,
+      "mean_after_milli": 2000,
+      "mean_before_milli": 2000,
+      "measure": "M-000002",
+      "n_after": 5,
+      "n_before": 6,
+      "parent_tuple": "t2179767425ba",
+      "prediction": "P-000001",
+      "registered": true,
+      "sd_milli": 0,
+      "se_milli": 0,
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tuple": "t422ec3d34ea5",
+      "unit": "requests",
+      "verdict": "noise",
+      "z_permille": 0
+    },
+    {
+      "action": "none",
+      "card": "cost_turn",
+      "delta_milli": -300000,
+      "gate": false,
+      "goal": "G-000001",
+      "guard": null,
+      "mean_after_milli": 540000,
+      "mean_before_milli": 840000,
+      "measure": "M-000001",
+      "n_after": 5,
+      "n_before": 6,
+      "parent_tuple": "t2179767425ba",
+      "prediction": "P-000001",
+      "registered": true,
+      "sd_milli": 16970,
+      "se_milli": 8123,
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tuple": "t422ec3d34ea5",
+      "unit": "musd",
+      "verdict": "better",
+      "z_permille": 36932
+    },
+    {
+      "action": "none",
+      "card": "wall_turn",
+      "delta_milli": 0,
+      "gate": false,
+      "goal": "G-000001",
+      "guard": null,
+      "mean_after_milli": 0,
+      "mean_before_milli": 0,
+      "measure": "M-000003",
+      "n_after": 5,
+      "n_before": 6,
+      "parent_tuple": "t2179767425ba",
+      "prediction": "P-000001",
+      "registered": true,
+      "sd_milli": 0,
+      "se_milli": 0,
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "tuple": "t422ec3d34ea5",
+      "unit": "ms",
+      "verdict": "noise",
+      "z_permille": 0
+    },
+    {
+      "action": "rollback",
+      "card": "requests_turn",
+      "delta_milli": 2000,
+      "gate": false,
+      "goal": "G-000001",
+      "guard": 0,
+      "mean_after_milli": 4000,
+      "mean_before_milli": 2000,
+      "measure": "M-000005",
+      "n_after": 5,
+      "n_before": 5,
+      "parent_tuple": "t422ec3d34ea5",
+      "prediction": "P-000002",
+      "registered": true,
+      "sd_milli": 0,
+      "se_milli": 0,
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "tuple": "t9e68298aa485",
+      "unit": "requests",
+      "verdict": "worse",
+      "z_permille": -99999
+    },
+    {
+      "action": "none",
+      "card": "cost_turn",
+      "delta_milli": 61600,
+      "gate": false,
+      "goal": "G-000001",
+      "guard": null,
+      "mean_after_milli": 601600,
+      "mean_before_milli": 540000,
+      "measure": "M-000004",
+      "n_after": 5,
+      "n_before": 5,
+      "parent_tuple": "t422ec3d34ea5",
+      "prediction": "P-000002",
+      "registered": true,
+      "sd_milli": 9486,
+      "se_milli": 4706,
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "tuple": "t9e68298aa485",
+      "unit": "musd",
+      "verdict": "worse",
+      "z_permille": -13089
+    },
+    {
+      "action": "none",
+      "card": "wall_turn",
+      "delta_milli": 0,
+      "gate": false,
+      "goal": "G-000001",
+      "guard": null,
+      "mean_after_milli": 0,
+      "mean_before_milli": 0,
+      "measure": "M-000006",
+      "n_after": 5,
+      "n_before": 5,
+      "parent_tuple": "t422ec3d34ea5",
+      "prediction": "P-000002",
+      "registered": true,
+      "sd_milli": 0,
+      "se_milli": 0,
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "tuple": "t9e68298aa485",
+      "unit": "ms",
+      "verdict": "noise",
+      "z_permille": 0
+    }
+  ],
+  "change_close": [
+    {
+      "attribution": null,
+      "group": 2,
+      "live": {
+        "corrections": 0,
+        "cost_ratio_permille": 716,
+        "k_bytes": null,
+        "k_cost": null,
+        "k_req": null,
+        "k_wall": null,
+        "provider_errors": 0,
+        "units": 1,
+        "wall_ratio_permille": null
+      },
+      "outcome": "rolled_back",
+      "trigger": "H12",
+      "turns": 5
+    }
+  ],
+  "goal": [
+    {
+      "budget": {
+        "rounds": 6,
+        "usd_musd": 1000000,
+        "wall_s": 86400
+      },
+      "by": "owner",
+      "done": {
+        "card": "cost_turn",
+        "kind": "card",
+        "op": "<=",
+        "value": 600
+      },
+      "guard": [
+        {
+          "card": "requests_turn",
+          "tol_permille": 0
+        }
+      ],
+      "id": "G-000001",
+      "intent_bytes": 26,
+      "intent_sha256": "3397612e5af139b731448a6fdb3b57ee1a9270eee6c858eb95c0e8f9755cf5f5",
+      "kind": "card:cost_turn",
+      "op": "set",
+      "spent": {
+        "musd": 0,
+        "rounds": 0,
+        "wall_s": 0
+      }
+    },
+    {
+      "budget": {
+        "rounds": 6,
+        "usd_musd": 1000000,
+        "wall_s": 86400
+      },
+      "by": "agent",
+      "done": {
+        "card": "cost_turn",
+        "kind": "card",
+        "op": "<=",
+        "value": 600
+      },
+      "guard": [
+        {
+          "card": "requests_turn",
+          "tol_permille": 0
+        }
+      ],
+      "id": "G-000001",
+      "kind": "card:cost_turn",
+      "note_sha256": "90080469a9367e1f794401ba9f6e0ea2ba8defa3572cc37b1c349f65a1604a96",
+      "op": "stop",
+      "reason": "met",
+      "spent": {
+        "musd": 10748,
+        "rounds": 2,
+        "wall_s": 496
+      },
+      "verified": true
+    }
+  ],
+  "goal_outcome": [
+    {
+      "brier_ppm": 40000,
+      "goal": "G-000001",
+      "goal_kind": "card:cost_turn",
+      "n": 1,
+      "o": 1,
+      "p_permille": 800,
+      "prediction": "P-000001",
+      "reading": {
+        "card": "cost_turn",
+        "verdict": "better",
+        "z_permille": 36932
+      },
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "source": "card"
+    },
+    {
+      "brier_ppm": 200000,
+      "goal": "G-000001",
+      "goal_kind": "card:cost_turn",
+      "harm": [
+        "guard:requests_turn"
+      ],
+      "n": 2,
+      "o": 0,
+      "p_permille": 600,
+      "prediction": "P-000002",
+      "reading": {
+        "card": "cost_turn",
+        "verdict": "worse",
+        "z_permille": -13089
+      },
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "source": "card"
+    }
+  ],
+  "goal_predict": [
+    {
+      "card": "cost_turn",
+      "expect": "better",
+      "goal": "G-000001",
+      "goal_kind": "card:cost_turn",
+      "id": "P-000001",
+      "mode": "A",
+      "note_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "p_permille": 800,
+      "round": 1,
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    {
+      "card": "cost_turn",
+      "expect": "better",
+      "goal": "G-000001",
+      "goal_kind": "card:cost_turn",
+      "id": "P-000002",
+      "mode": "hybrid",
+      "note_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "p_permille": 600,
+      "round": 2,
+      "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
+    }
+  ],
+  "harm": [
+    {
+      "action": "rollback_newest",
+      "caps": [],
+      "groups": [
+        2
+      ],
+      "scope": "group",
+      "signal": "H12",
+      "threshold": 1,
+      "value": 1
+    }
+  ]
+}

@@ -410,10 +410,10 @@ impl ProxyConfig {
     /// which are returned as errors only when they make the proxy unusable). All errors at once.
     pub fn compile(&self) -> Result<Compiled, Vec<String>> {
         let mut errs = Vec::new();
-        if let Some(d) = &self.model.descriptor {
-            if let Err(message) = d.validate() {
-                errs.push(format!("model.descriptor: {message}"));
-            }
+        if let Some(d) = &self.model.descriptor
+            && let Err(message) = d.validate()
+        {
+            errs.push(format!("model.descriptor: {message}"));
         }
         let mut providers = BTreeMap::new();
         for (id, p) in &self.providers {

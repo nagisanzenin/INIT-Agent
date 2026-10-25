@@ -375,6 +375,11 @@ impl Root {
         }
         self.sync_egress();
         self.publish();
+        // F2 (demo 2026-10-25): a new `extend.mode` reaches the running kernel now (the `ceilings` event carries
+        // `extend`), so its next promote takes the new path instead of failing at handoff as `unwatched_change`.
+        if old.as_ref().is_some_and(|o| o.0["extend"]["mode"] != charter::effective(&ch)["extend"]["mode"]) && let Some(k) = self.sup.kernel() {
+            k.event("ceilings", crate::sup::ceilings(self));
+        }
         if sandbox_changed {
             crate::access::charter_applied(self);
         }
@@ -475,8 +480,9 @@ impl Root {
                 self.sup.send(Ev::Stop);
                 self.notice("info", "[root] stopping the zone (init-root start or /resume starts it again)");
             }
-            "/root help" | "/root" => self.notice("info", "[root] /panic · /resume · /root status · /root ledger · /root stop · /root help · /workspace · /full on|off · /undo · /rollback [sha|cap|settled] · /grants · /grant <id> · /deny <id> · /release <cap> · /twin [refreeze]"),
+            "/root help" | "/root" => self.notice("info", "[root] /panic · /resume · /root status · /root ledger · /root stop · /root help · /workspace · /full on|off · /undo · /rollback [sha|cap|settled] · /grants · /grant <id> · /deny <id> · /release <cap> · /twin [refreeze] · /goal [\"<intent>\" …|pause|resume|stop|continue|accept|reject|adopt <id>]"),
             _ if crate::sentinel::owner_text(self, t) => {} // X3: `/rollback` (H3)
+            _ if crate::goal::line(self, t) => {} // ADR-013: `/goal …` (only the owner sets a goal)
             _ if crate::grant::line(self, t) => {} // X7: `/grants`, `/grant`, `/deny`, `/release` (ADR-011 §7.4, §6.3)
             _ if crate::twin::owner_text(self, t) => {} // X9: `/twin`, `/twin refreeze` (ADR-011 Evaluation plan)
             _ if crate::access::line(self, t) => {}

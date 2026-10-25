@@ -3,14 +3,14 @@
     "crate": "init-body",
     "edition": "2024",
     "rust_version": null,
-    "version": "0.3.3"
+    "version": "0.4.0"
   },
-  "body_tokens": 416048,
+  "body_tokens": 419342,
   "budget": {
-    "bytes": 1606540,
-    "files": 96,
+    "bytes": 1619285,
+    "files": 98,
     "tests_tokens": 22931,
-    "tokens": 416048,
+    "tokens": 419342,
     "uncounted_tokens": 69075
   },
   "components": [
@@ -90,7 +90,7 @@
       "paths": [
         "src/boot/gitsync.rs"
       ],
-      "tokens": 10206
+      "tokens": 11088
     },
     {
       "compensates_for": "none",
@@ -917,7 +917,29 @@
       "paths": [
         "skills/extend/SKILL.md"
       ],
-      "tokens": 2680
+      "tokens": 2814
+    },
+    {
+      "compensates_for": "none",
+      "compensates_note": null,
+      "core": false,
+      "id": "skill/gbal",
+      "kind": "skill",
+      "paths": [
+        "skills/gbal/SKILL.md"
+      ],
+      "tokens": 1353
+    },
+    {
+      "compensates_for": "none",
+      "compensates_note": null,
+      "core": false,
+      "id": "skill/goal-loop",
+      "kind": "skill",
+      "paths": [
+        "skills/goal-loop/SKILL.md"
+      ],
+      "tokens": 925
     },
     {
       "compensates_for": "none",
@@ -2162,14 +2184,14 @@
       "bytes": 49136,
       "counted": false,
       "path": "Cargo.lock",
-      "sha256": "e4e635dbc78259f777b5524dc30010a05fbff270c0432a7ca7ee8b6ae8de9861",
+      "sha256": "e14dec80d3029b15e242032517ec1a148eb7d3873219fca84f7aa76ac49dc900",
       "tokens": 18415
     },
     {
       "bytes": 1840,
       "counted": true,
       "path": "Cargo.toml",
-      "sha256": "1bf4bc53678e8e02febff387b2b6c007c0218300ab638ac6ab9bb45bd3453469",
+      "sha256": "7ba41feb9c70a955914d65da37fe053ac5bf7547121422d11d899cce57b28314",
       "tokens": 524
     },
     {
@@ -2250,11 +2272,25 @@
       "tokens": 1109
     },
     {
-      "bytes": 10166,
+      "bytes": 10622,
       "counted": true,
       "path": "skills/extend/SKILL.md",
-      "sha256": "97973a385a62f09107a024cfb235f54712fba7af1c0c187583951787c5f51a7e",
-      "tokens": 2680
+      "sha256": "e76bb8a1ab24058e6224a7444fe9fbb1b25809b9b68d91cdb9d9da1efe28c215",
+      "tokens": 2814
+    },
+    {
+      "bytes": 5377,
+      "counted": true,
+      "path": "skills/gbal/SKILL.md",
+      "sha256": "16ecd8fdc8a7a17cd6d1dd9d4c404f8af38ea0bfc150b48a40d2504233929e6e",
+      "tokens": 1353
+    },
+    {
+      "bytes": 3832,
+      "counted": true,
+      "path": "skills/goal-loop/SKILL.md",
+      "sha256": "7c64009730ef6ed385a15e03ef538a3a42612f3b63fa314dc97996d76e3c2a7e",
+      "tokens": 925
     },
     {
       "bytes": 3930,
@@ -2299,11 +2335,11 @@
       "tokens": 2091
     },
     {
-      "bytes": 39007,
+      "bytes": 42087,
       "counted": true,
       "path": "src/boot/gitsync.rs",
-      "sha256": "4e132faf4bd95622fd742033b83f9db8925a096125cbe116b276d99e24f7ffbf",
-      "tokens": 10206
+      "sha256": "467d4f4ea9aab2a4affa39c41130db32185cb0789455a4d9883194741cdcabb8",
+      "tokens": 11088
     },
     {
       "bytes": 11252,
@@ -3111,7 +3147,7 @@
   },
   "hooks": [],
   "manifest": {
-    "body_version": "0.3.3",
+    "body_version": "0.4.0",
     "control_channel": "stdio-jsonl/1",
     "env": [
       "HOME",
@@ -5394,57 +5430,65 @@
           "vis": "private"
         },
         {
-          "end_line": 282,
+          "end_line": 240,
           "kind": "fn",
           "line": 155,
           "name": "script",
-          "tokens": 1206,
+          "tokens": 854,
           "vis": "private"
         },
         {
-          "end_line": 433,
-          "kind": "impl",
-          "line": 284,
-          "name": "impl Cx",
-          "tokens": 1284,
-          "vis": "private"
-        },
-        {
-          "end_line": 438,
+          "end_line": 295,
           "kind": "fn",
-          "line": 435,
+          "line": 242,
+          "name": "resync",
+          "tokens": 538,
+          "vis": "private"
+        },
+        {
+          "end_line": 453,
+          "kind": "impl",
+          "line": 297,
+          "name": "impl Cx",
+          "tokens": 1397,
+          "vis": "private"
+        },
+        {
+          "end_line": 458,
+          "kind": "fn",
+          "line": 455,
           "name": "short",
           "tokens": 42,
           "vis": "private"
         },
         {
-          "end_line": 442,
+          "end_line": 462,
           "kind": "fn",
-          "line": 440,
+          "line": 460,
           "name": "is_sha",
           "tokens": 43,
           "vis": "private"
         },
         {
-          "end_line": 464,
+          "end_line": 484,
           "kind": "fn",
-          "line": 444,
+          "line": 464,
           "name": "summary",
           "tokens": 151,
           "vis": "private"
         },
         {
-          "end_line": 1063,
+          "end_line": 1112,
           "kind": "mod",
-          "line": 469,
+          "line": 489,
           "name": "tests",
-          "tokens": 5946,
+          "tokens": 6530,
           "vis": "private"
         }
       ],
-      "lines": 1063,
+      "lines": 1112,
       "path": "src/boot/gitsync.rs",
-      "tokens": 10206
+      "tokens": 11088
     },
     {
       "forbid_unsafe": false,
@@ -17432,10 +17476,22 @@
       "description": "Extend yourself in the middle of a task on the free path (your boot block has an \"- extend\" line): build new tools, skills, sub-agents, memory, loops or your own core, then keep and use them in the same task with no reward gate. Covers Cap: tags and caps::mark, the window and budgets, archive and quarantine debts, owner grants and opt-in Measure:. Use when a capability you lack would help now, or when the extend line shows a debt.",
       "name": "extend",
       "path": "skills/extend/SKILL.md",
-      "tokens": 2680
+      "tokens": 2814
+    },
+    {
+      "description": "Pursue an owner goal about how you work (\"fewer tokens on big repos\", \"stop re-asking\") by changing your own Body. Choose mode A (Root card), B (judged) or hybrid with three instrument tests, file a prediction before each change, keep a change only when it beats noise on the goal and no guardrail regresses, record the outcome, stop with a reason. Use when `initctl goal status` shows an active goal.",
+      "name": "gbal",
+      "path": "skills/gbal/SKILL.md",
+      "tokens": 1353
+    },
+    {
+      "description": "Loop toward an owner goal on an external artifact (a website, a report, a repo) until it is met or you can name why not. Pairwise judging against the current best with position swap, a frozen yes/no checklist, at least 3 judge runs, a ledger file, and six stop reasons (met, budget, plateau, instrument_gap, owner_stop, harm). Use when the owner asks you to keep improving something to a bar. Your own Body is skills/gbal.",
+      "name": "goal-loop",
+      "path": "skills/goal-loop/SKILL.md",
+      "tokens": 925
     }
   ],
-  "source_digest": "sha256:2489d19f8776d4e00a5ebc14b1843ba7a342c792ab1d35a64c5bd90ce535a3ff",
+  "source_digest": "sha256:10c0b52ca9a33b2f167215248b820606e56081bcd5e2b08bcf47c6868f297e62",
   "tools": {
     "list": [
       {

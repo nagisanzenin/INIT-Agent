@@ -730,7 +730,11 @@ impl Egress {
             util::log(&self.rh, "error", &format!("egress ledger end {}: {e}", a.id));
         }
         if let Some(root) = self.root.upgrade() {
+            if let Some(u) = tap.0 {
+                crate::sentinel::egress_usage(&root, &a.id, u.input, u.cache_read); // ADR-013: the cache-read card
+            }
             crate::sentinel::egress_end(&root, &a.id, cost, status, tap.1); // X3: cost, H5a, H9
+            crate::goal::egress_spent(&root, cost); // ADR-013: the active goal's meter, the same cost as the `end` record
         }
         if a.effectful && let Some(root) = self.root.upgrade() {
             // ADR-011 §5.3 (X5): the caps used in this effect's turn so far, and the groups open when it ran

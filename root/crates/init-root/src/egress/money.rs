@@ -17,6 +17,7 @@ use std::path::{Path, PathBuf};
 pub const DAY_MS: i64 = 86_400_000;
 const RING: usize = 1024;
 /// `egress.guard_stale_s`: three kernel poll intervals (§3.6 rule 2).
+#[allow(dead_code)] // kept with the observe-only money model (2026-10-23): no Root money guard reads it now
 pub const GUARD_STALE_MS: i64 = 30_000;
 /// A rate bucket holds `rate_per_min × 60_000` units; one request costs 60,000 and it refills `rate` per ms.
 const UNIT: u64 = 60_000;
@@ -74,6 +75,7 @@ pub fn date(ms: i64) -> String {
 }
 
 #[derive(Clone, Copy, Debug)]
+#[allow(dead_code)] // the ring is kept for the ledger rebuild; its fields are read only in Debug output
 struct Snap {
     epoch: u64,
     at: i64,
@@ -172,6 +174,7 @@ impl Money {
 
     /// The figures a money refusal reports: (limit, spent, reserved). The total's limit is the zone's room left after
     /// the twin pool's lifetime spend and holds.
+    #[allow(dead_code)] // observe-only money (2026-10-23): no money refusal reports these figures now
     pub fn view(&self, code: &str) -> (u64, u64, u64) {
         if code == "ceiling.day" {
             (self.lim.day, self.day_spent, self.day_reserved)
@@ -203,6 +206,7 @@ impl Money {
     }
 
     /// Legacy guard headers never trigger a monetary refusal or demotion.
+    #[allow(dead_code)] // observe-only money: kept for the tests that pin "never a refusal"
     pub fn bypass(&self, _guard: Option<&str>, _code: &str, _r: u64, _now: i64) -> bool { false }
 
     /// True the first time `key` is seen this owner day (one non-demoting hit record per ceiling per day).
@@ -390,6 +394,7 @@ struct TwinPool {
 }
 
 impl TwinPool {
+    #[allow(dead_code)] // used by `view` only
     fn committed(&self) -> u64 {
         self.spent.saturating_add(self.held)
     }

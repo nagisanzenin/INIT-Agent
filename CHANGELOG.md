@@ -2,6 +2,121 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.4.0-preview (2026-10-26)
+
+Workspaces are at version 0.4.0 (seed tag `seed-v0.4.0`). Release notes: docs/release-notes/v0.4.0-preview.md.
+
+### Release (lane REL-040, build/status/REL-040.md)
+- Bundles for macOS arm64 and Linux arm64 from 4a76b12; verified on both (fresh install, the pause check), a no-op T2
+  promote on macOS, the GBAL mock flow on the macOS bundle (`tests/real/gbal_proof.sh --mock`, new knob `GBAL_BUNDLE`),
+  and one live DeepSeek turn. Full `ci/local.sh` on macOS: 1,929 passed, 0 failed, 38 ignored.
+- `cargo clippy --all-targets -- -D warnings` is clean in all four workspaces: the pre-existing lints in the Root
+  (`sealed/`, `zone.rs`, `sys.rs`, `egress/money.rs`, `tests/wp22.rs`) and the kernel (`kernel-proxy/config.rs`,
+  `kupgrade/kstate.rs`, `init-kernel/upgrade.rs`, `supervisor.rs`) are fixed or allowed with a reason, and one in the
+  seed (`boot/gitsync.rs`, a needless borrow from the G2 fix) is fixed. `ci/local.sh` has no clippy step; this was run
+  by hand.
+
+### GBAL: goal-directed self-modification (ADR-013, build/status/GBAL.md)
+- The owner sets a goal with `/goal "<intent>" [done=…] [usd=…] [wall=…] [rounds=…] [guard=…]` (TUI, `init-root attach`);
+  the agent can only propose one. The Root meters the goal's spend, wall time and rounds and stops it at its budget.
+- The agent files a prediction before each change (`initctl goal predict …`); the Root timestamps it and marks any
+  reading of a change without an earlier prediction `registered: false`.
+- Six Root observation cards (`cost_turn`, `wall_turn`, `requests_turn`, `cache_read`, `provider_errors`, `corrections`)
+  read from the Root's own egress and owner-channel data; readings carry n, mean, σ, se, z and a verdict.
+  `Measure: card:<id>` and `card:<id> gate` join `Measure: g4`; `initctl goal read|measure`.
+- Outcomes (card reading, owner accept/reject, guardrail harm) and a Brier score per goal kind; calibration sets only
+  the rounds between owner check-ins (1–12), never the owner's budget and never the autonomy ledger.
+- Owner guardrail cards (and the agent's own card gate) roll a change back on H12's path.
+- Seed skills `goal-loop` (artifact goals: frozen checklist, pairwise judging with position swap, ≥ 3 runs, stop reasons)
+  and `gbal` (mode A/B/hybrid by three instrument tests, predict → change → measure → keep at 2σ → stop with a reason).
+- Tests: Root `goal::tests` (7), the mock-model acceptance `root tests/gbal.rs` driven by `scenarios/root/gbal.json`.
+
+### Fixes from the real-model demo of 2026-10-25 (the owner's private demo records, F1–F6)
+- **F1** A fresh gated install (no sealed S, empty pool) rolled every T1/T2 change back ~1.3 s after its swap (G4
+  inconclusive → escalated → `inconclusive_final`). G4 with no instrument is now `accept: no_instrument` at once: kept on
+  G0–G3, one `g4_no_instrument` alert (kernel-gate `no_instrument_is_no_evidence_not_a_rollback`, kernel-supervise
+  `f7_f11_f13_f14_g4_branches`).
+- **F3** An owner `/rollback` of the first free-path change quarantined GENESIS.md, SELF.md and four seed skills: a parent
+  tuple without a t0 blob made every T0 cap an `add`. Such caps are now `baseline`: learned, never attributed to a group,
+  never quarantined (`f3_seed_caps_on_a_parent_without_t0_are_baseline_never_attributed`).
+- **F2** Switching `extend.mode` while the kernel ran was not picked up (the next handoff was refused as
+  `unwatched_change`, logged as an L0→L0 demotion, whole-system restart). `charter.apply` now pushes the mode to the
+  kernel and the kernel's ceilings refresh re-reads it (`f2_a_charter_mode_switch_reaches_the_running_kernel`). An
+  incident at L0 is recorded as `ladder{direction:"floor"}` with an `incident` alert, not a demotion; it still counts
+  toward the 3-in-24-h safe-mode rule (`an_incident_at_l0_is_floor_not_a_demotion`).
+- **F4** Gate notices said only `[kernel] gate`; they now name stage, verdict, sha and reason with what happens next
+  (`f4_gate_notices_say_why`).
+- **Docs** docs/guide.md: `/rollback` and `/goal` in the daily-use table; the free path needs `disk_floor_gib` + 2 GiB free.
+
+### Fixes from the GBAL real-model proof (build/status/GBAL-REAL.md)
+- **G1** The Root closed an owner turn only after 30 s with no model request, so an owner line sent sooner after the
+  reply counted as a steer of the finished turn: on the $0 dry run five questions 2 s apart made one turn and the GBAL
+  cards saw no turns at all (`goal read` n = 0, no reading, `met` unverifiable). The kernel's `state{busy:false}` now
+  closes the owner turn once its requests have ended (sentinel `kernel_idle_closes_the_owner_turn`); a line typed while
+  the body works is still a steer.
+- **G3** `initctl goal predict` accepted a prediction for a change already live (it can never be registered) and spent
+  one of the owner's rounds on it; on the real run the model amended its commit, promoted, then re-filed, and its goal
+  change stayed uncalibrated. It is now refused (`goal.late`, naming the tuple and saying to predict the final commit
+  before `initctl promote`), and an abbreviated sha is refused (it never matched the tuple's full sha)
+  (`goal::tests::predict_measure_outcome_guardrail_budget_and_stop`).
+- `tests/real/gbal_proof.sh` runs: `--mock` ($0, scripted init-mockllm) and the real mode, with the key copied into the
+  test Root (`keys set` reads only a TTY), owner lines through `init --raw` (`tests/real/gbal_drive.py`; there is no
+  `attach --line`), the spend from `egress stats` `money.total_spent_musd`, a workspace-mode charter generated from the
+  template, a spend and disk watchdog, and a verdict that sets the exit status.
+
+- **G2** (serious) A guardrail or gate rollback of a free-path change whose parent was not the kernel's LKG (every round
+  after the first while a group stays open) was not applied by the kernel: the bad change stayed live until the Root's
+  120 s whole-system fallback, and the agent's own `initctl rollback` meanwhile went all the way to LKG (genesis),
+  dropping the good change too. The kernel now rolls back to any parent it reaches through admitted t0 changes only as a
+  data-only rollback (the running binary, a new body instance; lineage `main` moves before it boots, and the body's
+  `body/` resync now also leaves a rolled-back `evo/<id>` checkout, so the target's T0 data is what the head reads),
+  confirmed to the Root by `body_rollback` at once. `initctl rollback` on the free path undoes only the group holding the
+  running change: an open group is vetoed (H12), a closed one rolled back to its parent (kernel-supervise
+  `g2_rollback_to_an_open_groups_parent_is_data_only_and_prompt`, `g2_data_only_rollback_to_a_non_lkg_target`; seed
+  `g2_head_on_a_rolled_back_commit_is_resynced_to_main`).
+- **G4** Calibration scored a guardrail rollback as o = 0 even when the prediction forecast that very regression
+  (P-000003: `expect=worse`, p 0.9, read worse at z −2.7, Brier 0.81). The outcome now scores the forecast on its own
+  card: o = 1 when the card moved in the predicted direction beyond noise; a guardrail or gate rollback is recorded on
+  the outcome (`harm`) but is not by itself a miss; a reading with no noise floor scores nothing; a change rolled back
+  before its card reading had n turns is read on the turns it had (≥ 3) (`goal::tests::g4_a_predicted_regression_caught_by_a_guardrail_is_a_hit`).
+- **G5** The kernel's `Predicts:` grammar refused card ids (`requests_turn`: "unknown metric"), which cost the model two
+  amends. `card:<id>` clauses now parse (unscored by the kernel: the Root reads the card and `initctl goal predict` is
+  the registered forecast), and a bare card id is refused with the `card:<id>` spelling (`g5_card_clauses_parse`).
+- **G6** skills/gbal said to predict "before it goes live", which the model read as "before the next owner turn". It now
+  says: on the final sha (after any amend), before `initctl promote`; it also states G4's scoring. seed/self.json
+  re-blessed.
+
+- **H2 ack race** An owner line's `owner.in` ack that the kernel sent before link.rs reported the line to the sentinel
+  was lost, so the line counted as deaf; two such lines in a row fired H2 (a kernel restart with no group open, else
+  every open group rolled back). The GBAL e2e failed about 2 runs in 6 on it. The sentinel now keeps an ack that comes
+  before its line (last 64) and the line is born acked (sentinel `an_ack_before_its_line_is_not_deafness`).
+
+### Fixes after the GBAL rerun (build/status/GBAL-REAL.md "Rerun", build/status/REL-040.md)
+- **G7** The kernel's commit rules refused the promote *after* the prediction (8 refusals in 3 real runs: an unknown
+  subject type, a missing `Why:`, prose in `Repro:`), each amend made the filed prediction stale, and every re-file spent
+  one of the owner's rounds and one check-in step: run A used up `rounds=3` before anything went live. Three changes:
+  `initctl promote --check evo/<id>` runs promote's synchronous commit checks (fetch, candidate checks, the validator under
+  the current `extend.mode`, the scope) and answers at once, with no job, no quota ticket, no gate and no record
+  (kernel-supervise `promote::check`, kernel-serve `Backend::promote_check`; `f1_f2_f3_f4_f9_failures_before_and_at_the_handoff`
+  asserts the check and promote report the same codes, and that a good commit passes with nothing left behind; initctl
+  golden rows); a re-file that replaces the goal's newest prediction while its change never went live keeps the round,
+  spends no round and no check-in step, and closes the old prediction `superseded` with its pending readings, so it never
+  registers (`goal::tests::g7_a_refile_before_live_supersedes_and_spends_no_round`); skills/gbal runs `promote --check`
+  before predicting and checks the prediction's answer before promoting, and skills/extend lists the subject types and
+  the exact `Repro:` forms. `initctl goal status` lists the open predictions.
+- **`met` requires attribution** (owner decision). A card goal used to be `met`, verified, whenever the newest kept
+  reading reached the threshold, also on noise (runs B and C: 2.4 → 2.0 requests per turn, z +1.64, threshold ≤ 2). It is
+  now `met` only when, in addition, a registered change moved the goal card beyond noise in its prediction's direction
+  toward the threshold (`attributed` on the stop record); reaching the threshold otherwise is recorded as
+  `met_unattributed` (`claimed: "met"`, `verified: false`) with a `goal_met_unattributed` owner alert
+  (`goal::tests::met_requires_a_registered_change_beyond_noise`; ADR-013 decision 5; skills/gbal).
+- **Goal meter = egress ledger.** The per-goal money meter added each closed turn's cost, so it missed requests that
+  settled after their turn closed and the turn in which the agent stopped the goal (rerun C: 51,290 against the ledger's
+  59,718 µUSD). The Root now charges every egress request it settles while the goal is active, at settlement, with the
+  `end` record's own `cost_musd`; the money budget is checked there too (`the_budget_meter_stops_the_goal`: paused spend
+  is not the goal's, no double count; the mock-model e2e `tests/gbal.rs` asserts goal meter = egress ledger to the µUSD).
+- seed/self.json re-blessed (skills/gbal, skills/extend).
+
 ## v0.3.3-preview (2026-10-25)
 
 Workspaces are at version 0.3.3 (seed tag `seed-v0.3.3`). Release notes: docs/release-notes/v0.3.3-preview.md.

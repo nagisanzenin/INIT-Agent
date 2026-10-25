@@ -258,6 +258,7 @@ struct Upstream {
     port: u16,
     seen: Arc<Mutex<Vec<Seen>>>,
     queue: Arc<Mutex<VecDeque<Vec<u8>>>>,
+    #[allow(dead_code)] // the server thread holds its own clone; kept so a test can slow the upstream
     delay_ms: Arc<Mutex<u64>>,
 }
 

@@ -81,6 +81,22 @@ init-root stop; init-root toolchain --set; init-root start
 
 `init-root toolchain --set [DIR]` (Root stopped) checks `rustc 1.97.x` and the Wasm target and records the toolchain in `install.json` and the kernel config's `[sandbox]` together, which the broker compares. A rustup on PATH with 1.97.x and the target at install time is recorded directly.
 
+### Checking the bundle: `scripts/bundle-e2e.sh`
+
+```sh
+scripts/bundle-e2e.sh [TARBALL]          # $0: get.sh with Rust into a temp home, `init`, one line, the mock's reply
+scripts/bundle-e2e.sh --t2 [TARBALL]     # $0, 20-30 min: plus a no-op T2 promote through the shipped gate (G0-G3)
+scripts/bundle-e2e.sh --pause [TARBALL]  # $0, about 30 s: Esc/Ctrl-C before the first token pauses, the resume is accepted
+UBE_LIVE_KEYFILE=~/.config/init-agent/deepseek.key scripts/bundle-e2e.sh --live [TARBALL]   # COSTS MONEY (about $0.0005)
+```
+
+Each mode installs the bundle with its own `get.sh` into its own test dir under `target/test-homes/` (`ube`, `ub2`, `ubp`, `rels`), with no Rust on PATH, starts its own Root (`--no-service`), drives the installed `init --raw`, and checks that the owner's `~/.init`, `~/.init-root`, `~/.local/bin`, `~/.local/share/init`, `~/Library/LaunchAgents` and shell rc files did not change. The test dir is removed unless `--keep`. The default TARBALL is the macOS bundle in `target/dist/v<version>-preview/`. For the Linux bundle, run the same script with the Linux tarball in a fresh container (build/status/REL-033.md has the exact `docker run`). The verdicts go to `build/status/bundle-{e2e,e2e-t2,pause,live}.json`.
+
+- **`--pause`** (loop.md §3.5.1, provider.md §3.8.1) runs on the strict DeepSeek mock, whose first turn stalls before any event. 2 s after `busy` the harness sends SIGINT to `init --raw`. It expects `paused · type to continue, or say what to do instead`, no `aborted`, and idle within 1 s. Then "Please continue." must get the mock's second reply. The resume must be exactly one request: no 400 in the strict mock's log, the `[init:paused]` note in it (and not in the first request), and the paused turn sent as `[no visible output]` with `"reasoning_content": ""`.
+- **`--live`** sends one turn, "Reply with the word ok.", to the bundle's charter provider (api.deepseek.com), with no mock. `UBE_LIVE_KEYFILE` names a file holding the key. The harness copies it into the test Root's key file and never prints it. A watchdog stops the turn at `UBE_LIVE_CAP_MUSD` of settled spend (default 10000 µUSD = $0.01) or at 4 provider requests, read from the test install's `INIT_HOME/root/ceilings.json`. The verdict records requests, tokens and µUSD after the Root meters the request (up to 75 s). Before the test dir is removed, the key must be in exactly one of its files. Run it only with the owner's go and a cap.
+
+Both modes are T0-only installs (`--no-rust`): neither needs a toolchain, so they skip the Rust download.
+
 ### The release profile
 
 The three workspaces set `[profile.release]` explicitly, to the defaults:

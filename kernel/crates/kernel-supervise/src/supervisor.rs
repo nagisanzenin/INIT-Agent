@@ -48,6 +48,9 @@ pub enum Cmd {
     Handoff { kind: crate::machine::HandoffKind, reply: Option<Sender<Result<(), String>>> },
     /// `initctl rollback` (immediate) or a G4 failure (at the next idle point).
     Rollback { reason: String, immediate: bool, reply: Option<Sender<Result<(), String>>> },
+    /// ADR-013 G2: roll back to the admitted version `to` (the parent of a change group). A data-only
+    /// rollback when every change after `to` is t0, else to LKG when `to` is LKG; refused otherwise.
+    RollbackTo { reason: String, to: String, immediate: bool, reply: Option<Sender<Result<(), String>>> },
     /// G4 passed for the current provisional SHA (gate.md): the LKG commit of §3.6.6.
     G4Pass { sha: String, job: String, reply: Option<Sender<Result<(), String>>> },
     /// G4 failed (or `inconclusive_final`): roll back to LKG at the next idle point (§3.6.7).
@@ -402,6 +405,62 @@ fn short(sha: &str) -> &str {
 
 /// ADR-011: `{mode: "free"}` (the boot block's or the `ceilings` block's `extend`) → free; anything
 /// else, absent included, is the gated path.
+/// The owner's line for a kernel notice. F4 (demo 2026-10-25): a gate notice said only `[kernel] gate`, so the owner
+/// never learned that G4 had rolled the change back, or why. It now names the stage, the verdict and the reason,
+/// with what happens next for the common reasons.
+pub fn notice_text(kind: &str, d: &Value) -> String {
+    if kind != "gate" {
+        return format!("[kernel] {kind}");
+    }
+    let stage = d["stage"].as_str().unwrap_or("?");
+    let verdict = match d["pass"].as_bool() {
+        Some(true) => "pass",
+        Some(false) => "fail",
+        None => "inconclusive",
+    };
+    let reason = d["reason"].as_str().unwrap_or("");
+    let why = match reason.rsplit('.').next().unwrap_or("") {
+        "no_instrument" => " (G4 has no tasks: no sealed S drawn, empty pool and holdout; kept on G0-G3 alone)",
+        "inconclusive_final" => " (still inconclusive after the escalated re-run: rolled back to LKG)",
+        "insufficient" | "underpowered" | "underpowered:holdout" => " (too few tasks to decide: one escalated re-run follows)",
+        "score_inferior" | "score_inferior_early" | "pool_inferior" | "holdout_inferior" => " (worse than LKG on the frozen tasks: rolled back to LKG)",
+        "canary" => " (a canary scored perfectly: cheating suspected, quarantined and rolled back)",
+        "no_gain" => " (not better, cheaper or smaller than LKG: rolled back to LKG)",
+        "parent_probe" => " (the running version's probe failed: infra, not the candidate)",
+        _ => "",
+    };
+    let sha: String = d["sha"].as_str().unwrap_or("").chars().take(12).collect();
+    match (reason.is_empty(), sha.is_empty()) {
+        (true, _) => format!("[kernel] gate {stage} {verdict}"),
+        (false, true) => format!("[kernel] gate {stage} {verdict}: {reason}{why}"),
+        (false, false) => format!("[kernel] gate {stage} {verdict} for {sha}: {reason}{why}"),
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::items_after_test_module)] // F4's notice tests sit next to `notice_text`
+mod notice_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn f4_gate_notices_say_why() {
+        let d = json!({"stage": "G4", "pass": false, "reason": "inconclusive_final", "sha": "06be87a1234567890"});
+        assert_eq!(
+            notice_text("gate", &d),
+            "[kernel] gate G4 fail for 06be87a12345: inconclusive_final (still inconclusive after the escalated re-run: rolled back to LKG)"
+        );
+        let t = notice_text("gate", &json!({"stage": "G4", "pass": true, "reason": "no_instrument"}));
+        assert!(t.starts_with("[kernel] gate G4 pass: no_instrument (G4 has no tasks"), "{t}");
+        assert_eq!(
+            notice_text("gate", &json!({"stage": "G4", "pass": null, "reason": "gate.g4.insufficient"})),
+            "[kernel] gate G4 inconclusive: gate.g4.insufficient (too few tasks to decide: one escalated re-run follows)"
+        );
+        assert_eq!(notice_text("gate", &json!({"stage": "G2", "pass": true})), "[kernel] gate G2 pass");
+        assert_eq!(notice_text("promoted", &json!({})), "[kernel] promoted");
+    }
+}
+
 pub fn extend_mode_free(extend: Option<&Value>) -> bool {
     extend.and_then(|e| e["mode"].as_str()) == Some("free")
 }
@@ -813,7 +872,7 @@ impl Supervisor {
         let handoff = self.m.handoff.as_ref().map(|h| {
             let (kind, to) = match &h.kind {
                 crate::machine::HandoffKind::Promote { sha, .. } => ("promote", sha.clone()),
-                crate::machine::HandoffKind::Rollback { .. } => ("rollback", self.m.lkg_sha.clone()),
+                crate::machine::HandoffKind::Rollback { to, .. } => ("rollback", self.m.rollback_target(to).1),
             };
             json!({"kind": kind, "phase": h.phase.name(), "from": h.old_sha, "to": to})
         });
@@ -894,6 +953,11 @@ impl Supervisor {
             self.ledger_at = Some(Instant::now());
         }
         if let Ok(v) = self.link.call(&KernelRequest::CeilingsGet, self.link.request_timeout) {
+            // F2 (demo 2026-10-25): the charter's `extend.mode` can change while the kernel runs; every refresh
+            // re-reads it (and the Root pushes a `ceilings` event at once), so admission follows the owner's switch.
+            if let Some(x) = v.get("extend") {
+                self.extend_free.store(extend_mode_free(Some(x)), std::sync::atomic::Ordering::SeqCst);
+            }
             self.proxy.set_ceilings(&v);
             self.ceilings = Some(v);
         }
@@ -1003,13 +1067,16 @@ impl Supervisor {
     /// ADR-011 §3.4 (X2): `extend.rollback{to, groups, reason}`. When the target (the parent of the
     /// oldest named group) is the kernel's LKG, the body rolls back at the next step boundary (the
     /// overlapped rollback), and its `body_rollback{to_sha: LKG}` confirms to the Root; when the body
-    /// is already there, the confirmation is sent at once. Any other target is left to the Root's
-    /// whole-system rollback, which follows 120 s without a confirmation.
+    /// is already there, the confirmation is sent at once. ADR-013 G2: a target that is not LKG but
+    /// that the running version reaches through data-only (t0) changes only (an open group's parent
+    /// while an older group is still open) is a data-only rollback on the running binary, confirmed
+    /// the same way. Any other target is left to the Root's whole-system rollback, which follows 120 s
+    /// without a confirmation.
     fn on_extend_rollback(&mut self, d: init_proto::root_link::ExtendRollbackData, now: Now) {
         let target = crate::promote::admit::Groups::load(&self.home).parent_of(&d.groups);
         let reason = format!("extend_{}", d.reason.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(40).collect::<String>());
         match target {
-            Some(t) if t == self.m.lkg_sha && self.m.current.sha == t => {
+            Some(t) if self.m.current.sha == t && !matches!(self.m.slot, Slot::RollingBack) => {
                 self.outbox_post("body_rollback", json!({"from_sha": self.m.current.sha.clone(), "to_sha": t, "reason": reason}));
             }
             Some(t) if t == self.m.lkg_sha => {
@@ -1017,11 +1084,22 @@ impl Supervisor {
                 let acts = self.m.request_rollback(&reason, true, now);
                 self.exec(acts);
             }
+            Some(t) if self.data_only_path(&t) => {
+                crate::klog::log("supervise", &format!("extend.rollback to {} (groups {:?}, {}): data-only rollback to {}", d.to, d.groups, d.reason, short(&t)));
+                let acts = self.m.request_rollback_to(&reason, Some(t), true, now);
+                self.exec(acts);
+            }
             other => {
-                self.alert("extend_rollback_root", &format!("extend.rollback to {} (groups {:?}): the target {} is not the kernel's LKG {}; the Root's whole-system rollback follows",
+                self.alert("extend_rollback_root", &format!("extend.rollback to {} (groups {:?}): the target {} is not the kernel's LKG {} and not a data-only step back; the Root's whole-system rollback follows",
                     d.to, d.groups, other.as_deref().map(short).unwrap_or("unknown"), short(&self.m.lkg_sha)));
             }
         }
+    }
+
+    /// ADR-013 G2: the running version reaches `target` back through admitted t0 changes only (the
+    /// kernel's change-group table), so `bin/init-body` and the kept set are the target's too.
+    fn data_only_path(&self, target: &str) -> bool {
+        crate::promote::admit::Groups::load(&self.home).data_only_back(&self.m.current.sha, target)
     }
 
     /// ADR-009 (SBX-009 §D): the Root's `access` event. Later live spawns relay the new values;
@@ -1376,6 +1454,17 @@ impl Supervisor {
                 let acts = self.m.request_rollback(&reason, immediate, now);
                 self.exec(acts);
             }
+            Cmd::RollbackTo { reason, to, immediate, reply } => {
+                if to != self.m.lkg_sha && !self.data_only_path(&to) {
+                    if let Some(r) = reply {
+                        let _ = r.send(Err(format!("{} is not LKG and the running version does not reach it through data-only changes", short(&to))));
+                    }
+                } else {
+                    self.handoff_reply = reply;
+                    let acts = self.m.request_rollback_to(&reason, Some(to), immediate, now);
+                    self.exec(acts);
+                }
+            }
             Cmd::G4Pass { sha, job, reply } => {
                 let r = self.lkg_commit_as(&sha, &job, pf::LkgReason::G4Pass, None);
                 if let Err(e) = &r {
@@ -1553,6 +1642,11 @@ impl Supervisor {
                 }
                 crate::fault::point("supervise.rollback.after_update_ref");
             }
+            Act::RestoreMain { from, to } => {
+                if let Err(e) = self.lineage.move_main(&to, &from) {
+                    self.alert("rollback_failed", &format!("lineage main back to {}: {e}", short(&to)));
+                }
+            }
             Act::Report { kind, data } => self.outbox_post(kind, data),
             Act::LocalLineage { kind, data } => {
                 if let Err(e) = self.outbox.local_only(kind, data) {
@@ -1596,14 +1690,16 @@ impl Supervisor {
                 self.relabel_live(&to_sha, "promote");
                 self.commit(job, from_sha, to_sha, staged_sha256)
             }
-            Act::CommitRollback { from_sha, to_sha, reason } => {
+            Act::CommitRollback { from_sha, to_sha, reason, data_only } => {
                 self.relabel_live(&to_sha, "rollback");
-                if let Err(e) = crate::binstore::install_from(&self.home.join("bin"), "init-body.lkg") {
-                    self.alert("rollback_failed", &format!("install LKG: {e}"));
-                }
-                self.built_from = None;
-                if let Err(e) = crate::extset::follow(&self.home.join("bin"), "ext", "ext.lkg") {
-                    self.alert("rollback_failed", &format!("bin/ext → bin/ext.lkg: {e}"));
+                if !data_only {
+                    if let Err(e) = crate::binstore::install_from(&self.home.join("bin"), "init-body.lkg") {
+                        self.alert("rollback_failed", &format!("install LKG: {e}"));
+                    }
+                    self.built_from = None;
+                    if let Err(e) = crate::extset::follow(&self.home.join("bin"), "ext", "ext.lkg") {
+                        self.alert("rollback_failed", &format!("bin/ext → bin/ext.lkg: {e}"));
+                    }
                 }
                 if let Err(e) = self.lineage.rollback_main(&from_sha, &to_sha) {
                     self.alert("rollback_failed", &format!("lineage rollback: {e}"));
@@ -1645,12 +1741,14 @@ impl Supervisor {
     }
 
     fn notice(&mut self, kind: &str, data: Value) {
+        let shown = data.clone();
         match self.inbox.notice(kind, data) {
             Ok(n) => {
                 if let Some(t) = self.m.relay_target().map(str::to_string) {
                     self.send_to(&t, &n.frame());
                 }
-                self.owner_notice(AlertLevel::Info, &format!("[kernel] {kind}"));
+                let text = notice_text(kind, &shown);
+                self.owner_notice(AlertLevel::Info, &text);
             }
             Err(e) => crate::klog::log("inbox", &format!("notice: {e}")),
         }
@@ -1971,7 +2069,7 @@ impl Supervisor {
         let handoff = self.m.handoff.as_ref().map(|h| {
             let to = match &h.kind {
                 crate::machine::HandoffKind::Promote { sha, .. } => sha.clone(),
-                crate::machine::HandoffKind::Rollback { .. } => self.m.lkg_sha.clone(),
+                crate::machine::HandoffKind::Rollback { to, .. } => self.m.rollback_target(to).1,
             };
             pf::HandoffRecord {
                 bid: "b0".into(),

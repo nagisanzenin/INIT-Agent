@@ -62,7 +62,7 @@ impl Table {
                     (r.ver, r.prev_ver) = (if remove { None } else { s(&c["ver"]) }, s(&c["prev_ver"]));
                     r.state = if remove { "removed" } else { "active" }.into();
                     r.evidence = if c["evidence"] == "root" { "root" } else { "zone" }.into();
-                    (r.registered, r.group) = (true, Some(g));
+                    (r.registered, r.group) = (true, (c["op"] != "baseline").then_some(g)); // F3: a seed cap has no group
                 }
             }
             "change_close" => {
@@ -238,7 +238,15 @@ pub fn change_caps(root: &Root, args: &Value) -> Result<Value, Err3> {
     let parent = cur.as_deref().and_then(|id| crate::tuple::load(rh, id)).unwrap_or(Value::Null);
     let cand = &args["candidate"];
     let mut out = Vec::new();
-    diff(&t0_of(rh, cand["body"]["t0"].as_str())?, &t0_of(rh, parent["body"]["t0"].as_str())?, &mut out);
+    let cand_t0 = t0_of(rh, cand["body"]["t0"].as_str())?;
+    if parent["body"]["t0"].as_str().is_none_or(str::is_empty) {
+        // F3 (demo 2026-10-25): the parent tuple holds no t0 blob (the install's genesis tuple, or a gated-path
+        // promotion), so the Root cannot tell the seed's T0 from this change's. Each T0 cap is `baseline`: the cap
+        // table learns its version, but no group is attributed with it, so a rollback never quarantines a seed file.
+        out.extend(cand_t0.iter().map(|(id, v)| json!({"evidence": "root", "id": id, "op": "baseline", "prev_ver": null, "ver": v})));
+    } else {
+        diff(&cand_t0, &t0_of(rh, parent["body"]["t0"].as_str())?, &mut out);
+    }
     if cand["ext"].is_object() {
         diff(&ext_caps(&cand["ext"]), &ext_caps(&parent["ext"]), &mut out);
     }

@@ -399,6 +399,49 @@ fn rollback_handoff_commits_to_lkg() {
     assert_eq!(m.mode, Mode::Normal);
 }
 
+/// ADR-013 G2: a data-only rollback to an open version (not LKG): lineage `main` moves before B boots,
+/// B runs the current binary on the target, the version stays provisional, nothing is installed;
+/// an abort puts `main` back.
+#[test]
+fn g2_data_only_rollback_to_a_non_lkg_target() {
+    const Z: &str = "3333333333333333333333333333333333333333";
+    let run = |abort: bool| {
+        let (mut m, t) = running_provisional(Duration::from_secs(0));
+        m.current = Ver { sha: Z.into(), provisional: true };
+        let a = m.request_rollback_to("extend_H12", Some(Y.into()), true, t);
+        let token = a.iter().find_map(|x| if let Act::Send { frame: ToBody::Pause { token, reason: PauseReason::Rollback }, .. } = x { Some(token.clone()) } else { None }).unwrap();
+        m.on(Ev::Paused { inst: "a".into(), token }, t);
+        let a = m.on(Ev::FenceOk, t);
+        let main = a.iter().position(|x| matches!(x, Act::RollbackMain { from, to } if from == Z && to == Y)).expect("main moves first");
+        let spawn = a.iter().position(|x| matches!(x, Act::Spawn(_))).unwrap();
+        assert!(main < spawn, "{a:?}");
+        let p = spawns(&a).pop().unwrap();
+        assert_eq!((p.bin, p.reason, p.sha.as_str()), (BinSel::Current, BootReason::Rollback, Y));
+        m.on(Ev::Spawned { tag: p.tag, result: Ok("b".into()) }, t);
+        if abort {
+            let a = m.on(Ev::Exited { inst: "b".into(), code: Some(1), signal: None, disk_low: false, stderr_tail: String::new() }, t);
+            assert!(has(&a, |x| matches!(x, Act::RestoreMain { from, to } if from == Y && to == Z)), "{a:?}");
+            assert_eq!(m.current.sha, Z);
+            return;
+        }
+        m.on(Ev::Ready { inst: "b".into() }, t);
+        let a = m.on(Ev::Tick, t.plus(Duration::from_secs(4)));
+        assert!(has(&a, |x| matches!(x, Act::CommitRollback { from_sha, to_sha, data_only: true, .. } if from_sha == Z && to_sha == Y)), "{a:?}");
+        assert!(!has(&a, |x| matches!(x, Act::InstallBin { .. })));
+        assert_eq!((m.current.sha.as_str(), m.current.provisional, m.lkg_sha.as_str()), (Y, true, X));
+        assert!(matches!(&m.mode, Mode::Provisional(p) if p.sha == Y), "{:?}", m.mode);
+    };
+    run(false);
+    run(true);
+    // the target is LKG: an ordinary LKG rollback; already there: nothing to do
+    let (mut m, t) = running_provisional(Duration::from_secs(0));
+    m.request_rollback_to("x", Some(X.into()), true, t);
+    assert!(matches!(&m.handoff, Some(h) if h.kind == HandoffKind::Rollback { reason: "x".into(), to: None }));
+    let (mut m, t) = running_provisional(Duration::from_secs(0));
+    let a = m.request_rollback_to("x", Some(Y.into()), true, t);
+    assert!(has(&a, |x| matches!(x, Act::HandoffDone { ok: false, .. })), "current is the target");
+}
+
 #[test]
 fn a_dies_while_paused_after_b_spawned_commits_anyway() {
     let mut m = m();

@@ -361,7 +361,7 @@ else
 fi
 ```
 
-The ancestry test covers rollback, panic resume and an agent that committed on its own `main`, without trusting `INIT_BOOT_REASON`. The boot event reports `drift` (fast-forward refused) or `stash` (pop conflicted; the stash stays). The built script runs nothing unless `body/.git` exists, and it sets `GIT_CEILING_DIRECTORIES` so git never finds a repository above `body/`. A timeout (30 s per command) stops the script. `main` moves only after `rolled-back/<sha12>` exists. A refused fast-forward and a failed pop are warnings, not errors. If `body/` is checked out on another branch, only the ref `main` moves and the working tree is left alone. In probe mode the script does not run; in safe mode only the fetch runs (body/boot.md §3.6). Rolled-back commits stay reachable in lineage (`refs/init/rolled-back/<sha>`, `refs/init/archive/<sha>`) and in the clone (`rolled-back/<sha12>`).
+ADR-013 G2: when `HEAD` is not `main` but is a commit the kernel rolled back (`refs/remotes/origin/init/rolled-back/<HEAD>` exists, typically the agent's `evo/<id>` at a data-only change), the script resyncs as if on `main` (stash, `switch -C main origin/main`, pop), so the rolled-back T0 data leaves the tree; the branch keeps the commit. The ancestry test covers rollback, panic resume and an agent that committed on its own `main`, without trusting `INIT_BOOT_REASON`. The boot event reports `drift` (fast-forward refused) or `stash` (pop conflicted; the stash stays). The built script runs nothing unless `body/.git` exists, and it sets `GIT_CEILING_DIRECTORIES` so git never finds a repository above `body/`. A timeout (30 s per command) stops the script. `main` moves only after `rolled-back/<sha12>` exists. A refused fast-forward and a failed pop are warnings, not errors. If `body/` is checked out on another branch, only the ref `main` moves and the working tree is left alone. In probe mode the script does not run; in safe mode only the fetch runs (body/boot.md §3.6). Rolled-back commits stay reachable in lineage (`refs/init/rolled-back/<sha>`, `refs/init/archive/<sha>`) and in the clone (`rolled-back/<sha12>`).
 
 ### 3.7 Safe mode (evolution view)
 
@@ -606,6 +606,8 @@ task-ref   = "task:" task-id / "label:" label
 metric     = "pass_rate" / "cost_usd" / "wall_s" / "cache_hit" / "turns"
            / "tokens_in" / "tokens_out" / "gap_ms_p50" / "body_tokens"
            / "ext_calls:" name
+           / "card:" card-id                        ; ADR-013: a Root observation card (below)
+card-id    = 1*32( %x61-7A / "_" )
 scope      = "all" / "pool" / "holdout" / "label:" label / "task:" task-id
            / "sealed"                               ; M7: pass_rate on the Root's G4 slice only (below)
 op         = "<=" / ">=" / "<" / ">"
@@ -632,6 +634,7 @@ label      = 1*40( %x61-7A / DIGIT / "-" )
 | `gap_ms_p50` | ms | median of per-task p50 | proxy: time from the end of a streamed response with tool calls to the next request in the same session. This is tool time plus harness overhead, observed from outside the body. |
 | `body_tokens` | tokens | scalar | selfmap at G1 |
 | `ext_calls:<name>` | calls | mean per task | proxy-parsed `ext` tool calls with that `name` |
+| `card:<id>` | the card's unit | — | ADR-013: a Root observation card (`card:requests_turn < parent`). It parses so that a GBAL commit can state its forecast in the trailer too, but the kernel never scores it (no hit, no miss, no baseline, no perf claim): the Root reads the card and only `initctl goal predict` is the registered forecast. A bare card id (`requests_turn`) is `predicts.parse`, with a hint to write `card:<id>`. |
 
 **Semantics.** Let *x* be the candidate statistic, *y* the parent's (LKG, same model, same tasks), *t* the target (`parent` → *y*; `parent-30%` → 0.7·*y*; a number → itself) and δ(m) the noise floor `δ_used(m)` that gate.md §3.10 hands over, in natural units. All values are carried as integers in the note (permille, micro-USD, ms, tokens), matching body/log-context.md's integers-only rule.
 

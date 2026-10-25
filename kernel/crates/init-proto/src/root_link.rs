@@ -334,6 +334,8 @@ pub enum KernelRequest {
     /// The Root stores and alerts it; only the owner decides (`/grant <id>`, `/deny <id>`).
     /// Carried as JSON (the Root owns the kinds and value shapes: root src/grant.rs).
     GrantRequest(Value),
+    /// ADR-013 (GBAL): `goal.*` / `card.*` with the agent's arguments; the Root validates them.
+    Goal(&'static str, Value),
 }
 
 /// `change.veto` (ADR-011 §3.3 H12; A3 failures, tool-error monitors, the agent's own judgment).
@@ -380,6 +382,7 @@ impl KernelRequest {
             KernelRequest::ChangeOpen(_) => "change.open",
             KernelRequest::ChangeVeto(_) => "change.veto",
             KernelRequest::GrantRequest(_) => "grant.request",
+            KernelRequest::Goal(c, _) => c,
         }
     }
 
@@ -401,6 +404,7 @@ impl KernelRequest {
             KernelRequest::ChangeOpen(v) => v.clone(),
             KernelRequest::ChangeVeto(a) => to_args(a),
             KernelRequest::GrantRequest(v) => v.clone(),
+            KernelRequest::Goal(_, v) => v.clone(),
             KernelRequest::Ready
             | KernelRequest::Instances
             | KernelRequest::TupleGet
@@ -434,6 +438,12 @@ impl KernelRequest {
             "change.open" => KernelRequest::ChangeOpen(args.clone()),
             "change.veto" => KernelRequest::ChangeVeto(link_args(cmd, args)?),
             "grant.request" => KernelRequest::GrantRequest(args.clone()),
+            "goal.status" => KernelRequest::Goal("goal.status", args.clone()),
+            "goal.propose" => KernelRequest::Goal("goal.propose", args.clone()),
+            "goal.predict" => KernelRequest::Goal("goal.predict", args.clone()),
+            "goal.stop" => KernelRequest::Goal("goal.stop", args.clone()),
+            "card.read" => KernelRequest::Goal("card.read", args.clone()),
+            "card.measure" => KernelRequest::Goal("card.measure", args.clone()),
             other => {
                 return Err(RootErrorCode::UnknownCmd.error(format!("unknown command `{}`", crate::validate::one_line(other, 64))));
             }

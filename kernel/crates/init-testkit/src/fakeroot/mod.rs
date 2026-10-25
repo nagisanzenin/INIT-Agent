@@ -1390,6 +1390,11 @@ impl Root {
                 self.log(json!({"ev": "change_veto", "group": v.group, "reason": v.reason}));
                 Reply::ok(&json!({}))
             }
+            // ADR-013: this fake Root keeps no goals; the real one is tested in root tests/gbal.rs.
+            KernelRequest::Goal(cmd, _) => {
+                self.log(json!({"ev": "goal", "cmd": cmd}));
+                Reply::err(root_err(RootErrorCode::parse("goal.none"), "no active goal (fake Root)", None))
+            }
             KernelRequest::GrantRequest(a) => {
                 // The real Root's rules in small (root src/grant.rs): §7.4 kinds, 3 requests, `why` off the lineage.
                 const KINDS: [&str; 11] = ["money.day_usd", "money.total_usd", "quotas.parallel_bodies", "extend.open_groups", "extend.changes_day",

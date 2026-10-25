@@ -44,6 +44,7 @@ usage: initctl [--sock PATH] [--json] [--quiet] [--timeout SECS] <command> [args
   reload [--wait]
   gate --quick [<path>|<ref>] [--no-wait]   default: the git toplevel of the current directory
   promote <evo/id> [--wait]
+  promote --check <evo/id>                    promote's commit checks only (trailers, subject): nothing promoted
   promote --sha <40 hex> [--wait]             L2: adopt a qualified member SHA
   rollback [--reason TEXT] [--wait]
   vendor <crate>@<version> [--no-wait] [--workspace body|ext]
@@ -91,7 +92,7 @@ const VALUE_FLAGS: &[&str] = &[
     "--why",
 ];
 /// Flags without a value.
-const BOOL_FLAGS: &[&str] = &["--json", "--quiet", "--wait", "--no-wait", "--quick", "--last", "--all", "--help", "--version"];
+const BOOL_FLAGS: &[&str] = &["--json", "--quiet", "--wait", "--no-wait", "--quick", "--last", "--all", "--help", "--version", "--check"];
 const GLOBAL_FLAGS: &[&str] = &["--sock", "--timeout", "--json", "--quiet"];
 
 #[derive(Debug, Default)]
@@ -248,15 +249,23 @@ pub fn parse(argv: &[String], cwd: &Path) -> Result<Parsed, CliError> {
             Command::Gate(GateArgs { quick: true, repo, rev, wait: t.wait()? })
         }
         (Some("promote"), _) => {
-            t.only(&["--sha", "--wait"])?;
-            match t.val("--sha") {
-                Some(sha) => {
-                    t.args(1, 0, "no <branch> together with --sha")?;
-                    Command::Promote(PromoteArgs { git_ref: None, sha: Some(sha.to_string()), wait: t.wait()? })
+            t.only(&["--sha", "--wait", "--check"])?;
+            if t.has("--check") {
+                if t.has("--sha") || t.has("--wait") {
+                    return Err(CliError::usage("promote --check <evo/id> takes no --sha or --wait"));
                 }
-                None => {
-                    let a = t.args(1, 1, "promote <evo/id>")?;
-                    Command::Promote(PromoteArgs { git_ref: Some(a[0].clone()), sha: None, wait: t.wait()? })
+                let a = t.args(1, 1, "promote --check <evo/id>")?;
+                Command::Promote(PromoteArgs { git_ref: Some(a[0].clone()), check: Some(true), ..PromoteArgs::default() })
+            } else {
+                match t.val("--sha") {
+                    Some(sha) => {
+                        t.args(1, 0, "no <branch> together with --sha")?;
+                        Command::Promote(PromoteArgs { git_ref: None, sha: Some(sha.to_string()), wait: t.wait()?, check: None })
+                    }
+                    None => {
+                        let a = t.args(1, 1, "promote <evo/id>")?;
+                        Command::Promote(PromoteArgs { git_ref: Some(a[0].clone()), sha: None, wait: t.wait()?, check: None })
+                    }
                 }
             }
         }
@@ -426,6 +435,22 @@ pub fn parse(argv: &[String], cwd: &Path) -> Result<Parsed, CliError> {
             let a = t.args(2, 2, "evo abandon <p-id> <reason>")?;
             Command::EvoAbandon(EvoAbandonArgs { proposal: a[0].clone(), reason: a[1].clone() })
         }
+        (Some("goal"), _) => {
+            t.only(&[])?;
+            let a = t.pos.get(1..).filter(|a| (1..=17).contains(&a.len())).map(<[String]>::to_vec)
+                .ok_or_else(|| CliError::usage("expected goal <status|propose|predict|stop|read|measure> [key=value ...]"))?;
+            let mut args = init_proto::serde_json::Map::new();
+            for kv in &a[1..] {
+                let (k, v) = kv.split_once('=').ok_or_else(|| CliError::usage(format!("goal: `{kv}`: arguments are key=value")))?;
+                let val = match v {
+                    "true" => init_proto::serde_json::Value::Bool(true),
+                    "false" => init_proto::serde_json::Value::Bool(false),
+                    _ => v.parse::<u64>().map_or_else(|_| init_proto::serde_json::Value::String(v.to_string()), init_proto::serde_json::Value::from),
+                };
+                args.insert(k.to_string(), val);
+            }
+            Command::Goal(init_proto::initctl::GoalArgs { op: a[0].clone(), args: init_proto::serde_json::Value::Object(args) })
+        }
         (Some("grant"), _) => {
             t.only(&["--hours", "--why"])?;
             let a = t.args(1, 2, "grant <kind> <value> [--hours H] --why TEXT")?;
@@ -531,6 +556,7 @@ mod tests {
             (vec!["reload", "--wait"], r#"{"args":{"wait":true},"cmd":"reload","id":"1","v":1}"#.into()),
             (vec!["promote", "evo/pty-tool"], r#"{"args":{"ref":"evo/pty-tool"},"cmd":"promote","id":"1","v":1}"#.into()),
             (vec!["promote", "evo/pty-tool", "--wait"], r#"{"args":{"ref":"evo/pty-tool","wait":true},"cmd":"promote","id":"1","v":1}"#.into()),
+            (vec!["promote", "--check", "evo/pty-tool"], r#"{"args":{"check":true,"ref":"evo/pty-tool"},"cmd":"promote","id":"1","v":1}"#.into()),
             (vec!["promote", "--sha", SHA], format!(r#"{{"args":{{"sha":"{SHA}"}},"cmd":"promote","id":"1","v":1}}"#)),
             (
                 vec!["rollback", "--reason", "G4 will fail: canary pattern in loop.rs"],
@@ -573,6 +599,10 @@ mod tests {
                 r#"{"args":{"duration_h":48,"kind":"extend.open_groups","value":6,"why":"a batch of 5 tools for one task"},"cmd":"grant","id":"1","v":1}"#.into(),
             ),
             (
+                vec!["goal", "predict", "sha=abc1234", "mode=A", "card=cost_turn", "expect=better", "p_permille=800"],
+                r#"{"args":{"args":{"card":"cost_turn","expect":"better","mode":"A","p_permille":800,"sha":"abc1234"},"op":"predict"},"cmd":"goal","id":"1","v":1}"#.into(),
+            ),
+            (
                 vec!["grant", "money.day_usd", "2.00", "--why", "w"],
                 r#"{"args":{"kind":"money.day_usd","value":"2.00","why":"w"},"cmd":"grant","id":"1","v":1}"#.into(),
             ),
@@ -604,6 +634,8 @@ mod tests {
         usage(&["promote"]);
         usage(&["promote", "main"]); // not evo/<id>
         usage(&["promote", "evo/x", "--sha", SHA]);
+        usage(&["promote", "--check", "evo/x", "--wait"]);
+        usage(&["promote", "--check"]);
         usage(&["vendor", "vt100"]);
         usage(&["vendor", "vt100@^0.16"]);
         usage(&["vendor", "vt100@0.16.2", "--workspace", "kernel"]);

@@ -270,6 +270,10 @@ pub struct Engine {
     pub clean_tuples: BTreeSet<String>,
     pub lkg_cand: Vec<(u64, String, String)>,
     pub lines: VecDeque<Line>,
+    /// Acks that came before their line: link.rs sends `owner.in` before it reports the line here, so a fast kernel's
+    /// answer can win the race; the line, when it comes, is born acked (not deaf). The last 64, not persisted.
+    #[serde(skip)]
+    pub early_acks: VecDeque<String>,
     pub streak: u32,
     pub busy: bool,
     pub deaf_restart: Option<i64>,
@@ -622,7 +626,8 @@ impl Engine {
     pub fn line(&mut self, cx: &Ctx, qid: &str, text: &str) -> Vec<Act> {
         let mut out = Vec::new();
         if cx.running {
-            self.lines.push_back(Line { qid: qid.into(), at: cx.now, ..Line::default() });
+            let acked = self.early_acks.iter().position(|q| q == qid).and_then(|i| self.early_acks.remove(i)).is_some();
+            self.lines.push_back(Line { qid: qid.into(), at: cx.now, acked, ..Line::default() });
         }
         let word = first_word(text);
         let corr = is_correction(text);
@@ -722,11 +727,35 @@ impl Engine {
     }
 
     pub fn ack(&mut self, qid: &str) {
-        self.lines.iter_mut().filter(|l| l.qid == qid).for_each(|l| l.acked = true);
+        let mut found = false;
+        for l in self.lines.iter_mut().filter(|l| l.qid == qid) {
+            (l.acked, found) = (true, true);
+        }
+        if !found {
+            self.early_acks.push_back(qid.into());
+            if self.early_acks.len() > 64 {
+                self.early_acks.pop_front();
+            }
+        }
     }
 
     pub fn hb(&mut self, busy: bool) {
         self.busy = busy;
+    }
+
+    /// The kernel's `state{busy:false}` frame: the body finished the owner's turn. The owner turn closes now, not
+    /// after `QUIET_MS` of quiet, so the owner's next line opens a new turn instead of counting as a steer of a
+    /// finished one (found by the GBAL real-model proof: lines 2 s apart merged five owner turns into one, and the
+    /// ADR-013 cards saw no turns). Only a turn that made requests, all of them ended; anything else keeps the quiet rule.
+    pub fn idle(&mut self, cx: &Ctx) -> Vec<Act> {
+        let mut out = Vec::new();
+        let done = self.turn.as_ref().is_some_and(|t| {
+            t.kind == "owner" && t.requests > 0 && self.reqs.values().filter(|r| r.turn == t.seq).all(|r| r.end.is_some())
+        });
+        if done {
+            self.close_turn(cx, false, &mut out);
+        }
+        out
     }
 
     /// A main-loop zone request begins (the tests' shorthand for `req_start_as(…, false)`).
@@ -766,6 +795,15 @@ impl Engine {
             add(t);
         } else if let Some(t) = self.recent.iter_mut().find(|t| t.seq == seq) {
             add(t);
+        }
+    }
+
+    /// ADR-013: a request's input and cache-read tokens land on its turn (the cache-read card).
+    pub fn req_usage(&mut self, id: &str, input: u64, cache_read: u64) {
+        let Some(seq) = self.reqs.get(id).map(|r| r.turn) else { return };
+        if let Some(t) = self.turn.as_mut().filter(|t| t.seq == seq) {
+            t.input_tok += input;
+            t.cache_read_tok += cache_read.min(input);
         }
     }
 

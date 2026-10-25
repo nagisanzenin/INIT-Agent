@@ -137,9 +137,13 @@ impl HaltReason {
 pub enum HandoffKind {
     /// A gated candidate from `bin/init-body.staged` (§3.6.4).
     Promote { job: String, sha: String, staged_sha256: String, branch: Option<String> },
-    /// Back to LKG from `bin/init-body.lkg` (§3.6.7).
-    Rollback { reason: String },
+    /// Back to LKG from `bin/init-body.lkg` (§3.6.7). With `to` (ADR-013 G2, the free path): back to an
+    /// admitted version whose newer changes are all data-only (t0), so the running `bin/init-body` is
+    /// its binary too; lineage `main` moves before the new body boots, so its `body/` resync takes the
+    /// target's T0 data, and the version stays provisional (its change group is still open).
+    Rollback { reason: String, to: Option<String> },
 }
+
 
 /// The phases of §3.6.4.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -305,8 +309,11 @@ pub enum Act {
     FenceRelease,
     /// Commit a promote handoff (§3.6.4 step 5): bin renames, `update-ref main`, `promotion`.
     Commit { job: String, from_sha: String, to_sha: String, staged_sha256: String },
-    /// Commit a rollback handoff (§3.6.7).
-    CommitRollback { from_sha: String, to_sha: String, reason: String },
+    /// Commit a rollback handoff (§3.6.7). `data_only`: the target runs the current binary and ext set
+    /// (ADR-013 G2), so nothing in `bin/` is installed.
+    CommitRollback { from_sha: String, to_sha: String, reason: String, data_only: bool },
+    /// Undo [`Act::RollbackMain`] after a data-only rollback aborted: lineage `main` `from` → `to`.
+    RestoreMain { from: String, to: String },
     Respond { req: String, result: Result<Value, ErrorBody> },
     /// Flush and exit the kernel process with this code (§3.13.5).
     Exit(i32),
@@ -358,7 +365,7 @@ pub struct Machine {
     owner_stop: Option<Instant>,
     pending_crash: Option<CrashInfo>,
     next_tag: Tag,
-    rollback_pending: Option<(String, Instant)>,
+    rollback_pending: Option<(String, Instant, Option<String>)>,
     /// A graceful restart waiting for the next idle point (ADR-009).
     pub restart_pending: Option<String>,
     /// The primary was asked to stop for a restart: the cause and the kill deadline.
@@ -764,24 +771,39 @@ impl Machine {
 
     /// Ask for a rollback to LKG: at the next idle point (or after `rollback_max_defer_s`).
     pub fn request_rollback(&mut self, reason: &str, immediate: bool, now: Now) -> Vec<Act> {
-        if self.current.sha == self.lkg_sha {
-            return vec![Act::HandoffDone { ok: false, reason: Some("current is LKG".into()) }];
+        self.request_rollback_to(reason, None, immediate, now)
+    }
+
+    /// Ask for a rollback to `to` (a data-only target, [`HandoffKind::Rollback`]) or, with `None` or
+    /// `to` = LKG, to LKG.
+    pub fn request_rollback_to(&mut self, reason: &str, to: Option<String>, immediate: bool, now: Now) -> Vec<Act> {
+        let to = to.filter(|t| *t != self.lkg_sha);
+        if self.current.sha == to.as_deref().unwrap_or(&self.lkg_sha) {
+            return vec![Act::HandoffDone { ok: false, reason: Some(if to.is_some() { "current is the target" } else { "current is LKG" }.into()) }];
         }
         if immediate {
-            return self.step(Ev::StartHandoff(HandoffKind::Rollback { reason: reason.into() }), now);
+            return self.step(Ev::StartHandoff(HandoffKind::Rollback { reason: reason.into(), to }), now);
         }
-        self.rollback_pending = Some((reason.to_string(), now.mono + self.cfg.rollback_max_defer()));
+        self.rollback_pending = Some((reason.to_string(), now.mono + self.cfg.rollback_max_defer(), to));
         self.maybe_deferred_rollback(now)
     }
 
+    /// The version and binary a rollback handoff boots.
+    pub fn rollback_target(&self, to: &Option<String>) -> (BinSel, String) {
+        match to {
+            Some(t) => (BinSel::Current, t.clone()),
+            None => (BinSel::Lkg, self.lkg_sha.clone()),
+        }
+    }
+
     fn maybe_deferred_rollback(&mut self, now: Now) -> Vec<Act> {
-        let Some((reason, force_at)) = self.rollback_pending.clone() else { return vec![] };
+        let Some((reason, force_at, to)) = self.rollback_pending.clone() else { return vec![] };
         if self.slot != Slot::Running || self.handoff.is_some() {
             return vec![];
         }
         if !self.busy || now.mono >= force_at {
             self.rollback_pending = None;
-            return self.begin_handoff(HandoffKind::Rollback { reason }, now);
+            return self.begin_handoff(HandoffKind::Rollback { reason, to }, now);
         }
         vec![]
     }
@@ -854,14 +876,17 @@ impl Machine {
         self.counters.swaps_failed += 1;
         let (sha, job) = match &h.kind {
             HandoffKind::Promote { sha, job, .. } => (sha.clone(), Some(job.clone())),
-            HandoffKind::Rollback { .. } => (self.lkg_sha.clone(), None),
+            HandoffKind::Rollback { to, .. } => (self.rollback_target(to).1, None),
         };
         let mut acts = vec![
             Act::UpdateFailed { stage: stage.clone(), reason: reason.clone(), sha: sha.clone(), from_sha: Some(h.old_sha.clone()), job: job.clone(), exit, log_tail: String::new() },
             Act::LocalLineage { kind: "handoff_failed", data: json!({"from": h.old_sha, "to": sha, "job": job, "stage": stage.as_str(), "reason": reason}) },
         ];
-        if matches!(h.kind, HandoffKind::Rollback { .. }) {
-            acts.push(Act::Alert { code: "rollback_failed", message: format!("rollback to LKG failed: {reason}") });
+        if let HandoffKind::Rollback { to, .. } = &h.kind {
+            acts.push(Act::Alert { code: "rollback_failed", message: format!("rollback to {} failed: {reason}", to.as_deref().map_or("LKG", |_| sha.as_str())) });
+            if to.is_some() {
+                acts.push(Act::RestoreMain { from: sha.clone(), to: h.old_sha.clone() });
+            }
         }
         if h.old_dead {
             // A died while paused and B never became ready: apply the crash rules to the current version.
@@ -892,13 +917,22 @@ impl Machine {
                 let tag = self.tag();
                 let (bin, sha, reason, branch) = match &h.kind {
                     HandoffKind::Promote { sha, branch, .. } => (BinSel::Staged, sha.clone(), BootReason::Promote, branch.clone()),
-                    HandoffKind::Rollback { .. } => (BinSel::Lkg, self.lkg_sha.clone(), BootReason::Rollback, None),
+                    HandoffKind::Rollback { to, .. } => {
+                        let (bin, sha) = self.rollback_target(to);
+                        (bin, sha, BootReason::Rollback, None)
+                    }
                 };
+                // ADR-013 G2: a data-only rollback moves lineage `main` first, so B's `body/` resync
+                // (evolution.md §3.6) checks out the target's T0 data before B builds its head.
+                let early_main = matches!(&h.kind, HandoffKind::Rollback { to: Some(_), .. }).then(|| Act::RollbackMain { from: h.old_sha.clone(), to: sha.clone() });
                 let plan = SpawnPlan { tag, bin, sha, reason, mode: InitMode::Normal, replaces: Some(h.old.clone()), crash: None, branch, from_sha: Some(h.old_sha.clone()), cause: None };
                 let hm = self.handoff.as_mut().unwrap();
                 hm.new_tag = Some(tag);
                 hm.phase = Phase::AwaitSpawn;
-                vec![Act::Persist, Act::Spawn(plan)]
+                let mut acts = vec![Act::Persist];
+                acts.extend(early_main);
+                acts.push(Act::Spawn(plan));
+                acts
             }
             (Phase::Fencing { deadline }, Ev::FenceBusy) => {
                 if now.mono >= deadline {
@@ -1044,11 +1078,25 @@ impl Machine {
                 self.mode = Mode::Provisional(Prov { sha: sha.clone(), depth, since_ms: now.wall_ms, probation_until: Some(now.mono + self.cfg.probation()) });
                 acts.push(Act::Notice { kind: "provisional", data: json!({"sha": sha, "depth": depth}) });
             }
-            HandoffKind::Rollback { reason } => {
-                acts.push(Act::CommitRollback { from_sha: h.old_sha.clone(), to_sha: self.lkg_sha.clone(), reason: reason.clone() });
+            HandoffKind::Rollback { reason, to: None } => {
+                acts.push(Act::CommitRollback { from_sha: h.old_sha.clone(), to_sha: self.lkg_sha.clone(), reason: reason.clone(), data_only: false });
                 self.prev = Some(self.current.clone());
                 self.current = Ver { sha: self.lkg_sha.clone(), provisional: false };
                 self.mode = Mode::Normal;
+                self.counters.rollbacks += 1;
+            }
+            HandoffKind::Rollback { reason, to: Some(t) } => {
+                // ADR-013 G2: the target is an open (provisional) version on the running binary.
+                acts.push(Act::CommitRollback { from_sha: h.old_sha.clone(), to_sha: t.clone(), reason: reason.clone(), data_only: true });
+                self.prev = Some(self.current.clone());
+                self.current = Ver { sha: t.clone(), provisional: true };
+                let (depth, since_ms) = match &self.mode {
+                    Mode::Provisional(p) => (p.depth.saturating_sub(1).max(1), p.since_ms),
+                    _ => (1, now.wall_ms),
+                };
+                if !self.mode.is_safe() {
+                    self.mode = Mode::Provisional(Prov { sha: t.clone(), depth, since_ms, probation_until: None });
+                }
                 self.counters.rollbacks += 1;
             }
         }

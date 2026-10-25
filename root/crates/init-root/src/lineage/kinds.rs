@@ -14,12 +14,13 @@ use serde_json::Value;
 /// `change_open`, `change_close`, `harm`, `snapshot`, `restore`, `settled`, `cap_state`, `cap_use`, `grant_request`,
 /// `grant`, `twin`, `twin_report`. X6/X7: `turns` (the owner day's owner and background turn counts, which the ladder
 /// counts, ADR-011 §7.1).
-pub const ROOT: [&str; 45] = ["genesis", "root_start", "charter", "tuple", "lkg", "audited", "zone_start", "zone_exit",
+/// ADR-013 (GBAL): `goal`, `goal_proposal`, `goal_predict`, `card_reading`, `goal_outcome` (none enters the ledger fold).
+pub const ROOT: [&str; 50] = ["genesis", "root_start", "charter", "tuple", "lkg", "audited", "zone_start", "zone_exit",
     "crash_loop", "safe", "halt", "pause", "unpause", "rollback", "kernel_upgrade", "ladder", "share", "ceiling_hit",
     "egress_action", "family_eval", "panic", "resume", "stop", "proposal", "audit", "mutation", "escapee", "access",
     "sealed_draw", "sealed_g4", "sealed_calibrate", "milestone",
     "change_open", "change_close", "harm", "snapshot", "restore", "settled", "cap_state", "cap_use", "grant_request",
-    "grant", "twin", "twin_report", "turns"];
+    "grant", "twin", "twin_report", "turns", "goal", "goal_proposal", "goal_predict", "card_reading", "goal_outcome"];
 
 /// Kinds the kernel reports, with the fields the Root requires (present; null allowed). The kinds with
 /// no required fields are recorded as their owning docs define them: root.md §3.10.5, kernel/supervise.md

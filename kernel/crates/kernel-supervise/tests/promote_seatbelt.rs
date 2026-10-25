@@ -762,7 +762,7 @@ fn a3_promote_g0_to_g4_under_real_seatbelt_profiles() {
     assert_eq!(q["pass"], true, "quick gate under the real profiles: {q}\n{}", w.explain(&jq));
 
     let j = w.job();
-    let r = promote::promote(w.env.clone(), &PromoteArgs { git_ref: Some("evo/a3".into()), sha: None, wait: None }, j.clone() as Arc<dyn Job>);
+    let r = promote::promote(w.env.clone(), &PromoteArgs { git_ref: Some("evo/a3".into()), sha: None, wait: None, check: None }, j.clone() as Arc<dyn Job>);
     assert_eq!(r.unwrap()["sha"], y.as_str());
     let done = j.wait(T * 5).expect("promote ended");
     assert!(done.is_ok(), "promote under the real profiles: {done:?}\n{}", w.explain(&j));
@@ -823,7 +823,7 @@ fn g4_refuses_caps_below_one_request_and_never_scores_runs_that_never_ran() {
     let w = World::new("cap", json!({"system": "You are INIT, a test agent body."}), 2, 1, 1_000);
     let y = w.candidate("cap", json!({"system": "You are INIT, a test agent body."}), "// cap\n", "refactor(loop): a candidate for the cap test");
     let j = w.job();
-    let r = promote::promote(w.env.clone(), &PromoteArgs { git_ref: Some("evo/cap".into()), sha: None, wait: None }, j.clone() as Arc<dyn Job>);
+    let r = promote::promote(w.env.clone(), &PromoteArgs { git_ref: Some("evo/cap".into()), sha: None, wait: None, check: None }, j.clone() as Arc<dyn Job>);
     assert_eq!(r.unwrap()["sha"], y.as_str());
     let done = j.wait(T * 5).expect("promote ended");
     assert!(done.is_ok(), "promote: {done:?}\n{}", w.explain(&j));

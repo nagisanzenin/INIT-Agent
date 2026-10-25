@@ -621,6 +621,29 @@ fn deafness_busy_lie_and_restart() {
     assert_eq!(e.streak, 0);
 }
 
+/// An ack that wins the race with its line (link.rs sends `owner.in`, then reports the line; the GBAL e2e saw a fast
+/// kernel answer in between) still counts: two such lines are heard, not two deaf lines that roll every group back.
+#[test]
+fn an_ack_before_its_line_is_not_deafness() {
+    let (mut e, mut t) = armed();
+    for q in ["e1", "e2", "e3"] {
+        e.ack(q);
+        e.line(&cx(t), q, "work on the repo");
+        e.req_start(&cx(t + 100), &format!("r-{q}"), 10);
+        e.req_end(&cx(t + 200), &format!("r-{q}"), 1, false);
+        t += 31_000;
+        let acts = e.tick(&cx(t));
+        assert!(harm(&acts).is_none(), "{q}: {acts:?}");
+        assert_eq!(e.streak, 0, "{q}");
+    }
+    assert!(e.lines.is_empty() && e.early_acks.is_empty());
+    // an ack whose line never comes (not running, or another session's) is forgotten after 64
+    for i in 0..100 {
+        e.ack(&format!("x{i}"));
+    }
+    assert_eq!((e.early_acks.len(), e.early_acks.front().map(String::as_str)), (64, Some("x36")));
+}
+
 /// The rollback mechanics: the kernel's `body_rollback` to the target's body sha confirms; otherwise the deadline
 /// gives a whole-system restart at 120 s.
 #[test]
@@ -885,4 +908,28 @@ fn subtask_traffic_is_not_a_per_turn_spike() {
     let acts: Vec<Act> = (0..5).flat_map(|_| sub_turn(&mut e, &mut t, false)).collect();
     let h = harm(&acts).expect("a main-loop spike fires");
     assert!(h["signal"] == "H5b" || h["signal"] == "H10", "{h}");
+}
+
+/// GBAL real-model proof (2026-10-25): the kernel's idle closes the owner turn, so the next line is a new turn, not a
+/// steer; an idle with a request in flight, or before any request, changes nothing (the quiet rule still applies).
+#[test]
+fn kernel_idle_closes_the_owner_turn() {
+    let mut e = Engine::new(Some("tP"));
+    let mut out = e.line(&cx(T0), "o1", "how many lines?");
+    assert!(e.idle(&cx(T0 + 10)).is_empty(), "no request yet: the turn stays open");
+    out.extend(e.req_start(&cx(T0 + 100), "x1", 100));
+    assert!(e.idle(&cx(T0 + 150)).is_empty(), "a request in flight: the turn stays open");
+    out.extend(e.req_end(&cx(T0 + 1000), "x1", 7, false));
+    out.extend(e.idle(&cx(T0 + 1100)));
+    let closed: Vec<Turn> = out.iter().filter_map(|a| if let Act::TurnClosed(t) = a { Some(t.clone()) } else { None }).collect();
+    assert_eq!(closed.len(), 1);
+    assert_eq!((closed[0].kind.as_str(), closed[0].requests, closed[0].cost_musd, closed[0].steered, closed[0].end), ("owner", 1, 7, 0, T0 + 1000));
+    // the owner's next line, 2 s later, is a new turn
+    e.line(&cx(T0 + 3000), "o2", "and the first line?");
+    let t = e.turn.as_ref().unwrap();
+    assert_eq!((t.kind.as_str(), t.steered, t.start), ("owner", 0, T0 + 3000));
+    // a line while the body works is still a steer
+    e.req_start(&cx(T0 + 3100), "x2", 100);
+    e.line(&cx(T0 + 3200), "o3", "also count words");
+    assert_eq!(e.turn.as_ref().unwrap().steered, 1);
 }
