@@ -1,4 +1,4 @@
-<p align="center"><img src="assets/init-rebuild.svg" alt="INIT: an agent harness that rebuilds itself mid-task. Everything is writable except the Root." width="100%"></p>
+<p align="center"><img src="assets/init-rebuild.svg" alt="INIT: it rewrites its own harness and grows with every model. Everything is writable except the Root." width="100%"></p>
 
 
 INIT is a coding agent that can rewrite any part of itself (its prompts, its tools, its compiled Rust core) while it works. One small thing sits outside its reach: the **Root**, which holds your keys, the sandbox, a signed history of every change, and the power to roll it all back.
