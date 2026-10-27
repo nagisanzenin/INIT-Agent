@@ -1,6 +1,6 @@
 #!/bin/bash
 # The prebuilt-bundle end-to-end check, at $0 except --live (docs/release.md §2b, §5b; lane UX-BUNDLE): a user without Rust runs
-# get.sh on the bundle, then `init`, sends one line and gets the mock model's reply. Everything lives in
+# get.sh on the bundle, then `init-agent`, sends one line and gets the mock model's reply. Everything lives in
 # target/test-homes/ube/; the owner's ~/.init, ~/.init-root, ~/.local/bin, ~/.local/share/init,
 # ~/Library/LaunchAgents and shell startup files are snapshotted before and after and must not change.
 #
@@ -13,8 +13,11 @@
 #      (no ~/.cargo/bin: no Rust). get.sh installs Rust 1.97.1 + wasm32-wasip2 + clippy into the test home (its default; a
 #      download of about 150 MB), so the install records that toolchain (T1/T2). UBE_NO_RUST=1 passes --no-rust
 #      instead and checks the T0-only install (no toolchain, the rustup hint).
+#      Before get.sh the harness plants INIT's launcher of v0.4.0 and earlier at ~/.local/bin/init (the command's old
+#      name, nagisanzenin/INIT-Agent#1): on Linux the install must remove it and install no `init`; on macOS it must
+#      become the one-release shim, which prints the new name and runs init-agent (`init --which` = `init-agent --which`).
 #   3. a `test-` key written by this harness, `init-root start --foreground` (our child)
-#   4. the installed `init`, one owner line, frames until idle; the reply must be the mock's
+#   4. the installed `init-agent`, one owner line, frames until idle; the reply must be the mock's
 #   5. checks: the genesis body is the bundle's prebuilt one; the recorded toolchain is the test home's (or, with
 #      UBE_NO_RUST, `init-root status` says self-evolution T0 with the rustup command); `init-root status --json` and
 #      INIT_HOME/root/status.json carry the same `evolution` tiers; times
@@ -30,7 +33,7 @@
 #      its Repro trailer at an event of this install (the original names the source install's trace).
 #   --pause (REL-032/REL-033; $0, about 30 s; a T0-only install as with UBE_NO_RUST=1): the owner's interrupt is a
 #      pause (docs/body/loop.md §3.5.1) on the strict DeepSeek mock. The mock stalls the first turn before any event;
-#      2 s after `busy` the harness sends SIGINT to `init --raw` (our child; line mode sends `interrupt`), expects the
+#      2 s after `busy` the harness sends SIGINT to `init-agent --raw` (our child; line mode sends `interrupt`), expects the
 #      display `paused · type to continue, or say what to do instead`, no `aborted`, idle within 1 s; then "Please
 #      continue." and the mock's second reply. Checks: exactly 2 model requests, no 400 or protocol error in the strict
 #      mock's log, the `[init:paused]` note in the resume request and not in the first, and the paused turn replayed as
@@ -140,6 +143,17 @@ trap cleanup EXIT
 if [ -e "$D" ]; then chmod -R u+w "$D"; rm -rf -- "$D"; fi
 mkdir -p "$H" "$D/mock" "$D/tmp"
 snap >"$D/owner-before.txt"
+# an upgrade from v0.4.0 or earlier: INIT's launcher under its old name (the install checks its header and marker lines)
+mkdir -p "$BIN"
+cat >"$BIN/init" <<'EOF'
+#!/bin/bash
+# `init`: open INIT (docs/tui.md §2). Installed by scripts/install.sh into INIT_BIN_DIR (default ~/.local/bin).
+# (a test fixture: the launcher as v0.4.0 and earlier installed it, planted by scripts/bundle-e2e.sh)
+set -euo pipefail
+INIT_ROOT_HOME_DEFAULT="/nonexistent/old-root-home"
+echo "the old launcher ran" >&2; exit 1
+EOF
+chmod 755 "$BIN/init"
 
 # ---------------------------------------------------------------- 1. the $0 mock upstream (from the bundle itself)
 # (--live: none; the charter's provider is the live api.deepseek.com)
@@ -192,7 +206,21 @@ set -e
 GET_MS=$(( $(ms) - T0 ))
 log "get.sh exit $GRC in $GET_MS ms"
 [ $GRC = 0 ] || { tail -40 "$D/get.log"; die "get.sh"; }
-[ -x "$BIN/init" ] || die "no $BIN/init"
+[ -x "$BIN/init-agent" ] || die "no $BIN/init-agent"
+# the old name (issue #1): Linux removes INIT's old launcher and installs no init; macOS replaces it with the shim
+if [ "$(uname -s)" = Linux ]; then
+  [ ! -e "$BIN/init" ] && [ ! -L "$BIN/init" ] || die "$BIN/init is still there on Linux"
+  grep -qF "removed $BIN/init, INIT's launcher under its old name" "$D/get.log" || die "the install did not report removing $BIN/init"
+  RENAME=linux-old-launcher-removed
+else
+  grep -qx 'INIT_AGENT_SHIM=1' "$BIN/init" || die "$BIN/init is not the init-agent shim"
+  W_NEW="$(env HOME="$H" "$BIN/init-agent" --which)"
+  W_OLD="$(env HOME="$H" "$BIN/init" --which 2>"$D/shim.err")"
+  [ "$W_OLD" = "$W_NEW" ] || die "init --which ($W_OLD) differs from init-agent --which ($W_NEW)"
+  grep -q 'this command is now init-agent' "$D/shim.err" || die "the init shim printed no rename notice"
+  RENAME=macos-shim
+fi
+log "old name: $RENAME"
 if [ "$NO_RUST" = 1 ]; then
   grep -q 'self-evolution: T0 only' "$D/get.log" || die "the install did not report T0-only self-evolution"
   grep -q 'sh.rustup.rs' "$D/get.log" || die "the install printed no rustup command"
@@ -357,12 +385,12 @@ sys.exit(0 if ok else 1)
 PY
 set +e
 if [ $PAUSE = 1 ]; then
-  /usr/bin/python3 -I "$D/pause.py" "$BIN/init" "$H" "$D/attach.jsonl" >"$D/drive.json"
+  /usr/bin/python3 -I "$D/pause.py" "$BIN/init-agent" "$H" "$D/attach.jsonl" >"$D/drive.json"
 elif [ $LIVE = 1 ]; then
-  /usr/bin/python3 -I "$D/drive.py" "$BIN/init" "$H" "$D/attach.jsonl" "Reply with the word ok." "ok" \
+  /usr/bin/python3 -I "$D/drive.py" "$BIN/init-agent" "$H" "$D/attach.jsonl" "Reply with the word ok." "ok" \
     "$IH/root/ceilings.json" "$CAP_MUSD" >"$D/drive.json"
 else
-  /usr/bin/python3 -I "$D/drive.py" "$BIN/init" "$H" "$D/attach.jsonl" "Say hello." "hello from the mock" >"$D/drive.json"
+  /usr/bin/python3 -I "$D/drive.py" "$BIN/init-agent" "$H" "$D/attach.jsonl" "Say hello." "hello from the mock" >"$D/drive.json"
 fi
 DRC=$?
 set -e
@@ -418,7 +446,7 @@ MSG
   log "$CAND at $("${AGENT_GIT[@]}" rev-parse --short "$CAND"); the agent runs initctl promote $CAND (cold build, about 20-30 min)"
   T3=$(ms)
   set +e
-  /usr/bin/python3 -I "$D/drive.py" "$BIN/init" "$H" "$D/attach2.jsonl" "Promote $CAND." "promote submitted" >"$D/drive2.json"
+  /usr/bin/python3 -I "$D/drive.py" "$BIN/init-agent" "$H" "$D/attach2.jsonl" "Promote $CAND." "promote submitted" >"$D/drive2.json"
   PRC=$?
   set -e
   log "drive 2: $(cat "$D/drive2.json")"
@@ -478,9 +506,9 @@ MODE=hello; [ $PAUSE = 1 ] && MODE=pause; [ $LIVE = 1 ] && MODE=live
 KEYHITS= # --live: the test dir's files that hold the key (names only), before anything is removed
 [ $LIVE = 0 ] || KEYHITS="$(grep -rlF -f "$KEYFILE" "$D" 2>/dev/null | sed "s|^$D/||" | tr '\n' ' ' || true)"
 /usr/bin/python3 -I - "$D" "$RH" "$IH" "$H/.local/share/init/$APP_VER/body/BODY.json" "$GET_MS" "$READY_MS" "$FIRST_MS" "$DRC" \
-  "$TOOLCHAIN_REC" "$TGZ" "$VERDICT" "$T2" "$PRC" "$PROMOTE_MS" "$NO_RUST" "$H" "$MODE" "$CAP_MUSD" "$KEYHITS" <<'PY'
+  "$TOOLCHAIN_REC" "$TGZ" "$VERDICT" "$T2" "$PRC" "$PROMOTE_MS" "$NO_RUST" "$H" "$MODE" "$CAP_MUSD" "$KEYHITS" "$RENAME" <<'PY'
 import json, os, re, sys
-d, rh, ih, bodyrec, get_ms, ready_ms, first_ms, drc, tc, tgz, verdict, t2, prc, promote_ms, no_rust, home, mode, cap, keyhits = sys.argv[1:20]
+d, rh, ih, bodyrec, get_ms, ready_ms, first_ms, drc, tc, tgz, verdict, t2, prc, promote_ms, no_rust, home, mode, cap, keyhits, rename = sys.argv[1:21]
 t2 = t2 == "1"
 no_rust = no_rust == "1"
 body = json.load(open(bodyrec))
@@ -537,6 +565,8 @@ else:
     checks = {
         "reply_is_the_mocks": int(drc) == 0 and "hello from the mock" in drive["reply"],
     }
+# issue #1: the install handled the command's old name (the harness died otherwise; recorded here)
+checks["old_name_" + rename.replace("-", "_")] = rename in ("linux-old-launcher-removed", "macos-shim")
 # without Rust the bound is the UX-BUNDLE target; get.sh's Rust install (a ~150 MB download) is allowed 5 min more
 if no_rust:
     checks["install_plus_first_reply_le_90s"] = int(first_ms) <= 90000

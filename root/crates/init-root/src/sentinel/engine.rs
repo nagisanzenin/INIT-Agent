@@ -678,7 +678,7 @@ impl Engine {
         out
     }
 
-    /// A new owner session (`workspace.set`, once per `init` launch): the next owner turn starts a new unit.
+    /// A new owner session (`workspace.set`, once per `init-agent` launch): the next owner turn starts a new unit.
     pub fn session_started(&mut self) {
         self.session += 1;
     }

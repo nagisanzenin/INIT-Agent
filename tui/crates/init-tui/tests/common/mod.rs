@@ -122,7 +122,7 @@ fn access_answer(g: &mut State, v: &Value) -> Option<Value> {
             if changed {
                 let text = match &ws {
                     Some(w) => format!("[root] workspace: {w}"),
-                    None => "[root] no workspace: cd into a project and run init to let me edit it".into(),
+                    None => "[root] no workspace: cd into a project and run init-agent to let me edit it".into(),
                 };
                 emit(g, json!({"code": "access", "level": "info", "src": "root", "t": "notice", "text": text, "ts": "x"}));
             }

@@ -1124,7 +1124,7 @@ print('linux isolation passed')
         for d in [&keys, &svc, &bin].into_iter().chain(&drop_ins) { fs::create_dir_all(d).unwrap(); }
         fs::write(keys.join("deepseek.key"), "must never be visible").unwrap();
         let unit = svc.join("init-root.service"); fs::write(&unit, "[Service]\nExecStart=/root-bin\n").unwrap();
-        for n in ["init", "init-tui"] { fs::write(bin.join(n), "#!/bin/sh\n# launcher\n").unwrap(); }
+        for n in ["init-agent", "init", "init-tui"] { fs::write(bin.join(n), "#!/bin/sh\n# launcher\n").unwrap(); }
         let mut l = Layout { root_home: dir.join("rh"), init_home: dir.join("ih"), toolchain: dir.join("tool"), extra_read: vec![],
             read_deny: vec![], write_deny: vec![], home: home.clone(), frozen: false, benchmark: false };
         for d in [&l.root_home, &l.init_home, &l.toolchain] { fs::create_dir_all(d).unwrap(); }
@@ -1201,7 +1201,7 @@ refused('unit drop-in',lambda: os.mkdir(svc+'/init-root.service.d'))
 for d in [home+'/.config/systemd/user.control',home+'/.local/share/systemd/user']:
  refused('drop-in in '+d,lambda: os.mkdir(d+'/init-root.service.d'))
  refused('unit in '+d,lambda: write(d+'/init-root.service'))
-for n in ['init','init-tui']:
+for n in ['init-agent','init','init-tui']:
  refused(n+' write',lambda: write(home+'/.local/bin/'+n))
  refused(n+' unlink',lambda: os.unlink(home+'/.local/bin/'+n))
  refused(n+' rename',lambda: os.rename(home+'/.local/bin/'+n,home+'/.local/bin/'+n+'.old'))
@@ -1238,7 +1238,7 @@ print('linux full isolation passed')
         assert_eq!(fs::read_to_string(&unit).unwrap(), "[Service]\nExecStart=/root-bin\n");
         assert_eq!(fs::read_dir(&svc).unwrap().count(), 1, "no new unit or drop-in");
         for d in &drop_ins { assert_eq!(fs::read_dir(d).unwrap().count(), 0, "{}", d.display()); }
-        for n in ["init", "init-tui"] { assert_eq!(fs::read_to_string(bin.join(n)).unwrap(), "#!/bin/sh\n# launcher\n"); }
+        for n in ["init-agent", "init", "init-tui"] { assert_eq!(fs::read_to_string(bin.join(n)).unwrap(), "#!/bin/sh\n# launcher\n"); }
         for d in [home.join(".local/bin.moved"), home.join(".local.moved"), home.join(".config.moved"), home.join(".local/share.moved")] { assert!(!d.exists(), "{}", d.display()); }
         fs::remove_dir_all(&fresh).unwrap();
         fs::remove_dir_all(dir).unwrap();

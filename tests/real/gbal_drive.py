@@ -1,4 +1,4 @@
-"""GBAL proof driver (tests/real/gbal_proof.sh): one `init --raw --no-replay` client per phase, owner lines from a
+"""GBAL proof driver (tests/real/gbal_proof.sh): one `init-agent --raw --no-replay` client per phase, owner lines from a
 plan, every frame recorded with its wall-clock ms.
 
 usage: python3 -I gbal_drive.py <init> <pw_home> <rh> <ih> <ws> <stream.jsonl> <stop_musd> <plan.json>

@@ -3,13 +3,13 @@
 > **Status: experimental (v0.2.0-preview).** DeepSeek through the installer is the only
 > provider used against a live API. Every configuration below (Chat-compatible gateways,
 > Responses, Messages, local no-auth servers) is implemented and covered by offline tests
-> only; none has been run against a live endpoint. Set them up in the app (`init`'s first
+> only; none has been run against a live endpoint. Set them up in the app (`init-agent`'s first
 > run, `/setup`, `/model`, `/key`) or with `init-root providers add`; the app marks them
 > "experimental (not live-tested)".
 
 ## In the app (v0.2.0-preview, UX-KEYMODEL)
 
-You do not need to edit the two files below by hand. On the first `init` without a usable key, the TUI asks
+You do not need to edit the two files below by hand. On the first `init-agent` without a usable key, the TUI asks
 for the provider, then the key (hidden; it goes only to the Root, stored 0600), then the model, and starts the
 chat. Later, `/model` switches models, `/key` replaces a key and `/setup` runs the setup again. From a shell:
 

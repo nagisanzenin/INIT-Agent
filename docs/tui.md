@@ -1,13 +1,13 @@
-# The `init` TUI: the owner's terminal client
+# The `init-agent` TUI: the owner's terminal client
 
 ```
 Status: v0.1, built (WP26, build/status/WP26.md; as-built differences in §10) · 2026-10-20 · Area: tui (owner client; owner decision CONVENTIONS §6 OW-TUI)
-        + v0.1.1 ADR-009 (workspace = `init`'s cwd, `--full`, `/full`, `/undo`, the `FULL` badge; lane WIRE-009)
+        + v0.1.1 ADR-009 (workspace = `init-agent`'s cwd, `--full`, `/full`, `/undo`, the `FULL` badge; lane WIRE-009)
         + 2026-10-24 TUI-UX: tool activity blocks, the token/cache/cost segment, the heartbeat, `/details` (§3.6, §3.9, §3.12)
 Depends on: CONVENTIONS.md (§1 live-system safety, §2, §5), root/root.md (§3.1, §3.9, §3.15, §4.2, §4.3),
             kernel/supervise.md (§3.10, §4.5, §4.6), body/loop.md (§3.5, §4.1), body/log-context.md (§4.5),
             root/egress.md (§3.3, §4.2), awareness.md, testing.md (§3.1a, §3.5b), roadmap.md (WP26)
-Defines:    the `tui/` workspace, crate and binary `init-tui` (opened by the owner's `init` command); its
+Defines:    the `tui/` workspace, crate and binary `init-tui` (opened by the owner's `init-agent` command); its
             trust rules T-1…T-5; the TTY layout, key map, rendering of owner-channel frames, notice classes
             and status bar; the text sanitizer; the client side of reconnect (Root epochs, replay overlap,
             never resending); line mode and its flags; the TUI's use of the `status`, `egress.stats` and
@@ -18,7 +18,7 @@ Defines:    the `tui/` workspace, crate and binary `init-tui` (opened by the own
 
 ## 1. Purpose
 
-`init` is the owner's everyday terminal for INIT, in the style of Claude Code: the agent's reply streams in, tool calls show as one line each and expand on demand, a multi-line input box sits at the bottom, and a status bar shows the level, model, spend against the daily ceiling, the Root's state and the running body.
+`init-agent` is the owner's everyday terminal for INIT, in the style of Claude Code: the agent's reply streams in, tool calls show as one line each and expand on demand, a multi-line input box sits at the bottom, and a status bar shows the level, model, spend against the daily ceiling, the Root's state and the running body.
 
 It is a **client of the existing owner channel and nothing more**. It connects to `ROOT_HOME/run/owner.sock`, the socket `init-root attach` uses, and speaks the frames root/root.md §4.2 and kernel/supervise.md §4.6 already define. The Root does not change to serve it (small additive fields are proposed in §9 Q1–Q2; the TUI works without them). The TUI has no special trust: anything it can do, `init-root attach` can do.
 
@@ -46,7 +46,9 @@ It is a **client of the existing owner channel and nothing more**. It connects t
 
 **Decision: a separate Cargo workspace `tui/`**, with one crate `init-tui` that builds the binary `init-tui`. It is maintainer/owner code, like `root/`, and is never evolvable by the agent.
 
-**The `init` command** is the launcher `scripts/init` (lane REL, installed by `scripts/install.sh` into `INIT_BIN_DIR`, default `~/.local/bin`). It execs `init-tui` with its arguments when one is installed (looked up as `$INIT_TUI`, then `init-tui` next to the launcher, then `ROOT_HOME/bin/init-tui`), and otherwise falls back to `init-root attach`. So `init` always opens an owner terminal, even before the TUI is installed or if it breaks. In this doc, `init` means the TUI reached through the launcher.
+**The `init-agent` command** is the launcher `scripts/init-agent` (lane REL, installed by `scripts/install.sh` into `INIT_BIN_DIR`, default `~/.local/bin`). It execs `init-tui` with its arguments when one is installed (looked up as `$INIT_TUI`, then `init-tui` next to the launcher, then `ROOT_HOME/bin/init-tui`), and otherwise falls back to `init-root attach`. So `init-agent` always opens an owner terminal, even before the TUI is installed or if it breaks. In this doc, `init-agent` means the TUI reached through the launcher.
+
+Until v0.4.1 the launcher was named `init`. It was renamed because `~/.local/bin/init` shadows Linux's `/sbin/init` in user shells, where `~/.local/bin` often comes first in `PATH` (issue nagisanzenin/INIT-Agent#1). On macOS, v0.4.1 also installs `~/.local/bin/init` as a shim (`scripts/init-shim`) that prints a rename notice on stderr and runs `init-agent` with the same arguments; the next release drops it. On Linux no file named `init` is installed: `install.sh` removes INIT's old launcher at `init` (checked by path, regular file and its content markers) and leaves a foreign `init` alone with a note. `install.sh` refuses a relative `INIT_BIN_DIR` and one that is, or resolves through symlinks to, `/sbin`, `/usr/sbin`, `/bin` or `/usr/bin`.
 
 | Option | Trust | Cost | Verdict |
 |---|---|---|---|
@@ -54,7 +56,7 @@ It is a **client of the existing owner channel and nothing more**. It connects t
 | a crate in `kernel/` | the kernel workspace is agent code from L3 (root/root.md §3.8.1, `lineage/kernel.git`), so the agent could rewrite the owner's own client, which is a path around the Root | shares the kernel's lock, so kernel dependency moves would also move the TUI's | rejected |
 | a crate in `root/` | trust-correct | puts crossterm and its tree into the Root's lockfile and audit surface, blurs the Root's size budget (R13, under owner review), and invites linking Root modules | rejected: the Root stays small |
 
-**Trust model.** `init` runs as the owner's user, unsandboxed, like any terminal program. It cannot confine itself: the Root rejects sandboxed peers on `owner.sock` (root/root.md §4.2, the peer check that keeps the zone out). So its code, including its dependencies, is part of the owner's trusted base, the same as the owner's shell. That is why the dependency set is kept small (§3.14). Its rules:
+**Trust model.** `init-agent` runs as the owner's user, unsandboxed, like any terminal program. It cannot confine itself: the Root rejects sandboxed peers on `owner.sock` (root/root.md §4.2, the peer check that keeps the zone out). So its code, including its dependencies, is part of the owner's trusted base, the same as the owner's shell. That is why the dependency set is kept small (§3.14). Its rules:
 
 - **T-1, one endpoint.** The only IPC endpoint is `ROOT_HOME/run/owner.sock`. The TUI opens no TCP or UDP socket and no other Unix socket.
 - **T-2, no keys, no files.** It opens no file under `ROOT_HOME` or `INIT_HOME` and writes no file at all. It keeps history in memory only.
@@ -192,7 +194,7 @@ The input box is editable at all times, including while a reply streams. It grow
 | Enter | send the box as one `line` frame (multi-line text travels as one frame with `\n` inside) |
 | Shift-Enter · Alt-Enter · Ctrl-J · `\` then Enter | insert a newline. Shift-Enter needs the kitty keyboard protocol: at start the TUI asks `crossterm::terminal::supports_keyboard_enhancement()` and, if it is supported, pushes `KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES`. Terminal.app does not support it, so there the other three work. |
 | paste | bracketed paste (`EnableBracketedPaste`): inserted verbatim, CRLF → LF, never sent by itself |
-| **Ctrl-C** | send `interrupt` (the body pauses the current turn and keeps partial output; the owner's next message continues the task unless it changes it, body/loop.md §3.5, §3.5.1; harmless while idle). The draft in the box is kept. The hint shows `interrupt sent · Ctrl-C again within 2 s quits init (the agent keeps running)`. |
+| **Ctrl-C** | send `interrupt` (the body pauses the current turn and keeps partial output; the owner's next message continues the task unless it changes it, body/loop.md §3.5, §3.5.1; harmless while idle). The draft in the box is kept. The hint shows `interrupt sent · Ctrl-C again within 2 s quits init-agent (the agent keeps running)`. |
 | **Ctrl-C again within 2 s** | send `detach`, restore the terminal, exit 0. The agent is not touched. |
 | Esc | while busy and no popup is open: send `interrupt`, a pause as for Ctrl-C (it does not arm quitting; hint `pausing · type to continue, or say what to do instead`); otherwise close the popup. **STEER:** with a steer still in the pending tray, Esc sends `{"t":"interrupt","then":"continue"}` (interrupt and steer: the body aborts as for a plain interrupt, then continues the run with the steer instead of going idle; hint `interrupting · your note goes in now (Esc again: just stop)`); a second Esc within 1 s, or Esc with no steer pending, is a plain `interrupt` |
 | Tab (STEER) | while busy, with text in the box and no popup: send the box as `/later <text>`, the next task after this run (Codex's Tab); the tray shows it as `next task` |
@@ -239,7 +241,7 @@ The TUI sends every line unchanged; the Root and the kernel parse them as for `i
 | `/stop` · `/status` · `/kernel` · `/accept <task>` · `/bless <job>` · `/reject <job>` · `/later <text>` | kernel (kernel/supervise.md §4.6) | line |
 | `/new` · `/compact [focus]` · `/branch <id> [note]` · `/label <id> <text>` | body (body/log-context.md §4.5) | line; when the echo of `/new` arrives, a divider `── new session ──` |
 | `/clear` (v0.2.0, UX-KEYMODEL) | body, as `/new` | the TUI sends `/new` (TTY and line mode); the kernel never sees `/clear` |
-| `/key [provider]` · `/model [n\|provider/model]` · `/setup` (v0.2.0, UX-KEYMODEL) | Root requests `providers.list`, `keys.set`, `providers.add`, `model.use` on their own connection | `/key`: a hidden field (the box shows `•`; never in the history, the transcript, a `line` frame or a log), sent once to the Root, which stores it 0600; the TUI zeroes its buffers. `/model`: the configured models, then a number picks; the Root rewrites `kernel/config.toml` and restarts the kernel. `/setup`: the first-run flow again. First run: when `providers.list` says the selected model has no usable key, `init` asks provider → key → model before the first chat. In line mode on a terminal the key cannot be hidden, so the TUI points to `init-root keys set <provider>` instead |
+| `/key [provider]` · `/model [n\|provider/model]` · `/setup` (v0.2.0, UX-KEYMODEL) | Root requests `providers.list`, `keys.set`, `providers.add`, `model.use` on their own connection | `/key`: a hidden field (the box shows `•`; never in the history, the transcript, a `line` frame or a log), sent once to the Root, which stores it 0600; the TUI zeroes its buffers. `/model`: the configured models, then a number picks; the Root rewrites `kernel/config.toml` and restarts the kernel. `/setup`: the first-run flow again. First run: when `providers.list` says the selected model has no usable key, `init-agent` asks provider → key → model before the first chat. In line mode on a terminal the key cannot be hidden, so the TUI points to `init-root keys set <provider>` instead |
 | `/usage` · `/details` (TUI-UX) | the TUI itself | not sent. `/usage`: the Root's ledger and token totals plus what this TUI saw (requests, cache rate, the last turn). `/details`: the last tool activity in full (§3.6); in line mode, this turn's per-request token lines |
 | anything else | body, as an input (a steer while busy) | line |
 
@@ -255,10 +257,10 @@ The completion popup lists exactly these. `/approve`, `/deny` and `/clear-safe` 
 
 #### 3.8.1 The workspace and `--full` at launch (v0.1.1, ADR-009)
 
-`init`'s cwd is the workspace: the directory the owner runs `init` in is the one the agent may edit.
+`init-agent`'s cwd is the workspace: the directory the owner runs `init-agent` in is the one the agent may edit.
 
 1. After the first `attach`, before it sends any owner line, the TUI sends `workspace.set{cwd}` once. Reconnects do not resend it.
-2. If the answer has `refused`, the Root's notice explains it (`[root] no workspace: cd into a project and run init to let me edit it`), and the TUI shows it like any notice. The agent can still read the home; it just cannot edit outside `INIT_HOME`.
+2. If the answer has `refused`, the Root's notice explains it (`[root] no workspace: cd into a project and run init-agent to let me edit it`), and the TUI shows it like any notice. The agent can still read the home; it just cannot edit outside `INIT_HOME`.
 3. With `--full`, the TUI then sends `full.set{on:true}`. On `root.confirm` it shows the error's `message` in a confirmation prompt in the input box, reads one line, and resends the same request with `"confirm": <that line>`. It takes the phrase from `data.phrase` and never hard-codes it. A second `root.confirm` (a mistyped phrase) leaves full mode off with a notice; nothing is retried automatically. On `root.mode` with `data.reason = "charter"`, it shows `full mode is disabled by your charter (sandbox.allow_full)`.
 4. The Root applies a change to the running agent at its next idle boundary (root/root.md §3.17.3). Until then `status.access.restart_pending` is true, and the status bar's workspace field shows it (§3.9).
 
@@ -305,7 +307,7 @@ As built, notices carry only `level`, `text` and `ts`. The TUI classifies them b
 | ceiling hit | none as built: the Root writes a `ceiling_hit` lineage record and no notice. The TUI raises its own notice when the polled spend meets the limit (§3.9): `■ daily ceiling reached: $5.00 of $5.00; requests are refused until the day resets (in 5 h 12 min)`, once per owner day, and the same for the total | `■` red |
 | panic | `PANIC at …` (Root alert `panic`) | a full-width red line; the status bar turns red at once |
 | safe mode, halt | `[root] system safe mode…`, `[root] Halted{…}` | yellow, red |
-| access (v0.1.1) | `[root] workspace: <path>`, `[root] no workspace: cd into a project and run init to let me edit it`, `[root] full mode on: …`, `[root] full mode off …` (Root notice `code:"access"`) | info; `full mode on` in red; triggers an immediate status poll |
+| access (v0.1.1) | `[root] workspace: <path>`, `[root] no workspace: cd into a project and run init-agent to let me edit it`, `[root] full mode on: …`, `[root] full mode off …` (Root notice `code:"access"`) | info; `full mode on` in red; triggers an immediate status poll |
 | snapshot (v0.1.1) | a snapshot taken, skipped (over 2 GiB, not APFS, another volume) or restored by `/undo` (Root notice `code:"snapshot"`) | info; a skip in yellow |
 | anything else | — | by `level`: info dim, warn yellow, alert red |
 
@@ -434,9 +436,9 @@ init-tui [--root-home DIR] [--plain | --raw] [--no-replay] [--verbose] [--wait] 
          [--timeout S] [--latency-report] [--full | --workspace] [--version] [--help]
 ```
 
-From v0.1.1 the TUI's cwd is the agent's workspace (§3.8.1, ADR-009): run `init` in the project you want the agent to edit.
+From v0.1.1 the TUI's cwd is the agent's workspace (§3.8.1, ADR-009): run `init-agent` in the project you want the agent to edit.
 
-The launcher passes its arguments through unchanged (`init --plain` runs `init-tui --plain`); `--which` belongs to the launcher, so `init-tui` defines no flag of that name.
+The launcher passes its arguments through unchanged (`init-agent --plain` runs `init-tui --plain`); `--which` belongs to the launcher, so `init-tui` defines no flag of that name.
 
 | Flag | Meaning |
 |---|---|
@@ -489,7 +491,7 @@ Environment read: `INIT_ROOT_HOME`, `HOME`, `TERM`, `NO_COLOR`. Nothing else, in
 | SIGTERM | signal | restore the terminal, `detach`, exit 0 |
 | Rust panic inside the TUI | panic hook | restore the terminal (raw mode off, keyboard flags popped, paste off, alternate screen left, cursor shown), print the message, exit 101; the agent is unaffected |
 | Kitty keyboard query unanswered | crossterm's timeout | treated as unsupported; Alt-Enter, Ctrl-J and `\` Enter still give newlines |
-| `init` resolves to the system's `init` (Linux, where `/usr/bin/init` or `/sbin/init` exists) | `init --which` (the launcher) prints nothing useful, or `init --version` shows systemd | put `INIT_BIN_DIR` first in `PATH`, or run `init-tui` directly |
+| Before v0.4.1: the launcher `init` and the system's `init` shadow each other (Linux, where `/usr/bin/init` or `/sbin/init` exists) | `init --which` prints nothing useful, or `init --version` shows systemd | upgrade to v0.4.1 and run `init-agent` (§3.1); its `install.sh` removes INIT's old `init` on Linux |
 | `init-tui` missing or broken | the launcher finds no `init-tui` | the launcher runs `init-root attach`, the plain owner terminal |
 | The egress is not running | `egress.stats` refused (`root.mode`) | the money fields show `?` |
 | `init-fakeroot` lacks `egress.stats` | `root.unknown_cmd` | the money fields show `?` (tests) |
@@ -559,7 +561,7 @@ New ids, proposed to testing.md. Every test runs at $0 with the mock LLM. Live-e
 | TUI-R3 | ceiling: a test charter with `day_usd = "0.01"` and mock prices | the status bar turns red; the ceiling notice appears once | disposable, or owner-machine for v0.1 |
 
 | TUI-15 | v0.1.1 against the fixture server: launch in a scratch project dir; with `--full`; with `--full` and a wrong phrase; a reconnect; a server without `workspace.set` | exactly one `workspace.set` with the TUI's cwd, before any `line`; `full.set{on:true}`, then the same request with `confirm` set to the typed line after `root.confirm`; a wrong phrase leaves it off with no further request; no resend after reconnect; `?` and the notice on an old server; status-bar snapshots with `FULL`, a workspace, `no workspace` and `↻` | live, unit |
-| TUI-R4 | v0.1.1 end to end: the TUI, the real Root in test mode and the mock, with `init` run in a fixture project directory on APFS under the test's scratch home; the mock's tool call writes a file in the workspace; then `/undo` and `/undo confirm` | the file appears in the workspace; after `/undo confirm` the workspace equals its session snapshot, a `snapshot` notice reports the restore, and a `pre_undo` snapshot holds the file | disposable, or owner-machine for v0.1 |
+| TUI-R4 | v0.1.1 end to end: the TUI, the real Root in test mode and the mock, with `init-agent` run in a fixture project directory on APFS under the test's scratch home; the mock's tool call writes a file in the workspace; then `/undo` and `/undo confirm` | the file appears in the workspace; after `/undo confirm` the workspace equals its session snapshot, a `snapshot` notice reports the restore, and a `pre_undo` snapshot holds the file | disposable, or owner-machine for v0.1 |
 
 `ci/local.sh` runs TUI-1…TUI-10, TUI-14 and TUI-15 in the fast tier and TUI-11…TUI-13 in the full tier; TUI-R1…TUI-R3 go with the Root scenarios (disposable, or the owner-machine variant for v0.1).
 
@@ -574,16 +576,16 @@ New ids, proposed to testing.md. Every test runs at $0 with the mock LLM. Live-e
 4. **→ body/loop.md §4.1, kernel/supervise.md §4.6 (TUI-UX, open): `display{kind:"tool_progress", call_id, name, text}`.** While a call runs, the body sends its newest output (at most one frame a second per call, the text capped at one line of 200 characters). **Recommended:** yes, in the body's bash tool; it goes through the kernel's relay unchanged (Q2(b)). The TUI already renders it (the dim line under the activity header, §3.6) and falls back to the heartbeat without it, so nothing breaks either way.
 
 **Internal**
-3. **→ lane REL (`scripts/release.sh`, `scripts/install.sh`, `scripts/init`): building and installing `init-tui`.** **Recommended:** `release.sh` builds `tui/` (`cargo build --release --offline` inside `tui/`, so its `.cargo/config.toml` applies) and puts `init-tui` in the release directory; `install.sh` installs it next to the launcher in `INIT_BIN_DIR` (a new file, then a rename into place); the launcher ignores an `$INIT_TUI` inside `INIT_HOME` (T-4). `init-root install` does not change; `ROOT_HOME/bin/init-tui` stays a lookup location only.
+3. **→ lane REL (`scripts/release.sh`, `scripts/install.sh`, `scripts/init-agent`): building and installing `init-tui`.** **Recommended:** `release.sh` builds `tui/` (`cargo build --release --offline` inside `tui/`, so its `.cargo/config.toml` applies) and puts `init-tui` in the release directory; `install.sh` installs it next to the launcher in `INIT_BIN_DIR` (a new file, then a rename into place); the launcher ignores an `$INIT_TUI` inside `INIT_HOME` (T-4). `init-root install` does not change; `ROOT_HOME/bin/init-tui` stays a lookup location only.
 
 ## 10. Spec deltas
 
 | Source | This doc | Why |
 |---|---|---|
-| spec v0.3 §13, §18; root/root.md §3.15: owner I/O through `init-root attach` | a second owner client, `init-tui` (opened by `init`), on the same socket and frames, with no new trust | owner decision 2026-10-20 (CONVENTIONS §6 OW-TUI) |
+| spec v0.3 §13, §18; root/root.md §3.15: owner I/O through `init-root attach` | a second owner client, `init-tui` (opened by `init-agent`), on the same socket and frames, with no new trust | owner decision 2026-10-20 (CONVENTIONS §6 OW-TUI) |
 | kernel/supervise.md v0.2 §4.6 rendering rules, kept by root/root.md §3.15 | line mode keeps them, except echoes print as `> ` (v0.2's `»` marks tool starts); TTY mode renders collapsible blocks | a richer owner view; scripts keep the old format |
 | (new) | the owner's client sanitizes all zone text | zone text is untrusted from L0, and the kernel's from L3 |
-| (v0.1.1) | `init`'s cwd is the agent's workspace (`workspace.set`); `--full`, `/full`, `/undo` with the Root's typed confirmations; `FULL` and the workspace in the status bar | owner decision OW-PERM, ADR-009 (lane WIRE-009 builds it) |
+| (v0.1.1) | `init-agent`'s cwd is the agent's workspace (`workspace.set`); `--full`, `/full`, `/undo` with the Root's typed confirmations; `FULL` and the workspace in the status bar | owner decision OW-PERM, ADR-009 (lane WIRE-009 builds it) |
 
 **Docs and code disagree** (the code is what exists; noted here, raised where they matter):
 

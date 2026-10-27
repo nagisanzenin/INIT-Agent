@@ -20,7 +20,7 @@
 # kernel source bundle src/<version>.bundle, the seed bundle seed/seed-v<version>.bundle with its skills and
 # vendor/, docs, wit, ext, assets, MANIFEST.json), plus:
 #   body/init-body, body/BODY.json   the prebuilt genesis body and its record {sha256, commit, tag, profile, rustc}
-#   scripts/{install.sh,init,uninstall.sh,get.sh}, VERSION, README.md
+#   scripts/{install.sh,init-agent,init-shim,uninstall.sh,get.sh}, VERSION, README.md
 #   SHA256SUMS                       every other file (`shasum -a 256 -c SHA256SUMS`, or `sha256sum -c` on Linux)
 #
 # The prebuilt body is the one the install-mode kernel builds: this script installs the release into scratch
@@ -187,7 +187,7 @@ rec = {"v": 1, "sha256": sha, "commit": commit, "tag": tag, "profile": "dev", "r
        "g1": "self.json reproduced"}
 open(out, "w").write(json.dumps(rec, indent=1, sort_keys=True) + "\n")
 PY
-for f in install.sh init uninstall.sh get.sh; do cp "$REPO/scripts/$f" "$D/scripts/$f"; chmod 755 "$D/scripts/$f"; done
+for f in install.sh init-agent init-shim uninstall.sh get.sh; do cp "$REPO/scripts/$f" "$D/scripts/$f"; chmod 755 "$D/scripts/$f"; done
 cp "$REPO/README.md" "$D/README.md"
 printf '%s\n' "${TAG#v}" >"$D/VERSION"
 (cd "$D" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do sha256 "$f"; done) >"$D/SHA256SUMS"

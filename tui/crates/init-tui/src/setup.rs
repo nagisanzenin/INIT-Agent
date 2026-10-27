@@ -219,7 +219,7 @@ impl Flow {
         if !self.can_hide {
             self.step = Step::Idle;
             let a = self.key_only.take().unwrap_or_else(|| self.ch.alias.clone());
-            let mut o = vec![Out::Warn(format!("this terminal would show the key: store it with `init-root keys set {a}` (hidden input) in a terminal, or run init without --plain"))];
+            let mut o = vec![Out::Warn(format!("this terminal would show the key: store it with `init-root keys set {a}` (hidden input) in a terminal, or run init-agent without --plain"))];
             if self.why != Why::Key {
                 o.extend(self.ask_model());
             }

@@ -873,7 +873,7 @@ fn print_list(v: &Value, only: Option<&str>, models_only: bool) {
         println!("  {:<10} {}  [{ms}]  {t}", c["preset"].as_str().unwrap_or(""), c["display"].as_str().unwrap_or(""));
     }
     if v["ready"] != true {
-        println!("Not ready: the selected model {}/{} has no usable key. Run `init` for the guided setup.",
+        println!("Not ready: the selected model {}/{} has no usable key. Run `init-agent` for the guided setup.",
             v["selected"]["provider"].as_str().unwrap_or(""), v["selected"]["model"].as_str().unwrap_or(""));
     }
 }

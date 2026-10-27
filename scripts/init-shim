@@ -1,0 +1,10 @@
+#!/bin/bash
+# `init` (macOS, v0.4.1 only): the old name of `init-agent`. Installed by scripts/install.sh as INIT_BIN_DIR/init on
+# macOS only, never on Linux, where `init` shadows /sbin/init (nagisanzenin/INIT-Agent#1). It prints the new name and
+# runs the `init-agent` next to it with the same arguments. The release after v0.4.1 drops it.
+# The marker line below is how install.sh and uninstall.sh recognise this file as INIT's.
+INIT_AGENT_SHIM=1
+set -euo pipefail
+HERE="$(cd "$(dirname "$0")" && pwd -P)"
+echo "init: this command is now init-agent; \`init\` goes away in the next release." >&2
+exec "$HERE/init-agent" "$@"

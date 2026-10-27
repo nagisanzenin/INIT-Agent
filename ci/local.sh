@@ -136,6 +136,10 @@ if [ "${INIT_CI_TIER:-fast}" = full ]; then
     cargo test --offline --test tty -- --ignored
 fi
 
+# The installer's system bin-dir guard (nagisanzenin/INIT-Agent#1; stdlib Python, about 1 s): install.sh refuses
+# /sbin, /usr/sbin, /bin, /usr/bin (any spelling or symlink) and a relative INIT_BIN_DIR before it writes anything.
+step "install.sh bin-dir guard" "$repo" "$root_target" python3 -m unittest discover -s tests/install
+
 # Sealed pack s1 (M7 S1-CORE, docs/m7-design.md §3.1; Python >= 3.9, stdlib only): the pack lint (M7-P07 licences,
 # M7-P08 disjointness and no pack copies under seed/ or fixtures/), the runner/validator/lint tests (M7-P01..P09
 # and the runner's anti-gaming cases), then the template validator on every committed template (--quick;

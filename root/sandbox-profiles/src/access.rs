@@ -203,12 +203,16 @@ pub fn full_read_deny(home: &Path, charter: &[PathBuf]) -> Vec<PathBuf> {
     resolved(FULL_READ_DENY.iter().map(|r| home.join(r)).chain(charter.iter().cloned()))
 }
 
+/// INIT's launchers in the bin directory: `init-agent` and the TUI, and `init`, the launcher's name before v0.4.1 (on
+/// macOS v0.4.1 installs a shim under it; nagisanzenin/INIT-Agent#1).
+pub const LAUNCHERS: [&str; 3] = ["init-agent", "init", "init-tui"];
+
 /// ADR-012: the full tail's write deny list (`Z_WDENY_<i>`): [`FULL_WRITE_DENY`] under `home`, then INIT's launchers
-/// `<bin_dir>/init` and `<bin_dir>/init-tui` (`bin_dir` from `install.json`, default `~/.local/bin`) as file paths:
-/// the rest of the bin directory is writable in full mode.
+/// ([`LAUNCHERS`] in `bin_dir`, from `install.json`, default `~/.local/bin`) as file paths: the rest of the bin
+/// directory is writable in full mode.
 pub fn full_write_deny(home: &Path, bin_dir: Option<&Path>) -> Vec<PathBuf> {
     let bin = bin_dir.map_or_else(|| home.join(".local/bin"), Path::to_path_buf);
-    resolved(FULL_WRITE_DENY.iter().map(|r| home.join(r)).chain(["init", "init-tui"].iter().map(|n| bin.join(n))))
+    resolved(FULL_WRITE_DENY.iter().map(|r| home.join(r)).chain(LAUNCHERS.iter().map(|n| bin.join(n))))
 }
 
 fn resolved(all: impl Iterator<Item = PathBuf>) -> Vec<PathBuf> {
@@ -365,7 +369,8 @@ mod tests {
     }
 
     /// ADR-012: the full lists keep the key directory, the charter's entries, the service directories and INIT's
-    /// two launchers (file paths in bin_dir, default ~/.local/bin), and nothing of the ADR-009 secrets list.
+    /// launchers (file paths in bin_dir, default ~/.local/bin: init-agent, init, init-tui), and nothing of the ADR-009
+    /// secrets list.
     #[test]
     fn full_lists_keep_only_the_root_protected_set() {
         let h = Path::new("/nonexistent-adr012-home");
@@ -374,10 +379,11 @@ mod tests {
         assert!(!r.contains(&h.join(".ssh")), "the ADR-009 secrets list is dropped in full mode");
         let w = full_write_deny(h, None);
         assert_eq!(w, vec![h.join("Library/LaunchAgents"), h.join(".config/systemd/user"), h.join(".config/systemd/user.control"),
-            h.join(".local/share/systemd/user"), h.join(".local/bin/init"), h.join(".local/bin/init-tui")]);
+            h.join(".local/share/systemd/user"), h.join(".local/bin/init-agent"), h.join(".local/bin/init"), h.join(".local/bin/init-tui")]);
         assert!(LINUX_UNIT_DIRS.iter().all(|d| FULL_WRITE_DENY.contains(d)));
         let w = full_write_deny(h, Some(Path::new("/nonexistent-adr012-bin")));
-        assert_eq!(&w[4..], [PathBuf::from("/nonexistent-adr012-bin/init"), PathBuf::from("/nonexistent-adr012-bin/init-tui")]);
+        assert_eq!(&w[4..], [PathBuf::from("/nonexistent-adr012-bin/init-agent"), PathBuf::from("/nonexistent-adr012-bin/init"),
+            PathBuf::from("/nonexistent-adr012-bin/init-tui")]);
         assert!(!w.contains(&h.join(".zshrc")) && !w.contains(&h.join(".local/bin")), "shell rc and the bin dir are writable in full mode");
     }
 }

@@ -160,7 +160,7 @@ fn fleet_workspace_write_grants_members_the_workspace() {
     let read_only = |g: &pa_grant::SpawnGrant| g.access == "read_home" && g.grant.write.is_none() && g.workspace.is_none();
     assert!(read_only(&member("m0")), "no workspace, no grant");
     fs::create_dir_all(dir.join("ws")).unwrap();
-    // ADR-012: members' workspace writes are a workspace-mode grant (`init --workspace`; full access gives the live body
+    // ADR-012: members' workspace writes are a workspace-mode grant (`init-agent --workspace`; full access gives the live body
     // its own full grant)
     let r = crate::access::workspace_set(&root, &json!({"cwd": dir.join("ws").to_str().unwrap(), "mode": "workspace"})).unwrap();
     let ws = r["access"]["workspace"].as_str().map(std::path::PathBuf::from).unwrap_or_else(|| panic!("{r}"));

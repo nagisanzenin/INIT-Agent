@@ -1,6 +1,6 @@
 # Cutting a release
 
-*Owner: the maintainer (lane REL; the prebuilt bundle: lane UX-BUNDLE). Scripts: `scripts/release.sh`, `scripts/bundle.sh`, `scripts/get.sh`, `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/release-e2e.sh`, `scripts/init`. The install path itself is root/root.md §4.3.*
+*Owner: the maintainer (lane REL; the prebuilt bundle: lane UX-BUNDLE). Scripts: `scripts/release.sh`, `scripts/bundle.sh`, `scripts/get.sh`, `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/release-e2e.sh`, `scripts/init-agent`. The install path itself is root/root.md §4.3.*
 
 A release is a directory of binaries and bundles built from one commit, plus a git tag. There are two ways to install it:
 - **From source** (maintainers, and owners with Rust): `scripts/install.sh` builds the same directory on their Mac (or reuses a fresh one), and the install-mode kernel builds the body.
@@ -66,7 +66,7 @@ It writes `target/dist/v<version>-<label>/` (label `preview` by default, `--labe
 1. **The release directory** of §2, built from HEAD (`--from-head`); `--reuse-release` takes an existing one that names HEAD and is clean.
 2. **The prebuilt body.** It installs the release into scratch homes `target/ub/{r,h}` with `install.sh --reuse --yes --no-service --mock-upstream` (nothing outside `target/`; no model call), so the body is the one the install-mode kernel builds with the G0 build command from the seed tag, as on an owner's Mac. It checks that `bin/init-body`'s sha256 equals `lkg.json`'s and the genesis tuple's body blob, and that its commit is the seed tag's.
 3. **G1.** `init-kernel selfmap` in gate mode on the seed tag's tree, with that body and the release's components, must reproduce the committed `self.json`; otherwise the agent's first gate would fail `gate.g1.self_json_drift`.
-4. **The bundle.** The release directory, plus `body/init-body` and `body/BODY.json` (`sha256`, `commit`, `tag`, `profile: "dev"`, `rustc`), `scripts/{install.sh,init,uninstall.sh,get.sh}`, `VERSION` (`0.2.0-preview`), `README.md`, and `SHA256SUMS` over every other file. It is packed without macOS metadata.
+4. **The bundle.** The release directory, plus `body/init-body` and `body/BODY.json` (`sha256`, `commit`, `tag`, `profile: "dev"`, `rustc`), `scripts/{install.sh,init-agent,init-shim,uninstall.sh,get.sh}`, `VERSION` (`0.2.0-preview`), `README.md`, and `SHA256SUMS` over every other file. It is packed without macOS metadata.
 
 Measured on 2026-10-23 for v0.2.0-preview: see build/status/UX-BUNDLE.md.
 
@@ -84,15 +84,15 @@ init-root stop; init-root toolchain --set; init-root start
 ### Checking the bundle: `scripts/bundle-e2e.sh`
 
 ```sh
-scripts/bundle-e2e.sh [TARBALL]          # $0: get.sh with Rust into a temp home, `init`, one line, the mock's reply
+scripts/bundle-e2e.sh [TARBALL]          # $0: get.sh with Rust into a temp home, `init-agent`, one line, the mock's reply
 scripts/bundle-e2e.sh --t2 [TARBALL]     # $0, 20-30 min: plus a no-op T2 promote through the shipped gate (G0-G3)
 scripts/bundle-e2e.sh --pause [TARBALL]  # $0, about 30 s: Esc/Ctrl-C before the first token pauses, the resume is accepted
 UBE_LIVE_KEYFILE=~/.config/init-agent/deepseek.key scripts/bundle-e2e.sh --live [TARBALL]   # COSTS MONEY (about $0.0005)
 ```
 
-Each mode installs the bundle with its own `get.sh` into its own test dir under `target/test-homes/` (`ube`, `ub2`, `ubp`, `rels`), with no Rust on PATH, starts its own Root (`--no-service`), drives the installed `init --raw`, and checks that the owner's `~/.init`, `~/.init-root`, `~/.local/bin`, `~/.local/share/init`, `~/Library/LaunchAgents` and shell rc files did not change. The test dir is removed unless `--keep`. The default TARBALL is the macOS bundle in `target/dist/v<version>-preview/`. For the Linux bundle, run the same script with the Linux tarball in a fresh container (build/status/REL-033.md has the exact `docker run`). The verdicts go to `build/status/bundle-{e2e,e2e-t2,pause,live}.json`.
+Each mode installs the bundle with its own `get.sh` into its own test dir under `target/test-homes/` (`ube`, `ub2`, `ubp`, `rels`), with no Rust on PATH, starts its own Root (`--no-service`), drives the installed `init-agent --raw`, and checks that the owner's `~/.init`, `~/.init-root`, `~/.local/bin`, `~/.local/share/init`, `~/Library/LaunchAgents` and shell rc files did not change. The test dir is removed unless `--keep`. The default TARBALL is the macOS bundle in `target/dist/v<version>-preview/`. For the Linux bundle, run the same script with the Linux tarball in a fresh container (build/status/REL-033.md has the exact `docker run`). The verdicts go to `build/status/bundle-{e2e,e2e-t2,pause,live}.json`. Every mode first plants INIT's pre-v0.4.1 launcher at `~/.local/bin/init` in the test home: on Linux the install must remove it and install no `init`, on macOS it must become the one-release shim (`init --which` equals `init-agent --which`, the rename notice on stderr; issue #1).
 
-- **`--pause`** (loop.md §3.5.1, provider.md §3.8.1) runs on the strict DeepSeek mock, whose first turn stalls before any event. 2 s after `busy` the harness sends SIGINT to `init --raw`. It expects `paused · type to continue, or say what to do instead`, no `aborted`, and idle within 1 s. Then "Please continue." must get the mock's second reply. The resume must be exactly one request: no 400 in the strict mock's log, the `[init:paused]` note in it (and not in the first request), and the paused turn sent as `[no visible output]` with `"reasoning_content": ""`.
+- **`--pause`** (loop.md §3.5.1, provider.md §3.8.1) runs on the strict DeepSeek mock, whose first turn stalls before any event. 2 s after `busy` the harness sends SIGINT to `init-agent --raw`. It expects `paused · type to continue, or say what to do instead`, no `aborted`, and idle within 1 s. Then "Please continue." must get the mock's second reply. The resume must be exactly one request: no 400 in the strict mock's log, the `[init:paused]` note in it (and not in the first request), and the paused turn sent as `[no visible output]` with `"reasoning_content": ""`.
 - **`--live`** sends one turn, "Reply with the word ok.", to the bundle's charter provider (api.deepseek.com), with no mock. `UBE_LIVE_KEYFILE` names a file holding the key. The harness copies it into the test Root's key file and never prints it. A watchdog stops the turn at `UBE_LIVE_CAP_MUSD` of settled spend (default 10000 µUSD = $0.01) or at 4 provider requests, read from the test install's `INIT_HOME/root/ceilings.json`. The verdict records requests, tokens and µUSD after the Root meters the request (up to 75 s). Before the test dir is removed, the key must be in exactly one of its files. Run it only with the owner's go and a cap.
 
 Both modes are T0-only installs (`--no-rust`): neither needs a toolchain, so they skip the Rust download.
@@ -121,9 +121,9 @@ It runs the owner's path end to end inside `target/test-homes/rel/`, with the mo
 1. a loopback `init-mockllm` (two turns: `write hello.txt`, then `done`);
 2. `install.sh --yes --no-service --disk-floor 5 --mock-upstream 127.0.0.1:<port>` with `HOME`, `INIT_ROOT_HOME`, `INIT_HOME` and `INIT_BIN_DIR` in the test dir;
 3. a `test-` key written by the harness (install.sh never handles keys), then `init-root start`;
-4. the installed `init` command (no TUI, so `init-root attach`), one owner line, frames until the body is idle;
+4. the installed `init-agent` command (no TUI, so `init-root attach`), one owner line, frames until the body is idle;
 5. checks: the reply says `done`, `work/hello.txt` is `INIT`, 2 egress requests, 2 mock requests, no ceiling hit, `audit verify --full` exit 0;
-6. `uninstall.sh` while the Root still runs (it stops the zone and refuses to move a running home), a `no` answer (nothing moved), then a typed `uninstall`: the homes and the `init` command land in the test Trash.
+6. `uninstall.sh` while the Root still runs (it stops the zone and refuses to move a running home), a `no` answer (nothing moved), then a typed `uninstall`: the homes and the `init-agent` command land in the test Trash. Before the install the harness puts a foreign file named `init` in the bin dir; install.sh and uninstall.sh must leave it byte for byte (issue #1).
 
 The verdict goes to `build/status/rel-e2e.json`. Signals go only to the processes the script spawned. `init-root` always runs with the passwd `HOME`, because the broker compares the kernel's `HOME_REAL` (the passwd home) with the Root's `HOME`; with `--no-service` nothing is written there.
 
@@ -141,15 +141,16 @@ curl -fsSL "$INIT_DIST_URL/get.sh" | sh                                   # once
 sh get.sh --from init-v0.2.0-preview-macos-arm64.tar.gz [-- <install.sh args>]   # a local bundle
 ```
 
-POSIX `sh` (checked with dash). It refuses root, anything but macOS 14+ on arm64, and a Mac without the Command Line Tools; downloads over HTTPS only (or takes `--from` a local file); checks the archive's sha256 against `--sha256`, the `.sha256` file next to it, or `latest.json`, and refuses without one; unpacks into `~/.local/share/init/<version>/` (`INIT_APP_DIR` overrides the parent), checks `SHA256SUMS`, makes the tree read-only, and runs the bundle's `scripts/install.sh --yes` plus any arguments after `--`. The provider, key and model are for the first run of `init` (lane UX-KEYMODEL); until that lands it prints the `init-root keys set deepseek` step. **`INIT_DIST_URL` is a placeholder** (`https://releases.invalid/init`): the repo is private, and where releases are published is the owner's decision (docs/ux-v1.md OW-UX1). Trust on first install rests on HTTPS plus the sha256; there is no signature yet (OW-UX2).
+POSIX `sh` (checked with dash). It refuses root, anything but macOS 14+ on arm64, and a Mac without the Command Line Tools; downloads over HTTPS only (or takes `--from` a local file); checks the archive's sha256 against `--sha256`, the `.sha256` file next to it, or `latest.json`, and refuses without one; unpacks into `~/.local/share/init/<version>/` (`INIT_APP_DIR` overrides the parent), checks `SHA256SUMS`, makes the tree read-only, and runs the bundle's `scripts/install.sh --yes` plus any arguments after `--`. The provider, key and model are for the first run of `init-agent` (lane UX-KEYMODEL); until that lands it prints the `init-root keys set deepseek` step. **`INIT_DIST_URL` is a placeholder** (`https://releases.invalid/init`): the repo is private, and where releases are published is the owner's decision (docs/ux-v1.md OW-UX1). Trust on first install rests on HTTPS plus the sha256; there is no signature yet (OW-UX2).
 
 ## 5. What the owner runs
 
-`scripts/install.sh`, then `init-root keys set deepseek`, then `init` (README.md). Notes:
+`scripts/install.sh`, then `init-root keys set deepseek`, then `init-agent` (README.md). Notes:
 - `install.sh` reuses `target/dist/v<version>/` when its `MANIFEST.json` names HEAD, a clean build, a still-clean tree and files that match their hashes; otherwise it runs `release.sh --skip-tests` (`--with-tests` keeps the guard, `--rebuild` forces a build).
 - The wizard writes the charter from the release's `assets/charter-template.toml` with the owner's answers and checks it with the release's own `init-root charter check` before installing.
 - After the install it writes `INIT_HOME/kernel/config.toml`: the model, its prices (kernel/config.md §4.10), soft budgets under the ceilings (`request_max_usd = min(1.00, day/5)`, so the D6 clamp `ceiling − request_max` stays positive), and the `[sandbox]` table the Root wrote, verbatim.
-- It frees the build slot `INIT_HOME/cache/build/slot` (a cache the next build resets, supervise.md §3.6.2), installs `init` into `INIT_BIN_DIR` with ROOT_HOME baked in, and loads the LaunchAgent with `launchctl bootstrap` unless `--no-service`.
+- It frees the build slot `INIT_HOME/cache/build/slot` (a cache the next build resets, supervise.md §3.6.2), installs `init-agent` into `INIT_BIN_DIR` with ROOT_HOME baked in, and loads the LaunchAgent with `launchctl bootstrap` unless `--no-service`.
+- The launcher is `init-agent` from v0.4.1; it was `init`, which shadows Linux's `/sbin/init` in user shells (issue nagisanzenin/INIT-Agent#1). On macOS, v0.4.1 also installs `init` as a shim (`scripts/init-shim`) that prints a rename notice on stderr and runs `init-agent`; the next release drops it. On Linux `install.sh` installs no `init`, removes INIT's old launcher at `init` (checked by path, regular file and content markers), and refuses a relative `INIT_BIN_DIR` or one that is, or resolves to, `/sbin`, `/usr/sbin`, `/bin` or `/usr/bin`.
 - `--mock-upstream` is a test hook: it writes `root.test_mode = true` and a loopback provider, and requires `--no-service`.
 
 ## 6. Upgrades (not supported yet)

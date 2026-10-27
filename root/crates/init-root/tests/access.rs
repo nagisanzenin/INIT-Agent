@@ -267,7 +267,7 @@ fn body_writes_the_workspace_and_undo_restores_it() {
     let _d = h.daemon("");
     wait(20, "running", || h.ok("status", json!({}))["slot"] == "running");
     let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
-    // `init --workspace`: the session is confined to ADR-009's workspace mode under the default full charter
+    // `init-agent --workspace`: the session is confined to ADR-009's workspace mode under the default full charter
     let r = h.ok("workspace.set", json!({"cwd": h.s("proj"), "mode": "workspace"}));
     assert_eq!((r["access"]["access"].as_str(), r["access"]["mode"].as_str()), (Some("workspace"), Some("full")), "{r}");
     let first = r["access"]["snapshot"]["id"].as_str().unwrap().to_string();
@@ -386,13 +386,13 @@ fn default_full_access_and_session_choices() {
         let out = String::from_utf8_lossy(&o.stdout);
         assert!(out.contains("access: WORKSPACE (this session)"), "{out}");
     }
-    // a Root restart keeps the session's confinement (it never widens access); a new `init` launch takes the default
+    // a Root restart keeps the session's confinement (it never widens access); a new `init-agent` launch takes the default
     let _d = h.daemon("");
     assert_eq!(h.ok("access.get", json!({}))["full"], false, "confined across a Root restart");
     let r = h.ok("workspace.set", json!({"cwd": h.s("proj")}));
     assert_eq!(r["access"]["access"], "full", "{r}");
     let out = String::from_utf8_lossy(&h.run(&["status"]).stdout).into_owned();
-    assert!(out.contains("access: FULL (default) · workspace ") && out.contains("init --workspace, /full off, or sandbox.mode = \"workspace\" in "), "{out}");
+    assert!(out.contains("access: FULL (default) · workspace ") && out.contains("init-agent --workspace, /full off, or sandbox.mode = \"workspace\" in "), "{out}");
     let lin = fs::read_to_string(h.ih.join("root/lineage.jsonl")).unwrap();
     assert!(!lin.contains(&proj), "no workspace path in the lineage");
 }
@@ -409,9 +409,11 @@ fn full_body_writes_the_home_not_the_root() {
     wait(20, "running", || h.ok("status", json!({}))["slot"] == "running");
     h.ok("workspace.set", json!({"cwd": h.s("proj")}));
     let i = fs::canonicalize(&h.ih).unwrap().to_string_lossy().into_owned();
-    let (other, charter, launcher) = (h.s("other/full.txt"), h.rh.join("charter.toml").to_string_lossy().into_owned(), h.s(".local/bin/init"));
+    let (other, charter) = (h.s("other/full.txt"), h.rh.join("charter.toml").to_string_lossy().into_owned());
+    let (launcher, old_name) = (h.s(".local/bin/init-agent"), h.s(".local/bin/init")); // issue #1: and the macOS shim's name
     let script = format!(
         "env > '{i}/work/env.txt'; echo full > '{other}'; ( cat '{charter}' ) >/dev/null 2>&1; echo $? > '{i}/work/rh.rc'; \
+         ( echo x > '{old_name}' ) 2>/dev/null; echo $? > '{i}/work/old.rc'; \
          ( echo x > '{launcher}' ) 2>/dev/null; echo $? > '{i}/work/init.rc'; exec /bin/sleep 30"
     );
     let env = json!({"PATH": "/usr/bin:/bin", "INIT_ACCESS": "none", "INIT_WORKSPACE": "/", "CARGO_NET_OFFLINE": "true", "HOME": format!("{i}/work/home")});
@@ -428,5 +430,6 @@ fn full_body_writes_the_home_not_the_root() {
     assert_eq!(fs::read_to_string(h.dir.join("other/full.txt")).unwrap(), "full\n", "full access writes elsewhere in the home");
     assert_ne!(fs::read_to_string(h.ih.join("work/rh.rc")).unwrap().trim(), "0", "ROOT_HOME stays unreadable");
     assert_ne!(fs::read_to_string(h.ih.join("work/init.rc")).unwrap().trim(), "0", "INIT's launcher stays unwritable");
-    assert!(!h.dir.join(".local/bin/init").exists());
+    assert_ne!(fs::read_to_string(h.ih.join("work/old.rc")).unwrap().trim(), "0", "so does its old name, init");
+    assert!(!h.dir.join(".local/bin/init-agent").exists() && !h.dir.join(".local/bin/init").exists());
 }

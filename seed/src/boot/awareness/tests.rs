@@ -986,7 +986,7 @@ fn access_line_forms_and_position() {
     );
     assert_eq!(
         access(&mut fx, "read_home", None),
-        "- access: no workspace (init was launched outside a project): write INIT_HOME only · read the owner's home, secret stores denied"
+        "- access: no workspace (init-agent was launched outside a project): write INIT_HOME only · read the owner's home, secret stores denied"
     );
     assert_eq!(
         access(&mut fx, "none", None),

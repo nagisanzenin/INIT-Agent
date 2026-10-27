@@ -1,6 +1,6 @@
 //! SBX-009, ADR-009 (build/specs/ADR-009-spec.md, root/root.md §3.17): the owner's workspace, full mode, the
 //! grant of each body spawn, workspace snapshots and `/undo`. ADR-012 (v0.3.1): full access is the charter's default
-//! (`sandbox.mode`); the owner's session can confine it (`init --workspace`, `/full off`) or turn it back on. The wire protocol is build/status/SBX-009.md
+//! (`sandbox.mode`); the owner's session can confine it (`init-agent --workspace`, `/full off`) or turn it back on. The wire protocol is build/status/SBX-009.md
 //! ("Protocol for WIRE-009"). What a grant allows is the sandbox crate's (`init_sandbox_profiles::access`).
 //! Lock order: `access` is a leaf; nothing is appended, emitted or sent while it is held.
 
@@ -228,7 +228,7 @@ fn changed(root: &Root, event: &str, text: &str) {
 }
 
 fn no_ws_text() -> &'static str {
-    "[root] no workspace: cd into a project and run init to let me edit it"
+    "[root] no workspace: cd into a project and run init-agent to let me edit it"
 }
 
 /// The owner's notice for a session's access (after `workspace.set`).
@@ -250,7 +250,7 @@ fn snap_notice(root: &Root, r: &Result<Value, String>) {
 }
 
 /// `workspace.set{cwd, mode?}` (spec items 2, 4, 5): a new owner session. Never an error for an invalid cwd.
-/// ADR-012: the session takes the charter's default access, or workspace mode with `mode: "workspace"` (`init --workspace`).
+/// ADR-012: the session takes the charter's default access, or workspace mode with `mode: "workspace"` (`init-agent --workspace`).
 pub fn workspace_set(root: &Root, a: &Value) -> Result<Value, Err3> {
     let cwd = a["cwd"].as_str().ok_or(("root.args", "workspace.set needs cwd (a string)".to_string(), Value::Null))?;
     let session_full = match a.get("mode").and_then(Value::as_str) {

@@ -155,9 +155,13 @@ What the code does today. Where it differs from the design below, this subsectio
   namespaces, and for util-linux `unshare`, python3 and git ≥ 2.39.4, and says how to fix each.
 - **Bundle:** `init-v<version>-linux-arm64.tar.gz` or `init-v<version>-linux-x86_64.tar.gz`. It is built on Debian 12,
   so it needs glibc ≥ 2.36. musl is not supported. `get.sh` picks the asset from `uname -m`.
+- **Launcher:** `init-agent` in `INIT_BIN_DIR` (default `~/.local/bin`). From v0.4.1 no file named `init` is installed on Linux,
+  because `~/.local/bin/init` shadows `/sbin/init` in user shells (issue nagisanzenin/INIT-Agent#1). `install.sh` removes
+  INIT's old launcher at `init` (checked by path, regular file and content markers), leaves a foreign `init` alone with a
+  note, and refuses a relative `INIT_BIN_DIR` or one that is, or resolves to, `/sbin`, `/usr/sbin`, `/bin` or `/usr/bin`.
 - **ADR-009 on Linux is capped off.** There are no home reads, no workspace writes and no full mode
   (`access.rs` `LINUX_HOME_GRANTS`). The split-bind plan of §3.4.4 is not built, so the body works inside INIT_HOME
-  only. `init` launched in a project directory says "workspace mode is not available on Linux yet". This fails closed:
+  only. `init-agent` launched in a project directory says "workspace mode is not available on Linux yet". This fails closed:
   there is never an unconfined fallback.
 - **Memory and disk:** this matches macOS's MEM-RUNAWAY behaviour, and adds a hard cap where the Root has a delegated
   cgroup.
@@ -364,7 +368,7 @@ WantedBy=default.target
 - `KillMode=mixed`: `SIGTERM` goes to the Root, which stops gracefully through its self-pipe, and anything left in the unit's cgroup gets `SIGKILL` afterwards. That matches `--die-with-parent`: on Linux the zone never outlives the Root. On macOS the zone outlives a Root crash for up to 10 s, until the control link's EOF reaches the kernel (kernel/supervise.md §4.5). The panic latch file survives either way.
 - `NoNewPrivileges=yes` is deliberately absent. AppArmor may refuse the profile transition for `/usr/bin/bwrap` under `no_new_privs` (UNVERIFIED), and the Root needs no setuid program anyway.
 - Load and unload are the launcher's, with consent (ux-v1.md §3.4.8): `systemctl --user daemon-reload`, `systemctl --user enable --now init-root.service`; `systemctl --user disable --now init-root.service` before the unit goes to the freedesktop Trash. `loginctl enable-linger` is only mentioned, never run.
-- **`manual` fallback** (no systemd user manager: OpenRC, runit, WSL without systemd, containers): no unit file. The launcher starts `init-root start` detached with `setsid` when `owner.sock` does not answer, and `status.service` reads `manual`. A crashed Root is then restarted by the next `init`, not by a service manager.
+- **`manual` fallback** (no systemd user manager: OpenRC, runit, WSL without systemd, containers): no unit file. The launcher starts `init-root start` detached with `setsid` when `owner.sock` does not answer, and `status.service` reads `manual`. A crashed Root is then restarted by the next `init-agent`, not by a service manager.
 - `systemd-analyze --user verify` checks the rendered unit in PL-L10.
 
 #### 3.4.8 Snapshots on Linux (the checkpoint store's platform rules)

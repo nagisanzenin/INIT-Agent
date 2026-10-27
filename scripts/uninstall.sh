@@ -15,8 +15,9 @@
 #      plist or unit then goes to the Trash too.
 #   3. A Root still running without the service (`init-root start` in a terminal) is never signalled from here:
 #      stop it there (Ctrl-C), then run this again. Nothing is moved while a Root holds run/root.lock.
-#   4. After you type `uninstall`, ROOT_HOME, INIT_HOME and the `init` command (with init-tui) move to ~/.Trash, each with a
-#      timestamp in its name. Never `rm`.
+#   4. After you type `uninstall`, ROOT_HOME, INIT_HOME and the `init-agent` command (with init-tui, and INIT's `init`:
+#      the launcher's name before v0.4.1, or the macOS shim of v0.4.1) move to the Trash, each with a timestamp in its
+#      name. A file named init that is not INIT's stays. Never `rm`.
 set -euo pipefail
 umask 077
 
@@ -91,10 +92,12 @@ fi
 # ---------------------------------------------------------------- 4. confirm, then move to the Trash
 MOVE=()
 for p in "$RH" "$IH"; do [ -e "$p" ] && MOVE+=("$p"); done
-if [ -f "$BIN_DIR/init" ] && grep -q '^INIT_ROOT_HOME_DEFAULT=' "$BIN_DIR/init"; then
-  MOVE+=("$BIN_DIR/init")
-  [ -f "$BIN_DIR/init-tui" ] && MOVE+=("$BIN_DIR/init-tui")
-fi
+ours() { [ -f "$1" ] && [ ! -L "$1" ] && grep -qE '^(INIT_ROOT_HOME_DEFAULT=|INIT_AGENT_SHIM=1$)' "$1"; } # a launcher or the shim
+LAUNCHER=0
+for c in init-agent init; do
+  if ours "$BIN_DIR/$c"; then MOVE+=("$BIN_DIR/$c"); LAUNCHER=1; fi
+done
+[ $LAUNCHER = 1 ] && [ -f "$BIN_DIR/init-tui" ] && MOVE+=("$BIN_DIR/init-tui")
 [ $REAL = 1 ] && MOVE+=("$PLIST")
 mkdir -p "$TRASH"
 for p in "${MOVE[@]}"; do

@@ -2,7 +2,7 @@
 //! build/status/SBX-009.md §A–§C): the TUI's cwd becomes the workspace right after the first
 //! attach (`workspace.set`, before any owner line), `init --full` and `/full on|off` set full mode
 //! (`full.set`), and `/undo` restores the workspace's last snapshot (`undo`). ADR-012: full access is
-//! the charter's default; `init --workspace` sends `workspace.set{cwd, mode:"workspace"}` to confine
+//! the charter's default; `init-agent --workspace` sends `workspace.set{cwd, mode:"workspace"}` to confine
 //! this session to the workspace. The Root asks for a typed confirmation (`root.confirm` with
 //! `data.phrase`) only when it wants one (`/full on` under a charter `sandbox.mode = "workspace"`,
 //! `/undo`); the TUI shows its message, reads the owner's next line and resends the request with
@@ -16,7 +16,7 @@ use serde_json::{Value, json};
 use std::time::Duration;
 
 /// The no-workspace notice (spec item 2).
-pub const NO_WORKSPACE: &str = "no workspace: cd into a project and run `init` to let me edit it";
+pub const NO_WORKSPACE: &str = "no workspace: cd into a project and run `init-agent` to let me edit it";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
@@ -94,7 +94,7 @@ pub struct Flow {
     /// The TUI's cwd as the OS gives it; None when it could not be read.
     cwd: Option<String>,
     want_full: bool,
-    /// `init --workspace` (ADR-012): this session is confined to the workspace.
+    /// `init-agent --workspace` (ADR-012): this session is confined to the workspace.
     want_workspace: bool,
     ws: Ws,
     inflight: Option<Op>,
@@ -145,7 +145,7 @@ impl Flow {
         self.confirm.as_ref().map(|(_, p)| p.as_str())
     }
 
-    /// The first attach (later attaches send nothing: once per `init` launch).
+    /// The first attach (later attaches send nothing: once per `init-agent` launch).
     pub fn on_attached(&mut self) -> Vec<Out> {
         if self.ws != Ws::NotSent {
             return vec![];

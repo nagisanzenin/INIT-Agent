@@ -8,7 +8,7 @@
 (deny file-write* (literal (param "Z_ROOT_SVC_DIR")) (subpath (param "Z_ROOT_SVC_DIR")))
 ; one line per full read deny entry i: INIT's provider key directory, then the charter's sandbox.read_deny:
 (deny file-read* file-write* (literal (param "Z_DENY_<i>")) (subpath (param "Z_DENY_<i>")))
-; Z3a. never the Root's service directories or INIT's launchers (<bin_dir>/init, <bin_dir>/init-tui); one line per entry i:
+; Z3a. never the Root's service directories or INIT's launchers (<bin_dir>/init-agent, <bin_dir>/init, <bin_dir>/init-tui); one line per entry i:
 (deny file-write* (literal (param "Z_WDENY_<i>")) (subpath (param "Z_WDENY_<i>")))
 ; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced
 (deny file-write* (literal (param "Z_INIT_HOME")) (literal (param "Z_RUN")) (literal (param "Z_ZONE_MARK"))

@@ -333,7 +333,7 @@ pub fn echoed(root: &Root, frame: &Value) {
     }
 }
 
-/// `access.rs` `workspace.set`: a new owner session (each `init` launch). The sentinel's units never span sessions.
+/// `access.rs` `workspace.set`: a new owner session (each `init-agent` launch). The sentinel's units never span sessions.
 pub fn session_started(root: &Root) {
     go(root, |e, _| {
         e.session_started();

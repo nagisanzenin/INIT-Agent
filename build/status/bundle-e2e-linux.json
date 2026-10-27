@@ -1,10 +1,11 @@
 {
- "body_sha256": "10b1fb4c92730e45585fb42d5030105aead64b85613513cd3d2860e6266f718b",
- "bundle": "init-v0.4.0-preview-linux-arm64.tar.gz",
- "bundle_bytes": 66788350,
+ "body_sha256": "8c234eb41a8bfd06a4a10992afe00addda402484f8827e40168090cf3f0ebb91",
+ "bundle": "init-v0.4.1-preview-linux-arm64.tar.gz",
+ "bundle_bytes": 66785827,
  "checks": {
   "genesis_body_is_prebuilt": true,
   "install_with_rust_plus_first_reply_le_390s": true,
+  "old_name_linux_old_launcher_removed": true,
   "published_view_evolution_t2": true,
   "reply_is_the_mocks": true,
   "status_json_evolution_t2": true,
@@ -15,11 +16,11 @@
  "reply": "hello from the mock",
  "rust": "installed by get.sh into the test home",
  "times_ms": {
-  "drive_wall": 317,
-  "get_sh_install": 53100,
-  "get_sh_to_first_reply": 53987,
-  "start_to_ready": 534
+  "drive_wall": 381,
+  "get_sh_install": 93232,
+  "get_sh_to_first_reply": 97619,
+  "start_to_ready": 3772
  },
- "toolchain": "/home/u/repo/target/test-homes/ube/home/.rustup/toolchains/1.97.1-aarch64-unknown-linux-gnu",
+ "toolchain": "/home/ubuntu/rel/target/test-homes/ube/home/.rustup/toolchains/1.97.1-aarch64-unknown-linux-gnu",
  "v": 1
 }

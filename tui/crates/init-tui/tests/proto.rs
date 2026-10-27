@@ -425,7 +425,7 @@ fn wire9_workspace_first_undo_and_full_confirmations() {
     cleanup(&fx.dir);
 }
 
-/// ADR-012: under a full-default charter `init` gets full access with no confirmation;
+/// ADR-012: under a full-default charter `init-agent` gets full access with no confirmation;
 /// `--workspace` confines the session in `workspace.set{cwd, mode:"workspace"}`, and `/full on`
 /// then lifts it at once (the Root asks for no phrase).
 #[test]
@@ -490,7 +490,7 @@ fn wire9_home_has_no_workspace_and_full_flag_confirms() {
     let o = wait_output(child, 30);
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
     let out = text(&o);
-    assert!(out.contains("[tui] no workspace: cd into a project and run `init` to let me edit it (the home itself)"), "{out}");
+    assert!(out.contains("[tui] no workspace: cd into a project and run `init-agent` to let me edit it (the home itself)"), "{out}");
     let fulls: Vec<_> = fx.received().iter().filter(|r| r.frame["cmd"] == "full.set").map(|r| r.frame["args"].clone()).collect();
     assert_eq!(fulls, [json!({"on": true}), json!({"confirm": "confirm", "on": true})]);
     assert!(out.contains("[root] full mode on"), "{out}");
@@ -500,8 +500,9 @@ fn wire9_home_has_no_workspace_and_full_flag_confirms() {
     cleanup(&fx.dir);
 }
 
-/// WIRE-009: the launcher `scripts/init` passes every flag (`--full` included) through to the TUI
-/// and keeps the cwd, which the TUI sends as the workspace.
+/// WIRE-009: the launcher `scripts/init-agent` passes every flag (`--full` included) through to the TUI
+/// and keeps the cwd, which the TUI sends as the workspace. So does `scripts/init-shim` (macOS `init`, v0.4.1 only;
+/// nagisanzenin/INIT-Agent#1), which execs the launcher next to it and prints the new name on stderr.
 #[test]
 fn wire9_launcher_passes_flags_and_cwd_through() {
     let dir = home("w9-launcher");
@@ -512,7 +513,7 @@ fn wire9_launcher_passes_flags_and_cwd_through() {
     fs::set_permissions(&stub, fs::Permissions::from_mode(0o755)).unwrap();
     let proj = dir.join("proj");
     fs::create_dir_all(&proj).unwrap();
-    let launcher = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/init");
+    let launcher = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../scripts/init-agent");
     let o = std::process::Command::new("/bin/bash")
         .arg(&launcher)
         .args(["--full", "--plain"])
@@ -543,6 +544,23 @@ fn wire9_launcher_passes_flags_and_cwd_through() {
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let got = fs::read_to_string(&out).unwrap();
     assert_eq!(got.trim(), format!("{}|--workspace", fs::canonicalize(&proj).unwrap().display()), "ADR-012's --workspace too");
+    let shim = launcher.with_file_name("init-shim");
+    let o = std::process::Command::new("/bin/bash")
+        .arg(&shim)
+        .args(["--workspace", "--plain"])
+        .current_dir(&proj)
+        .env_clear()
+        .env("HOME", &dir)
+        .env("PATH", "/usr/bin:/bin")
+        .env("INIT_ROOT_HOME", dir.join("rh"))
+        .env("INIT_HOME", dir.join("ih"))
+        .env("INIT_TUI", &stub)
+        .output()
+        .unwrap();
+    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
+    assert!(String::from_utf8_lossy(&o.stderr).contains("this command is now init-agent"), "the shim names the new command");
+    let got = fs::read_to_string(&out).unwrap();
+    assert_eq!(got.trim(), format!("{}|--workspace --plain", fs::canonicalize(&proj).unwrap().display()), "the shim passes through");
     cleanup(&dir);
 }
 

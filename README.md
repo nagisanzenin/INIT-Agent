@@ -5,12 +5,12 @@ INIT is a coding agent that can rewrite any part of itself (its prompts, its too
 
 ```sh
 curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh
-init        # first run: pick a provider, paste a key, pick a model
+init-agent  # first run: pick a provider, paste a key, pick a model
 ```
 
 macOS 14+ on Apple silicon · Linux aarch64, experimental ([bubblewrap ≥ 0.13](docs/platforms.md) built from source) · about 1–2 min; get.sh also installs the Rust toolchain INIT rebuilds itself with · Apache-2.0
 **Spend is metered, not capped.** Set a limit at your provider. Details: [user guide](docs/guide.md).
-**Full access by default:** the agent reads and writes your files and uses the network, like your own shell; only the Root (`~/.init-root`, its service, INIT's launchers) is off-limits. `init --workspace` confines it to the folder you start it in ([ADR-012](docs/adr/012-full-access-by-default.md)).
+**Full access by default:** the agent reads and writes your files and uses the network, like your own shell; only the Root (`~/.init-root`, its service, INIT's launchers) is off-limits. `init-agent --workspace` confines it to the folder you start it in ([ADR-012](docs/adr/012-full-access-by-default.md)).
 
 ## Why
 
@@ -46,7 +46,7 @@ A fixed harness caps the agent at the imagination of the people who built it. IN
 
 ```text
                                   you
-                                   │  init · /stop · /panic · /undo
+                                   │  init-agent · /stop · /panic · /undo
                                    ▼
 ╔══════════════════════════════════════════════════════════════════╗
 ║  ROOT                         the agent can never write here     ║
@@ -112,7 +112,7 @@ A fixed harness caps the agent at the imagination of the people who built it. IN
 | **Frozen twin** | A pre-change copy replays your sessions nightly; an exact signed-rank test runs over 14 nights. It only reports; it never blocks. |
 | **Selection by use** | Unused capabilities decay into an archive; ones that keep coinciding with trouble are quarantined by a Fisher exact test. |
 | **Knows itself from evidence** | Models are poor at introspection, so INIT gets verified files instead: `SELF.md` (its own map), `self.json` (inventory, checked at G1), a boot block saying why it woke up, and live signals for context, cache, spend and level. ([awareness.md](docs/awareness.md)) |
-| **The sandbox** | Seatbelt profiles composed by the Root. By default the agent reads and writes anything you can and uses the network, but never the Root's files, its service or INIT's launchers; workspace mode (`init --workspace`) adds no IP, a secrets deny-list and writes only in the start folder. The agent never holds your API key. ([ADR-012](docs/adr/012-full-access-by-default.md)) |
+| **The sandbox** | Seatbelt profiles composed by the Root. By default the agent reads and writes anything you can and uses the network, but never the Root's files, its service or INIT's launchers; workspace mode (`init-agent --workspace`) adds no IP, a secrets deny-list and writes only in the start folder. The agent never holds your API key. ([ADR-012](docs/adr/012-full-access-by-default.md)) |
 | **Undo and history** | APFS clones before every change; every promotion, rollback, grant and panic goes into an Ed25519-signed, append-only lineage. |
 | **Watchdog** | Every workload is polled each second; a runaway process tree is killed by PID; work stops below a disk floor. |
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-# The release end-to-end check, at $0 (docs/release.md step 3): install → start → `init` → one line against the
+# The release end-to-end check, at $0 (docs/release.md step 3): install → start → `init-agent` → one line against the
 # mock model → stop → uninstall, all inside target/test-homes/rel/. Nothing touches ~/.init, ~/.init-root,
 # ~/Library or ~/.Trash.
 #
@@ -10,9 +10,11 @@
 #      (hello.txt = INIT), turn 2 says "done"
 #   2. scripts/install.sh --yes --no-service --disk-floor 5 --mock-upstream 127.0.0.1:<port>, with HOME, INIT_ROOT_HOME,
 #      INIT_HOME and INIT_BIN_DIR in the test dir (install.sh still gives init-root the passwd HOME, which the class
-#      rules need; with --no-service nothing is written there)
+#      rules need; with --no-service nothing is written there). Before it, the harness puts a foreign file named `init`
+#      (not INIT's) in INIT_BIN_DIR: the install must leave it as it is (no shim over it on macOS, no removal on Linux),
+#      and so must uninstall.sh (nagisanzenin/INIT-Agent#1)
 #   3. a `test-` key written by this harness (install.sh never handles keys), then `init-root start` (our child)
-#   4. the installed `init` command (no TUI → init-root attach --raw --no-replay), one owner line, frames until idle
+#   4. the installed `init-agent` command (no TUI → init-root attach --raw --no-replay), one owner line, frames until idle
 #   5. checks: reply "done", work/hello.txt = INIT, 2 egress requests, 2 mock requests, no ceiling hit
 #   6. uninstall.sh while the Root still runs: it stops the zone (init-root stop) and refuses to move a running home;
 #      then SIGTERM to our own Root pid; uninstall.sh again, confirmed by typing `uninstall` → homes in the test Trash
@@ -74,6 +76,10 @@ PORT="$(tr -d '\n' <"$D/mock.port")"
 log "mock upstream on 127.0.0.1:$PORT (pid ${PIDS[0]})"
 
 # ---------------------------------------------------------------- 2. install.sh --yes --no-service
+# a foreign command named init (issue #1): neither install.sh nor uninstall.sh may replace, remove or move it
+mkdir -p "$BIN"
+printf '#!/bin/sh\necho "a foreign init, not INIT'"'"'s"\n' >"$BIN/init"; chmod 755 "$BIN/init"
+cp "$BIN/init" "$D/foreign-init"
 T0=$(ms)
 set +e
 env HOME="$H" INIT_ROOT_HOME="$RH" INIT_HOME="$IH" INIT_BIN_DIR="$BIN" \
@@ -84,23 +90,25 @@ set -e
 INSTALL_MS=$(( $(ms) - T0 ))
 log "install.sh exit $IRC in $INSTALL_MS ms"
 [ $IRC = 0 ] || { tail -40 "$D/install.log"; die "install.sh"; }
-[ -x "$BIN/init" ] || die "install.sh wrote no $BIN/init"
-WHICH="$(env HOME="$H" "$BIN/init" --which)"
-if [ -x "$BIN/init-tui" ]; then # the release ships the TUI: `init` opens it; the fallback is checked with it moved aside
-  [ "$WHICH" = "$BIN/init-tui" ] || die "init --which: $WHICH (want $BIN/init-tui)"
+[ -x "$BIN/init-agent" ] || die "install.sh wrote no $BIN/init-agent"
+cmp -s "$BIN/init" "$D/foreign-init" || die "install.sh replaced the foreign $BIN/init"
+grep -qF "note: $BIN/init is not INIT's; left as it is" "$D/install.log" || die "install.sh did not report the foreign $BIN/init"
+WHICH="$(env HOME="$H" "$BIN/init-agent" --which)"
+if [ -x "$BIN/init-tui" ]; then # the release ships the TUI: `init-agent` opens it; the fallback is checked with it moved aside
+  [ "$WHICH" = "$BIN/init-tui" ] || die "init-agent --which: $WHICH (want $BIN/init-tui)"
   mv "$BIN/init-tui" "$D/init-tui.aside"
-  FALLBACK="$(env HOME="$H" "$BIN/init" --which)"
+  FALLBACK="$(env HOME="$H" "$BIN/init-agent" --which)"
   mv "$D/init-tui.aside" "$BIN/init-tui"
 else
   FALLBACK="$WHICH"
 fi
-[ "$FALLBACK" = "$RH/bin/init-root attach" ] || die "init --which without a TUI: $FALLBACK"
+[ "$FALLBACK" = "$RH/bin/init-root attach" ] || die "init-agent --which without a TUI: $FALLBACK"
 # T-4 (docs/tui.md): an INIT_TUI inside INIT_HOME is refused (exit 77), so the zone cannot substitute the client
 printf '#!/bin/bash\necho zone-written\n' >"$IH/work/init-tui"; chmod 755 "$IH/work/init-tui"
-set +e; env HOME="$H" INIT_TUI="$IH/work/init-tui" "$BIN/init" --which >/dev/null 2>&1; T4=$?; set -e
+set +e; env HOME="$H" INIT_TUI="$IH/work/init-tui" "$BIN/init-agent" --which >/dev/null 2>&1; T4=$?; set -e
 rm -f -- "$IH/work/init-tui"
-[ $T4 = 77 ] || die "init ran with INIT_TUI inside INIT_HOME (exit $T4, want 77)"
-log "launcher: init opens $WHICH; without a TUI it falls back to init-root attach; INIT_TUI inside INIT_HOME refused (77)"
+[ $T4 = 77 ] || die "init-agent ran with INIT_TUI inside INIT_HOME (exit $T4, want 77)"
+log "launcher: init-agent opens $WHICH; without a TUI it falls back to init-root attach; INIT_TUI inside INIT_HOME refused (77); the foreign init kept"
 
 # ---------------------------------------------------------------- 3. key (harness only) and start
 (umask 077; printf 'test-rel-e2e-mock-key' >"$RH/keys/providers/deepseek")
@@ -123,9 +131,9 @@ st >"$D/status-ready.json" || true
 READY_MS=$(( $(ms) - T1 ))
 log "ready after $READY_MS ms"
 
-# ---------------------------------------------------------------- 4. `init` and one owner line
+# ---------------------------------------------------------------- 4. `init-agent` and one owner line
 set +e
-/usr/bin/python3 -I - "$BIN/init" "$H" "$D/attach.jsonl" >"$D/drive.json" <<'PY'
+/usr/bin/python3 -I - "$BIN/init-agent" "$H" "$D/attach.jsonl" >"$D/drive.json" <<'PY'
 import json, queue, re, subprocess, sys, threading, time
 init, home, out = sys.argv[1:4]
 p = subprocess.Popen([init, "--raw", "--no-replay"], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
@@ -225,11 +233,14 @@ v = {"client": "init-root attach" if client.endswith(" attach") else os.path.bas
      "lineage_kinds": [r.get("kind") for r in lin], "audit_verify_rc": int(audit_rc),
      "uninstall_running_rc": int(u1), "instances_after_uninstall_stop": inst, "uninstall_declined_rc": int(u2),
      "uninstall_rc": int(u3), "trash": moved,
-     "homes_gone": not os.path.exists(rh) and not os.path.exists(ih) and not os.path.exists(os.path.join(bindir, "init"))}
+     "homes_gone": not os.path.exists(rh) and not os.path.exists(ih) and not os.path.exists(os.path.join(bindir, "init-agent")),
+     "foreign_init_kept": os.path.isfile(os.path.join(bindir, "init"))
+                          and open(os.path.join(bindir, "init"), "rb").read() == open(os.path.join(d, "foreign-init"), "rb").read()}
 v["pass"] = (v["install_rc"] == 0 and (v["drive"] or {}).get("rc") == 0 and (hello or "").strip() == "INIT"
              and v["egress_requests"] >= 2 and v["mock_requests"] == 2 and not v["ceiling_hits"] and v["audit_verify_rc"] == 0
              and v["uninstall_running_rc"] == 1 and inst == "0" and v["uninstall_declined_rc"] == 1 and v["uninstall_rc"] == 0
-             and {m.split(" ")[0] for m in moved} >= {"r", "i", "init"} and v["homes_gone"])
+             and {m.split(" ")[0] for m in moved} >= {"r", "i", "init-agent"} and "init" not in {m.split(" ")[0] for m in moved}
+             and v["homes_gone"] and v["foreign_init_kept"])
 print(json.dumps(v, sort_keys=True))
 PY
 cp "$D/verdict.json" "$REPO/build/status/rel-e2e.json"

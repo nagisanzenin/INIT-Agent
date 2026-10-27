@@ -3,14 +3,14 @@
     "crate": "init-body",
     "edition": "2024",
     "rust_version": null,
-    "version": "0.4.0"
+    "version": "0.4.1"
   },
-  "body_tokens": 419342,
+  "body_tokens": 419344,
   "budget": {
-    "bytes": 1619285,
+    "bytes": 1619297,
     "files": 98,
     "tests_tokens": 22931,
-    "tokens": 419342,
+    "tokens": 419344,
     "uncounted_tokens": 69075
   },
   "components": [
@@ -35,7 +35,7 @@
       "paths": [
         "src/boot/awareness.rs"
       ],
-      "tokens": 18661
+      "tokens": 18662
     },
     {
       "compensates_for": "none",
@@ -57,7 +57,7 @@
       "paths": [
         "src/boot/awareness/tests.rs"
       ],
-      "tokens": 27438
+      "tokens": 27439
     },
     {
       "compensates_for": "none",
@@ -2184,14 +2184,14 @@
       "bytes": 49136,
       "counted": false,
       "path": "Cargo.lock",
-      "sha256": "e14dec80d3029b15e242032517ec1a148eb7d3873219fca84f7aa76ac49dc900",
+      "sha256": "d5059ecb050457cfe01ae4950b5e8e94ff97c75544d43b5bb126b3f100b74f15",
       "tokens": 18415
     },
     {
       "bytes": 1840,
       "counted": true,
       "path": "Cargo.toml",
-      "sha256": "7ba41feb9c70a955914d65da37fe053ac5bf7547121422d11d899cce57b28314",
+      "sha256": "9846888c1a9593be60adfcaf672bbcd519cff0219f1af211e1306c112cdf8ca1",
       "tokens": 524
     },
     {
@@ -2300,11 +2300,11 @@
       "tokens": 874
     },
     {
-      "bytes": 68715,
+      "bytes": 68721,
       "counted": true,
       "path": "src/boot/awareness.rs",
-      "sha256": "2cdfa39e663f2a1e8b3c1f12a2ef39a4d5b804522be0b180ed6442060d7a0cd2",
-      "tokens": 18661
+      "sha256": "fc71edf9342a5fcfd4c2cb10d24d79ccb9ad13d12826bc6bc360014920072141",
+      "tokens": 18662
     },
     {
       "bytes": 4543,
@@ -2314,11 +2314,11 @@
       "tokens": 1460
     },
     {
-      "bytes": 93778,
+      "bytes": 93784,
       "counted": true,
       "path": "src/boot/awareness/tests.rs",
-      "sha256": "343aa2581835830920cb6563732015f70bcd5113f107f456c491471dc6018829",
-      "tokens": 27438
+      "sha256": "e99459091ed61f7f7b21caf323c041627a59340a800944f9d7f6eef021fc96b6",
+      "tokens": 27439
     },
     {
       "bytes": 27362,
@@ -3147,7 +3147,7 @@
   },
   "hooks": [],
   "manifest": {
-    "body_version": "0.4.0",
+    "body_version": "0.4.1",
     "control_channel": "stdio-jsonl/1",
     "env": [
       "HOME",
@@ -3898,7 +3898,7 @@
           "kind": "fn",
           "line": 1076,
           "name": "access_line",
-          "tokens": 544,
+          "tokens": 545,
           "vis": "private"
         },
         {
@@ -4192,7 +4192,7 @@
       ],
       "lines": 1862,
       "path": "src/boot/awareness.rs",
-      "tokens": 18661
+      "tokens": 18662
     },
     {
       "forbid_unsafe": false,
@@ -4682,7 +4682,7 @@
           "kind": "fn",
           "line": 951,
           "name": "access_line_forms_and_position",
-          "tokens": 1057,
+          "tokens": 1058,
           "vis": "private"
         },
         {
@@ -4984,7 +4984,7 @@
       ],
       "lines": 2204,
       "path": "src/boot/awareness/tests.rs",
-      "tokens": 27438
+      "tokens": 27439
     },
     {
       "forbid_unsafe": false,
@@ -17491,7 +17491,7 @@
       "tokens": 925
     }
   ],
-  "source_digest": "sha256:10c0b52ca9a33b2f167215248b820606e56081bcd5e2b08bcf47c6868f297e62",
+  "source_digest": "sha256:87234533d3efadbccb8eb7e830b0226f7595cd235e719888bb3e6b614cb52e1e",
   "tools": {
     "list": [
       {

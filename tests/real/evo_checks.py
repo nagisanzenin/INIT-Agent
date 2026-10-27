@@ -739,7 +739,7 @@ class Ns:
 
 
 class RawOwner:
-    """An owner-channel client on ROOT_HOME/run/owner.sock, as the `init` TUI is: one `line` frame per owner message,
+    """An owner-channel client on ROOT_HOME/run/owner.sock, as the `init-agent` TUI is: one `line` frame per owner message,
     newlines included. (`init-root attach` turns every stdin line into its own frame, so a multi-line task would reach
     the body as a first line plus steers.) Frames go to <run>/attach.jsonl; same reading API as checks.Owner."""
 

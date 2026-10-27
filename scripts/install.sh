@@ -20,13 +20,17 @@
 #   (bundle mode ignores --rebuild, --reuse, --with-tests and --allow-dirty: the bundle is the release)
 #
 # Paths (environment): INIT_ROOT_HOME (default ~/.init-root), INIT_HOME (default ~/.init), INIT_BIN_DIR (where the
-# `init` command goes; default ~/.local/bin). Homes are at most 64 bytes long (the Root's sockets must fit sun_path).
+# `init-agent` command goes; default ~/.local/bin). Homes are at most 64 bytes long (the Root's sockets must fit sun_path).
+# INIT_BIN_DIR is refused when it is relative or is (or resolves to) /sbin, /usr/sbin, /bin or /usr/bin: INIT never
+# writes into a system bin directory (nagisanzenin/INIT-Agent#1).
 #
 # Steps: preflight → release binaries (release.sh, or reuse a fresh target/dist/v<version>/) → charter wizard →
 # `init-root install --release … --charter … --seed-source <release>/seed/seed-v<version>.bundle` (the Root runs the
 # kernel in install mode: it imports the seed, builds the body cold, and the Root forms the genesis tuple; WP21b,
-# FIX4) → kernel/config.toml (model, prices, reference budgets) → the `init` command → the service (launchd, or systemd --user; loaded) →
-# the next steps. This script never reads, writes or asks for a provider key: you run `init-root keys set deepseek`.
+# FIX4) → kernel/config.toml (model, prices, reference budgets) → the `init-agent` command → the service (launchd, or systemd --user; loaded) →
+# the next steps. The command was `init` before v0.4.1 (renamed: on Linux `init` shadows /sbin/init, issue #1). On Linux
+# no file named `init` is ever installed, and INIT's old launcher there is removed; on macOS `init` stays for one
+# release as a shim (scripts/init-shim) that prints the new name and runs init-agent. This script never reads, writes or asks for a provider key: you run `init-root keys set deepseek`.
 #
 # Test hook (never for a real install): --mock-upstream 127.0.0.1:PORT writes a test-mode charter whose provider
 # egress goes to a loopback init-mockllm (as scripts/slice1/s1.sh mock does). It requires --no-service.
@@ -81,6 +85,15 @@ fi
 
 # ---------------------------------------------------------------- 1. preflight
 step "1/7 preflight"
+# Issue #1: INIT's commands never go into a system bin directory, even when INIT_BIN_DIR names one, directly or through
+# a symlink (/bin -> /usr/bin on merged-/usr systems, or a link of your own): `-ef` compares device and inode, so links,
+# `..`, doubled or trailing slashes and case-insensitive names all match. Checked before anything is written.
+case "$BIN_DIR" in /*) ;; *) die "INIT_BIN_DIR ($BIN_DIR) is not an absolute path" ;; esac
+for d in /sbin /usr/sbin /bin /usr/bin; do
+  if [ "$BIN_DIR" -ef "$d" ] || [ "${BIN_DIR%/}" = "$d" ]; then
+    die "refusing INIT_BIN_DIR=$BIN_DIR: it is the system directory $d, and INIT never writes into /sbin, /usr/sbin, /bin or /usr/bin. Use a directory of your own, such as ~/.local/bin (the default)."
+  fi
+done
 case "$OS" in
   Darwin)
     MACOS="$(sw_vers -productVersion)"
@@ -384,19 +397,48 @@ os.replace(tmp, path)
 PY
 say "  $IH/kernel/config.toml: model $MODEL"
 
-# ---------------------------------------------------------------- 6. the `init` command
-step "6/7 the init command"
+# ---------------------------------------------------------------- 6. the `init-agent` command
+step "6/7 the init-agent command"
+put_bin() { # <name> <file>: install <file> as BIN_DIR/<name>, mode 755 (a new file, then a rename)
+  case "$1" in */*|""|.*) die "put_bin: bad command name '$1'" ;; esac
+  # issue #1: on Linux a command named init would shadow /sbin/init
+  [ "$OS" = Linux ] && [ "$1" = init ] && die "refusing to install a command named init on Linux (it would shadow /sbin/init)"
+  cp "$2" "$BIN_DIR/.$1.new"
+  chmod 755 "$BIN_DIR/.$1.new"
+  mv "$BIN_DIR/.$1.new" "$BIN_DIR/$1"
+}
+old_launcher() { # <file>: INIT's launcher from before v0.4.1 (scripts/init, ROOT_HOME baked in): a regular file, not
+  # a link, with that launcher's header line and the INIT_ROOT_HOME_DEFAULT line install.sh wrote
+  [ -f "$1" ] && [ ! -L "$1" ] || return 1
+  case "$(sed -n 2p "$1")" in '# `init`: open INIT (docs/tui.md'*) ;; *) return 1 ;; esac
+  grep -q '^INIT_ROOT_HOME_DEFAULT=' "$1"
+}
+init_shim() { [ -f "$1" ] && [ ! -L "$1" ] && grep -qx 'INIT_AGENT_SHIM=1' "$1"; } # <file>: scripts/init-shim, installed
 mkdir -p "$BIN_DIR"
-sed "s|^INIT_ROOT_HOME_DEFAULT=.*|INIT_ROOT_HOME_DEFAULT=\"$RH\"|" "$REPO/scripts/init" >"$BIN_DIR/.init.new"
-chmod 755 "$BIN_DIR/.init.new"
-mv "$BIN_DIR/.init.new" "$BIN_DIR/init"
+sed "s|^INIT_ROOT_HOME_DEFAULT=.*|INIT_ROOT_HOME_DEFAULT=\"$RH\"|" "$REPO/scripts/init-agent" >"$WORK/init-agent"
+put_bin init-agent "$WORK/init-agent"
 if [ -x "$DIST/init-tui" ]; then # docs/tui.md §9 item 3: next to the launcher, a new file then a rename
-  cp "$DIST/init-tui" "$BIN_DIR/.init-tui.new"
-  chmod 755 "$BIN_DIR/.init-tui.new"
-  mv "$BIN_DIR/.init-tui.new" "$BIN_DIR/init-tui"
+  put_bin init-tui "$DIST/init-tui"
   say "  $BIN_DIR/init-tui (the TUI)"
 fi
-say "  $BIN_DIR/init (opens the TUI when it is installed, else init-root attach)"
+say "  $BIN_DIR/init-agent (opens the TUI when it is installed, else init-root attach)"
+if [ "$OS" = Linux ]; then
+  # The old name: INIT's own launcher is removed (exact path, checked by content); anything else named init is left.
+  OLD=("$BIN_DIR/init"); [ "$BIN_DIR/init" -ef "$HOME/.local/bin/init" ] || OLD+=("$HOME/.local/bin/init")
+  for f in "${OLD[@]}"; do
+    if old_launcher "$f"; then rm -f -- "$f"; say "  removed $f, INIT's launcher under its old name (now init-agent)"
+    elif [ -e "$f" ] || [ -L "$f" ]; then say "  note: $f is not INIT's; left as it is"; fi
+  done
+else
+  # macOS, this release only: `init` prints the new name and runs init-agent. Written only over INIT's own old launcher
+  # or shim, never over another file named init.
+  if [ ! -e "$BIN_DIR/init" ] && [ ! -L "$BIN_DIR/init" ] || old_launcher "$BIN_DIR/init" || init_shim "$BIN_DIR/init"; then
+    put_bin init "$REPO/scripts/init-shim"
+    say "  $BIN_DIR/init (the old name, for this release: it says init-agent and runs it)"
+  else
+    say "  note: $BIN_DIR/init is not INIT's; left as it is (the command is init-agent)"
+  fi
+fi
 case ":$PATH:" in *":$BIN_DIR:"*) ;; *) say "  note: $BIN_DIR is not on your PATH; add it: echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.$(basename "${SHELL:-bash}")rc" ;; esac
 
 # ---------------------------------------------------------------- 7. the service
@@ -434,7 +476,7 @@ INIT v$VERSION is installed ($(( ELAPSED / 60 )) min $(( ELAPSED % 60 )) s).
 Next steps (you do these; this script never touches your key):
   1. $RH/bin/init-root keys set deepseek
        paste your DeepSeek API key when asked (input is hidden); it is stored 0600 in $RH/keys/
-  2. init
+  2. init-agent
        opens the chat. Type a task. /stop stops the agent's current body (no demotion);
        /panic stops everything at once and demotes one level (then /resume).
 
@@ -444,7 +486,7 @@ Logs:        $RH/logs/ (the Root), $IH/state/kernel/logs/ (the kernel and the bo
 Uninstall:   $REPO/scripts/uninstall.sh (moves both homes to the Trash)
 
 Access: FULL (default): the agent can read and write your files and use the network;
-        INIT's Root ($RH) stays off-limits. To confine it: init --workspace, /full off,
+        INIT's Root ($RH) stays off-limits. To confine it: init-agent --workspace, /full off,
         or sandbox.mode = "workspace" in $RH/charter.toml (docs/adr/012-full-access-by-default.md).
 EOF
 if [ "$TC" = none ]; then

@@ -550,10 +550,10 @@ fn access_line(a: &Value, charter: &std::path::Path) -> Option<String> {
     let ws = a["workspace"].as_str().unwrap_or("none");
     let ch = charter.display();
     Some(match (a["full"] == true, mode, a["allow_full"] == true) {
-        (true, "full", _) => format!("access: FULL (default) · workspace {ws} · to confine it: init --workspace, /full off, or sandbox.mode = \"workspace\" in {ch}"),
-        (true, _, _) => format!("access: FULL (this session) · workspace {ws} · /full off or a new init launch ends it"),
+        (true, "full", _) => format!("access: FULL (default) · workspace {ws} · to confine it: init-agent --workspace, /full off, or sandbox.mode = \"workspace\" in {ch}"),
+        (true, _, _) => format!("access: FULL (this session) · workspace {ws} · /full off or a new init-agent launch ends it"),
         (false, _, false) => format!("access: WORKSPACE · workspace {ws} · full access is off in the charter (sandbox.allow_full = false in {ch})"),
-        (false, "full", _) => format!("access: WORKSPACE (this session) · workspace {ws} · /full on, or init without --workspace, gives full access"),
+        (false, "full", _) => format!("access: WORKSPACE (this session) · workspace {ws} · /full on, or init-agent without --workspace, gives full access"),
         (false, _, _) => format!("access: WORKSPACE (default) · workspace {ws} · full access: /full on, or sandbox.mode = \"full\" in {ch}"),
     })
 }
@@ -566,7 +566,7 @@ mod access_line_tests {
         let ch = std::path::Path::new("/h/.init-root/charter.toml");
         let l = |v: Value| access_line(&v, ch).unwrap();
         assert_eq!(l(json!({"full": true, "mode": "full", "allow_full": true, "workspace": "/h/p"})),
-            "access: FULL (default) · workspace /h/p · to confine it: init --workspace, /full off, or sandbox.mode = \"workspace\" in /h/.init-root/charter.toml");
+            "access: FULL (default) · workspace /h/p · to confine it: init-agent --workspace, /full off, or sandbox.mode = \"workspace\" in /h/.init-root/charter.toml");
         assert!(l(json!({"full": true, "mode": "workspace", "allow_full": true})).starts_with("access: FULL (this session) · workspace none"));
         assert!(l(json!({"full": false, "mode": "full", "allow_full": true})).starts_with("access: WORKSPACE (this session)"));
         assert!(l(json!({"full": false, "mode": "workspace", "allow_full": true})).starts_with("access: WORKSPACE (default)"));

@@ -1,13 +1,13 @@
 # ADR-012: Full access by default (the Root-protected set)
 
 Status: accepted by the owner on 2026-10-24 (target v0.3.1) · Area: root
-Depends on: ADR-007, ADR-008, ADR-009 (its behaviour becomes the opt-in `workspace` mode, unchanged), kernel/sandbox.md (§3.1.1, §3.1.2), root/root.md (§3.3, §3.4.1, §3.17), tui.md, awareness.md   Defines: charter key `sandbox.mode` (`"full"` default, `"workspace"`), the Root-protected set, the full zone tail (`zone-tail-full.sb`) and the Linux full layout, the per-session access override (`workspace.set{cwd, mode}`, `full.set` without confirmation under a full-default charter), `init --workspace`, the body environment of a full grant
+Depends on: ADR-007, ADR-008, ADR-009 (its behaviour becomes the opt-in `workspace` mode, unchanged), kernel/sandbox.md (§3.1.1, §3.1.2), root/root.md (§3.3, §3.4.1, §3.17), tui.md, awareness.md   Defines: charter key `sandbox.mode` (`"full"` default, `"workspace"`), the Root-protected set, the full zone tail (`zone-tail-full.sb`) and the Linux full layout, the per-session access override (`workspace.set{cwd, mode}`, `full.set` without confirmation under a full-default charter), `init-agent --workspace`, the body environment of a full grant
 
 ## Context
 
-ADR-009 (v0.1.1) let the live body read the owner's home except a secrets list, write `INIT_HOME` plus the folder `init` was started in, and reach the network only through the Root's egress to the model providers. Full mode existed, but behind a typed confirmation, and even then it kept the secrets list, the no-IP rule and the deferred-execution denies.
+ADR-009 (v0.1.1) let the live body read the owner's home except a secrets list, write `INIT_HOME` plus the folder `init-agent` was started in, and reach the network only through the Root's egress to the model providers. Full mode existed, but behind a typed confirmation, and even then it kept the secrets list, the no-IP rule and the deferred-execution denies.
 
-In daily use this was too narrow. The case that decided it: the owner asked the agent to work with files in `~/Downloads`. The body's `HOME` was `INIT_HOME`, so `~/Downloads` named a directory that does not exist; the real one was readable but not writable unless `init` had been started there; and anything the task needed from the network (a `git clone`, a package download) was refused, because the zone has no IP. Each of these is a correct ADR-009 rule. Together they made the agent unable to do ordinary work the owner's own shell does in seconds.
+In daily use this was too narrow. The case that decided it: the owner asked the agent to work with files in `~/Downloads`. The body's `HOME` was `INIT_HOME`, so `~/Downloads` named a directory that does not exist; the real one was readable but not writable unless `init-agent` had been started there; and anything the task needed from the network (a `git clone`, a package download) was refused, because the zone has no IP. Each of these is a correct ADR-009 rule. Together they made the agent unable to do ordinary work the owner's own shell does in seconds.
 
 ADR-007 already says the only security boundary is the Root against everything else. What must hold is that the owner can always **stop** the agent, **see** what it did (the signed lineage, the egress ledger) and **roll back** INIT itself (the Root's snapshots and last known-good tuple). Whether the agent may read the owner's files or open a socket is not one of those guarantees. It is a usability and privacy choice, and the owner chose the permissive one.
 
@@ -26,15 +26,15 @@ From v0.3.1 the live body runs with **full access by default**. ADR-009's behavi
    |---|---|
    | `ROOT_HOME` entirely: no read, no write, no Unix-socket connect inside it (`owner.sock`, `egress.sock`) | The keys, the charter, the signed lineage, the egress ledger and the snapshots live there. Reading it would leak the keys; writing it would forge the history (see) or the last known-good tuple (rollback); `owner.sock` would let the agent issue owner commands, and `egress.sock` would let a body talk to the Root's egress directly, past the kernel's proxy. |
    | The Root's service file and its directory (`~/Library/LaunchAgents`; on Linux `~/.config/systemd/user`), write | A changed plist or a systemd drop-in could replace the Root's program or arguments at the next login, so the next "Root" would be the agent's. That breaks all three. |
-   | INIT's launchers `<bin_dir>/init` and `<bin_dir>/init-tui` (`bin_dir` from `install.json`, default `~/.local/bin`), write | The owner types `init` to see and stop the agent. A replaced launcher could show a fake view or swallow `/panic` (tui.md T-4). The rest of `bin_dir` is now writable. |
+   | INIT's launchers `<bin_dir>/init-agent`, `<bin_dir>/init` and `<bin_dir>/init-tui` (`bin_dir` from `install.json`, default `~/.local/bin`; `init-agent` from v0.4.1), write | The owner types `init-agent` to see and stop the agent. A replaced launcher could show a fake view or swallow `/panic` (tui.md T-4). The rest of `bin_dir` is now writable. |
    | `INIT_HOME`'s Root-written parts (tail Z4: `kernel/`, `root/`, `run/mark/`, `run/zone-mark`), the marks of Z5 and the kernel lineage git | These are what the Root reads to decide what runs and what to roll back to. |
    | `~/.config/init-agent` (the directory INIT's docs name for provider key files) and every charter `sandbox.read_deny` entry, read and write | A key file there is a provider key the Root is meant to hold alone; `read_deny` is the owner's own list, which the owner expects to hold in every mode. |
    | Signals and process inspection outside the instance's own sandbox (Z7; Linux: its own pid namespace); XPC services; LaunchServices and AppleEvents (not in the mach allow list) | Signalling the Root or the kernel would defeat stop; LaunchServices would let the agent start an app outside the sandbox, which escapes everything else in this table. |
 
 4. **What full access drops** (all still enforced in workspace mode): the ADR-009 secrets deny list (`~/.ssh`, cloud credentials, keychains, browser and mail data), so that `git push` over ssh and the owner's own CLIs work; Z3's write confinement; Z3a (shell startup files, git's user config, `~/bin`, the `~/.local/bin` directory, login items other than the Root's service directory); Z3b (git hooks and config outside `INIT_HOME`); Z6 (no IP).
 5. **The session override.** The Root keeps a per-session `Option<bool>` over the charter default (`None` = the default). Effective full = `override.unwrap_or(mode == "full") && allow_full`.
-   - `workspace.set{cwd}` (every `init` launch) resets the override to `None`; `workspace.set{cwd, mode:"workspace"}` (from `init --workspace`) sets it to `Some(false)`.
-   - `full.set{on:false}` (`/full off`) sets `Some(false)`. `full.set{on:true}` (`/full on`, `init --full`) needs no confirmation when the charter default is full, and ADR-009's typed confirmation when the charter says `"workspace"`.
+   - `workspace.set{cwd}` (every `init-agent` launch) resets the override to `None`; `workspace.set{cwd, mode:"workspace"}` (from `init-agent --workspace`) sets it to `Some(false)`.
+   - `full.set{on:false}` (`/full off`) sets `Some(false)`. `full.set{on:true}` (`/full on`, `init-agent --full`) needs no confirmation when the charter default is full, and ADR-009's typed confirmation when the charter says `"workspace"`.
    - `AccessView` gains `mode` (the charter default, `"full"` or `"workspace"`) and keeps `access`, `full`, `workspace`, `allow_full`, `read_home`, `restart_pending` and `snapshot`.
    - The TUI shows `FULL` (red, bold) or `WORKSPACE` (yellow) in the status bar; neither is ever dropped on a narrow terminal. `init-root status` prints the mode and how to change it.
 6. **The body's environment for a full grant.** The Root sets `HOME` to the owner's canonical home (so `~/Downloads` is the owner's), removes `CARGO_NET_OFFLINE`, appends `<home>/.local/bin` and `<home>/.cargo/bin` to `PATH`, and sets `INIT_ACCESS=full`. The body's own git sync sets `GIT_CONFIG_GLOBAL=/dev/null`, so the owner's `~/.gitconfig` cannot change how the body's repository is synced. The boot block's access line says, in one line, what the agent may do (awareness.md).
@@ -65,7 +65,7 @@ INIT's full mode is closest to running Claude Code without its sandbox, or Codex
 
 ## Threat model delta
 
-**Damage.** The agent can change or delete any file the owner can, outside the Root-protected set. Mitigations: the Root's own state and its rollback are out of reach, so INIT itself can always be restored; the workspace snapshot and `/undo` still cover the folder `init` was started in; git covers repositories. **Residual: writes outside the start folder have no `/undo`.** The Root's rollback is unchanged and covers INIT (its body, kernel and tuple), not the owner's files.
+**Damage.** The agent can change or delete any file the owner can, outside the Root-protected set. Mitigations: the Root's own state and its rollback are out of reach, so INIT itself can always be restored; the workspace snapshot and `/undo` still cover the folder `init-agent` was started in; git covers repositories. **Residual: writes outside the start folder have no `/undo`.** The Root's rollback is unchanged and covers INIT (its body, kernel and tuple), not the owner's files.
 
 **Privacy.** Any file the agent reads may be sent to the model provider, now including `~/.ssh`, cloud credentials, browser data and mail, which workspace mode denies. The money ceilings no longer bound this, because spending is observed, not capped (2026-10-23), and in full mode the agent has its own network, so a file can also leave by a path other than the provider. Mitigations: `sandbox.read_deny` still holds in full mode; workspace mode restores the secrets list and the no-IP rule. **Residual: in full mode, treat everything the owner can read as readable by the agent and by whoever it sends data to.**
 
@@ -84,7 +84,7 @@ INIT's full mode is closest to running Claude Code without its sandbox, or Codex
 
 | Alternative | Why not chosen |
 |---|---|
-| Keep ADR-009's workspace mode as the default, with full mode behind a confirmation | It is what failed in daily use (Context). Kept, unchanged, as `sandbox.mode = "workspace"` and `init --workspace`. |
+| Keep ADR-009's workspace mode as the default, with full mode behind a confirmation | It is what failed in daily use (Context). Kept, unchanged, as `sandbox.mode = "workspace"` and `init-agent --workspace`. |
 | Full access with a network allow-list through a Root proxy (Claude Code's sandbox model) | A useful middle ground, but it needs a CONNECT proxy, a host allow-list the owner maintains, and per-tool proxy settings, and it still breaks tools that ignore proxy variables. Possible later as a third mode. |
 | Full access that keeps the secrets deny list | `git push` over ssh, cloud CLIs and package publishing would keep failing, which is most of the reason for full access. The owner can add any path to `sandbox.read_deny`, which full mode honours. |
 | Deny `/bin/launchctl` by path | Bypassable through `launch_msg`, so it would be a rule that only looks like protection (see the residual). |
@@ -94,13 +94,13 @@ INIT's full mode is closest to running Claude Code without its sandbox, or Codex
 
 - **A new default for every install.** A fresh v0.3.1 install starts in full access. An existing charter without `sandbox.mode` also gets full access. `install.sh` says so at the end of the install, with the three ways to confine the agent.
 - **How to confine the agent:**
-  - for one session: `init --workspace`, or `/full off` in the chat (`/full on` lifts it again);
+  - for one session: `init-agent --workspace`, or `/full off` in the chat (`/full on` lifts it again);
   - always: `sandbox.mode = "workspace"` in `~/.init-root/charter.toml`, then `init-root charter check --apply`; `/full on` then asks for the typed confirmation, as in ADR-009;
   - never full: `sandbox.allow_full = false`.
-- **Undo.** `/undo` restores only the folder `init` was started in. The Root's rollback of INIT is unchanged.
+- **Undo.** `/undo` restores only the folder `init-agent` was started in. The Root's rollback of INIT is unchanged.
 - **Network.** In full mode the agent's tools reach the network directly. Model requests still go through the Root's egress, which meters and logs them; other traffic is not metered or logged by INIT.
 - **The awareness line** for `full` names the permissions and the denials in one line, so the agent knows that `~` is the owner's home and that only the workspace has `/undo`.
-- **The TUI** gets `--workspace` (it excludes `--full`), the `FULL`/`WORKSPACE` badge and new `/full` help texts. The launcher `scripts/init` passes the flag through.
+- **The TUI** gets `--workspace` (it excludes `--full`), the `FULL`/`WORKSPACE` badge and new `/full` help texts. The launcher `scripts/init-agent` passes the flag through.
 - **Root size.** The new code is in `root/sandbox-profiles` (the full lists, the full group, the full tail, the Linux layout) and in `init-root`'s `access.rs`, `charter.rs` and `zone.rs`.
 
 ## Tests (all $0, on test homes)

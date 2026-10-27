@@ -549,7 +549,7 @@ fn wire9_workspace_tool_write_and_undo() {
 }
 
 /// UX-KEYMODEL, $0: the first-run setup in TTY mode (through the pty) against the REAL `init-root` (test mode) and
-/// its fake kernel (`/bin/cat` body). No provider key is set, so `init` guides provider → key (hidden) → model; the
+/// its fake kernel (`/bin/cat` body). No provider key is set, so `init-agent` guides provider → key (hidden) → model; the
 /// Root stores the key (0600), adds deepseek-v4-pro to the charter, selects it in kernel/config.toml and restarts
 /// the kernel; then a chat line round-trips, `/model` switches back, and `/clear` reaches the kernel as `/new`. The
 /// key never appears on the screen, in a log, or in any file but its own.

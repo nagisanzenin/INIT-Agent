@@ -520,7 +520,7 @@ impl App {
         self.ctrl_c_at = Some(now);
         self.send_frame(&proto::interrupt());
         let tail = if self.info.kernel_ready() { "" } else { " (no body is running)" };
-        self.set_hint(format!("interrupt sent{tail} · Ctrl-C again within 2 s quits init (the agent keeps running)"), 2);
+        self.set_hint(format!("interrupt sent{tail} · Ctrl-C again within 2 s quits init-agent (the agent keeps running)"), 2);
     }
 
     fn quit(&mut self) {

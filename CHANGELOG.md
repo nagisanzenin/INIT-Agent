@@ -2,6 +2,46 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.4.1-preview (2026-10-27)
+
+Workspaces are at version 0.4.1 (seed tag `seed-v0.4.1`). Release notes: docs/release-notes/v0.4.1-preview.md.
+
+### The command is `init-agent` (nagisanzenin/INIT-Agent#1, build/status/REL-041.md)
+- The launcher `init` is renamed `init-agent` on all platforms: on Linux `~/.local/bin` often precedes `/sbin` in
+  PATH, so `init` shadowed `/sbin/init` in user shells. `scripts/init` is now `scripts/init-agent`; `init-root`,
+  `init-tui` and `initctl` keep their names. Every owner-facing string that named the command says `init-agent` (the
+  Root's no-workspace notice and access status line, the guided-setup hint, the TUI's hints, the charter template
+  comment, the body's access line), as do README and the docs.
+- Linux: install.sh never installs a file named `init` (its `put_bin` refuses one), and removes INIT's old launcher at
+  `INIT_BIN_DIR/init` and `~/.local/bin/init` when it finds one: exact path, a regular file, the old launcher's header
+  line and its `INIT_ROOT_HOME_DEFAULT=` line. Any other file named `init` is left as it is, with a note.
+- macOS, this release only: `init` is installed as a shim (`scripts/init-shim`, marker `INIT_AGENT_SHIM=1`) that prints
+  the new name on stderr and runs `init-agent` with the same arguments; it is written only where no `init` exists or
+  over INIT's own old launcher or shim. The next release drops it.
+- install.sh refuses a relative `INIT_BIN_DIR` and one that is `/sbin`, `/usr/sbin`, `/bin` or `/usr/bin`, compared by
+  device and inode, so a symlink, `..`, doubled or trailing slashes and case variants match too. It is the first
+  preflight check, before anything is written (tests/install/test_install_guards.py; a new ci/local.sh step).
+- uninstall.sh moves `init-agent`, `init-tui` and INIT's `init` (the old launcher or the shim, by marker) to the Trash;
+  a foreign `init` stays.
+- The Root's full-access write deny list (ADR-012, Z3a) now names `<bin_dir>/init-agent` besides `<bin_dir>/init` and
+  `<bin_dir>/init-tui` (`access::LAUNCHERS`), so the agent cannot replace the owner's launcher under its new name.
+  Tests: `full_lists_keep_only_the_root_protected_set`, Seatbelt selftest S-A23a, the Linux full-isolation test
+  (write, unlink and rename refused for all three), `full_body_writes_the_home_not_the_root` (both names).
+- Harnesses: release-e2e.sh plants a foreign `init` that install and uninstall must leave untouched; bundle-e2e.sh
+  plants INIT's old launcher, which the Linux install must remove and the macOS install must turn into the shim
+  (`init --which` = `init-agent --which`, the notice on stderr).
+
+### Release (lane REL-041, build/status/REL-041.md)
+- Bundles for macOS arm64 and Linux arm64 from 8539ee8 (the Linux body bit for bit the one built from 7c15772). On
+  both: a fresh install with INIT's old launcher planted (removed on Linux, the shim on macOS) and the pause check; on
+  macOS also the source install with a foreign `init` kept (`release-e2e.sh`) and a no-op T2 promote (G0–G3). Full
+  `ci/local.sh` on macOS: 1,925 passed, 4 failed, 38 ignored, the two failing steps rerun green at 96008ac
+  (`kernel test` 887 / 0 / 12, `tui test` 98 / 0 / 1): 1,929 passed, 0 failed, 38 ignored. clippy `-D warnings` clean in
+  the changed workspaces.
+- Two failures found on the way and fixed: root.md §3.3.2a's verbatim copy of the full tail's Z3a comment said
+  init-agent while `zone-tail-full.sb` did not (`doc_drift`; the profile comment now names it, 8539ee8), and the TUI's
+  launcher test still ran `scripts/init` (now `scripts/init-agent`, plus a check of the macOS shim, 96008ac).
+
 ## v0.4.0-preview (2026-10-26)
 
 Workspaces are at version 0.4.0 (seed tag `seed-v0.4.0`). Release notes: docs/release-notes/v0.4.0-preview.md.

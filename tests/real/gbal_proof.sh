@@ -16,7 +16,7 @@
 # `initctl goal predict` spends one, re-files after an amend included), GBAL_CHECKIN=0 (skip the owner's `/goal continue`
 # check-in before the regression phase; the default check-in interval is 3 predictions, re-files included).
 #
-# Flow (owner lines through the installed `init --raw`, tests/real/gbal_drive.py; a spend watchdog sends /stop at
+# Flow (owner lines through the installed `init-agent --raw`, tests/real/gbal_drive.py; a spend watchdog sends /stop at
 # GBAL_STOP_USD on the test install's settled spend):
 #   1. five baseline questions (multi-part) about folder a/: the noise floor of every card;
 #   2. the owner's goal: done=card:requests_turn<=T, T = max(2, ceil(baseline mean) − 1) from the Root's own turn
@@ -163,7 +163,7 @@ drive() { # <phase> <plan json>: one client, the plan's lines; the summaries go 
   printf '%s\n' "$2" >"$run/plan-$1.json"
   log "phase $1"
   set +e
-  /usr/bin/python3 -I "$repo/tests/real/gbal_drive.py" "$BIN/init" "$PW_HOME" "$RH" "$IH" "$run/ws" "$OUT/client-stream.jsonl" \
+  /usr/bin/python3 -I "$repo/tests/real/gbal_drive.py" "$BIN/init-agent" "$PW_HOME" "$RH" "$IH" "$run/ws" "$OUT/client-stream.jsonl" \
     "$stop_musd" "$run/plan-$1.json" | tee -a "$OUT/drive.log"
   local rc=${PIPESTATUS[0]}
   set -e

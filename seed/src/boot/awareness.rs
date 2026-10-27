@@ -1100,7 +1100,7 @@ fn access_line(b: &BlockIn) -> Option<String> {
         ("none", None) => {
             "- access: INIT_HOME only (no home access; the v0.1 sandbox)".to_string()
         }
-        ("read_home", None) => "- access: no workspace (init was launched outside a project): write INIT_HOME only · read the owner's home, secret stores denied".to_string(),
+        ("read_home", None) => "- access: no workspace (init-agent was launched outside a project): write INIT_HOME only · read the owner's home, secret stores denied".to_string(),
         // ADR-012: full is the default; the Root keeps only its own files out of reach.
         ("full", _) => format!(
             "- access: FULL: read and write anywhere the owner can, network allowed · ~ is the owner's home · denied: the Root's files (~/.init-root, its service, INIT's launchers) · only the workspace has /undo · workspace {ws_or_none}"

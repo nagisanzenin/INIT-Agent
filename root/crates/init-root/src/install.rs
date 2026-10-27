@@ -201,7 +201,7 @@ pub struct Opts {
     /// Write no service file (step 9): disposable homes and harnesses that run `install` with the owner's
     /// real HOME, which the zone's class rules need (`HOME_REAL`), but must not touch `~/Library`.
     pub no_service: bool,
-    /// Where install.sh puts the `init` launcher and `init-tui` (SBX-009): recorded as `install.json` `bin_dir`,
+    /// Where install.sh puts the `init-agent` launcher and `init-tui` (SBX-009): recorded as `install.json` `bin_dir`,
     /// write-denied to the zone in every mode (tail Z3a). Must be absolute.
     pub bin_dir: Option<PathBuf>,
 }
