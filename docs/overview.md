@@ -127,7 +127,7 @@ The harness's own CPU is at most about 9% of agent time, so INIT aims its perfor
 
 The gate measures cost, time and cache-hit rate. A change that only claims a performance gain is accepted only if it shows one.
 
-Details: [spec §9](../INIT%20Agent%20spec.md), [reports/Ngôn ngữ cho INIT Agent.md](../reports/Ng%C3%B4n%20ng%E1%BB%AF%20cho%20INIT%20Agent.md).
+Details: [spec §9](../INIT%20Agent%20spec.md).
 
 ---
 

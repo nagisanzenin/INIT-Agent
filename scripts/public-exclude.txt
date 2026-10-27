@@ -1,0 +1,24 @@
+# What the public repository (nagisanzenin/INIT-Agent) does not carry from this repository: internal plans, logs,
+# research and lane records. rsync filter rules, first match wins; read by scripts/publish-public.sh.
+# Kept on purpose: the release records and verdicts in build/status/ and the reports that README, the docs and the
+# INIT Labs site link to.
+- /.claude/
+- /BUILD_AGENT_BRIEF.md
+- /BUILD_LOG.md
+- /BUILD_PLAN.md
+- /HANDOFF.md
+- /MORNING_REPORT.md
+- /PROOF_PLAN.md
+- /RELEASE_PLAN.md
+- /V1_PLAN.md
+- /research_notes/
++ /reports/INIT technical report.md
++ /reports/INIT proof sprint verdict.md
+- /reports/*
++ /build/
++ /build/status/
++ /build/status/REL*.md
++ /build/status/*.json
++ /build/status/FULLACCESS.md
+- /build/status/*
+- /build/*

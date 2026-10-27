@@ -129,6 +129,6 @@ About 200k lines of Rust in four workspaces (Root, kernel, body, TUI), on `std` 
   - **Linux is experimental:** aarch64 only, tested in Docker (Debian 12, Ubuntu 24.04) on the mock model. It needs bubblewrap ≥ 0.13 at `/usr/bin/bwrap`, built from source because no LTS distro ships it ([docs/platforms.md §3.4.0](docs/platforms.md)). Full access works as on macOS; workspace mode on Linux keeps the agent in its own home (it cannot read or edit your files). x86_64 compiles but is untested.
   - Autonomy is capped at L0. DeepSeek is tested live; OpenAI-compatible, Anthropic, Responses and local servers are experimental. Windows is unsupported (WSL2 untested).
 
-**More:** [user guide](docs/guide.md) · [design overview](docs/overview.md) · [ADRs](docs/adr/) · [changelog](CHANGELOG.md) · contributors and agents start at [HANDOFF.md](HANDOFF.md).
+**More:** [user guide](docs/guide.md) · [design overview](docs/overview.md) · [ADRs](docs/adr/) · [changelog](CHANGELOG.md) · [docs conventions](docs/CONVENTIONS.md) · [testing](docs/testing.md).
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

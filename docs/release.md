@@ -134,6 +134,25 @@ git tag -a v<version> -m "INIT v<version>"     # after steps 2 and 3 are green o
 git push origin v<version>                       # the orchestrator or the owner pushes
 ```
 
+## 4b. Publish: `scripts/publish-public.sh`
+
+The public repository (`nagisanzenin/INIT-Agent`) carries this repository minus what `scripts/public-exclude.txt`
+keeps private: internal plans and logs (the build plans, handoff notes, research notes, most reports, the lanes'
+records under `build/`). It keeps the release records and verdicts in `build/status/` and the reports that README, the
+docs and the INIT Labs site link to.
+
+```sh
+git clone https://github.com/nagisanzenin/INIT-Agent.git /tmp/init-public
+scripts/publish-public.sh /tmp/init-public            # stages HEAD there; never commits or pushes
+git -C /tmp/init-public diff --cached --stat           # review, then commit and tag with the noreply identity, push
+```
+
+The script exports the commit with `git archive` (committed files only), syncs the clone's work tree to it, removes
+any path the exclude list keeps private, stages the result and scans it: the DeepSeek key's first bytes (never
+printed), GitHub tokens, private-key headers, `sk-`/`sk-ant-`/`AKIA` keys, this repository's git e-mail and its
+origin's name. Any hit stops it. Then the GitHub release gets the assets of §2b (both tarballs, their `.sha256`, the
+merged `latest.json`, `get.sh`), first as a draft whose asset names and sizes are checked, then published.
+
 ## 5b. The one-command install: `scripts/get.sh`
 
 ```sh

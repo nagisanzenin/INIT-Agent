@@ -149,5 +149,5 @@ It stops INIT through `init-root stop`, unloads the LaunchAgent, then, after you
 - There is no sub-agent runtime: `fleet_spawn` answers "not built".
 - The off-machine lineage mirror is off until you create its repository.
 
-Open owner decisions and measurements are listed in [RELEASE_PLAN.md](../RELEASE_PLAN.md) and [HANDOFF.md](../HANDOFF.md).
+Measurements are in [measurements/](../measurements/) and the [technical report](../reports/INIT%20technical%20report.md); each release's verification record is in [build/status/](../build/status/) (`REL-*.md`).
 
