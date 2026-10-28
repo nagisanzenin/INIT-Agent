@@ -277,7 +277,7 @@ impl Mock {
             if let Ok(Some(st)) = m.child.try_wait() {
                 panic!("init-mockllm exited early: {st}");
             }
-            assert!(t0.elapsed() < Duration::from_secs(10), "mock did not listen");
+            assert!(t0.elapsed() < Duration::from_secs(30), "mock did not listen");
             std::thread::sleep(Duration::from_millis(10));
         }
         Some(m)
@@ -297,10 +297,31 @@ impl Mock {
             .unwrap_or_default();
         names.retain(|p| p.extension().is_some_and(|x| x == "json"));
         names.sort();
-        names
-            .iter()
-            .map(|p| serde_json::from_slice(&std::fs::read(p).unwrap()).unwrap())
-            .collect()
+        names.iter().map(|p| read_recorded_json(p)).collect()
+    }
+}
+
+/// One recorded request body. The mock writes them atomically (temp name, then rename), but a mock
+/// from before that change creates the file and then fills it, so a test that lists the record dir
+/// while a request is in flight can read it empty or half-written (REL-051: "EOF while parsing" in
+/// `crash_restart_continues_pending_run` at load 76). A short bounded retry rides that out; a file
+/// that is still not JSON after 5 s is a real failure.
+fn read_recorded_json(p: &Path) -> Value {
+    let t0 = Instant::now();
+    loop {
+        let err = match std::fs::read(p) {
+            Ok(b) => match serde_json::from_slice(&b) {
+                Ok(v) => return v,
+                Err(e) => e.to_string(),
+            },
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "recorded body {}: {err}",
+            p.display()
+        );
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -719,34 +740,34 @@ fn ready_heartbeat_pause_stop() {
     assert!(boot["text"].as_str().unwrap().contains(
         "\n- evolution: 3 eligible frictions (top path.home_relative ×6); 1 proposal screened\n"
     ));
-    // Heartbeat: the first write follows ready at once.
+    // Heartbeat: the first write follows ready at once, i.e. well inside the first 5 s period
+    // (half of it: the old 500 ms ceiling measured a loaded machine's scheduler).
     let hb = loop {
         if let Some(h) = home.heartbeat() {
             break h;
         }
-        assert!(t_ready.elapsed() < Duration::from_millis(500), "no heartbeat");
+        assert!(t_ready.elapsed() < Duration::from_millis(2_500), "no heartbeat");
         std::thread::sleep(Duration::from_millis(5));
     };
     assert_eq!(hb["boot_id"], bid);
     assert_eq!(hb["busy"], false);
     assert_eq!(hb["session"], SID);
-    // Every 5 s ± 0.5 s.
-    let mut stamps = vec![(Instant::now(), hb["ts"].clone())];
+    // Every 5 s ± 0.5 s, on the body's own clock (`uptime_ms` in each write), so the test's polling
+    // and a loaded machine's scheduling of this thread are not part of the measured interval.
+    let up = |h: &Value| h["uptime_ms"].as_u64().expect("uptime_ms");
+    let mut stamps = vec![up(&hb)];
     while stamps.len() < 3 {
         if let Some(h) = home.heartbeat()
-            && h["ts"] != stamps.last().unwrap().1
+            && up(&h) != *stamps.last().unwrap()
         {
-            stamps.push((Instant::now(), h["ts"].clone()));
+            stamps.push(up(&h));
         }
-        assert!(t_ready.elapsed() < Duration::from_secs(14), "heartbeat too slow");
+        assert!(t_ready.elapsed() < Duration::from_secs(30), "heartbeat too slow");
         std::thread::sleep(Duration::from_millis(20));
     }
     for w in stamps.windows(2) {
-        let d = w[1].0 - w[0].0;
-        assert!(
-            d >= Duration::from_millis(4_400) && d <= Duration::from_millis(5_600),
-            "heartbeat interval {d:?}"
-        );
+        let d = w[1] - w[0];
+        assert!((4_400..=5_600).contains(&d), "heartbeat interval {d} ms");
     }
     // Pause while idle: paused at once, heartbeat goes on with phase paused.
     body.send(json!({"t": "pause", "token": "5f0d22aa91c3e7b4", "reason": "handoff"}));
@@ -764,7 +785,7 @@ fn ready_heartbeat_pause_stop() {
             assert_eq!(h["busy"], false);
             break;
         }
-        assert!(t.elapsed() < Duration::from_secs(7), "no paused heartbeat");
+        assert!(t.elapsed() < Duration::from_secs(15), "no paused heartbeat");
         std::thread::sleep(Duration::from_millis(50));
     }
     // D11: stop while paused exits 0 at once and writes nothing more.
@@ -1200,13 +1221,14 @@ fn pause_before_first_token_resumes_without_400() {
 /// §8 items 9 and 10 (A3/A4 body side), with the kernel's side scripted here: A pauses after its
 /// tool batch; B boots on the same session (its boot event follows A's last event), A exits 75 on
 /// `exit`, B continues the pending run. Then B pauses, a C fails before ready (exit 70), and B
-/// resumes with `update_failed` (branch-back to its leaf) and continues.
+/// resumes with `update_failed` (branch-back to its leaf) and continues. Each batch sleeps 2 s: the
+/// pause must land inside it, and 0.6 s left a loaded machine little room.
 #[test]
 fn handoff_overlap_and_failed_handoff() {
     let home = Home::new("ho");
     let script = [
-        r#"{"v":1,"kind":"turn","reply":{"calls":[{"name":"bash","input":{"command":"sleep 0.6; echo done"}}],"stop":"tool_use"}}"#,
-        r#"{"v":1,"kind":"turn","reply":{"calls":[{"name":"bash","input":{"command":"sleep 0.6; echo again"}}],"stop":"tool_use"}}"#,
+        r#"{"v":1,"kind":"turn","reply":{"calls":[{"name":"bash","input":{"command":"sleep 2; echo done"}}],"stop":"tool_use"}}"#,
+        r#"{"v":1,"kind":"turn","reply":{"calls":[{"name":"bash","input":{"command":"sleep 2; echo again"}}],"stop":"tool_use"}}"#,
         r#"{"v":1,"kind":"turn","reply":{"text":"finished","stop":"end_turn"}}"#,
     ]
     .join("\n");

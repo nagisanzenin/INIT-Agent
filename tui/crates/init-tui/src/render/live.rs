@@ -53,6 +53,14 @@ fn wrapped(text: &str, prefix: &str, style: Style, pstyle: Style, width: usize) 
     rows
 }
 
+/// v0.5.2: what replay frames are timed as (they all arrive at once on attach).
+pub const BEFORE_LAUNCH: &str = "before this launch";
+
+/// ` · 0.4 s`, or nothing for a call that came in the attach replay (its time is not known here).
+fn took(t: &Tool, d: Option<Duration>) -> String {
+    if t.replayed { String::new() } else { format!(" · {}", crate::time::dur(d.unwrap_or_default())) }
+}
+
 /// A tool call's collapsed row: marker, name, the body's summary of the call, and its state.
 pub fn tool_row(t: &Tool, width: usize, now: Instant, _spin: usize) -> Line {
     let (marker, right) = match (t.ok, t.dur) {
@@ -60,14 +68,14 @@ pub fn tool_row(t: &Tool, width: usize, now: Instant, _spin: usize) -> Line {
             let mut r = Line::new();
             r.push("✓ ", Style::dim());
             r.extend(sanitize::inline(t.summary.as_deref().unwrap_or(""), Style::dim()));
-            r.push(format!(" · {}", crate::time::dur(d.unwrap_or_default())), Style::dim());
+            r.push(took(t, d), Style::dim());
             r
         }),
         (Some(false), d) => ("◇", {
             let mut r = Line::new();
             r.push("✕ ", Style::fg(Role::Harm));
             r.extend(sanitize::inline(t.summary.as_deref().unwrap_or(""), Style::fg(Role::Harm)));
-            r.push(format!(" · {}", crate::time::dur(d.unwrap_or_default())), Style::dim());
+            r.push(took(t, d), Style::dim());
             r
         }),
         (None, Some(d)) => ("◇", Line::from_span(format!("? no result · {}", crate::time::dur(d)), Style::fg(Role::Warn))),
@@ -79,7 +87,8 @@ pub fn tool_row(t: &Tool, width: usize, now: Instant, _spin: usize) -> Line {
     let nw = name.width();
     left.extend(name);
     left.push(" ".repeat(7usize.saturating_sub(nw).max(1)), Style::PLAIN);
-    left.extend(sanitize::inline(&t.start_text, Style::PLAIN));
+    // v0.5.2: the call's first line (the body now sends up to 3); the details show them all
+    left.extend(sanitize::inline(&first_line(&t.start_text), Style::PLAIN));
     let right = right.truncate(width / 2);
     let rw = right.width();
     let avail = width.saturating_sub(rw + 2);
@@ -90,12 +99,31 @@ pub fn tool_row(t: &Tool, width: usize, now: Instant, _spin: usize) -> Line {
     row.truncate(width)
 }
 
+/// The first line of a call's text, with `…` when more follows.
+fn first_line(s: &str) -> String {
+    match s.split_once('\n') {
+        Some((a, _)) if a.ends_with('…') => a.to_string(),
+        Some((a, _)) => format!("{a}…"),
+        None => s.to_string(),
+    }
+}
+
+/// v0.5.2 (user sessions v0.5.1: `/details` "in full" showed only `call: set -eu…`): what the
+/// details say when the agent sent less than all of a call. The body's preview of a call is its first
+/// lines (`…` marks the cut); its output comes as `detail`: the last lines, for a failure and for a
+/// shell command that ran.
+pub const CALL_CUT: &str = "(the agent's preview: the first lines of the call only)";
+pub const NO_OUTPUT: &str = "none sent (this agent's version sends output only for a failure)";
+
 /// A tool call expanded (transcript view, §3.6).
 fn tool_expanded(t: &Tool, width: usize, now: Instant, spin: usize) -> Vec<Line> {
     let mut rows = vec![tool_row(t, width, now, spin)];
     let field = |k: &str, v: &str, st: Style| wrapped(v, &format!("    {k}: "), st, Style::dim(), width);
     rows.extend(field("call_id", &t.call_id, Style::PLAIN));
     rows.extend(field("call", &t.start_text, Style::PLAIN));
+    if t.start_text.ends_with('…') {
+        rows.extend(wrapped(CALL_CUT, "          ", Style::dim(), Style::dim(), width));
+    }
     let ok = match t.ok {
         Some(true) => "ok",
         Some(false) => "error",
@@ -103,9 +131,18 @@ fn tool_expanded(t: &Tool, width: usize, now: Instant, spin: usize) -> Vec<Line>
     };
     rows.extend(field("result", &format!("{ok} · {}", t.summary.as_deref().unwrap_or("")), Style::PLAIN));
     let d = t.dur.map_or_else(|| format!("{} so far", crate::time::dur(now.duration_since(t.started))), crate::time::dur);
-    rows.extend(field("time", &format!("started {} · {d}", crate::time::utc_hms(t.start_ms)), Style::PLAIN));
-    if let Some(det) = &t.detail {
-        rows.extend(field("detail", det, Style::dim()));
+    let time = if t.replayed { format!("{BEFORE_LAUNCH} (not known here)") } else { format!("started {} · {d}", crate::time::utc_hms(t.start_ms)) };
+    rows.extend(field("time", &time, Style::PLAIN));
+    match &t.detail {
+        // v0.5.2: a successful call's output too, when the agent sent it (its last lines)
+        Some(det) => {
+            let n = det.lines().count();
+            let s = if n == 1 { "" } else { "s" };
+            rows.extend(field(&format!("output (last {n} line{s})"), "", Style::dim()));
+            rows.extend(det.lines().flat_map(|l| wrapped(l, "      │ ", Style::PLAIN, Style::fg(Role::Line), width)));
+        }
+        None if !t.running() && t.name == "bash" => rows.extend(field("output", NO_OUTPUT, Style::dim())),
+        None => {}
     }
     rows
 }
@@ -277,7 +314,8 @@ fn activity_summary(a: &Activity, width: usize) -> Line {
     let c = a.counts();
     let mut left = Line::from_span("◇ ", Style::mute());
     let s = if c.calls == 1 { "" } else { "s" };
-    left.push(format!("ran {} tool{s} in {}", c.calls, crate::time::elapsed(a.frozen.unwrap_or_default())), Style::PLAIN);
+    let when = if a.replayed { BEFORE_LAUNCH.to_string() } else { format!("in {}", crate::time::elapsed(a.frozen.unwrap_or_default())) };
+    left.push(format!("ran {} tool{s} {when}", c.calls), Style::PLAIN);
     let names: Vec<String> = a.names().into_iter().map(|(n, k)| if k > 1 { format!("{n} ×{k}") } else { n }).collect();
     if !names.is_empty() {
         left.extend(sanitize::inline(&format!(" · {}", names.join(" · ")), Style::dim()));
@@ -304,7 +342,8 @@ fn activity_full(a: &Activity, width: usize, now: Instant, spin: usize) -> Vec<L
     let c = a.counts();
     let s = if c.calls == 1 { "" } else { "s" };
     let el = a.frozen.map_or_else(|| format!("{} so far", crate::time::elapsed(now.duration_since(a.started))), crate::time::elapsed);
-    head.push(format!("{} tool call{s} · {} failed · {el} · started {}", c.calls, c.failed, crate::time::utc_hms(a.start_ms)), Style::PLAIN);
+    let el = if a.replayed { BEFORE_LAUNCH.to_string() } else { format!("{el} · started {}", crate::time::utc_hms(a.start_ms)) };
+    head.push(format!("{} tool call{s} · {} failed · {el}", c.calls, c.failed), Style::PLAIN);
     let mut rows = vec![head.truncate(width)];
     let w = width.saturating_sub(2);
     for st in &a.steps {
@@ -499,7 +538,7 @@ pub fn greeting_level(text: &str) -> Option<i64> {
 /// information. PANIC stays a full-width reverse-video harm line.
 pub fn notice_rows(class: Class, level: &str, text: &str, src: Option<&str>, width: usize) -> Vec<Line> {
     let (glyph, gst, st) = match class {
-        Class::Promotion | Class::LevelUp => ("✓ ", Style::fg(Role::Pass), Style::PLAIN),
+        Class::Promotion | Class::LevelUp | Class::Resumed => ("✓ ", Style::fg(Role::Pass), Style::PLAIN),
         Class::Rollback | Class::Demotion | Class::Ceiling | Class::Halt | Class::GateFail => ("✕ ", Style::fg(Role::Harm), Style::PLAIN),
         Class::Panic => {
             let st = Style::fg(Role::Harm).with_reverse().with_bold();

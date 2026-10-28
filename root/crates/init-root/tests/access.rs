@@ -70,7 +70,8 @@ fn wait(secs: u64, what: &str, mut f: impl FnMut() -> bool) {
 impl Home {
     fn cmd(&self) -> Command {
         let mut c = Command::new(BIN);
-        c.env_clear().env("HOME", &self.dir).env("INIT_ROOT_HOME", &self.rh).env("INIT_HOME", &self.ih).env("PATH", "/usr/bin:/bin");
+        // TZ: the Root prints snapshot times on the owner's clock (R-UNDO); a fixed UTC+7 makes them exact here
+        c.env_clear().env("HOME", &self.dir).env("INIT_ROOT_HOME", &self.rh).env("INIT_HOME", &self.ih).env("PATH", "/usr/bin:/bin").env("TZ", "ICT-7");
         c
     }
     fn run(&self, args: &[&str]) -> Output {
@@ -195,19 +196,30 @@ fn workspace_validation_full_mode_retention_and_size_skip() {
     assert_eq!(h.refused("full.set", json!({"on": true, "confirm": "yes"}))["code"], "root.confirm");
     let r = h.ok("full.set", json!({"on": true, "confirm": "confirm"}));
     assert_eq!((r["access"]["access"].as_str(), r["access"]["full"].as_bool(), r["changed"].as_bool()), (Some("full"), Some(true), Some(true)));
-    assert_eq!(r["snapshot"]["reason"], "full_on");
+    // R-UNDO (v0.5.2): nothing changed since the session snapshot, so full_on keeps none of its own
+    assert_eq!((r["snapshot"]["reason"].as_str(), r["snapshot"]["unchanged"].as_bool()), (Some("session"), Some(true)), "{r}");
+    assert_eq!(h.snapshots().len(), 1);
+    fs::write(h.dir.join("proj/full.txt"), "x\n").unwrap();
+    h.ok("full.set", json!({"on": false}));
+    let r = h.ok("full.set", json!({"on": true}));
+    assert_eq!((r["snapshot"]["reason"].as_str(), r["snapshot"]["unchanged"].as_bool()), (Some("full_on"), None), "a changed folder: {r}");
     assert_eq!(h.ok("status", json!({}))["access"]["full"], true, "the status bar's FULL");
     assert_eq!(h.ok("full.set", json!({"on": false}))["access"]["access"], "workspace");
     assert_eq!(h.ok("full.set", json!({"on": true}))["access"]["full"], true, "confirmed once this session");
     h.ok("workspace.set", json!({"cwd": proj}));
     assert_eq!(h.ok("access.get", json!({}))["full"], false, "a new session ends full mode");
     assert_eq!(h.refused("full.set", json!({"on": true}))["code"], "root.confirm", "and forgets the confirmation");
-    // retention: the last 5 snapshots of the workspace (session, full_on, session, and four more sessions)
-    for _ in 0..4 {
+    // retention: the last 5 snapshots of the workspace (session, full_on, and six more sessions of a folder changed each
+    // time; the clock moves, as it does between launches). An unchanged folder takes none (R-UNDO, v0.5.2).
+    assert_eq!(h.snapshots().len(), 2, "the new session's folder is unchanged since full_on");
+    for i in 0..6 {
+        h.ok("test.clock", json!({"advance_ms": 60_000}));
+        fs::write(h.dir.join("proj/n.txt"), format!("{i}\n")).unwrap();
         h.ok("workspace.set", json!({"cwd": proj}));
     }
     let snaps = h.snapshots();
     assert_eq!(snaps.len(), 5, "{snaps:?}");
+    assert_eq!(fs::read_to_string(h.rh.join("snapshots").join(&snaps[4]).join("n.txt")).unwrap(), "5\n", "the newest is kept");
     for s in &snaps {
         let meta: Value = serde_json::from_str(&fs::read_to_string(h.rh.join("snapshots").join(format!("{s}.json"))).unwrap()).unwrap();
         assert_eq!((meta["workspace"].as_str(), meta["id"].as_str()), (Some(proj.as_str()), Some(s.as_str())));
@@ -333,6 +345,127 @@ fn body_writes_the_workspace_and_undo_restores_it() {
     h.ok("full.set", json!({"on": true}));
     wait(10, "access{restart:idle}", || h.fk_events("access").iter().any(|d| d["full"] == true && d["restart"] == "idle"));
     assert_eq!(h.ok("access.get", json!({}))["restart_pending"], true);
+}
+
+/// R-UNDO (v0.5.2; docs/user-sessions/v0.5.1-new.md): after INIT is reopened, `/undo` still goes back to before the
+/// agent's edits. Every launch snapshots the folder, so the newest snapshot already holds those edits: `/undo` restores
+/// the newest snapshot that differs from the folder now, an unchanged folder takes no new snapshot, `/undo list` names
+/// each snapshot (id, local time, trigger, folder) and `/undo <id>` restores a chosen one. Each command the Root prints
+/// here is run as printed, on an attached client's line path or by the request the TUI sends.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_relaunch_still_undoes_the_agents_edits() {
+    let h = home("u");
+    h.install(false, "");
+    let _d = h.daemon("");
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    let p = proj.display().to_string();
+    let mut a = UnixStream::connect(h.rh.join("run/owner.sock")).unwrap();
+    writeln!(a, "{}", json!({"client": "undo-test", "replay": false, "t": "attach"})).unwrap();
+    a.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    let mut rd = BufReader::new(a.try_clone().unwrap());
+    let mut notice = |prefix: &str| loop {
+        let mut l = String::new();
+        assert!(rd.read_line(&mut l).unwrap() > 0, "the attach connection closed before {prefix:?}");
+        let v: Value = serde_json::from_str(&l).unwrap_or_default();
+        if v["t"] == "notice" && v["text"].as_str().is_some_and(|t| t.starts_with(prefix)) {
+            break v["text"].as_str().unwrap().to_string();
+        }
+    };
+    let mut say = |line: &str| writeln!(a, "{}", json!({"t": "line", "text": line})).unwrap();
+    let tick = || h.ok("test.clock", json!({"advance_ms": 60_000}));
+    let snap = |r: &Value| r["access"]["snapshot"]["id"].as_str().unwrap().to_string();
+    // launch 1: the folder before the agent; the notice no longer claims "/undo restores it"
+    let first = snap(&h.ok("workspace.set", json!({"cwd": p})));
+    assert_eq!(notice("[root] snapshot "), format!("[root] snapshot {first} of {p} taken at launch (/undo list shows what /undo can restore)"));
+    // the agent's edits, then INIT reopened: launch 2's snapshot already holds them
+    tick();
+    fs::write(proj.join("hello.py"), "print('hello')\n").unwrap();
+    fs::write(proj.join("src/a.txt"), "v2\n").unwrap();
+    let second = snap(&h.ok("workspace.set", json!({"cwd": p})));
+    assert_ne!(second, first);
+    // launch 3, nothing changed since: no new snapshot, and it says so
+    tick();
+    assert_eq!(snap(&h.ok("workspace.set", json!({"cwd": p}))), second);
+    assert_eq!(h.snapshots().len(), 2, "an unchanged folder takes no snapshot");
+    assert_eq!(notice(&format!("[root] {p} is unchanged")), format!("[root] {p} is unchanged since snapshot {second}, taken 2030-01-10 \
+        07:01:00 +07:00 at launch, so no new snapshot was taken (/undo list shows what /undo can restore)"));
+
+    // the TUI's plain /undo: the snapshot from before the agent's edits, not the newest (which equals the folder now)
+    let e = h.refused("undo", json!({}));
+    assert_eq!((e["code"].as_str(), e["data"]["snapshot"]["id"].as_str()), (Some("root.confirm"), Some(first.as_str())), "{e}");
+    assert_eq!(e["message"].as_str().unwrap(), format!("/undo restores {p} to snapshot {first}, taken 2030-01-10 07:00:00 +07:00 at \
+        launch: the newest snapshot that differs from the folder now (/undo list shows the others). Everything changed in the folder \
+        since then, by you or the agent, is replaced; the folder as it is now is saved first, so this can be undone. Type `confirm` to \
+        restore it."));
+
+    // `/undo list`: newest first, one line each, the default marked
+    say("/undo list");
+    let list = notice("[root] /undo list:");
+    assert_eq!(list, format!("[root] /undo list: 2 snapshots of {p}, newest first (INIT keeps the last 5). /undo restores the one marked \
+        \"← /undo\"; /undo <id> restores another.\n  {second} · 2030-01-10 07:01:00 +07:00 · at launch · ~/proj · same as the folder now\n  \
+        {first} · 2030-01-10 07:00:00 +07:00 · at launch · ~/proj · ← /undo"));
+    // `/undo <id>` as listed, then the confirmation exactly as printed
+    tick();
+    say(&format!("/undo {first}"));
+    let ask = notice(&format!("[root] /undo {first} restores"));
+    let typed = ask.split("Type ").nth(1).and_then(|t| t.strip_suffix(" to restore it.")).unwrap().to_string();
+    assert_eq!(typed, format!("/undo {first} confirm"), "{ask}");
+    say(&typed);
+    let done = notice("[root] /undo restored");
+    let saved = h.snapshots().into_iter().find(|n| *n != first && *n != second).unwrap();
+    assert_eq!(done, format!("[root] /undo restored {p} to snapshot {first}, taken 2030-01-10 07:00:00 +07:00 at launch; the folder as it \
+        was is saved as snapshot {saved}, so /undo brings it back (/undo list shows every snapshot)"));
+    assert!(!proj.join("hello.py").exists(), "the agent's new file is gone");
+    assert_eq!(fs::read_to_string(proj.join("src/a.txt")).unwrap(), "v1\n");
+    // "/undo brings it back", by the request the TUI sends
+    tick();
+    let e = h.refused("undo", json!({}));
+    assert_eq!(e["data"]["snapshot"]["id"].as_str(), Some(saved.as_str()), "{e}");
+    assert!(e["message"].as_str().unwrap().contains("before an /undo (the folder it replaced)"), "{e}");
+    let r = h.ok("undo", json!({"confirm": "confirm"}));
+    assert_eq!(r["restored"]["id"].as_str(), Some(saved.as_str()));
+    assert_eq!(fs::read_to_string(proj.join("hello.py")).unwrap(), "print('hello')\n");
+    let back = r["saved"]["id"].as_str().unwrap().to_string();
+
+    // refusals name /undo list: an id that is not a snapshot, one that equals the folder now, a malformed line
+    say("/undo nope");
+    assert_eq!(notice("[root] /undo: nope"), format!("[root] /undo: nope is not a snapshot of {p}; /undo list shows the ones /undo can restore"));
+    say(&format!("/undo {second}"));
+    assert_eq!(notice(&format!("[root] /undo {second}:")), format!("[root] /undo {second}: that snapshot is the same as {p} now, so there \
+        is nothing to restore; /undo list shows the others"));
+    say("/undo a b c");
+    assert!(notice("[root] /undo takes").contains("/undo list"));
+
+    // the folder changes between the question and the confirmation: the confirmation asks again, and changes nothing
+    tick();
+    let e = h.refused("undo", json!({}));
+    assert_eq!(e["data"]["snapshot"]["id"].as_str(), Some(back.as_str()), "the state before the last restore: {e}");
+    fs::remove_file(proj.join("hello.py")).unwrap(); // exact path, written above: the folder is now `back`'s
+    fs::write(proj.join("src/a.txt"), "v1\n").unwrap();
+    let n = h.snapshots().len();
+    let e = h.refused("undo", json!({"confirm": "confirm"}));
+    assert_eq!((e["code"].as_str(), e["data"]["snapshot"]["id"].as_str()), (Some("root.confirm"), Some(saved.as_str())), "{e}");
+    assert!(e["message"].as_str().unwrap().starts_with("The folder changed since /undo asked. /undo restores "), "{e}");
+    assert_eq!(h.snapshots().len(), n, "the refused confirmation keeps no snapshot");
+    assert!(!proj.join("hello.py").exists(), "and restores nothing");
+    let r = h.ok("undo", json!({"confirm": "confirm"}));
+    assert_eq!(r["restored"]["id"].as_str(), Some(saved.as_str()), "the second confirmation restores what it named");
+
+    // with five kept, restoring the oldest keeps it (the pre_undo save makes six; the next oldest goes)
+    assert_eq!(h.snapshots().len(), 5, "{:?}", h.snapshots());
+    assert_eq!(h.snapshots()[0], first);
+    tick();
+    say(&format!("/undo {first} confirm"));
+    notice(&format!("[root] /undo restored {p} to snapshot {first},")); // the earlier restores' notices are passed over
+    let left = h.snapshots();
+    assert_eq!(left.len(), 5, "{left:?}");
+    assert!(left.contains(&first) && !left.contains(&second), "the restored snapshot is kept, the next oldest pruned: {left:?}");
+    assert!(!proj.join("hello.py").exists());
+    // no workspace: `/undo list` says why, as `/undo` does
+    h.ok("workspace.set", json!({"cwd": h.s("")}));
+    say("/undo list");
+    assert!(notice("[root] /undo has nothing to restore: this session has no workspace").contains("run init-agent there"));
 }
 
 /// The body's spawn request as the fake kernel sends it (`spawn_args`): kind body, the live lane, running `/bin/sh -c`.

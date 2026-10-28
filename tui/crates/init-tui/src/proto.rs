@@ -187,6 +187,9 @@ pub fn line_kind(text: &str, root_rootish: bool) -> LineKind {
         // ADR-009 lines the Root answers itself with notices (root SBX-009 §B)
         "/workspace" | "/full" | "/full on confirm" | "/undo confirm" => return LineKind::RootCommand,
         "/resume" if root_rootish => return LineKind::RootCommand,
+        // v0.5.2 (R-UNDO): `/undo list`, `/undo <id>` and `/undo <id> confirm` are the Root's lines too
+        // (plain `/undo` is the TUI's `undo` request, access.rs)
+        _ if t.starts_with("/undo ") => return LineKind::RootCommand,
         // ADR-013: the owner's goal lines (`/goal`, `/goal "<intent>" …`, `/goal stop`): only the Root reads them
         _ if t == "/goal" || t.starts_with("/goal ") => return LineKind::RootCommand,
         _ => {}
@@ -208,7 +211,7 @@ pub fn line_kind(text: &str, root_rootish: bool) -> LineKind {
 /// destructive command must never be one keystroke from it (`/panic` also asks to confirm, app.rs).
 pub const COMMANDS: &[(&str, &str)] = &[
     ("/usage", "show metered cost and tokens locally"),
-    ("/details", "print the last tool activity in full (calls, tokens per request)"),
+    ("/details", "print the last tool activity: each call, its result, its output's last lines, tokens per request"),
     ("/model", "list the models and switch (the Root restarts the agent)"),
     ("/new", "start a new session (body)"),
     ("/clear", "start a new session (same as /new)"),
@@ -218,6 +221,9 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("/later ", "queue a follow-up: /later <text>"),
     ("/stop", "stop the current run (kernel)"),
     ("/undo", "restore the workspace's last snapshot (asks to confirm)"),
+    ("/undo list", "the workspace's snapshots: id, time, what took each one"),
+    ("/undo ", "restore one snapshot: /undo <id> (ids from /undo list)"),
+    ("/help", "list these commands"),
     ("/root status", "the Root's status"),
     ("/root help", "the Root's lines"),
     ("/root ledger", "the autonomy ledger"),
@@ -236,6 +242,42 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("/root stop", "stop the agent (Root; /resume starts it again, no demotion)"),
     ("/panic", "emergency stop: kills every agent process and demotes a level (asks to confirm)"),
 ];
+
+/// The first word of every line some part of INIT reads as a command (v0.5.2): the TUI's own, the
+/// Root's (root link.rs `line`, its sentinel, goal, grant, twin and access lines), the kernel's
+/// (supervise.md §4.6) and the body's (log-context §4.5). A line whose first word looks like a
+/// command and is not here is refused locally ([`unknown_command`]) instead of reaching the model.
+pub const KNOWN_WORDS: &[&str] = &[
+    // the TUI
+    "/usage", "/details", "/help", "/model", "/key", "/setup", "/clear", "/panic",
+    // the Root
+    "/root", "/resume", "/workspace", "/full", "/undo", "/rollback", "/grants", "/grant", "/deny", "/release", "/twin", "/goal",
+    // the kernel
+    "/stop", "/status", "/kernel", "/accept", "/bless", "/reject", "/later",
+    // the body
+    "/new", "/compact", "/branch", "/label",
+];
+
+/// `/help` (v0.5.2): every command with its description, for the TUI's table and line mode.
+pub fn help_rows() -> (String, Vec<(String, String)>) {
+    // a command that takes an argument (`/later `, `/undo `) reads `/later …`
+    let rows = COMMANDS.iter().map(|(c, d)| (if c.ends_with(' ') { format!("{c}…") } else { c.to_string() }, d.to_string())).collect();
+    ("commands (type / for the list as you type; // at the start sends a line beginning with / as a message)".to_string(), rows)
+}
+
+/// The TUI's answer to an unknown command (v0.5.2).
+pub const UNKNOWN_HINT: &str = "unknown command — /help lists them; start the line with // to send it as a message";
+
+/// v0.5.2 (user session v0.5.1-new: `/undo list` went to the model as a chat message and was billed):
+/// the line's first word looks like a command (`/` and a letter, then letters, digits, `-` or `_`: not
+/// a path such as `/usr/bin/x`, not `//…`) and no part of INIT reads it. Returns that word.
+pub fn unknown_command(text: &str) -> Option<&str> {
+    let t = text.trim_start();
+    let word = t.split(char::is_whitespace).next().unwrap_or("");
+    let name = word.strip_prefix('/')?;
+    let looks = name.chars().next().is_some_and(|c| c.is_ascii_alphabetic()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_');
+    (looks && !KNOWN_WORDS.contains(&word)).then_some(word)
+}
 
 /// Commands that stop the agent (TUI-FIX, v0.5.1): listed last in [`COMMANDS`]; `/panic` also asks
 /// for a typed confirmation in TTY mode (`app.rs`).
@@ -280,6 +322,30 @@ mod tests {
         assert_eq!(line_kind("/goals are nice", false), LineKind::Input);
         assert_eq!(line_kind(" /full ", false), LineKind::RootCommand);
         assert_eq!(line_kind("/undo confirm", false), LineKind::RootCommand);
+    }
+
+    /// v0.5.2: an unknown `/word` is refused locally; a path, a `//` line, prose and every command
+    /// some part of INIT reads still pass. Every completion's first word is a known one.
+    #[test]
+    fn unknown_commands_are_caught_locally() {
+        assert_eq!(unknown_command("/undo-list"), Some("/undo-list"));
+        assert_eq!(unknown_command("  /foo bar"), Some("/foo"));
+        assert_eq!(unknown_command("/Help"), Some("/Help"));
+        for ok in ["/undo list", "/undo 20261028T111910.728Z-project", "/undo 20261028T111910.728Z-project confirm", "/undo confirm",
+            "/usr/bin/python3 crashed", "//undo list", "/ x", "/", "hello /foo", "/later do x", "/rollback lkg", "/grant g1 for 2d confirm",
+            "/twin refreeze", "/goal stop", "/branch e1 note", "/label e1 x", "/compact focus", "/root help", "/full on confirm", "/help",
+            "/details", "/über", "/1st"] {
+            assert_eq!(unknown_command(ok), None, "{ok}");
+        }
+        for (c, _) in COMMANDS {
+            let w = c.split_whitespace().next().unwrap();
+            assert!(KNOWN_WORDS.contains(&w), "the completion {c} is a known command");
+        }
+        // R-UNDO's lines are the Root's, never chat
+        for l in ["/undo list", "/undo 20261028T111910.728Z-project", "/undo 20261028T111910.728Z-project confirm"] {
+            assert_eq!(line_kind(l, false), LineKind::RootCommand, "{l}");
+        }
+        assert!(COMMANDS.iter().any(|c| c.0 == "/undo list") && COMMANDS.iter().any(|c| c.0 == "/undo "));
     }
 
     #[test]

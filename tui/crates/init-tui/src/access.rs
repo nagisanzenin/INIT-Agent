@@ -278,10 +278,11 @@ impl Flow {
             (Op::Undo, Ok(v)) => {
                 let r = &v["restored"];
                 let s = |x: &Value, k: &str| x[k].as_str().unwrap_or("?").to_string();
+                // v0.5.2 (user session v0.5.1-new: "/undo times are in UTC"): no raw `at` (UTC); the Root's
+                // own `snapshot` notice for the restore gives the local time and the trigger
                 out.push(Out::Info(format!(
-                    "/undo: restored snapshot {} ({}) of {}; the state before it is kept as snapshot {}, so /undo again goes back",
+                    "/undo: restored snapshot {} of {}; the state before it is kept as snapshot {}, so /undo again goes back",
                     s(r, "id"),
-                    s(r, "at"),
                     s(r, "workspace"),
                     s(&v["saved"], "id")
                 )));
@@ -301,6 +302,8 @@ impl Flow {
             (Op::Undo, Err(ReqErr::Refused(code, ..))) if code == "root.busy" => {
                 out.push(Out::Warn("/undo: the agent is in the middle of a turn; try again when it is idle (Esc interrupts it)".into()))
             }
+            // v0.5.2 (R-UNDO): the folder is the same as every snapshot: the Root says which and when
+            (Op::Undo, Err(ReqErr::Refused(code, msg, data))) if code == "root.not_found" && data["reason"] == "unchanged" => out.push(Out::Info(msg)),
             (Op::Undo, Err(ReqErr::Refused(code, ..))) if code == "root.not_found" => out.push(Out::Warn("/undo: there is no snapshot of this workspace to restore".into())),
             (Op::Full(_), Err(ReqErr::Refused(code, _, data))) if code == "root.mode" && data["reason"] == "charter" => {
                 out.push(Out::Warn("full mode is disabled by the charter (sandbox.allow_full = false)".into()))
@@ -432,7 +435,7 @@ mod tests {
         let done = json!({"restored": {"at": "2026-10-20T21:00:00Z", "id": "s1", "reason": "session", "workspace": "/p"},
                           "saved": {"at": "2026-10-20T21:05:00Z", "id": "s2", "reason": "pre_undo", "workspace": "/p"}});
         let out = f.on_answer(Op::Undo, Ok(done));
-        assert!(matches!(&out[0], Out::Info(t) if t.starts_with("/undo: restored snapshot s1 (2026-10-20T21:00:00Z) of /p") && t.contains("kept as snapshot s2")), "{out:?}");
+        assert!(matches!(&out[0], Out::Info(t) if t.starts_with("/undo: restored snapshot s1 of /p") && !t.contains("21:00:00Z") && t.contains("kept as snapshot s2")), "{out:?}");
     }
 
     #[test]
@@ -463,5 +466,24 @@ mod tests {
         assert_eq!(tilde("/Users/o", Some("/Users/o")), "~");
         assert_eq!(tilde("/Users/other/x", Some("/Users/o")), "/Users/other/x");
         assert_eq!(tilde("/x", None), "/x");
+    }
+
+    /// v0.5.2 (R-UNDO): plain `/undo` on a folder that equals every snapshot shows the Root's own
+    /// message (which snapshot, when, and `/undo list`), not "there is no snapshot".
+    #[test]
+    fn undo_unchanged_shows_the_roots_message() {
+        let mut f = Flow::new(Some("/Users/o/proj".into()), false, false);
+        f.on_attached();
+        f.on_answer(Op::Workspace, Ok(json!({"access": view(Some("/Users/o/proj"), false)})));
+        f.on_line("/undo");
+        let m = "/undo has nothing to restore: /Users/o/proj is the same as every snapshot of it, so nothing changed since the newest (20261028T111910.728Z-project, taken 2026-10-28 18:19:10 +07:00 at launch); /undo list shows them";
+        let out = f.on_answer(Op::Undo, Err(ReqErr::Refused("root.not_found".into(), m.into(), json!({"reason": "unchanged"}))));
+        assert_eq!(out, [Out::Info(m.into())]);
+        f.on_line("/undo");
+        let out = f.on_answer(Op::Undo, Err(ReqErr::Refused("root.not_found".into(), "x".into(), json!({}))));
+        assert_eq!(out, [Out::Warn("/undo: there is no snapshot of this workspace to restore".into())]);
+        // `/undo list` and `/undo <id>` are the Root's lines: the access flow does not take them
+        assert_eq!(f.on_line("/undo list"), None);
+        assert_eq!(f.on_line("/undo 20261028T111910.728Z-project confirm"), None);
     }
 }

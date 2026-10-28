@@ -1,0 +1,62 @@
+{
+ "body_sha256": "e6008d4deaac6a69c44c1bd6ce832860d52363ef83bb821530cf12fd4937ce6a",
+ "bundle": "init-v0.5.2-preview-macos-arm64.tar.gz",
+ "bundle_bytes": 55182974,
+ "checks": {
+  "gate_g0_to_g3_pass": true,
+  "genesis_body_is_prebuilt": true,
+  "install_with_rust_plus_first_reply_le_390s": true,
+  "old_name_old_launcher_removed": true,
+  "promote_job_succeeded": true,
+  "promote_started_by_agent": true,
+  "reply_is_the_mocks": true,
+  "status_json_evolution_t2": true,
+  "toolchain_in_test_home": true
+ },
+ "mock_requests": 19,
+ "ok": true,
+ "promote": {
+  "error": null,
+  "job": "j-000001",
+  "sha": "2b0567c6af9e15a78e9b2d02483064b2817c0353",
+  "stages": [
+   {
+    "pass": true,
+    "stage": "G0",
+    "wall_ms": 975018
+   },
+   {
+    "pass": true,
+    "stage": "G1",
+    "wall_ms": 1818
+   },
+   {
+    "pass": true,
+    "stage": "G2",
+    "wall_ms": 22316
+   },
+   {
+    "pass": true,
+    "stage": "G3",
+    "wall_ms": 822201
+   },
+   {
+    "pass": true,
+    "stage": "handoff",
+    "wall_ms": 6343
+   }
+  ],
+  "state": "succeeded"
+ },
+ "reply": "hello from the mock",
+ "rust": "installed by get.sh into the test home",
+ "times_ms": {
+  "drive_wall": 575,
+  "get_sh_install": 70957,
+  "get_sh_to_first_reply": 73908,
+  "promote_wait": 1831215,
+  "start_to_ready": 2102
+ },
+ "toolchain": "/Users/quanduong/Documents/INIT Agent/target/test-homes/ub2/home/.rustup/toolchains/1.97.1-aarch64-apple-darwin",
+ "v": 1
+}

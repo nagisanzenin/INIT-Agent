@@ -13,7 +13,11 @@ the same audit for scripts/install.sh, scripts/get.sh, scripts/init-agent and sc
   upgrade` with no kept get.sh prints the upgrade that runs the current get.sh with the system's curl and sh, with
   INIT_ROOT_HOME= on the sh side of the pipe when ROOT_HOME is elsewhere;
 - install.sh's `left_stopped` (an upgrade whose commit or rollback failed): the Root stays stopped, the message says so
-  and how to start it again after the step it names.
+  and how to start it again after the step it names;
+- install.sh's closing `Uninstall:` line (v0.5.2) carries INIT_ROOT_HOME= for a ROOT_HOME elsewhere and runs as printed;
+- the launcher reads the passwd home itself (v0.5.2): under every bash on this machine (bash 5.3 expands `~` to $HOME
+  even with HOME unset), a ROOT_HOME under a HOME that is not the passwd home gets INIT_ROOT_HOME= in what it prints, and
+  the LaunchAgent path is the passwd home's.
 Nothing is installed and no real ROOT_HOME is touched: the functions and the block run alone in a temporary home,
 against a stand-in bin/init-root. A printed `/usr/bin/curl … | … /bin/sh …` runs with a script in place of the download
 (run_pipe). Stdlib only.
@@ -22,6 +26,7 @@ import os
 import pwd
 import re
 import shlex
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -250,6 +255,29 @@ class PrintedCommands(unittest.TestCase):
                                          "then start the Root: " + start + ("   (in a terminal of its own)" if svc == "0" else "")],
                              p.stdout)
 
+    def test_the_closing_uninstall_line_runs_with_this_root_home(self):
+        text = read(INSTALL)
+        m = re.search(r"^ELAPSED=.*?^EOF$", text, re.S | re.M)
+        self.assertIsNotNone(m, "install.sh has no closing summary")
+        helpers = functions(INSTALL, "shq", "rh_env", "rcmd")
+        with tempfile.TemporaryDirectory(prefix="i5-rp52-", dir="/private/tmp" if os.path.isdir("/private/tmp") else None) as t:
+            repo = os.path.join(t, "re po's")  # the bundle's directory, quoted when printed
+            os.makedirs(os.path.join(repo, "scripts"))
+            with open(os.path.join(repo, "scripts", "uninstall.sh"), "w") as f:
+                f.write('echo "home=${INIT_ROOT_HOME-unset}|args=$*"\n')
+            pw = os.path.join(t, "pw")
+            for rh, want in ((os.path.join(t, "o r"), "home=%s|args=" % os.path.join(t, "o r")),
+                             (os.path.join(pw, ".init-root"), "home=unset|args=")):
+                env = {"PATH": "/usr/bin:/bin", "LANG": "C", "RH": rh, "IH": os.path.join(t, "ih"), "PW_HOME": pw,
+                       "REPO": repo, "VERSION": "9.9.9", "T_START": "0"}
+                p = subprocess.run(["/bin/bash", "-c", helpers + "\n" + m.group(0)], env=env, capture_output=True,
+                                   text=True, timeout=30)
+                self.assertEqual(p.returncode, 0, p.stderr)
+                line = next(l for l in p.stdout.splitlines() if l.startswith("Uninstall:"))
+                cmd = line[len("Uninstall:"):].split("   (moves")[0].strip()
+                self.assertEqual(cmd.startswith("INIT_ROOT_HOME="), rh != os.path.join(pw, ".init-root"), line)
+                self.assertEqual(self.run_printed(cmd, pw), want, cmd)
+
 
 class LauncherPrints(unittest.TestCase):
     """What `init-agent` prints when it cannot hand over: this platform's commands, each runnable as printed."""
@@ -308,6 +336,28 @@ class LauncherPrints(unittest.TestCase):
         line = e.splitlines()[-1]
         self.assertEqual(line, "  /usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade" % (GET_URL, shq(self.rh)))
         self.assertEqual(run_pipe(self, line.strip(), GET_URL, self.home), "home=%s|args=--upgrade" % self.rh)
+
+    def test_the_passwd_home_under_every_bash(self):
+        # ROOT_HOME is the scratch HOME's ~/.init-root: not the passwd home's, so every printed line needs INIT_ROOT_HOME=
+        rh = os.path.join(self.home, ".init-root")
+        stub(rh)
+        bashes = {}
+        for b in ("/bin/bash", "/usr/bin/bash", "/opt/homebrew/bin/bash", "/usr/local/bin/bash", shutil.which("bash")):
+            if b and os.access(b, os.X_OK):
+                bashes.setdefault(os.path.realpath(b), b)
+        plist = shq(os.path.join(PW_HOME, "Library", "LaunchAgents", "dev.init.root.plist"))
+        for bash in bashes.values():
+            version = subprocess.run([bash, "-c", "echo $BASH_VERSION"], capture_output=True, text=True).stdout.strip()
+            with self.subTest(bash=bash, version=version):
+                env = {"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": self.home, "LANG": "C", "OSTYPE": "darwin23"}
+                p = subprocess.run([bash, LAUNCHER], env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                                   timeout=30)
+                self.assertEqual(p.returncode, 69, p.stderr)
+                lines = p.stderr.splitlines()
+                self.assertIn("launchctl bootstrap gui/%d %s)" % (os.getuid(), plist), lines[2])
+                fg = lines[3][len("  without it:       "):-len("   (in another terminal)")]
+                self.assertTrue(fg.startswith("INIT_ROOT_HOME="), fg)
+                self.assertEqual(self.runs_as_printed(fg), "home=%s|exe=%s/bin/init-root|args=start --foreground" % (rh, rh))
 
     def test_upgrade_with_nothing_installed_says_so(self):
         e = self.launch("upgrade")

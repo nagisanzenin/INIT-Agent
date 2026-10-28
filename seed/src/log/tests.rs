@@ -562,13 +562,9 @@ fn t_log_4_two_process_lock() {
     }
     c.kill().unwrap();
     c.wait().unwrap();
-    let t0 = Instant::now();
-    let _w = LogWriter::open(&path, SID, Duration::from_secs(10)).unwrap();
-    assert!(
-        t0.elapsed() <= Duration::from_millis(100),
-        "{:?}",
-        t0.elapsed()
-    );
+    // The kernel released the lock when the holder died: a single try (no wait budget) gets it.
+    // Exact, where the old "within 100 ms" bound also measured a loaded machine's scheduler.
+    let _w = LogWriter::open(&path, SID, Duration::ZERO).unwrap();
     // In-process too: a second handle on the same file is refused (flock is per open file).
     assert!(matches!(
         LogWriter::open(&path, SID, Duration::from_millis(100)),

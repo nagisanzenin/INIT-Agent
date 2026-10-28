@@ -5,7 +5,7 @@
 use super::live::{self, RowOpts, Ui};
 use super::{Line, grid};
 use crate::input::Editor;
-use crate::model::{Conn, Info, Kind, Transcript, Tray};
+use crate::model::{Conn, Info, Kind, Step, Transcript, Tray};
 use crate::proto::{Display, DisplayKind};
 use serde_json::json;
 use std::time::{Duration, Instant};
@@ -119,4 +119,56 @@ fn gate_block_in_the_live_region() {
     out.push_str("-- kept: one line\n");
     out.push_str(&screen(&mut t, 80, 12, base + Duration::from_secs(37), NOW_MS + 37_000));
     golden("observe_gate_region", &out);
+}
+
+/// v0.5.2 (user session v0.5.1-new: after a relaunch "ran 5 tools in 0.0 s" and "started 11:19:10Z ·
+/// 0.0 s" for calls that ran at 10:39 for 3 min 46 s): the attach replay's calls say their times are
+/// not known here, instead of the replay's own instant.
+#[test]
+fn replayed_calls_do_not_claim_times() {
+    let now = Instant::now();
+    let mut t = Transcript::default();
+    t.replaying = true;
+    for id in ["c1", "c2"] {
+        t.display(&call(DisplayKind::ToolStart, id, "bash", "ls", None, None), now, NOW_MS);
+        t.display(&call(DisplayKind::ToolEnd, id, "bash", "exit 0, 1 line", Some(true), Some("x")), now, NOW_MS);
+    }
+    t.replaying = false;
+    t.end_activity(now);
+    let Kind::Activity(a) = &t.blocks.back().unwrap().kind else { panic!("an activity") };
+    let o = |expanded| RowOpts { verbose: false, expanded, spin: 0, first: false };
+    let rows: Vec<String> = live::activity_rows(a, 100, now, &o(false)).iter().map(|l| l.text()).collect();
+    assert!(rows[0].contains("ran 2 tools before this launch") && !rows[0].contains("0.0 s"), "{rows:#?}");
+    let all: Vec<String> = live::activity_rows(a, 100, now, &o(true)).iter().map(|l| l.text()).collect();
+    let all = all.join("\n");
+    assert!(all.contains("2 tool calls · 0 failed · before this launch") && all.contains("time: before this launch (not known here)"), "{all}");
+    assert!(!all.contains("0.0 s") && !all.contains("started 21:04:05Z"), "{all}");
+}
+
+/// v0.5.2 (user sessions v0.5.1: `/details` "in full" showed only `call: set -eu…` and never what a
+/// command that worked printed): the details show every line of the call the agent sent (and say when
+/// that is a preview), a successful command's output lines when the agent sends them, and say so when
+/// it does not (an older body). The collapsed row keeps to the call's first line.
+#[test]
+fn details_show_what_they_say() {
+    let now = Instant::now();
+    let mut t = Transcript::default();
+    let cmd = "set -eu\ncat > hello.py <<'EOF'\nprint('hello')…";
+    t.display(&call(DisplayKind::ToolStart, "c1", "bash", cmd, None, None), now, NOW_MS);
+    t.display(&call(DisplayKind::ToolEnd, "c1", "bash", "exit 0, 2 lines", Some(true), Some("hello\ntoday is Wednesday 28 October 2026, 18:18 +07")), now, NOW_MS);
+    t.display(&call(DisplayKind::ToolStart, "c2", "bash", "ls", None, None), now, NOW_MS);
+    t.display(&call(DisplayKind::ToolEnd, "c2", "bash", "exit 0, 1 line", Some(true), None), now, NOW_MS);
+    t.end_activity(now);
+    t.details(NOW_MS).unwrap();
+    let Kind::Activity(a) = &t.blocks.back().unwrap().kind else { panic!("a details copy") };
+    let rows: Vec<String> = live::activity_rows(a, 100, now, &RowOpts { verbose: false, expanded: false, spin: 0, first: false }).iter().map(|l| l.text()).collect();
+    let all = rows.join("\n");
+    assert!(all.contains("call: set -eu\n") && all.contains("cat > hello.py <<'EOF'") && all.contains("print('hello')…"), "{all}");
+    assert!(all.contains(live::CALL_CUT), "{all}");
+    assert!(all.contains("output (last 2 lines):") && all.contains("│ hello") && all.contains("│ today is Wednesday 28 October 2026"), "{all}");
+    assert!(all.contains(&format!("output: {}", live::NO_OUTPUT)), "an older body sends none, and the details say so: {all}");
+    // the collapsed row: the first line, never `␤`
+    let Step::Tool(tool) = &a.steps[0] else { panic!() };
+    let row = live::tool_row(tool, 100, now, 0).text();
+    assert!(row.contains("bash   set -eu…") && !row.contains('␤'), "{row}");
 }

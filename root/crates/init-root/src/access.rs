@@ -34,6 +34,9 @@ pub struct St {
     writers: std::collections::BTreeMap<String, i64>,
     /// ROOT-MSG (v0.5.1): why this session has no workspace, in the owner's words ([`refusal_text`]).
     why: Option<String>,
+    /// R-UNDO (v0.5.2): the snapshot plain `/undo` last named in its `root.confirm`, so the confirmation restores
+    /// that one or asks again ([`undo_to`]).
+    offered: Option<String>,
 }
 
 /// A member's write slot counts from its grant until the broker records the instance (or the spawn failed).
@@ -277,9 +280,22 @@ fn session_text(st: &AccessState, refused_linux: bool, why: Option<&str>, home: 
 }
 
 fn snap_notice(root: &Root, r: &Result<Value, String>) {
-    match r {
-        Ok(s) => root.notice_code("info", "snapshot", &format!("[root] snapshot {} of {} taken (/undo restores it)", s["id"].as_str().unwrap_or(""), s["workspace"].as_str().unwrap_or(""))),
-        Err(why) => root.notice_code("warn", "snapshot", &format!("[root] no snapshot of the workspace: {why}")),
+    root.notice_code(if r.is_ok() { "info" } else { "warn" }, "snapshot", &snap_text(r));
+}
+
+/// R-UNDO (v0.5.2): "(/undo restores it)" was false once INIT had been reopened (`/undo` restores the newest snapshot
+/// that differs from the folder, and at launch that is never the one just taken). An unchanged folder takes none.
+fn snap_text(r: &Result<Value, String>) -> String {
+    let s = match r {
+        Ok(s) => s,
+        Err(why) => return format!("[root] no snapshot of the workspace: {why}"),
+    };
+    let (id, ws) = (s["id"].as_str().unwrap_or(""), s["workspace"].as_str().unwrap_or(""));
+    if s["unchanged"] == true {
+        format!("[root] {ws} is unchanged since snapshot {id}, taken {} {}, so no new snapshot was taken (/undo list shows what /undo can restore)",
+            local_of(&s["at"]), trigger(s))
+    } else {
+        format!("[root] snapshot {id} of {ws} taken {} (/undo list shows what /undo can restore)", trigger(s))
     }
 }
 
@@ -306,7 +322,7 @@ pub fn workspace_set(root: &Root, a: &Value) -> Result<Value, Err3> {
     crate::twin::session_started(root, None); // X9: a new owner session; its first line is replayable only with a snapshot
     crate::sentinel::session_started(root); // X3: the sentinel's units never span owner sessions
     if let Some(w) = &after.workspace {
-        let r = take(root, w, "session", true);
+        let r = take(root, w, "session");
         snap_notice(root, &r);
         crate::twin::session_started(root, r.as_ref().ok());
     }
@@ -363,7 +379,7 @@ pub fn full_set(root: &Root, a: &Value) -> Result<Value, Err3> {
     }
     // the session's workspace becomes visible again on Linux once full access is in effect
     let ws = ws.or_else(|| lock(&root.access).workspace.clone());
-    let snap = ws.as_ref().map(|w| take(root, w, "full_on", true));
+    let snap = ws.as_ref().map(|w| take(root, w, "full_on"));
     {
         let mut st = lock(&root.access);
         // the charter's default needs no session override (a later charter switch to "workspace" then applies)
@@ -386,34 +402,164 @@ fn undo_no_ws(root: &Root) -> String {
         ws_rule(&home(&root.p), &root.p.ih))
 }
 
-/// `undo{confirm?}` (spec item 4): restore the latest snapshot of the workspace, saving the current state first.
+/// `undo{confirm?}` (spec item 4; R-UNDO, v0.5.2): restore the newest snapshot of the workspace that differs from the
+/// folder as it is now, saving the current state first.
 pub fn undo(root: &Root, a: &Value) -> Result<Value, Err3> {
+    undo_to(root, None, confirm(a))
+}
+
+/// `/undo` (`id` None: the newest snapshot that differs from the folder now, so a launch snapshot of a folder the agent
+/// already changed is passed over) or `/undo <id>` (R-UNDO, v0.5.2), asked (`root.confirm`) or confirmed. The state
+/// the restore replaces is saved first (`pre_undo`), so a restore can itself be undone.
+fn undo_to(root: &Root, id: Option<&str>, confirmed: bool) -> Result<Value, Err3> {
     let ws = state(root).workspace.ok_or_else(|| ("root.mode", undo_no_ws(root), json!({"reason": "no_workspace"})))?;
-    let latest = snaps(root, &ws).pop().ok_or(("root.not_found", format!("no snapshot of {}", ws.display()), Value::Null))?;
+    let all = snaps(root, &ws);
+    if all.is_empty() {
+        return Err(("root.not_found", format!("no snapshot of {}", ws.display()), Value::Null));
+    }
+    if let Some(id) = id.filter(|id| !all.iter().any(|s| s["id"] == *id)) {
+        return Err(unknown_id(id, &ws));
+    }
     // While a turn runs the body may be writing the workspace: refuse (the owner retries when it is idle).
     if root.sup.kernel().is_some_and(|k| k.busy.load(std::sync::atomic::Ordering::SeqCst)) {
         return Err(("root.busy", "the agent is in a turn; /undo restores only while it is idle (wait for the turn to end, or interrupt it, then /undo again)".into(),
             json!({"reason": "body_busy"})));
     }
-    if !confirm(a) {
-        let m = format!("/undo restores {} to the snapshot taken {} (the current state is saved first, so this can be undone). \
-            Type `{PHRASE}` to restore it.", ws.display(), latest["at"].as_str().unwrap_or("?"));
-        return Err(("root.confirm", m, json!({"phrase": PHRASE, "snapshot": latest})));
+    if !confirmed {
+        let target = choose(root, &all, id, now_digest(root, &ws).as_deref(), &ws)?;
+        if id.is_none() {
+            lock(&root.access).offered = target["id"].as_str().map(String::from);
+        }
+        return Err(("root.confirm", ask_text(&ws, &target, id), json!({"phrase": PHRASE, "snapshot": target})));
     }
     let internal = |m: String| ("root.internal", m, Value::Null);
     revalidate(root, &ws).map_err(|m| internal(format!("the workspace no longer validates ({m}); nothing changed")))?;
-    let saved = take(root, &ws, "pre_undo", false).map_err(|m| internal(format!("could not save the current state ({m}); nothing changed")))?;
-    let src = snap_dir(root).join(latest["id"].as_str().unwrap_or(""));
-    if let Err(e) = restore(&src, &ws) {
+    let saved = take(root, &ws, "pre_undo").map_err(|m| internal(format!("could not save the current state ({m}); nothing changed")))?;
+    let target = match choose(root, &all, id, snap_digest(root, &saved).as_deref(), &ws) {
+        Ok(t) => t,
+        Err(e) => {
+            drop_snap(root, saved["id"].as_str().unwrap_or("")); // nothing restored, so nothing to save
+            return Err(e);
+        }
+    };
+    // plain `/undo`: the folder changed since the question, so it now names another snapshot; ask again
+    if id.is_none() {
+        let offered = lock(&root.access).offered.take();
+        if offered.is_some_and(|o| target["id"] != o.as_str()) {
+            drop_snap(root, saved["id"].as_str().unwrap_or(""));
+            lock(&root.access).offered = target["id"].as_str().map(String::from);
+            return Err(("root.confirm", format!("The folder changed since /undo asked. {}", ask_text(&ws, &target, None)),
+                json!({"phrase": PHRASE, "snapshot": target})));
+        }
+    }
+    let tid = target["id"].as_str().unwrap_or("");
+    if let Err(e) = restore(&snap_dir(root).join(tid), &ws) {
         let m = format!("the restore failed midway ({e}); the state before /undo is snapshot {}", saved["id"].as_str().unwrap_or(""));
         root.notice_code("alert", "snapshot", &format!("[root] {m}"));
         return Err(internal(m));
     }
+    prune(root, &ws, Some(tid)); // the snapshot just restored is kept, even when it is the oldest of six
     let st = state(root);
     root.append("access", json!({"access": st.level(), "event": "undo", "full": st.full, "workspace": true}));
-    root.notice_code("info", "snapshot", &format!("[root] /undo restored {} to the snapshot taken {}; the state before it is snapshot {}",
-        ws.display(), latest["at"].as_str().unwrap_or("?"), saved["id"].as_str().unwrap_or("")));
-    Ok(json!({"restored": latest, "saved": saved}))
+    root.notice_code("info", "snapshot", &format!("[root] /undo restored {} to snapshot {tid}, taken {} {}; the folder as it was is saved as \
+        snapshot {}, so /undo brings it back (/undo list shows every snapshot)", ws.display(), local_of(&target["at"]), trigger(&target),
+        saved["id"].as_str().unwrap_or("")));
+    Ok(json!({"restored": target, "saved": saved}))
+}
+
+/// What `/undo` restores: snapshot `id`, else the newest that differs from `now` (the digest of the folder as it is
+/// now; None: unknown, so every snapshot differs). One that equals the folder is never restored: nothing would change.
+fn choose(root: &Root, all: &[Value], id: Option<&str>, now: Option<&str>, ws: &Path) -> Result<Value, Err3> {
+    let same = |s: &Value| now.is_some() && snap_digest(root, s).as_deref() == now;
+    let unchanged = |m: String| ("root.not_found", m, json!({"reason": "unchanged"}));
+    match id {
+        Some(id) => match all.iter().find(|s| s["id"] == id) {
+            Some(s) if same(s) => Err(unchanged(format!("/undo {id}: that snapshot is the same as {} now, so there is nothing to restore; \
+                /undo list shows the others", ws.display()))),
+            Some(s) => Ok(s.clone()),
+            None => Err(unknown_id(id, ws)),
+        },
+        None => all.iter().rev().find(|s| !same(s)).cloned().ok_or_else(|| {
+            let newest = &all[all.len() - 1];
+            unchanged(format!("/undo has nothing to restore: {} is the same as every snapshot of it, so nothing changed since the newest \
+                ({}, taken {} {}); /undo list shows them", ws.display(), newest["id"].as_str().unwrap_or(""), local_of(&newest["at"]), trigger(newest)))
+        }),
+    }
+}
+
+fn unknown_id(id: &str, ws: &Path) -> Err3 {
+    let id: String = id.chars().take(80).collect();
+    ("root.not_found", format!("/undo: {id} is not a snapshot of {}; /undo list shows the ones /undo can restore", ws.display()),
+        json!({"reason": "unknown_id"}))
+}
+
+/// The confirmation of `/undo` (`id` None) or `/undo <id>`: what is restored, from when, and that it can be undone.
+fn ask_text(ws: &Path, s: &Value, id: Option<&str>) -> String {
+    let (sid, when) = (s["id"].as_str().unwrap_or(""), format!("taken {} {}", local_of(&s["at"]), trigger(s)));
+    let what = match id {
+        Some(id) => format!("/undo {id} restores {} to that snapshot, {when}.", ws.display()),
+        None => format!("/undo restores {} to snapshot {sid}, {when}: the newest snapshot that differs from the folder now (/undo list shows \
+            the others).", ws.display()),
+    };
+    format!("{what} Everything changed in the folder since then, by you or the agent, is replaced; the folder as it is now is saved \
+        first, so this can be undone. Type `{PHRASE}` to restore it.")
+}
+
+/// `/undo list` (R-UNDO, v0.5.2): the workspace's snapshots, newest first, one line each (id, local time, trigger,
+/// folder), marking the one `/undo` restores and those the folder equals now.
+fn list_text(root: &Root) -> (&'static str, String) {
+    let Some(ws) = state(root).workspace else { return ("warn", format!("[root] {}", undo_no_ws(root))) };
+    let all = snaps(root, &ws);
+    if all.is_empty() {
+        return ("info", format!("[root] /undo list: no snapshot of {} yet, so /undo has nothing to restore. INIT takes one each time init-agent \
+            starts in this folder, unless the folder is over 2 GiB, not on APFS or on another volume than INIT's files.", ws.display()));
+    }
+    let now = now_digest(root, &ws);
+    let def = choose(root, &all, None, now.as_deref(), &ws).ok().map(|s| s["id"].clone());
+    let head = if def.is_some() { "/undo restores the one marked \"← /undo\"; /undo <id> restores another" } else {
+        "each is the same as the folder now, so /undo has nothing to restore"
+    };
+    let n = all.len();
+    let mut t = format!("[root] /undo list: {n} snapshot{} of {}, newest first (INIT keeps the last {SNAP_KEEP}). {head}.", if n == 1 { "" } else { "s" },
+        ws.display());
+    let folder = tilde(&ws, &home(&root.p));
+    for s in all.iter().rev() {
+        let mark = if def.as_ref() == Some(&s["id"]) {
+            " · ← /undo"
+        } else if now.is_some() && snap_digest(root, s) == now {
+            " · same as the folder now"
+        } else {
+            ""
+        };
+        t.push_str(&format!("\n  {} · {} · {} · {folder}{mark}", s["id"].as_str().unwrap_or(""), local_of(&s["at"]), trigger(s)));
+    }
+    ("info", t)
+}
+
+/// A snapshot's trigger, as it reads after "taken <time>".
+fn trigger(s: &Value) -> &'static str {
+    match s["reason"].as_str() {
+        Some("session") => "at launch",
+        Some("full_on") => "when full access was turned on",
+        Some("pre_undo") => "before an /undo (the folder it replaced)",
+        _ => "(another trigger)",
+    }
+}
+
+/// An RFC 3339 time in the Root's local time zone (the owner's clock, not UTC).
+fn local_of(at: &Value) -> String {
+    at.as_str().map_or_else(|| "?".into(), |a| util::parse_rfc3339(a).map_or_else(|| a.to_string(), local))
+}
+
+/// `ms` as the owner's clock shows it: `2026-10-28 18:19:10 +07:00`.
+fn local(ms: i64) -> String {
+    local_at(ms, crate::sys::utc_offset_s(ms.div_euclid(1000)))
+}
+
+fn local_at(ms: i64, off_s: i64) -> String {
+    let s = rfc3339(ms + off_s * 1000);
+    let a = off_s.abs();
+    format!("{} {} {}{:02}:{:02}", &s[..10], &s[11..19], if off_s < 0 { '-' } else { '+' }, a / 3600, a / 60 % 60)
 }
 
 /// The owner lines of build/status/SBX-009.md B. False: not an access line.
@@ -442,9 +588,21 @@ pub fn line(root: &Root, t: &str) -> bool {
         "/full on" => reply(root, full_set(root, &json!({"on": true})), "/full on confirm"),
         "/full on confirm" => reply(root, full_set(root, &json!({"on": true, "confirm": PHRASE})), ""),
         "/full off" => reply(root, full_set(root, &json!({"on": false})), ""),
-        "/undo" => reply(root, undo(root, &json!({})), "/undo confirm"),
-        "/undo confirm" => reply(root, undo(root, &json!({"confirm": PHRASE})), ""),
-        _ => return false,
+        "/undo" => reply(root, undo_to(root, None, false), "/undo confirm"),
+        "/undo confirm" => reply(root, undo_to(root, None, true), ""),
+        // R-UNDO (v0.5.2): `/undo list`; `/undo <id>` asks, `/undo <id> confirm` restores that snapshot
+        _ => match t.strip_prefix("/undo ").map(|r| r.split_whitespace().collect::<Vec<_>>()).as_deref() {
+            Some(["list"]) => {
+                let (level, text) = list_text(root);
+                root.notice_code(level, "snapshot", &text);
+            }
+            Some([c]) if *c == PHRASE => reply(root, undo_to(root, None, true), ""),
+            Some([id]) => reply(root, undo_to(root, Some(id), false), &format!("/undo {id} confirm")),
+            Some([id, c]) if *c == PHRASE => reply(root, undo_to(root, Some(id), true), ""),
+            Some(_) => root.notice_code("warn", "access", "[root] /undo takes nothing, list, or a snapshot id: /undo, /undo list, /undo <id> \
+                (the ids are in /undo list)"),
+            None => return false,
+        },
     }
     true
 }
@@ -504,11 +662,15 @@ fn size_over(p: &Path, limit: u64) -> std::io::Result<bool> {
     Ok(false)
 }
 
-/// Clone `ws` into a new snapshot. `limit`: skip over 2 GiB (a `pre_undo` save has no limit: a clone is cheap,
-/// and the undo must not lose the current state). Err: why there is no snapshot.
-fn take(root: &Root, ws: &Path, reason: &str, limit: bool) -> Result<Value, String> {
+/// Clone `ws` into a new snapshot. Err: why there is none. R-UNDO (v0.5.2): a `session` or `full_on` snapshot of a
+/// folder whose content equals the newest snapshot's is not kept; that one is returned with `"unchanged": true`, so
+/// relaunches never fill the 5 kept with copies. The state an /undo replaces (`pre_undo`) is never skipped for its
+/// size (a clone is cheap, and the undo must not lose it), never folded into an older snapshot, and not pruned here:
+/// `undo_to` prunes after the restore, keeping the snapshot it restored.
+fn take(root: &Root, ws: &Path, reason: &str) -> Result<Value, String> {
+    let save = reason == "pre_undo";
     revalidate(root, ws)?;
-    if limit && size_over(ws, SNAP_MAX_BYTES).map_err(|e| format!("cannot measure it: {e}"))? {
+    if !save && size_over(ws, SNAP_MAX_BYTES).map_err(|e| format!("cannot measure it: {e}"))? {
         return Err("the workspace is over 2 GiB".into());
     }
     let dir = snap_dir(root);
@@ -527,23 +689,119 @@ fn take(root: &Root, ws: &Path, reason: &str, limit: bool) -> Result<Value, Stri
     let id = (1..100).map(|n| if n == 1 { base.clone() } else { format!("{base}-{n}") })
         .find(|id| !dir.join(id).exists() && !dir.join(format!("{id}.json")).exists()).ok_or("no free snapshot name")?;
     crate::sys::clonefile(ws, &dir.join(&id)).map_err(|e| format!("clonefile: {e}"))?;
-    let s = json!({"at": rfc3339(at), "id": id, "reason": reason, "workspace": ws});
+    let digest = digest(&dir.join(&id));
+    if !save && let Some(d) = digest.as_deref() && let Some(mut prev) = snaps(root, ws).pop().filter(|p| snap_digest(root, p).as_deref() == Some(d)) {
+        let _ = crate::snapshot::remove(&dir.join(&id)); // exact path, cloned above: the folder is unchanged since `prev`
+        prev["unchanged"] = json!(true);
+        return Ok(prev);
+    }
+    let s = json!({"at": rfc3339(at), "digest": digest, "id": id, "reason": reason, "workspace": ws});
     write_atomic(&dir.join(format!("{id}.json")), format!("{s}\n").as_bytes(), 0o600).map_err(|e| format!("{id}.json: {e}"))?;
-    prune(root, ws);
+    if !save {
+        prune(root, ws, None);
+    }
     Ok(s)
 }
 
-/// Keep the last 5 snapshots of `ws`; older ones are removed by their exact paths.
-fn prune(root: &Root, ws: &Path) {
+/// Keep 5 snapshots of `ws`: the newest, and `keep` (the one an /undo just restored) even when it is the oldest; the
+/// others are removed by their exact paths.
+fn prune(root: &Root, ws: &Path, keep: Option<&str>) {
     let all = snaps(root, ws);
-    let dir = snap_dir(root);
-    for s in &all[..all.len().saturating_sub(SNAP_KEEP)] {
-        let id = s["id"].as_str().unwrap_or("");
-        if safe_id(id) {
-            let _ = fs::remove_dir_all(dir.join(id)); // exact path: a snapshot this Root made
-            let _ = fs::remove_file(dir.join(format!("{id}.json")));
+    let excess = all.len().saturating_sub(SNAP_KEEP);
+    for s in all.iter().filter(|s| keep.is_none_or(|k| s["id"] != k)).take(excess) {
+        drop_snap(root, s["id"].as_str().unwrap_or(""));
+    }
+}
+
+/// Remove snapshot `id` (its tree and its record) by exact path: a snapshot this Root made.
+fn drop_snap(root: &Root, id: &str) {
+    if safe_id(id) {
+        let _ = crate::snapshot::remove(&snap_dir(root).join(id));
+        let _ = fs::remove_file(snap_dir(root).join(format!("{id}.json")));
+    }
+}
+
+/// R-UNDO (v0.5.2): the content digest of a tree the Root owns (a snapshot or the probe clone, never the live
+/// workspace: R-F2), to tell an unchanged folder from a changed one. sha256 over every entry below `dir`, never
+/// following a link: its kind, permission bits, path, and a file's length and bytes or a link's target. Times are not
+/// in it, so a `touch` alone is no change. None past 2 GiB of file bytes or on an error: such a tree is never
+/// called unchanged.
+fn digest(dir: &Path) -> Option<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::fs::OpenOptionsExt;
+    let (mut h, mut total, mut buf) = (Sha256::new(), 0u64, vec![0u8; 1 << 16]);
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        let mut names: Vec<std::ffi::OsString> = fs::read_dir(dir.join(&rel)).ok()?.map(|e| e.map(|e| e.file_name())).collect::<Result<_, _>>().ok()?;
+        names.sort();
+        for n in names {
+            let (r, p) = (rel.join(&n), dir.join(&rel).join(&n));
+            let md = fs::symlink_metadata(&p).ok()?;
+            let kind = if md.is_dir() { 'd' } else if md.is_file() { 'f' } else if md.file_type().is_symlink() { 'l' } else { 'o' };
+            h.update(format!("{kind} {:o} {} ", md.mode() & 0o7777, if kind == 'f' { md.len() } else { 0 }).as_bytes());
+            h.update(r.as_os_str().as_bytes());
+            h.update(b"\0");
+            match kind {
+                'd' => stack.push(r),
+                'l' => h.update(fs::read_link(&p).ok()?.as_os_str().as_bytes()),
+                'f' => {
+                    total += md.len();
+                    if total > SNAP_MAX_BYTES {
+                        return None;
+                    }
+                    let mut f = fs::OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK).open(&p).ok()?;
+                    let mut left = md.len();
+                    while left > 0 {
+                        let k = f.read(&mut buf).ok()?;
+                        if k == 0 {
+                            return None; // shorter than its size: not a stable tree
+                        }
+                        let k = k.min(usize::try_from(left).unwrap_or(usize::MAX));
+                        h.update(&buf[..k]);
+                        left -= k as u64;
+                    }
+                }
+                _ => {}
+            }
         }
     }
+    Some(util::hex(&h.finalize()))
+}
+
+/// A snapshot's digest: its record's, else computed from its tree and recorded (snapshots before v0.5.2 have none).
+fn snap_digest(root: &Root, s: &Value) -> Option<String> {
+    if let Some(d) = s.get("digest") {
+        return d.as_str().map(String::from);
+    }
+    let id = s["id"].as_str().filter(|id| safe_id(id))?;
+    let d = digest(&snap_dir(root).join(id));
+    let mut rec = s.clone();
+    rec["digest"] = json!(d);
+    if let Some(o) = rec.as_object_mut() {
+        o.remove("unchanged");
+    }
+    let _ = write_atomic(&snap_dir(root).join(format!("{id}.json")), format!("{rec}\n").as_bytes(), 0o600);
+    d
+}
+
+/// The digest of the workspace as it is now, hashed from a clone (`snapshots/.probe`, removed after), so the Root reads
+/// the live workspace only as the snapshot rules allow (the size walk and the clone, §3.17.4). None: no clone (over
+/// 2 GiB, another volume, an error), and every snapshot then counts as different from the folder.
+fn now_digest(root: &Root, ws: &Path) -> Option<String> {
+    static PROBE: std::sync::Mutex<()> = std::sync::Mutex::new(());
+    let _one = lock(&PROBE);
+    revalidate(root, ws).ok()?;
+    if size_over(ws, SNAP_MAX_BYTES).ok()? {
+        return None;
+    }
+    let p = snap_dir(root).join(".probe");
+    let _ = crate::snapshot::remove(&p); // exact path: a probe a crashed call left
+    crate::sys::clonefile(ws, &p).ok()?;
+    let d = digest(&p);
+    let _ = crate::snapshot::remove(&p); // exact path, cloned above
+    d
 }
 
 /// Replace the workspace's entries with clones of the snapshot's. The workspace directory itself stays (an
@@ -587,5 +845,55 @@ mod msg_tests {
         assert_eq!(refusal_text(pa::Refusal::Home, "/Users/o"), "/Users/o is your home folder itself");
         let w = session_text(&AccessState { read_home: true, workspace: Some("/Users/o/p".into()), full: false }, false, None, home, ih);
         assert_eq!(w, "[root] workspace: /Users/o/p");
+    }
+
+    /// R-UNDO (v0.5.2): snapshot times on the owner's clock, with the offset; the triggers in words.
+    #[test]
+    fn snapshot_times_are_local_and_triggers_are_words() {
+        let ms = util::parse_rfc3339("2026-10-28T11:19:10.728Z").unwrap();
+        assert_eq!(local_at(ms, 7 * 3600), "2026-10-28 18:19:10 +07:00");
+        assert_eq!(local_at(ms, -(3 * 3600 + 1800)), "2026-10-28 07:49:10 -03:30");
+        assert_eq!(local_at(ms, 0), "2026-10-28 11:19:10 +00:00");
+        let s = |r: &str| json!({"at": "2026-10-28T11:19:10.728Z", "id": "x", "reason": r, "workspace": "/w"});
+        assert_eq!([trigger(&s("session")), trigger(&s("full_on")), trigger(&s("pre_undo"))],
+            ["at launch", "when full access was turned on", "before an /undo (the folder it replaced)"]);
+        assert_eq!(snap_text(&Ok(s("session"))), "[root] snapshot x of /w taken at launch (/undo list shows what /undo can restore)");
+        assert!(!snap_text(&Ok(s("session"))).contains("/undo restores it"), "the v0.5.1 claim that a relaunch made false");
+    }
+
+    /// R-UNDO (v0.5.2): the digest sees content, permission bits, names and link targets, not times.
+    #[test]
+    fn the_digest_sees_content_not_times() {
+        use std::os::unix::fs::symlink;
+        let top = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/test-homes/undo-digest-{}", std::process::id()));
+        let (a, b) = (top.join("a"), top.join("b"));
+        for d in [&a, &b] {
+            fs::create_dir_all(d.join("src")).unwrap();
+            fs::write(d.join("src/x.txt"), "v1\n").unwrap();
+            fs::write(d.join("README"), "r\n").unwrap();
+            symlink("src/x.txt", d.join("link")).unwrap();
+        }
+        let same = |a: &Path, b: &Path| digest(a).is_some() && digest(a) == digest(b);
+        let f = fs::File::options().write(true).open(b.join("README")).unwrap();
+        f.set_modified(std::time::SystemTime::UNIX_EPOCH).unwrap();
+        assert!(same(&a, &b), "a time alone is no change");
+        fs::write(b.join("src/x.txt"), "v2\n").unwrap();
+        assert!(!same(&a, &b), "content");
+        fs::write(b.join("src/x.txt"), "v1\n").unwrap();
+        assert!(same(&a, &b));
+        fs::set_permissions(b.join("README"), fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(!same(&a, &b), "permission bits");
+        fs::set_permissions(b.join("README"), fs::metadata(a.join("README")).unwrap().permissions()).unwrap();
+        fs::remove_file(b.join("link")).unwrap();
+        symlink("README", b.join("link")).unwrap();
+        assert!(!same(&a, &b), "a link's target");
+        fs::remove_file(b.join("link")).unwrap();
+        symlink("src/x.txt", b.join("link")).unwrap();
+        fs::rename(b.join("README"), b.join("README2")).unwrap();
+        assert!(!same(&a, &b), "a name");
+        fs::rename(b.join("README2"), b.join("README")).unwrap();
+        fs::write(b.join("src/empty"), "").unwrap();
+        assert!(!same(&a, &b), "a new empty file");
+        fs::remove_dir_all(&top).unwrap(); // exact path, created above
     }
 }

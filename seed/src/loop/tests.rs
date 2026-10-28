@@ -661,9 +661,9 @@ fn t01_turn_without_tools() {
 fn t02_parallel_batch_order_and_d1() {
     let home = TempHome::new("loop-02");
     let calls = vec![
-        bash_call("sleep 0.3; echo a"),
-        bash_call("sleep 0.1; echo b"),
-        bash_call("sleep 0.2; echo c"),
+        bash_call("sleep 1.5; echo a"),
+        bash_call("sleep 0.5; echo b"),
+        bash_call("sleep 1; echo c"),
     ];
     let ids: Vec<String> = calls.iter().map(|c| c.id.clone()).collect();
     let mut h = H::start(
@@ -675,8 +675,11 @@ fn t02_parallel_batch_order_and_d1() {
     h.idle(1);
     let (t_start, _) = h.wait(is_display("tool_start"));
     let (t_end, _) = h.wait_n(3, is_display("tool_end"));
+    // In parallel about 1.5 s, in sequence 3 s. The steps are 0.5 s apart (were 0.1 s, against a
+    // 450 ms ceiling) so neither this bound nor the completion order below measures a loaded
+    // machine's scheduler.
     let wall = t_end - t_start;
-    assert!(wall < Duration::from_millis(450), "{wall:?}");
+    assert!(wall < Duration::from_millis(2_500), "{wall:?}");
     let evs = h.events();
     let results = of_type(&evs, "tool_result");
     let got: Vec<&str> = results
@@ -875,7 +878,7 @@ fn t07_follow_ups_one_per_run_end() {
     let mut h = H::start(
         &home,
         vec![
-            tools_reply(vec![bash_call("sleep 0.5")]),
+            tools_reply(vec![bash_call("sleep 1.5")]),
             reply("main done"),
             reply("f1 done"),
             reply("f2 done"),
@@ -997,13 +1000,16 @@ fn t09_interrupt_during_bash_with_read() {
         .unwrap();
     assert!(group_alive(pg));
     let t_int = h.send(json!({"t": "interrupt"}));
-    while group_alive(pg) {
-        assert!(
-            t_int.elapsed() < Duration::from_millis(200),
-            "group still alive"
-        );
-        std::thread::sleep(Duration::from_millis(2));
-    }
+    // The 200 ms is measured to the bash call's end: run_group returns only after the group is
+    // killed and every member holding its output pipe has exited. Reaping the orphaned `sleep` is
+    // init's job, a few ms later or more under load (REL-051's class): waited for, not timed.
+    let (t_end, _) = h.wait(|f| is_display("tool_end")(f) && f["name"] == "bash");
+    assert!(
+        t_end - t_int < Duration::from_millis(200),
+        "group still alive after {:?}",
+        t_end - t_int
+    );
+    wait_until("the bash group to be gone", || !group_alive(pg));
     h.idle(1);
     let evs = h.events();
     let r = of_type(&evs, "tool_result");
@@ -1132,7 +1138,9 @@ fn t12_pause_idle_resume_exit() {
     h.wait(|f| f["t"] == "notice_ack");
     let t0 = h.send(json!({"t": "pause", "token": "tk1", "reason": "handoff"}));
     let (t_p, p) = h.wait(|f| f["t"] == "paused");
-    assert!(t_p - t0 < Duration::from_millis(50), "{:?}", t_p - t0);
+    // "At once": idle, nothing to wait for. The pause syncs the log, and on a loaded Mac that
+    // fsync alone can pass the old 50 ms ceiling.
+    assert!(t_p - t0 < Duration::from_secs(1), "{:?}", t_p - t0);
     assert_eq!(p["token"], "tk1");
     let len = std::fs::metadata(session_file(&home.path)).unwrap().len();
     assert_eq!(p["log_len"], len);
@@ -1142,10 +1150,11 @@ fn t12_pause_idle_resume_exit() {
     f.try_lock().expect("the log is unlocked while paused");
     f.unlock().unwrap();
     drop(f);
-    std::thread::sleep(Duration::from_millis(120));
-    let hbv: Value =
-        serde_json::from_slice(&std::fs::read(home.path.join("state/run/heartbeat")).unwrap())
-            .unwrap();
+    // The next heartbeat (every 50 ms here) says paused: waited for, not slept for (120 ms).
+    let hb_file = home.path.join("state/run/heartbeat");
+    let read_hb = || -> Option<Value> { serde_json::from_slice(&std::fs::read(&hb_file).ok()?).ok() };
+    wait_until("a paused heartbeat", || read_hb().is_some_and(|v| v["phase"] == "paused"));
+    let hbv = read_hb().unwrap();
     assert_eq!(hbv["phase"], "paused");
     assert_eq!(hbv["busy"], false);
     // Resume with a failure: branch-back.
@@ -1198,7 +1207,8 @@ fn t12b_stop_while_paused() {
     let t0 = h.send(json!({"t": "stop", "reason": "root", "grace_ms": 30000}));
     let (code, _) = h.join_exit();
     assert_eq!(code, 0);
-    assert!(t0.elapsed() < Duration::from_millis(500));
+    // "At once" = without the 30 s grace; the old 500 ms ceiling measured the scheduler.
+    assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
     assert_eq!(
         std::fs::metadata(session_file(&home.path)).unwrap().len(),
         before
@@ -1212,7 +1222,7 @@ fn t13_pause_during_batch() {
     let mut h = H::start(
         &home,
         vec![
-            tools_reply(vec![bash_call("sleep 0.5; echo x")]),
+            tools_reply(vec![bash_call("sleep 1.5; echo x")]),
             reply("continued"),
         ],
         Opts::default(),
@@ -1263,7 +1273,7 @@ fn t14_reload() {
     let hs = heads.clone();
     let mut h = H::start(
         &home,
-        vec![tools_reply(vec![bash_call("sleep 0.3")]), reply("ok")],
+        vec![tools_reply(vec![bash_call("sleep 1.5")]), reply("ok")],
         Opts {
             host: Some(host.clone()),
             head_source: Some(Box::new(move || {
@@ -1358,7 +1368,7 @@ fn t15_notices() {
     let home = TempHome::new("loop-15");
     let mut h = H::start(
         &home,
-        vec![tools_reply(vec![bash_call("sleep 0.3")]), reply("ok")],
+        vec![tools_reply(vec![bash_call("sleep 1.5")]), reply("ok")],
         Opts::default(),
     );
     h.send(json!({"t": "notice", "id": "n1", "kind": "lkg", "data": {"sha": "abc"}}));
@@ -1578,8 +1588,9 @@ fn t20_stop_grace_and_eof() {
     let (code, _) = h.join_exit();
     let took = t0.elapsed();
     assert_eq!(code, 0);
+    // At least the 2 s grace; the ceiling only shows the grace ended it (the sleep is 10 s).
     assert!(
-        took >= Duration::from_millis(1_900) && took < Duration::from_millis(3_500),
+        took >= Duration::from_millis(1_900) && took < Duration::from_secs(8),
         "{took:?}"
     );
     let evs = events(&home.path);
@@ -1632,7 +1643,7 @@ fn t22_task_id() {
     let mut h = H::start(
         &home,
         vec![
-            tools_reply(vec![bash_call("sleep 0.3")]),
+            tools_reply(vec![bash_call("sleep 1.5")]),
             tools_reply(vec![bash_call("true")]),
             reply("done"),
         ],
@@ -1679,7 +1690,7 @@ fn t23_input_modes() {
         &home,
         vec![
             reply("started by a follow-up"),
-            tools_reply(vec![bash_call("sleep 0.4")]),
+            tools_reply(vec![bash_call("sleep 1.5")]),
             reply("ok"),
         ],
         Opts::default(),
@@ -1805,7 +1816,7 @@ fn t25_retract_before_the_boundary() {
     let mut h = H::start(
         &home,
         vec![
-            tools_reply(vec![bash_call("sleep 1; echo slept")]),
+            tools_reply(vec![bash_call("sleep 3; echo slept")]),
             reply("done"),
         ],
         Opts::default(),
@@ -1816,8 +1827,10 @@ fn t25_retract_before_the_boundary() {
     let t_r = h.send(json!({"t": "retract", "seq": 2}));
     let (t_reply, f) = h.wait(is_retracted(2));
     assert_eq!(f["ok"], true);
+    // "At once" = mid-batch, not at the boundary 3 s later (the check below is the proof; was a
+    // 1 s batch against a 500 ms ceiling).
     assert!(
-        t_reply - t_r < Duration::from_millis(500),
+        t_reply - t_r < Duration::from_secs(2),
         "replied at once, mid-batch"
     );
     assert!(
@@ -1846,10 +1859,10 @@ fn t25b_retract_after_it_was_consumed() {
     let mut h = H::start(
         &home,
         vec![
-            tools_reply(vec![bash_call("sleep 0.3")]),
+            tools_reply(vec![bash_call("sleep 1.5")]),
             Step::Reply {
                 msg: amsg("done", vec![], StopReason::EndTurn),
-                delay: Duration::from_millis(600),
+                delay: Duration::from_millis(2_000),
             },
         ],
         Opts::default(),
@@ -1876,10 +1889,10 @@ fn t25c_retract_a_queued_follow_up() {
     let mut h = H::start(
         &home,
         vec![
-            tools_reply(vec![bash_call("sleep 0.3")]),
+            tools_reply(vec![bash_call("sleep 1.5")]),
             Step::Reply {
                 msg: amsg("main done", vec![], StopReason::EndTurn),
-                delay: Duration::from_millis(600),
+                delay: Duration::from_millis(2_000),
             },
             reply("next"),
         ],
@@ -2342,7 +2355,7 @@ fn t100_delegate_fan_out_runs_in_parallel_and_keeps_call_order() {
         },
     );
     for k in ["R1", "R2", "R3", "R4", "W1", "W2"] {
-        h.model.route(k, vec![delayed(&format!("{k} found it"), 300)]);
+        h.model.route(k, vec![delayed(&format!("{k} found it"), 1000)]);
     }
     let t0 = Instant::now();
     h.input(ID1, 1, "fan out");
@@ -2360,8 +2373,10 @@ fn t100_delegate_fan_out_runs_in_parallel_and_keeps_call_order() {
     assert!(peak >= 2, "sub-tasks ran concurrently (peak {peak})");
     assert!(peak <= 3, "at most INIT_DELEGATE_PARALLEL at once (peak {peak})");
     assert_eq!(writers, 1, "at most one writer at a time");
-    // 6 × 300 ms sequentially is 1.8 s; with 3 lanes (writers serialized) it is about 0.6-0.9 s.
-    assert!(took < Duration::from_millis(1700), "parallel: {took:?}");
+    // 6 × 1 s sequentially is 6 s; with 3 lanes (writers serialized) about 2-3 s. The peak above is
+    // the event-level proof; 1 s steps keep this wall bound clear of a loaded machine's overhead
+    // (was 300 ms steps against 1.7 s).
+    assert!(took < Duration::from_secs(5), "parallel: {took:?}");
     for (id, k) in ids.iter().zip(["R1", "R2", "R3", "R4", "W1", "W2"]) {
         let v = delegate_record(&home, id);
         assert_eq!(v["end"], "done");
@@ -2549,10 +2564,17 @@ fn t103_delegate_owner_abort_stops_sub_tasks() {
     let pg: i32 = std::fs::read_to_string(&pgf).unwrap().trim().parse().unwrap();
     assert!(group_alive(pg));
     let t_int = h.send(json!({"t": "interrupt"}));
-    while group_alive(pg) {
-        assert!(t_int.elapsed() < Duration::from_millis(500), "sub-task group still alive");
-        std::thread::sleep(Duration::from_millis(2));
-    }
+    // Timed to the sub-task's bash call end (the group killed, its pipe holders gone); init's reap
+    // of the orphaned `sleep` is waited for, not timed (as t09).
+    let (t_end, _) = h.wait(|f| {
+        is_display("tool_end")(f) && f["name"] == "bash" && f["parent_call_id"] == bid.as_str()
+    });
+    assert!(
+        t_end - t_int < Duration::from_millis(500),
+        "sub-task group still alive after {:?}",
+        t_end - t_int
+    );
+    wait_until("the sub-task's bash group to be gone", || !group_alive(pg));
     h.idle(1);
     let evs = h.events();
     let results = of_type(&evs, "tool_result");
@@ -2566,8 +2588,8 @@ fn t103_delegate_owner_abort_stops_sub_tasks() {
 }
 
 /// TUI-OBSERVE (tui.md §3.6): a failed call's `tool_end` carries the last lines of its output as
-/// `detail` (without the bash trailer); a call that succeeded carries none. The model's result is
-/// the whole output either way.
+/// `detail` (without the bash trailer); v0.5.2, so does a shell command that succeeded. The model's
+/// result is the whole output either way.
 #[test]
 fn failed_call_sends_its_output_tail_as_detail() {
     let home = TempHome::new("loop-detail");
@@ -2590,7 +2612,7 @@ fn failed_call_sends_its_output_tail_as_detail() {
     assert_eq!(failed["detail"].as_str(), Some(want.join("\n").as_str()), "{failed}");
     assert_eq!(failed["text"], "exit 3, 12 lines");
     let ok = ends.iter().find(|f| f["ok"] == true).expect("an ok tool_end");
-    assert!(ok.get("detail").is_none(), "{ok}");
+    assert_eq!(ok["detail"].as_str(), Some("fine"), "v0.5.2: a command that ran says what it printed: {ok}");
     let evs = h.events();
     let r = of_type(&evs, "tool_result");
     assert!(result_text(r[0]).starts_with("line 1\nline 2\n"), "the model sees all of it");

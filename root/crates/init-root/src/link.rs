@@ -486,7 +486,7 @@ impl Root {
                 self.sup.send(Ev::Stop);
                 self.notice("info", "[root] stopping the agent (the Root keeps running); type /resume to start it again");
             }
-            "/root help" | "/root" => self.notice("info", "[root] /panic · /resume · /root status · /root ledger · /root stop · /root help · /workspace · /full on|off · /undo · /rollback [sha|cap|settled] · /grants · /grant <id> · /deny <id> · /release <cap> · /twin [refreeze] · /goal [\"<intent>\" …|pause|resume|stop|continue|accept|reject|adopt <id>]"),
+            "/root help" | "/root" => self.notice("info", "[root] /panic · /resume · /root status · /root ledger · /root stop · /root help · /workspace · /full on|off · /undo [list|<id>] · /rollback [sha|cap|settled] · /grants · /grant <id> · /deny <id> · /release <cap> · /twin [refreeze] · /goal [\"<intent>\" …|pause|resume|stop|continue|accept|reject|adopt <id>]"),
             _ if crate::sentinel::owner_text(self, t) => {} // X3: `/rollback` (H3)
             _ if crate::goal::line(self, t) => {} // ADR-013: `/goal …` (only the owner sets a goal)
             _ if crate::grant::line(self, t) => {} // X7: `/grants`, `/grant`, `/deny`, `/release` (ADR-011 §7.4, §6.3)
@@ -562,7 +562,8 @@ impl Root {
         lock(&self.st).queued = n + 1;
         if !self.deliver(&qid, &frame) {
             self.out(&json!({"qid": qid, "t": "echo", "text": text}), "root"); // a running kernel echoes it itself
-            self.notice("info", &format!("[root] the system is restarting; your message is queued ({})", n + 1));
+            let t = queued_text(&lock(&self.st).slot, n + 1);
+            self.notice("info", &t);
         }
     }
 
@@ -617,6 +618,17 @@ impl Root {
             }
         }
         let _ = w.shutdown(std::net::Shutdown::Both);
+    }
+}
+
+/// A line queued while no kernel takes it: why, and what runs it (the v0.5.1 new user read "the system is restarting"
+/// during a panic, when nothing restarts until `/resume`, which the Root takes in these slots).
+fn queued_text(slot: &Slot, n: usize) -> String {
+    match slot {
+        Slot::Panicked { .. } => format!("[root] INIT is stopped (panic); your message is queued ({n}) and goes to the agent after /resume"),
+        Slot::Stopped => format!("[root] the agent is stopped; your message is queued ({n}) and goes to it after /resume"),
+        Slot::Halted { .. } => format!("[root] the agent is halted (/root status says why); your message is queued ({n})"),
+        _ => format!("[root] the agent is restarting; your message is queued ({n})"),
     }
 }
 
@@ -684,6 +696,22 @@ pub fn request(p: &Paths, cmd: &str, args: Value, timeout: Duration) -> Result<V
 #[cfg(test)]
 mod tests {
     use serde_json::json;
+
+    /// R-UNDO (v0.5.2): a line queued during a panic or a stop says so and names `/resume`, which runs as printed there
+    /// (`line` takes `/resume` in exactly these slots); only a real restart says "restarting".
+    #[test]
+    fn a_queued_line_says_why_and_what_runs_it() {
+        use crate::sup::Slot;
+        let p = super::queued_text(&Slot::Panicked { at: 0, channel: "owner_socket".into() }, 1);
+        assert_eq!(p, "[root] INIT is stopped (panic); your message is queued (1) and goes to the agent after /resume");
+        assert!(super::queued_text(&Slot::Stopped, 2).ends_with("queued (2) and goes to it after /resume"));
+        let h = super::queued_text(&Slot::Halted { reason: "lineage", retry_at: None }, 3);
+        assert!(h.contains("halted") && !h.contains("/resume"), "{h}");
+        assert_eq!(super::queued_text(&Slot::Backoff { attempt: 1 }, 4), "[root] the agent is restarting; your message is queued (4)");
+        for s in [Slot::Panicked { at: 0, channel: String::new() }, Slot::Stopped, Slot::Halted { reason: "x", retry_at: None }] {
+            assert!(!super::queued_text(&s, 1).contains("restarting"), "{s:?}");
+        }
+    }
 
     /// tui.md §9 Q1: a kernel cannot forge `src:"root"` or an `rseq`; the stamp overwrites both, in ICJ.
     #[test]

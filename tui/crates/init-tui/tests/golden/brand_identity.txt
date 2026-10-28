@@ -1,5 +1,5 @@
 == 100x10 ==
-■■■□ INIT 0.5.1 · L0 · root ok                                                                      |...w.....ddddddmmm..mmmaaaaaaa                                                                      
+■■■□ INIT 0.5.2 · L0 · root ok                                                                      |...w.....ddddddmmm..mmmaaaaaaa                                                                      
 [root] attached: slot running, level L0, 0 queued. Type /panic to stop everything, /root help for   |aaaaaa.dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd   
 more.                                                                                               |ddddd                                                                                               
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
@@ -9,7 +9,7 @@ more.                                                                           
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,4
 == 60x10 ==
-■■■□ INIT 0.5.1 · L0 · root ok                              |...w.....ddddddmmm..mmmaaaaaaa                              
+■■■□ INIT 0.5.2 · L0 · root ok                              |...w.....ddddddmmm..mmmaaaaaaa                              
 [root] attached: slot running, level L0, 0 queued. Type     |aaaaaa.dddddddddddddddddddddddddddddddddddddddddddddddd     
 /panic to stop everything, /root help for more.             |ddddddddddddddddddddddddddddddddddddddddddddddd             
 ┌──────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
@@ -19,7 +19,7 @@ cursor 4,4
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
 cursor 4,4
 == 30x10 ==
-■■■□ INIT 0.5.1 · L0 · root ok|...w.....ddddddmmm..mmmaaaaaaa
+■■■□ INIT 0.5.2 · L0 · root ok|...w.....ddddddmmm..mmmaaaaaaa
 [root] attached: slot running,|aaaaaa.ddddddddddddddddddddddd
 level L0, 0 queued. Type      |dddddddddddddddddddddddd      
 /panic to stop everything,    |dddddddddddddddddddddddddd    

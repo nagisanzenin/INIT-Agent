@@ -434,7 +434,8 @@ exit 64
         self.assertFalse(os.path.exists(marker), "a planted tool ran: " + (open(marker).read() if os.path.exists(marker) else ""))
         with open(report) as f:
             lines = f.read().splitlines()
-        self.assertIn(f"args upgrade --release {os.path.realpath(rel)} --bin-dir {binr}", lines)
+        # --by-installer: the Root prints no "next" hint for the probe and commit this script runs itself (v0.5.2)
+        self.assertIn(f"args upgrade --release {os.path.realpath(rel)} --bin-dir {binr} --by-installer", lines)
         self.assertIn("cwd /", lines, "the release's Root runs from /, not from the agent's repository")
         self.assertTrue(any(l.startswith("work cache/.install.") for l in lines), f"no scratch under ROOT_HOME/cache/: {lines}")
         self.assertEqual([n for n in os.listdir(os.path.join(rh, "cache")) if n.startswith(".install.")], [], "scratch left behind")

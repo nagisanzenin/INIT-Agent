@@ -55,7 +55,12 @@ const SNAPS: &str = "state/upgrade";
 pub const REFUSED: u8 = 3;
 /// The release is the one installed: nothing to do.
 pub const CURRENT: u8 = 4;
-const USAGE: &str = "usage: init-root upgrade --release DIR [--bin-dir DIR] | --probe [--timeout S] | --commit | --rollback | --status [--json]";
+const USAGE: &str = "usage: init-root upgrade --release DIR [--bin-dir DIR] [--by-installer] | --probe [--timeout S] | --commit | --rollback | --status [--json]";
+/// Where the replace step keeps the release's get.sh, inside the upgrade's snapshot directory (not a snapshot item).
+const GET_SH: &str = "release/get.sh";
+/// The variable `upgrade --probe` sets on the Root it starts: the pending upgrade's id. That Root is the one `start`
+/// that runs the zone on the upgrade's tuple before the commit ([`at_start`]).
+const PROBE_ENV: &str = "INIT_UPGRADE_PROBE";
 /// INIT's launchers in the bin dir (install.sh writes them; `init` is the pre-v0.4.1 name and the v0.4.1 macOS shim).
 const LAUNCHERS: [&str; 3] = ["init-agent", "init-tui", "init"];
 
@@ -74,7 +79,15 @@ pub fn cli(p: &Paths, mut a: Vec<String>) -> u8 {
     let flag = |a: &mut Vec<String>, k: &str| { let n = a.len(); a.retain(|x| x != k); a.len() != n };
     let r = if let Some(rel) = opt(&mut a, "--release") {
         let bin = opt(&mut a, "--bin-dir").map(PathBuf::from);
-        upgrade(p, Path::new(&rel), bin)
+        // R-UNDO (v0.5.2): install.sh runs --probe and --commit itself, so its replace step prints no "next" (the owner
+        // read "… upgrade --probe, then --commit" after the installer had already run them)
+        let by_installer = flag(&mut a, "--by-installer");
+        upgrade(p, Path::new(&rel), bin).map(|mut v| {
+            if by_installer && let Some(o) = v.as_object_mut() {
+                o.remove("next");
+            }
+            v
+        })
     } else if flag(&mut a, "--probe") {
         let t = opt(&mut a, "--timeout").and_then(|s| s.parse::<u64>().ok()).unwrap_or(120);
         probe(p, Duration::from_secs(t.clamp(10, 1800)))
@@ -368,6 +381,17 @@ fn upgrade(p: &Paths, dir: &Path, bin_dir: Option<PathBuf>) -> Res<Value> {
         }
         list.push(json!({"key": k, "kind": kind, "path": live}));
     }
+    // R-UNDO (v0.5.2): the release's get.sh, kept beside the snapshot (not one of its items, so a rollback never
+    // touches cache/get.sh) until `--commit` installs it; the release directory may be gone by then
+    let get_sh = rel.dir.join("scripts/get.sh");
+    if get_sh.is_file() {
+        let staged = snap.join(GET_SH);
+        let r = fs::DirBuilder::new().recursive(true).create(staged.parent().unwrap_or(&snap)).and_then(|()| util::copy_atomic(&get_sh, &staged, 0o755));
+        if let Err(e) = r {
+            let _ = crate::snapshot::remove(&snap); // exact path, created above
+            return Err((1, format!("{}: {e}; nothing changed", get_sh.display())));
+        }
+    }
     // `from`: what a rollback restores, the pointers a commit moves included (`undo`)
     let kernel_lkg = crate::lineage::kgit::get(p, &git, "refs/heads/lkg");
     let mut j = json!({"v": 1, "id": id, "at": rfc3339(now_ms()), "phase": "replacing", "bin_dir": bin, "items": list, "body": body,
@@ -631,6 +655,12 @@ fn commit(p: &Paths) -> Res<Value> {
         eprintln!("init-root upgrade: {msg}");
     }
     drop(root);
+    // R-UNDO (v0.5.2): the release's get.sh, staged by the replace step, becomes what `init-agent upgrade` runs, also
+    // when the owner commits by hand after install.sh's own commit failed (install.sh's keep_get runs only after it)
+    if let Some(staged) = snap_dir(p, &j).map(|d| d.join(GET_SH)).filter(|f| f.is_file()) {
+        install::make_dirs(&p.rh, &["cache"]).map_err(err)?;
+        util::copy_atomic(&staged, &p.r("cache/get.sh"), 0o755).map_err(|e| (1, format!("cache/get.sh: {e}")))?;
+    }
     // 3. `committing` before the snapshot goes: from here only `--commit` finishes the upgrade, because a partly
     //    removed snapshot can no longer put the old install back (`--rollback` refuses)
     j["to"]["anchors"] = json!(anchors);
@@ -646,6 +676,50 @@ fn commit(p: &Paths) -> Res<Value> {
     save(p, &j)?;
     Ok(json!({"upgrade": j["id"], "committed": true, "version": j["to"]["version"], "tuple": to, "anchors": anchors,
         "goal_readings_cancelled": j["to"]["goal_readings_cancelled"]}))
+}
+
+// ------------------------------------------------------------------------------------------------ a start mid-upgrade
+
+/// R-UNDO (v0.5.2, the post-release review of v0.5.1): `start` while an upgrade is pending (root.md §4.3). install.sh
+/// unloads the service but leaves its file, so an upgrade cut off after its replace step (a terminal closed during the
+/// probe, a commit or rollback that failed) and then a login or reboot started the NEW Root on the new tuple while
+/// `lkg`, the rollback anchors and the twin still named the old kernel; a crash loop, a demotion or a panic resume then
+/// reinstalled the old kernel under the new Root. Decision: such a start never runs the zone on that mixed state. It
+/// finishes the upgrade the one way that is sound: `committing` (the probe passed and the snapshot is going) is
+/// committed, and the start goes on; `replacing` or `replaced` (no passing probe on record) is rolled back to the
+/// install from before, and this process (the new binary) exits so the service starts the old one. If that step
+/// fails, it exits and says what to run. The probe's own Root (`PROBE_ENV` = the upgrade's id) and a Root that already
+/// holds `run/root.lock` are left alone. Some(code): `start` exits with it.
+pub fn at_start(p: &Paths) -> Option<u8> {
+    let j = journal(p).filter(pending)?;
+    if std::env::var(PROBE_ENV).is_ok_and(|v| j["id"] == v.as_str()) {
+        return None;
+    }
+    match crate::cli::take_lock(p) {
+        Ok(Some(l)) => drop(l),
+        _ => return None, // a Root or an upgrade step runs: `start`'s own path answers
+    }
+    let (what, finish) = (describe(&j), j["phase"] == "committing");
+    let r = if finish { commit(p) } else { rollback(p) };
+    let v = |s: &str| j[s]["version"].as_str().unwrap_or("?").to_string();
+    let msg = match &r {
+        Ok(_) if finish => format!("{what}: its commit had begun, so this start finished it; INIT runs {} with its anchors on the new kernel.", v("to")),
+        Ok(_) => format!("{what}: it was cut off after its replace step, before its health probe and commit, so this start rolled it back \
+            and INIT is {} again, as before the upgrade. {} To upgrade, run the upgrade again: init-agent upgrade.", v("from"),
+            if install::service_path(p).is_file() { "Its service starts the Root again by itself.".to_string() }
+            else { format!("Start the Root again: {}.", install::start_hint(p)) }),
+        Err((_, m)) => format!("{what} is not finished, and this start could not {} it ({m}). The agent is not started on a half-upgraded \
+            install. With the Root stopped ({}), run {} (or {} after a passing {}), then start the Root: {}.", if finish { "finish" } else { "roll back" },
+            install::stop_hint(p), p.cmd("upgrade --rollback"), p.cmd("upgrade --commit"), p.cmd("upgrade --probe"), install::start_hint(p)),
+    };
+    util::log(&p.rh, if r.is_ok() { "warn" } else { "error" }, &msg);
+    let _ = util::append_line(&p.r("alerts.jsonl"), &json!({"code": "kernel_upgrade", "message": msg, "source": "root", "ts": rfc3339(now_ms()), "v": 1}));
+    eprintln!("init-root: {msg}");
+    match r {
+        Ok(_) if finish => None,
+        Ok(_) => Some(75), // bin/init-root is the old Root again; this process is the new one
+        Err(_) => Some(1),
+    }
 }
 
 // ------------------------------------------------------------------------------------------------ the health probe
@@ -680,7 +754,7 @@ fn probe(p: &Paths, wait: Duration) -> Res<Value> {
     let log = fs::OpenOptions::new().create(true).append(true).open(p.r("logs/upgrade-probe.log")).map_err(err)?;
     let mut c = Command::new(p.r("bin/init-root"));
     c.arg("start").env_clear().env("HOME", &p.home).env("INIT_ROOT_HOME", &p.rh).env("PATH", "/usr/bin:/bin")
-        .stdin(Stdio::null()).stdout(log.try_clone().map_err(err)?).stderr(log).process_group(0);
+        .env(PROBE_ENV, j["id"].as_str().filter(|_| pending(&j)).unwrap_or("")).stdin(Stdio::null()).stdout(log.try_clone().map_err(err)?).stderr(log).process_group(0);
     if test { // test homes only: the harness's fake kernel and clock reach the Root as they do through `start`
         c.envs(std::env::vars().filter(|(k, _)| k.starts_with("INIT_TEST") || k.starts_with("INIT_ROOT_TEST") || k == "INIT_FAULT"));
     }

@@ -101,6 +101,13 @@ impl Fk {
 
     /// Sends a request (after the datagram carrying `fd`, if any) and waits up to 30 s for its response.
     fn call(&self, cmd: &str, args: Value, fd: Option<RawFd>) -> (String, Value) {
+        self.call_within(cmd, args, fd, TIMEOUT)
+    }
+
+    /// [`Self::call`] with its own wait: a request that runs for a stated wall time (`sealed.g4_slice`'s
+    /// `wall_s`) gets that much and more, where a fixed 30 s killed this fake kernel mid-slice on a loaded
+    /// machine and m7 then waited for an answer that could not come (REL-051, REL-052 R-FLAKE).
+    fn call_within(&self, cmd: &str, args: Value, fd: Option<RawFd>, limit: Duration) -> (String, Value) {
         let id = format!("k-{}", self.next.fetch_add(1, Ordering::SeqCst));
         let (tx, rx) = mpsc::channel();
         match lock(&self.pending).as_mut() {
@@ -116,7 +123,7 @@ impl Fk {
         if let Err(e) = self.send(&json!({"args": args, "cmd": cmd, "id": id, "v": 1})) {
             self.die("write_error", json!({"id": id, "error": e.to_string()}));
         }
-        match rx.recv_timeout(TIMEOUT) {
+        match rx.recv_timeout(limit) {
             Ok(r) => (id, r),
             Err(mpsc::RecvTimeoutError::Timeout) => self.die("timeout", json!({"cmd": cmd, "id": id})),
             Err(mpsc::RecvTimeoutError::Disconnected) => self.eof(),
@@ -433,7 +440,8 @@ fn main() {
             return f.log(json!({"ev": "call_error"}));
         }
         let v: Value = serde_json::from_str(&s).unwrap_or_default();
-        let (_, r) = f.call(v["cmd"].as_str().unwrap_or_default(), v["args"].clone(), None);
+        let limit = v["args"]["wall_s"].as_u64().map_or(TIMEOUT, |w| Duration::from_secs(w + 120));
+        let (_, r) = f.call_within(v["cmd"].as_str().unwrap_or_default(), v["args"].clone(), None, limit);
         f.log(outcome("call", &r));
     });
     // 11. Root requests and events.

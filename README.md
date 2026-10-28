@@ -74,7 +74,7 @@ No step asks a change to prove it is better, because nobody can write the score 
 
 INIT 0.5 is a research preview.
 
-- **Tested:** DeepSeek (deepseek-flash, deepseek-v4-pro) on the live API. At $0 on a mock model, the v0.5.1 bundles on macOS and on Linux x86_64 (a hosted Ubuntu 24.04 VM): install and a first reply. A core change through the gates and the hot-swap passed on Linux x86_64; on macOS the v0.5.1 attempt passed G0–G2 and failed at G3's inner G0 on a known flaky body test ([receipt](build/status/bundle-e2e-t2-v0.5.1-macos.json); the last macOS pass is v0.5.0's). On macOS, upgrades from every public release since 0.3.1 (or the uninstall they need) and an upgrade that kept an evolved body. In CI on macOS (v0.5.1), 2,082 Rust tests passed; one more, a timing-bound test, failed under a load average of 76 and passed alone.
+- **Tested:** DeepSeek (deepseek-flash, deepseek-v4-pro) on the live API. At $0 on a mock model, the v0.5.2 bundles on macOS and on Linux x86_64 (a hosted Ubuntu 24.04 VM): install, a core change through the gates and the hot-swap on both; on macOS, upgrades from every public release since 0.3.1 (or the uninstall they need) and an upgrade that kept an evolved body. 2,108 Rust tests passed in CI on macOS (v0.5.2).
 - **Not tested or not built:** Anthropic and OpenAI on a live API (offline tests only); a Linux aarch64 bundle for 0.5.x; signed releases (bundles are checked by SHA-256 only); autonomy above L0 (L0 already covers the whole body; the kernel opens at L1); Windows.
 
 ## Docs

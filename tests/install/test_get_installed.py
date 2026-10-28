@@ -8,9 +8,12 @@ before any download); 0.4.1 and 0.5.0 the upgrade that runs the current get.sh w
 own `init-agent upgrade` runs 0.5.0's get.sh, which 0.5.1 fixed; v0.5.1, lane SCRIPTS-FIX2); 0.5.1 or later
 `init-agent upgrade`. Each line carries INIT_ROOT_HOME= (on the sh side of a pipe) when ROOT_HOME is not the passwd
 home's ~/.init-root, which a scratch HOME never is, and runs as printed (run_pipe). get.sh must stop before it
-fetches anything: `curl` on PATH is a stand-in that fails the test if it runs. (An upgrade runs /usr/bin/curl, never
-one on PATH: the case that passes the guard fetches from https://127.0.0.1:1/, which refuses at once.) Needs a host get.sh accepts (macOS 14+
-on arm64, or Linux with /usr/bin/bwrap and /usr/bin/python3); anything else skips. Stdlib only.
+downloads anything: `curl` on PATH is a stand-in that records what it was asked for and fails. Before 0.4.1 it must not
+run at all; from 0.4.1 get.sh may ask for the release's latest.json only, to check that it has a bundle for this machine
+before it advises an upgrade (v0.5.2; tests/install/test_installed_elsewhere.py), and a failed fetch leaves the advice
+as it is. (An upgrade runs /usr/bin/curl, never one on PATH: the case that passes the guard fetches from
+https://127.0.0.1:1/, which refuses at once.) Needs a host get.sh accepts (macOS 14+ on arm64, or Linux with
+/usr/bin/bwrap and /usr/bin/python3); anything else skips. Stdlib only.
 """
 import os
 import platform
@@ -58,12 +61,19 @@ class InstalledRelease(unittest.TestCase):
             fake = os.path.join(home, "fakebin")
             os.makedirs(fake)
             with open(os.path.join(fake, "curl"), "w") as f:
-                f.write('#!/bin/sh\necho "curl ran: $*" >&2\nexit 99\n')
+                f.write('#!/bin/sh\nfor a in "$@"; do case "$a" in https://*) echo "$a" >>"$HOME/curl.log" ;; esac; done\n'
+                        'echo "curl ran: $*" >&2\nexit 99\n')
             os.chmod(os.path.join(fake, "curl"), 0o755)
             env = {"HOME": home, "PATH": fake + ":/usr/bin:/bin:/usr/sbin:/sbin", "LANG": "C", "INIT_DIST_URL": DIST}
             if rh_name != ".init-root":
                 env["INIT_ROOT_HOME"] = rh
             p = subprocess.run(["/bin/sh", GET, *args], env=env, capture_output=True, text=True, timeout=60)
+            log = os.path.join(home, "curl.log")
+            with open(log) if os.path.exists(log) else open(os.devnull) as f:
+                self.fetched = f.read().split()
+            if "--upgrade" not in args:  # at most latest.json, never a bundle
+                self.assertEqual(sorted(set(self.fetched)), [] if version in ("0.3.1", "0.4.0") else [DIST + "/latest.json"],
+                                 (version, args, p.stderr))
             self.assertFalse(os.path.exists(os.path.join(rh, "cache", "upgrade")) and version in ("0.3.1", "0.4.0"),
                              "get.sh made cache/upgrade for a release it refuses")
             return p

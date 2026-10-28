@@ -302,6 +302,9 @@ pub fn prepare_deps(env: &Env, slot: &BuildSlot, git: &Git, sha: &str, job: &str
             return Ok(prep("cold", None, note));
         }
     }
+    // v0.5.2 (R-TUI): the owner's gate track shows the dependency build as its own step, with an
+    // estimate, while it runs (a cold build takes 10-20 min on an M2; it read as G0 "waited" before)
+    env.sup.owner_event("gate_deps", json!({"gate_id": job, "sha": sha}));
     match stub_build(env, slot, job, epoch)? {
         Ok(n) => note.push_str(&n),
         Err(e) => {

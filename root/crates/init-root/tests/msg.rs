@@ -396,6 +396,26 @@ mod live {
         assert!(!out.contains(" init-root resume to restart"), "{out}");
         let alerts = fs::read_to_string(h.rh.join("alerts.jsonl")).unwrap();
         assert!(alerts.contains(&want), "{alerts}");
+        // R-UNDO (v0.5.2): a line typed during the panic is queued, and the notice says so and names /resume (not "the
+        // system is restarting"), which runs as typed on the line path
+        let mut a = UnixStream::connect(h.rh.join("run/owner.sock")).unwrap();
+        writeln!(a, "{}", json!({"client": "rmsg-test", "replay": false, "t": "attach"})).unwrap();
+        a.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut rd = BufReader::new(a.try_clone().unwrap());
+        let mut next = |prefix: &str| loop {
+            let mut l = String::new();
+            assert!(rd.read_line(&mut l).unwrap() > 0, "the attach connection closed before {prefix:?}");
+            let v: Value = serde_json::from_str(&l).unwrap_or_default();
+            if v["t"] == "notice" && v["text"].as_str().is_some_and(|t| t.starts_with(prefix)) {
+                break v["text"].as_str().unwrap().to_string();
+            }
+        };
+        writeln!(a, "{}", json!({"t": "line", "text": "hello"})).unwrap();
+        assert_eq!(next("[root] INIT is stopped"), "[root] INIT is stopped (panic); your message is queued (1) and goes to the agent after /resume");
+        writeln!(a, "{}", json!({"t": "line", "text": "/resume"})).unwrap();
+        next("[root] resumed after panic");
+        // and the CLI form the panic message prints
+        assert_eq!(h.run(&["panic"]).status.code(), Some(0));
         assert_eq!(h.run(&["resume"]).status.code(), Some(0));
     }
 

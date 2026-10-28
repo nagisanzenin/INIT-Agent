@@ -87,6 +87,11 @@ impl Feed {
         matches!(self.phase, Phase::Live)
     }
 
+    /// v0.5.2: a replay is being collected: the frames the next `replay_end` releases are a replay.
+    pub fn replaying(&self) -> bool {
+        matches!(self.phase, Phase::Replay(_))
+    }
+
     /// A new attach is starting; `epoch` and `started_at` come from the `status` asked just before.
     pub fn on_attach(&mut self, epoch: Option<String>, started_at: Option<String>) {
         self.phase = Phase::Replay(Vec::new());
@@ -549,6 +554,8 @@ pub struct Tool {
     pub out_at: Option<Instant>,
     /// The `delegate` call this one ran inside (`parent_call_id`); None for the main loop's calls.
     pub parent: Option<String>,
+    /// v0.5.2: it started in the attach replay: its start time and duration are not known here.
+    pub replayed: bool,
 }
 
 impl Tool {
@@ -587,6 +594,9 @@ pub struct Activity {
     pub frozen: Option<Duration>,
     /// A `/details` copy: printed in full in the main screen.
     pub full: bool,
+    /// v0.5.2 (user session v0.5.1-new: "ran 5 tools in 0.0 s" for calls that took 3 min 46 s): it came
+    /// in the attach replay, so its times are not known here.
+    pub replayed: bool,
 }
 
 /// Counters of an activity.
@@ -600,7 +610,7 @@ pub struct Counts {
 
 impl Activity {
     fn new(now: Instant, now_ms: i64) -> Activity {
-        Activity { steps: Vec::new(), started: now, start_ms: now_ms, thinking: None, frozen: None, full: false }
+        Activity { steps: Vec::new(), started: now, start_ms: now_ms, thinking: None, frozen: None, full: false, replayed: false }
     }
     /// Every call, sub-task calls included (the details view, `/details`).
     pub fn all_tools(&self) -> impl DoubleEndedIterator<Item = &Tool> {
@@ -755,6 +765,8 @@ pub struct Transcript {
     pub gates: crate::render::gates::Track,
     /// TUI-BRAND (the liveness row): when the body's last display frame arrived.
     pub last_display: Option<Instant>,
+    /// v0.5.2: the frames handled now are the attach replay (their times are not known).
+    pub replaying: bool,
 }
 
 impl Transcript {
@@ -841,7 +853,9 @@ impl Transcript {
     /// The open activity, or a new one.
     fn activity(&mut self, now: Instant, now_ms: i64) -> &mut Activity {
         if self.open_activity().is_none() {
-            let i = self.push(Kind::Activity(Activity::new(now, now_ms)), now_ms);
+            let mut a = Activity::new(now, now_ms);
+            a.replayed = self.replaying;
+            let i = self.push(Kind::Activity(a), now_ms);
             self.open_act = Some(i);
         }
         self.open_activity().expect("just opened")
@@ -1017,9 +1031,10 @@ impl Transcript {
                 let call_id = d.call_id.clone().unwrap_or_default();
                 let name = d.name.clone().unwrap_or_else(|| "tool".into());
                 self.bytes += d.text.len();
+                let replayed = self.replaying;
                 let a = self.activity(now, now_ms);
                 a.end_thinking(now);
-                a.steps.push(Step::Tool(Tool { call_id, name, start_text: d.text.clone(), ok: None, summary: None, detail: d.detail.clone(), started: now, start_ms: now_ms, dur: None, out: None, out_at: None, parent: d.parent.clone() }));
+                a.steps.push(Step::Tool(Tool { call_id, name, start_text: d.text.clone(), ok: None, summary: None, detail: d.detail.clone(), started: now, start_ms: now_ms, dur: None, out: None, out_at: None, parent: d.parent.clone(), replayed }));
             }
             DisplayKind::ToolProgress => {
                 let cid = d.call_id.clone().unwrap_or_default();
@@ -1052,9 +1067,10 @@ impl Transcript {
                     }
                     None => {
                         let name = d.name.clone().unwrap_or_else(|| "tool".into());
+                        let replayed = self.replaying;
                         let a = self.activity(now, now_ms);
                         a.end_thinking(now);
-                        a.steps.push(Step::Tool(Tool { call_id: cid, name, start_text: String::new(), ok: Some(d.ok.unwrap_or(false)), summary: Some(d.text.clone()), detail: d.detail.clone(), started: now, start_ms: now_ms, dur: Some(Duration::ZERO), out: None, out_at: None, parent: d.parent.clone() }));
+                        a.steps.push(Step::Tool(Tool { call_id: cid, name, start_text: String::new(), ok: Some(d.ok.unwrap_or(false)), summary: Some(d.text.clone()), detail: d.detail.clone(), started: now, start_ms: now_ms, dur: Some(Duration::ZERO), out: None, out_at: None, parent: d.parent.clone(), replayed }));
                     }
                 }
             }
@@ -1286,8 +1302,25 @@ pub struct Info {
     turn_end_musd: Option<i64>,
     /// The run ended; the next `egress.stats` answer fixes `turn_end_musd`.
     turn_closing: bool,
-    /// A self-change was in flight during this turn, so its cost includes the checks' spend.
+    /// A self-change's checks were spending during this turn's run (a G2, G3 or G4 step in flight),
+    /// so its cost includes their spend. v0.5.2: not merely a self-change in flight (a G0 build spends
+    /// nothing), and never a window left open by a self-change that ended before the turn began.
     pub turn_gate: bool,
+    /// v0.5.2: a self-change's spending step is in flight now (the gate track says so, `on_gate`).
+    gate_spending: bool,
+    /// v0.5.2: the frames being handled now are a replay (what happened while this TUI was not
+    /// attached): a turn seen there has no measured cost.
+    pub replaying: bool,
+    /// v0.5.2 (user sessions v0.5.1: a replayed turn read `$0.000`): this turn ran, at least in part,
+    /// before this TUI attached, so the ledger's change since then is not its cost.
+    pub turn_replayed: bool,
+    /// v0.5.2 (user session v0.5.1-new: after `/panic` and `/resume` the status bar kept the dropped
+    /// body's id): the kernel's last `state` frame is from before a panic, a resume or a kernel restart,
+    /// so its body id is not shown until a fresh `state` frame or a kernel `/status` line says which
+    /// body runs.
+    pub body_stale: bool,
+    /// The kernel instance the Root's last status named (a change means a new kernel).
+    kernel_inst: Option<String>,
     /// TUI-FIX (v0.5.1): the ledger's spend while self-changes were in flight, as this TUI saw it.
     pub gates: GateSpend,
     /// When the kernel's last `state` frame came, and when the gate track last took a notice: the
@@ -1295,6 +1328,9 @@ pub struct Info {
     pub state_at: Option<Instant>,
     pub gate_notice_at: Option<Instant>,
 }
+
+/// v0.5.2: the cost of a turn that ran before this TUI attached (it is in the Root's total).
+pub const REPLAYED_COST: &str = "$? before this launch";
 
 /// TUI-FIX (v0.5.1 user session: "/usage: evolution checks today $0.00" while the gate's probes were
 /// two thirds of the bill). The Root does not split its ledger by purpose yet (Root requirement in
@@ -1313,6 +1349,9 @@ pub struct GateSpend {
     closing: bool,
     /// A self-change was seen by this TUI.
     pub seen: bool,
+    /// v0.5.2: a self-change was seen only in a replay (it ran before this TUI attached): its spend
+    /// was not measured here, so no `$0.000` window stands for it.
+    pub seen_replayed: bool,
 }
 
 impl Default for Info {
@@ -1338,6 +1377,11 @@ impl Default for Info {
             turn_end_musd: None,
             turn_closing: false,
             turn_gate: false,
+            gate_spending: false,
+            replaying: false,
+            turn_replayed: false,
+            body_stale: false,
+            kernel_inst: None,
             gates: GateSpend::default(),
             state_at: None,
             gate_notice_at: None,
@@ -1361,7 +1405,43 @@ impl Info {
         if v["access"].is_object() {
             self.access = Some(v["access"].clone());
         }
+        // v0.5.2: a panicked, halted or stopped slot (no body runs), or another kernel than before
+        // (a resume, a restart): the body id of the last `state` frame may name a body that no longer runs
+        let inst = v["kernel"]["instance"].as_str().map(str::to_string);
+        let down = matches!(v["slot"].as_str(), Some("panicked" | "halted" | "stopped"));
+        let other = inst.is_some() && self.kernel_inst.is_some() && inst != self.kernel_inst;
+        if self.state.is_some() && (down || other) {
+            self.body_stale = true;
+        }
+        if inst.is_some() {
+            self.kernel_inst = inst;
+        }
         self.status = Some(v);
+    }
+
+    /// v0.5.2: a Root notice that the agent stopped or restarted (panic, resume, a halt, a kernel crash
+    /// loop): the body id seen before it is stale. Replayed notices count too, in order.
+    pub fn on_root_restart_notice(&mut self) {
+        if self.state.is_some() {
+            self.body_stale = true;
+        }
+    }
+
+    /// v0.5.2: the kernel's `/status` line (`slot running · mode normal · busy false · sha 4c332dd485ce ·
+    /// lkg …`) names the body that runs now: the status bar shows it.
+    pub fn on_kernel_status_line(&mut self, text: &str) {
+        let Some(rest) = text.strip_prefix("slot ") else { return };
+        let field = |k: &str| rest.split(" · ").find_map(|f| f.strip_prefix(k)).map(str::trim).filter(|x| !x.is_empty() && !x.contains(' '));
+        let Some(sha) = field("sha ") else { return };
+        let st = self.state.get_or_insert_with(|| serde_json::json!({}));
+        if !st.is_object() {
+            *st = serde_json::json!({});
+        }
+        st["sha12"] = Value::String(sha.to_string());
+        if let Some(m) = field("mode ") {
+            st["mode"] = Value::String(m.to_string());
+        }
+        self.body_stale = false;
     }
 
     /// An `AccessView` from an access request's answer.
@@ -1396,8 +1476,16 @@ impl Info {
     /// TUI-FIX: the gate track took a notice; `live` is whether a self-change is still in flight.
     /// Opens the spend window when one goes in flight, and closes it (at the next ledger answer, which
     /// the caller asks for at once) when the last one ends.
-    pub fn on_gate(&mut self, live: bool, now: Instant) {
+    /// v0.5.2: `spending` is whether a step that makes model requests (G2, G3, G4) is in flight now;
+    /// only that marks the running turn's cost `incl. checks`.
+    pub fn on_gate(&mut self, live: bool, spending: bool, now: Instant) {
         self.gate_notice_at = Some(now);
+        self.gate_spending = live && spending;
+        if self.replaying {
+            // v0.5.2: the ledger does not move while a replay is read: no window measures it
+            self.gates.seen_replayed = true;
+            return;
+        }
         let spent = self.spent();
         let g = &mut self.gates;
         g.seen = true;
@@ -1409,7 +1497,7 @@ impl Info {
                     None => g.opening = true,
                 }
             }
-            if self.busy_since.is_some() {
+            if self.busy_since.is_some() && self.gate_spending {
                 self.turn_gate = true;
             }
         } else if g.open_from.is_some() {
@@ -1434,10 +1522,6 @@ impl Info {
         Some(g.done_musd + open)
     }
 
-    fn gate_open(&self) -> bool {
-        self.gates.open_from.is_some() || self.gates.opening
-    }
-
     /// The kernel's `evolution_checks_today_musd` is from a `state` frame older than the last
     /// self-change notice (the kernel sends `state` only when a run starts or ends, and after a turn).
     pub fn evolution_stale(&self) -> bool {
@@ -1445,6 +1529,7 @@ impl Info {
     }
 
     pub fn on_state(&mut self, v: Value, now: Instant) {
+        self.body_stale = false; // the kernel that runs now sent it
         let busy = v["busy"] == true;
         match (busy, self.busy_since) {
             (true, None) => {
@@ -1476,7 +1561,8 @@ impl Info {
         self.turn_start_musd = self.spent();
         self.turn_end_musd = None;
         self.turn_closing = false;
-        self.turn_gate = self.gate_open();
+        self.turn_gate = self.gate_spending;
+        self.turn_replayed = self.replaying;
     }
 
     /// An owner line reached the kernel: a new turn unless it steers the running one.
@@ -1492,6 +1578,7 @@ impl Info {
         if self.turn.requests == 0 && self.turn_start_musd.is_none() {
             self.turn_start_musd = self.spent();
         }
+        self.turn_replayed |= self.replaying;
         self.turn.add(&u);
         self.session.add(&u);
         Some(u)
@@ -1509,9 +1596,18 @@ impl Info {
         Some((end - self.turn_start_musd?).max(0))
     }
 
-    /// The turn's cost as shown: `$0.004`, `$0.004 incl. checks` when a self-change ran during it.
+    /// The turn's cost as shown: `$0.004`, `$0.004 incl. checks` when a self-change's checks spent
+    /// during its run. v0.5.2 (user sessions v0.5.1): a turn that ran before this TUI attached (a
+    /// replay) was `$0.000`, as the ledger did not move while it was replayed: its cost is not known
+    /// here, and says so (`$? before this launch`; `≥$0.002` when part of it ran since).
     pub fn turn_cost(&self) -> String {
-        let cost = self.turn_musd().map_or_else(|| "$?".into(), crate::render::usd);
+        let cost = match (self.turn_musd(), self.turn_replayed) {
+            (None, true) => REPLAYED_COST.into(),
+            (None, false) => "$?".into(),
+            (Some(m), true) if m > 0 => format!("≥{}", crate::render::usd(m)),
+            (Some(_), true) => REPLAYED_COST.into(),
+            (Some(m), false) => crate::render::usd(m),
+        };
         if self.turn_gate { format!("{cost} incl. checks") } else { cost }
     }
 
@@ -1907,7 +2003,7 @@ mod tests {
         i.on_egress(money(16_000));
         i.on_state(json!({"busy": false}), now); // the reply is done
         i.on_egress(money(16_000)); // the poll the run's end asks for
-        i.on_gate(true, now); // the gate's probes and G3 run after the reply
+        i.on_gate(true, true, now); // the gate's probes and G3 run after the reply
         i.on_egress(money(25_000));
         i.on_egress(money(40_000));
         assert_eq!(i.turn_musd(), Some(6_000), "the gate's spend is not the turn's");

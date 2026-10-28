@@ -305,9 +305,63 @@ installed() { [ -x "$RH/bin/init-root" ] || return 0; { "$RH/bin/init-root" --ve
 ver_lt() { /usr/bin/python3 -I -c 'import sys; v = lambda s: tuple(int(x) for x in s.split("."))
 sys.exit(0 if v(sys.argv[1]) < v(sys.argv[2]) else 1)' "$1" "$2"; }
 too_old() { # <version>
-  die "INIT $1 is installed in $RH. An upgrade from a release before 0.4.1 is not supported: uninstall it first (it moves INIT, its record and your provider key to the Trash; nothing is deleted), then run this again:
-  $(rh_env)bash $(shq "$REPO/scripts/uninstall.sh")"
+  die "INIT $1 is installed ${ELSEWHERE:-in $RH}. An upgrade from a release before 0.4.1 is not supported: uninstall it first (it moves INIT, its record and your provider key to the Trash; nothing is deleted), then run this again:
+  $(rh_env)bash $(shq "$REPO/scripts/uninstall.sh")$SECOND"
 }
+# INIT installed in another ROOT_HOME (v0.5.2; get.sh checks the same, with the same two functions). An owner who
+# installed with INIT_ROOT_HOME=X and installs again without it would get a second install: step 7 rewrites the one
+# service file (the LaunchAgent dev.init.root, or the systemd user unit init-root.service) for the new home and step 6
+# overwrites the init-agent launcher, which leaves the INIT in X, and everything it has become, behind.
+svc_file() { # the service file this install would write: none with --no-service, or with HOME not the passwd home
+  # (install.sh then refuses the service)
+  [ "$NO_SERVICE" = 0 ] && [ -n "$PW_HOME" ] && [ "$HOME" = "$PW_HOME" ] || return 0
+  if [ "$OS" = Darwin ]; then printf '%s' "$PW_HOME/Library/LaunchAgents/dev.init.root.plist"
+  else printf '%s' "$PW_HOME/.config/systemd/user/init-root.service"; fi
+}
+other_home() { # [<service file>]: the ROOT_HOME of an INIT this install would take over, and what names it (two
+  # lines), or nothing. Read from the service file (the INIT_ROOT_HOME the Root wrote into it) and from INIT's
+  # launchers in BIN_DIR (the INIT_ROOT_HOME_DEFAULT install.sh baked into them), when that home holds an install.json.
+  # Run only when this ROOT_HOME has none.
+  /usr/bin/python3 -I - "${1:-}" "$BIN_DIR/init-agent" "$BIN_DIR/init" <<'PY' 2>/dev/null || true
+import os, plistlib, re, sys
+svc, launchers = sys.argv[1], sys.argv[2:]
+def found(home, by):
+    if isinstance(home, str) and os.path.isabs(home) and os.path.isfile(os.path.join(home, "install.json")):
+        print(home)
+        print(by)
+        sys.exit(0)
+try:
+    if svc.endswith(".plist") and os.path.isfile(svc):
+        with open(svc, "rb") as f:
+            found((plistlib.load(f).get("EnvironmentVariables") or {}).get("INIT_ROOT_HOME"), "the LaunchAgent dev.init.root runs it")
+    elif svc and os.path.isfile(svc):
+        for line in open(svc, errors="replace"):
+            m = re.fullmatch(r'Environment="INIT_ROOT_HOME=(.*)"\n?', line)
+            if m:  # systemd quoting (install.rs service_file): \\ and \" inside the quotes, %% for %
+                found(re.sub(r'\\(.)', r'\1', m.group(1)).replace("%%", "%"), "the systemd user unit init-root.service runs it")
+except Exception:
+    pass
+for p in launchers:
+    try:
+        if os.path.isfile(p) and not os.path.islink(p):
+            for line in open(p, errors="replace"):
+                m = re.fullmatch(r'INIT_ROOT_HOME_DEFAULT="(.*)"\n?', line)
+                if m:
+                    found(m.group(1), "the %s command in %s opens it" % (os.path.basename(p), os.path.dirname(p)))
+    except OSError:
+        pass
+PY
+}
+ELSEWHERE=""; SECOND="" # set when the INIT found is in another ROOT_HOME than this run's
+if [ $UPGRADE = 0 ] && [ ! -e "$RH/install.json" ]; then
+  OTHER="$(other_home "$(svc_file)")"
+  if [ -n "$OTHER" ]; then
+    NEW="$RH"; RH="$(printf '%s\n' "$OTHER" | sed -n 1p)" # every line below names that INIT's home
+    ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). A second install, in $NEW, would take that over and leave this one behind"
+    SECOND="
+(For a separate, second INIT instead: give it its own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, and pass --no-service.)"
+  fi
+fi
 if [ -e "$RH/install.json" ]; then
   HAVE="$(installed)"
   [ -z "$HAVE" ] || ! ver_lt "$HAVE" 0.4.1 || too_old "$HAVE"
@@ -316,14 +370,14 @@ if [ $UPGRADE = 0 ] && [ -e "$RH/install.json" ]; then
   UP_HERE="$(rh_env)$(shq "$REPO/scripts/install.sh") --upgrade"
   if [ -n "$HAVE" ] && ver_lt "$HAVE" 0.5.1; then
     if ver_lt "$HAVE" 0.5.0; then WHY="0.4.1 has no init-agent upgrade"; else WHY="0.5.0's own init-agent upgrade runs 0.5.0's get.sh, which 0.5.1 fixed"; fi
-    die "INIT $HAVE is already installed ($RH/install.json exists). Upgrade it to v$VERSION instead, which keeps what INIT has become ($WHY):
+    die "INIT $HAVE is already installed ${ELSEWHERE:-($RH/install.json exists)}. Upgrade it to v$VERSION instead, which keeps what INIT has become ($WHY):
   $UP_HERE
-or, to the latest release, once from your own shell: $(up_pipe)"
+or, to the latest release, once from your own shell: $(up_pipe)$SECOND"
   fi
   [ -n "$HAVE" ] && ALT="" || ALT="
 (from 0.4.1 or 0.5.0, init-agent upgrade does not apply: $UP_HERE, or the latest release: $(up_pipe))"
-  die "INIT ${HAVE:+$HAVE }is already installed ($RH/install.json exists). Upgrade it to v$VERSION instead, which keeps what INIT has become:
-  $(rh_env)init-agent upgrade        (or: $UP_HERE)$ALT"
+  die "INIT ${HAVE:+$HAVE }is already installed ${ELSEWHERE:-($RH/install.json exists)}. Upgrade it to v$VERSION instead, which keeps what INIT has become:
+  $(rh_env)init-agent upgrade        (or: $UP_HERE)$ALT$SECOND"
 fi
 if [ $UPGRADE = 1 ]; then
   [ -e "$RH/install.json" ] || die "INIT is not installed ($RH/install.json is missing): run this without --upgrade to install it"
@@ -494,10 +548,11 @@ sys.exit(0)' "$RH/run/root.lock"
   else
     say "  the Root is not running"
   fi
-  # 2. the replace step, by this release's own Root (refusals change nothing)
+  # 2. the replace step, by this release's own Root (refusals change nothing). --by-installer: this script runs the
+  #    probe and the commit itself, so the Root prints no "next" hint for them (v0.5.2)
   step "upgrade 2/5 replace the Root and the kernel (v$VERSION)"
   set +e
-  "${IENV[@]}" "$DIST/init-root" upgrade --release "$DIST" --bin-dir "$BIN_DIR"
+  "${IENV[@]}" "$DIST/init-root" upgrade --release "$DIST" --bin-dir "$BIN_DIR" --by-installer
   URC=$?
   set -e
   case $URC in
@@ -766,11 +821,13 @@ else
 fi
 
 ELAPSED=$(( $(date +%s) - T_START ))
+PATH_HINT="" # the README's bare `init-agent` needs BIN_DIR on PATH; a default macOS PATH lacks ~/.local/bin (REL-051)
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) PATH_HINT="   ($BIN_DIR is not on your PATH; to type just init-agent, add: echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.zshrc)" ;; esac
 cat <<EOF
 
 INIT v$VERSION is installed ($(( ELAPSED / 60 )) min $(( ELAPSED % 60 )) s).
 
-Next: init-agent
+Next: $(shq "$BIN_DIR/init-agent")$PATH_HINT
   The first run picks the provider and the model and asks for your key (hidden; stored 0600 in $RH/keys/, never by
   this script). Then type a task. /stop stops the agent's current body; /panic stops everything and demotes one level.
 
@@ -779,7 +836,7 @@ Your limits: $RH/charter.toml (edit, then: $(rcmd charter check --apply)).
              a goal's usd= budget is enforced; set a limit at your provider.
 Logs:        $RH/logs/ (the Root), $IH/state/kernel/logs/ (the kernel and the body)
 Upgrade:     init-agent upgrade (keeps what INIT has become: its body, lineage, keys and charter)
-Uninstall:   $REPO/scripts/uninstall.sh (moves both homes to the Trash)
+Uninstall:   $(rh_env)bash $(shq "$REPO/scripts/uninstall.sh")   (moves both homes to the Trash)
 EOF
 if [ "$ACCESS_EFF" = workspace ]; then
   cat <<EOF

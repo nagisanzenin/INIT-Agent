@@ -20,7 +20,7 @@ const USAGE: &str = "usage: init-root [--root-home DIR] <command>
           [--toolchain DIR|none] [--bin-dir DIR] [--with-testkit] [--no-service]
           [--prebuilt-body FILE --prebuilt-sha256 HEX [--prebuilt-commit SHA]]
   toolchain [--set [DIR]]   (show, or record the Rust toolchain self-evolution T1/T2 builds with; Root stopped)
-  upgrade --release DIR [--bin-dir DIR] | --probe [--timeout S] | --commit | --rollback | --status [--json]   (Root stopped)
+  upgrade --release DIR [--bin-dir DIR] [--by-installer] | --probe [--timeout S] | --commit | --rollback | --status [--json]   (Root stopped)
   start [--foreground] · attach [--no-replay] [--raw] · panic · resume · stop
   providers list · providers add <preset> [--base-url URL] [--model ID] [--name ALIAS] [--price IN,CACHED,OUT] [--json]
   models [--provider P] [--json] · model use <provider>/<model>
@@ -250,6 +250,9 @@ pub(crate) fn take_lock(p: &Paths) -> io::Result<Option<File>> {
 
 /// `start`: the daemon, in this process (launchd and systemd run it). `--foreground` also logs to stderr.
 fn start(p: &Paths, fg: bool) -> u8 {
+    if let Some(code) = crate::upgrade::at_start(p) { // R-UNDO (v0.5.2): never the zone on a half-finished upgrade
+        return code;
+    }
     let lock = match take_lock(p) {
         Ok(Some(l)) => l,
         Ok(None) => {

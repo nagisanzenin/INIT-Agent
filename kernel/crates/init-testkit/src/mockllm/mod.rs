@@ -283,10 +283,14 @@ pub fn prefix_constant(lines: &[LogLine], session: &str) -> bool {
     }
 }
 
-/// Read a `mock.log.jsonl` file.
+/// Read a `mock.log.jsonl` file. The log is append-only (a rewrite per line would be quadratic in
+/// long runs): each line goes out in one write that ends with `\n`, so a line without its `\n` is
+/// still being appended and is not read yet. Every complete line must parse.
 pub fn read_log(path: &Path) -> io::Result<Vec<LogLine>> {
     let text = std::fs::read_to_string(path)?;
-    text.lines()
+    let complete = text.rfind('\n').map_or("", |i| &text[..=i]);
+    complete
+        .lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| serde_json::from_str(l).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e)))
         .collect()
@@ -814,17 +818,31 @@ impl Mock {
         r
     }
 
+    /// `<seq>-<purpose>.json`, written atomically: the bytes go to a hidden temp name in the same
+    /// directory (`.<name>.tmp`, which no reader's `*.json` filter matches), then one rename puts the
+    /// complete file in place. A test that lists the record dir while a request is in flight sees the
+    /// whole body or no file, never a partial one (REL-051: `tests/boot.rs` read a half-written body
+    /// at load 76 and failed G0 on the user's machine).
     fn record_body(&self, line: &LogLine, body: &[u8]) {
         if !self.cfg.record_bodies {
             return;
         }
         if let Some(d) = &self.cfg.record_dir {
-            let _ = std::fs::write(
-                d.join(format!("{:06}-{}.json", line.seq, line.purpose)),
-                body,
-            );
+            let name = format!("{:06}-{}.json", line.seq, line.purpose);
+            let _ = write_atomic(d, &name, body);
         }
     }
+}
+
+/// Write `dir/name` atomically: `dir/.name.tmp`, then `rename` (atomic within one directory). On a
+/// failure the temp file is removed by its exact path and nothing appears under `name`.
+fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<()> {
+    let tmp = dir.join(format!(".{name}.tmp"));
+    let r = std::fs::write(&tmp, bytes).and_then(|()| std::fs::rename(&tmp, dir.join(name)));
+    if r.is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+    r
 }
 
 fn not_found(path: &str) -> MockResponse {

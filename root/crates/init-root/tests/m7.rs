@@ -379,7 +379,15 @@ fn m7_draw_and_g4_slice() {
         let t = fs::read_to_string(e.path()).unwrap().replace("\"score_permille\":0", "\"score_permille\":1000");
         fs::write(e.path(), t).unwrap();
     }
+    let t_drift = Instant::now();
     let v = h.slice_ok("g-drift", &good, &tb, 26, 1);
+    // The load-aware bound for the control-link slices below: each is at most 8 tasks per arm, less
+    // work than this 26-task slice with a fresh incumbent arm, so 4× its measured time is generous on
+    // a loaded machine (REL-051: a fixed 60 s failed at load 76; the test alone took 276 s) and still
+    // catches a hang. Floor 120 s; ceiling the slice's own `wall_s` (600, the Root ends it there) + 120,
+    // which is also how long the fake kernel now waits for the answer (it gave up at 30 s and died).
+    let slice_bound = (t_drift.elapsed() * 4).clamp(Duration::from_secs(120), Duration::from_secs(720));
+    eprintln!("m7: the 26-task slice took {:?}; control-link bound {slice_bound:?}", t_drift.elapsed());
     assert_eq!(v["status"], "superior", "{v}");
     assert_eq!(h.kinds("sealed_g4").last().unwrap()["cache"], json!({"reused": false, "sentinel_ok": false}));
     assert!(h.alerts().contains("incumbent_drift"));
@@ -392,18 +400,23 @@ fn m7_draw_and_g4_slice() {
     let _d = Daemon(h.cmd().arg("start").env("INIT_TEST_FK", "").env("INIT_TEST_TOOLCHAIN", info["toolchain"].as_str().unwrap())
         .env("INIT_TEST_DEVDIR", info["devdir"].as_str().unwrap()).env("INIT_TEST_HOME_REAL", &h.dir)
         .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
-    wait(30, "owner.sock", || h.owner(json!({"args": {}, "cmd": "status", "id": "s", "v": 1})).is_some());
+    // Daemon start-up: generous for a loaded machine, still a hang check.
+    wait(120, "owner.sock", || h.owner(json!({"args": {}, "cmd": "status", "id": "s", "v": 1})).is_some());
     let r = h.owner(json!({"args": {"records": [{"kind": "lkg", "data": {"tuple": tg}}]}, "cmd": "test.append", "id": "t", "v": 1}));
     assert_eq!(r.as_ref().map(|v| v["ok"].clone()), Some(json!(true)), "{r:?}");
     let fk_log = h.ih.join("state/kernel/fk.jsonl");
-    wait(30, "the fake kernel", || fs::read_to_string(&fk_log).is_ok_and(|s| s.contains("ready")));
+    wait(120, "the fake kernel", || fs::read_to_string(&fk_log).is_ok_and(|s| s.contains("ready")));
     fs::create_dir_all(h.ih.join("work")).unwrap();
     let call = |args: Value| {
         let n = fs::read_to_string(&fk_log).unwrap_or_default().matches("\"ev\":\"call\"").count();
         let tmp = h.ih.join("work/fk-call.tmp");
         fs::write(&tmp, json!({"cmd": "sealed.g4_slice", "args": args}).to_string()).unwrap();
         fs::rename(&tmp, h.ih.join("work/fk-call.json")).unwrap();
-        wait(60, "the slice's answer on the control link", || fs::read_to_string(&fk_log).unwrap_or_default().matches("\"ev\":\"call\"").count() > n);
+        let t = Instant::now();
+        wait(slice_bound.as_secs(), "the slice's answer on the control link", || {
+            fs::read_to_string(&fk_log).unwrap_or_default().matches("\"ev\":\"call\"").count() > n
+        });
+        eprintln!("m7: control-link call answered in {:?}", t.elapsed());
         let log = fs::read_to_string(&fk_log).unwrap();
         serde_json::from_str::<Value>(log.lines().rev().find(|l| l.contains("\"ev\":\"call\"")).unwrap()).unwrap()
     };

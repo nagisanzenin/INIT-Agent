@@ -733,6 +733,13 @@ fn recording_writes_bodies_and_log_lines() {
         body.as_bytes()
     );
     assert!(home.join("rec/000002-turn.json").exists());
+    // Atomic writes leave no temp file behind.
+    let mut names: Vec<_> = std::fs::read_dir(home.join("rec"))
+        .unwrap()
+        .map(|e| e.unwrap().file_name().into_string().unwrap())
+        .collect();
+    names.sort();
+    assert_eq!(names, ["000001-turn.json", "000002-turn.json", "mock.log.jsonl"]);
     let log = read_log(&home.join("rec/mock.log.jsonl")).unwrap();
     assert_eq!(log, m.log());
     assert_eq!(log.len(), 2);
@@ -757,6 +764,71 @@ fn recording_writes_bodies_and_log_lines() {
         .map(|e| e.unwrap().file_name())
         .collect();
     assert_eq!(names, vec![std::ffi::OsString::from("mock.log.jsonl")]);
+}
+
+/// REL-051's class-6 flake at the source: a reader that lists the record dir while the mock records
+/// bodies sees each `*.json` whole or not at all. 2 MiB bodies make a non-atomic write (create, then
+/// fill) visible to a spinning reader; with tmp + rename every file it lists parses.
+#[test]
+fn recorded_bodies_appear_whole() {
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+    let home = test_home("recording-atomic");
+    let rec = home.join("rec");
+    let mut c = MockConfig::new(Mode::Socket, Script::empty());
+    c.record_dir = Some(rec.clone());
+    let m = Mock::new(c).unwrap();
+    let body = ds_body(sys_user(&"x".repeat(2 << 20))).to_string();
+    let stop = Arc::new(AtomicBool::new(false));
+    let (seen, partial) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    let reader = {
+        let (rec, stop, seen, partial) = (rec.clone(), stop.clone(), seen.clone(), partial.clone());
+        std::thread::spawn(move || {
+            while !stop.load(Ordering::SeqCst) {
+                for e in std::fs::read_dir(&rec).unwrap().flatten() {
+                    let p = e.path();
+                    if p.extension().is_some_and(|x| x == "json") {
+                        seen.fetch_add(1, Ordering::SeqCst);
+                        let ok = std::fs::read(&p)
+                            .is_ok_and(|b| serde_json::from_slice::<Value>(&b).is_ok());
+                        if !ok {
+                            partial.fetch_add(1, Ordering::SeqCst);
+                        }
+                    }
+                }
+            }
+        })
+    };
+    for _ in 0..16 {
+        m.respond(&MockRequest::post(
+            "/deepseek/chat/completions",
+            &[("x-init-session", "s"), ("x-init-purpose", "turn")],
+            body.clone(),
+        ));
+    }
+    stop.store(true, Ordering::SeqCst);
+    reader.join().unwrap();
+    assert!(seen.load(Ordering::SeqCst) > 0, "the reader listed bodies");
+    assert_eq!(partial.load(Ordering::SeqCst), 0, "a listed body was partial");
+    let names: Vec<_> = std::fs::read_dir(&rec).unwrap().flatten().map(|e| e.file_name()).collect();
+    assert_eq!(names.len(), 17, "16 bodies and the log, no temp file: {names:?}");
+    std::fs::remove_dir_all(&home).unwrap(); // exact path, this test's own home (32 MiB)
+}
+
+/// The log is append-only: `read_log` skips a last line that has no `\n` yet (still being appended),
+/// and still refuses a complete line that does not parse.
+#[test]
+fn read_log_skips_a_line_still_being_appended() {
+    let home = test_home("read-log-tail");
+    let m = Mock::new(MockConfig::new(Mode::Socket, Script::empty())).unwrap();
+    m.respond(&MockRequest::deepseek("s", "turn", &ds_body(sys_user("a"))));
+    let line = m.log()[0].to_json();
+    let p = home.join("mock.log.jsonl");
+    std::fs::write(&p, format!("{line}\n{}", &line[..line.len() / 2])).unwrap();
+    assert_eq!(read_log(&p).unwrap(), m.log());
+    std::fs::write(&p, &line).unwrap();
+    assert!(read_log(&p).unwrap().is_empty(), "no complete line yet");
+    std::fs::write(&p, format!("{}\n{line}\n", &line[..line.len() / 2])).unwrap();
+    assert!(read_log(&p).is_err(), "a complete garbled line is an error");
 }
 
 #[test]

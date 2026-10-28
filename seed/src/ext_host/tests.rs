@@ -1667,19 +1667,30 @@ fn h21_incremental_cache_warm_vs_cold_recompile() {
 // H23: owner abort
 // ---------------------------------------------------------------------------------------------
 
-/// Sets `abort` after `after`, returns (outcome, ms from abort to return).
+/// Sets `abort` after `after` and, with `ready`, not before that file holds a whole line (the
+/// guest's process has started: a fixed delay alone loses that race on a loaded machine, and the
+/// abort would then land before the spawn). Returns (outcome, ms from abort to return).
 fn abort_after(
     h: &ExtHost,
     name: &str,
     input: Value,
     ws: &Path,
     after: Duration,
+    ready: Option<&Path>,
 ) -> (ExtOutcome, u128) {
     let abort = AtomicBool::new(false);
     let set_at: Mutex<Option<Instant>> = Mutex::new(None);
     let o = std::thread::scope(|s| {
         s.spawn(|| {
             std::thread::sleep(after);
+            if let Some(p) = ready {
+                let t = Instant::now();
+                while !fs::read_to_string(p).is_ok_and(|s| s.ends_with('\n'))
+                    && t.elapsed() < Duration::from_secs(30)
+                {
+                    std::thread::sleep(Duration::from_millis(5));
+                }
+            }
             *set_at.lock().unwrap() = Some(Instant::now());
             abort.store(true, SeqCst);
         });
@@ -1715,6 +1726,7 @@ fn h23_owner_abort_loop_run_and_read() {
         json!({"op": "loop"}),
         w,
         Duration::from_millis(100),
+        None,
     );
     eprintln!("H23a loop aborted {ms} ms after the flag");
     assert_eq!(o.kind, OutcomeKind::Aborted, "{}", o.text);
@@ -1729,6 +1741,7 @@ fn h23_owner_abort_loop_run_and_read() {
         json!({"op": "run", "argv": ["sh", "-c", "echo $$ > pid; exec sleep 10"], "timeout_ms": 20000}),
         w,
         Duration::from_millis(200),
+        Some(&w.join("pid")),
     );
     eprintln!("H23b run aborted {ms} ms after the flag");
     assert_eq!(o.kind, OutcomeKind::Aborted, "{}", o.text);
@@ -1751,6 +1764,7 @@ fn h23_owner_abort_loop_run_and_read() {
         json!({"op": "pread", "id": id, "wait_ms": 10000}),
         w,
         Duration::from_millis(100),
+        None,
     );
     eprintln!("H23c read aborted {ms} ms after the flag");
     assert_eq!(o.kind, OutcomeKind::Aborted, "{}", o.text);

@@ -70,6 +70,12 @@ fn parse(argv: &[String]) -> Result<Args, String> {
     let mut a = Args::default();
     let mut it = argv.iter();
     while let Some(s) = it.next() {
+        // v0.5.2 (operator, v0.5.1-new: the README's `init-agent  # first run: …` pasted into macOS's zsh,
+        // where `interactive_comments` is off, ran `init-agent '#' first run: …` and failed with
+        // `unknown argument "#"`): a word starting with `#` and the rest are a comment the shell kept
+        if s.starts_with('#') {
+            break;
+        }
         let (flag, inline) = match s.split_once('=') {
             Some((f, v)) if f.starts_with("--") => (f, Some(v.to_string())),
             _ => (s.as_str(), None),
@@ -197,6 +203,16 @@ mod tests {
 
     fn p(s: &[&str]) -> Result<Args, String> {
         parse(&s.iter().map(|x| x.to_string()).collect::<Vec<_>>())
+    }
+
+    /// v0.5.2: a pasted `# comment` (zsh without `interactive_comments` passes it on) is ignored.
+    #[test]
+    fn a_pasted_shell_comment_is_ignored() {
+        let a = p(&["#", "first", "run:", "pick", "a", "provider,", "paste", "a", "key,", "pick", "a", "model"]).unwrap();
+        assert!(!a.plain && !a.help && a.root_home.is_none());
+        let a = p(&["--plain", "#comment", "--raw"]).unwrap();
+        assert!(a.plain && !a.raw, "everything after the comment is ignored");
+        assert!(p(&["first"]).is_err(), "a stray word is still an error");
     }
 
     #[test]

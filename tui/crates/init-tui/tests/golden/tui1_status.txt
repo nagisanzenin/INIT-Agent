@@ -11,15 +11,15 @@
 -- safe mode @40
                L0 · safe mode · root ok |.................mmmnnnnnnnnnmmmaaaaaaa 
 -- panicked @120
- busy 41 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg               L0 · PANICKED 3 min ago via owner_socket · /resume |..........mmm.................mmmmmmmmddddddddddddmmmm.................mmmRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR 
+ busy 41 s · +$0.000 since attach · $1.23/$5.00 today                L0 · PANICKED 3 min ago via owner_socket · /resume |..........mmmddddddddddddddddddddmmm...................................mmmRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR 
 -- panicked @80
  $1.23/$5.00 today           L0 · PANICKED 3 min ago via owner_socket · /resume |...............................mmmRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR 
 -- panicked @40
  PANICKED 3 min ago via owner_socket · …|.RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRd
 -- halted @120
- busy 41 s · deepseek-flash · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg    L0 · HALTED (lineage) |..........mmmddddddddddddddmmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm......mmmhhhhhhhhhhhhhhhh 
+ busy 41 s · deepseek-flash · +$0.000 since attach · $1.23/$5.00 today                   L0 (cap L1) · HALTED (lineage) |..........mmmddddddddddddddmmmddddddddddddddddddddmmm...............................................mmmhhhhhhhhhhhhhhhh 
 -- halted @80
- busy 41 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg    L0 · HALTED (lineage) |..........mmm.................mmmmmmmmddddddddddddmmmm......mmmhhhhhhhhhhhhhhhh 
+ busy 41 s · +$0.000 since attach · $1.23/$5.00 today     L0 · HALTED (lineage) |..........mmmddddddddddddddddddddmmm........................mmmhhhhhhhhhhhhhhhh 
 -- halted @40
                   L0 · HALTED (lineage) |....................mmmhhhhhhhhhhhhhhhh 
 -- unreachable @120

@@ -229,7 +229,7 @@ impl MockLlm {
                 panic!("init-mockllm exited early: {st}");
             }
             assert!(
-                t0.elapsed() < Duration::from_secs(10),
+                t0.elapsed() < Duration::from_secs(30),
                 "init-mockllm did not listen"
             );
             std::thread::sleep(Duration::from_millis(10));
@@ -267,10 +267,30 @@ impl MockLlm {
             .filter(|p| p.extension().is_some_and(|x| x == "json"))
             .collect();
         names.sort();
-        names
-            .iter()
-            .map(|p| serde_json::from_slice(&std::fs::read(p).unwrap()).unwrap())
-            .collect()
+        names.iter().map(|p| read_recorded_json(p)).collect()
+    }
+}
+
+/// One recorded request body, with a short bounded retry. The mock writes bodies atomically (temp
+/// name, then rename), but a mock from before that change creates the file and then fills it, and a
+/// reader that lists the dir mid-request would see it empty or half-written (REL-051, the same race in
+/// `tests/boot.rs`). A file that is still not JSON after 5 s is a real failure.
+fn read_recorded_json(p: &Path) -> Value {
+    let t0 = Instant::now();
+    loop {
+        let err = match std::fs::read(p) {
+            Ok(b) => match serde_json::from_slice(&b) {
+                Ok(v) => return v,
+                Err(e) => e.to_string(),
+            },
+            Err(e) => e.to_string(),
+        };
+        assert!(
+            t0.elapsed() < Duration::from_secs(5),
+            "recorded body {}: {err}",
+            p.display()
+        );
+        std::thread::sleep(Duration::from_millis(10));
     }
 }
 
@@ -521,7 +541,7 @@ fn mock_faults() {
         r#"{"v":1,"kind":"turn","reply":{"think":"a","text":"after 429","stop":"end_turn"}}"#,
         r#"{"v":1,"kind":"turn","fault":{"kind":"cut","after_events":2},"reply":{"think":"abcdefghijklmnop","text":"partial text here","stop":"end_turn"}}"#,
         r#"{"v":1,"kind":"turn","reply":{"think":"a","text":"after cut","stop":"end_turn"}}"#,
-        r#"{"v":1,"kind":"turn","fault":{"kind":"stall","after_events":1,"ms":1500},"reply":{"think":"a","text":"stalled","stop":"end_turn"}}"#,
+        r#"{"v":1,"kind":"turn","fault":{"kind":"stall","after_events":1,"ms":10000},"reply":{"think":"a","text":"stalled","stop":"end_turn"}}"#,
         r#"{"v":1,"kind":"turn","reply":{"think":"a","text":"after stall","stop":"end_turn"}}"#,
         r#"{"v":1,"kind":"turn","fault":{"kind":"budget"}}"#,
     ]
@@ -531,7 +551,9 @@ fn mock_faults() {
     };
     let info = models::lookup("deepseek", "deepseek-flash").unwrap();
     let mut t = fast(&mock.sock);
-    t.timeouts.idle = Duration::from_millis(300);
+    // 1 s idle against a 10 s stall: wide on both sides, so a loaded machine neither trips the idle
+    // timeout on a healthy stream nor lets the stall end first (was 300 ms against 1.5 s).
+    t.timeouts.idle = Duration::from_secs(1);
     let client = Client::new(info, t);
     let ts = tools();
     let msgs = vec![user("hi")];
@@ -1013,16 +1035,24 @@ fn stub_abort_during_backoff() {
     let a = abort();
     std::thread::scope(|s| {
         let a2 = &a;
-        let h = s.spawn(|| {
-            client
-                .send_body(b"{}".to_vec(), turn_cx(), a2)
-                .collect::<Vec<StreamEvent>>()
+        // The events as they happen: the abort goes in once the Retry (the 30 s backoff) has
+        // begun, not after a fixed 200 ms that a loaded machine can outrun.
+        let (tx, rx) = mpsc::channel();
+        let c = &client;
+        let h = s.spawn(move || {
+            for e in c.send_body(b"{}".to_vec(), turn_cx(), a2) {
+                let _ = tx.send(e);
+            }
         });
-        std::thread::sleep(Duration::from_millis(200));
+        let mut evs = Vec::new();
+        while !matches!(evs.last(), Some(StreamEvent::Retry { .. })) {
+            evs.push(rx.recv_timeout(Duration::from_secs(30)).expect("the 429's Retry event"));
+        }
         let t0 = Instant::now();
         a.trigger();
-        let evs = h.join().unwrap();
-        assert!(t0.elapsed() < Duration::from_secs(1));
+        evs.extend(rx.iter());
+        h.join().unwrap();
+        assert!(t0.elapsed() < Duration::from_secs(1), "{:?}", t0.elapsed());
         assert_eq!(retries(&evs).len(), 1);
         let m = done(&evs);
         assert_eq!(m.stop, StopReason::Aborted);

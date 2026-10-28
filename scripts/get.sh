@@ -52,6 +52,8 @@ while [ $# -gt 0 ]; do
     *) echo "get.sh: unknown argument $1 (see --help)" >&2; exit 64 ;;
   esac
 done
+NO_SERVICE=0 # install.sh's --no-service, among the arguments after --: then the install writes no service file
+for a in "$@"; do [ "$a" != --no-service ] || NO_SERVICE=1; done
 
 say() { printf '%s\n' "$*"; }
 ok() { printf '  ok  %s\n' "$*"; }
@@ -71,7 +73,8 @@ T0=$(date +%s)
 
 # ---------------------------------------------------------------- who and where
 [ "$(id -u)" != 0 ] || die "run this as yourself, not as root (INIT never needs sudo)"
-case "$(uname -s)" in
+OS="$(uname -s)"
+case "$OS" in
   Darwin)
     [ "$(uname -m)" = arm64 ] || die "this bundle is for Apple silicon (arm64); this Mac is $(uname -m)"
     MACOS="$(sw_vers -productVersion)"
@@ -97,6 +100,8 @@ case "$(uname -s)" in
 esac
 APP="${INIT_APP_DIR:-$HOME/.local/share/init}"
 RH="${INIT_ROOT_HOME:-$HOME/.init-root}"
+BIN_DIR="${INIT_BIN_DIR:-$HOME/.local/bin}" # where install.sh puts the init-agent command
+PW_HOME="$(/usr/bin/python3 -I -c 'import os,pwd;print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || true)"
 # ROOT-MSG (v0.5.1): `init-root <args>` as you type it in a new terminal, the form the Root prints (util::root_cmd; the
 # same rcmd as install.sh's). init-root is not on PATH (only init-agent is), so a bare `init-root …` is "command not
 # found"; a ROOT_HOME other than ~/.init-root needs INIT_ROOT_HOME= in front (init-root finds its home there).
@@ -127,10 +132,88 @@ esac
 installed() { "$RH/bin/init-root" --version 2>/dev/null | sed -n 's/^init-root \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1; }
 ver_lt() { /usr/bin/python3 -I -c 'import sys; v = lambda s: tuple(int(x) for x in s.split("."))
 sys.exit(0 if v(sys.argv[1]) < v(sys.argv[2]) else 1)' "$1" "$2"; }
+tname() { # a bundle target as a platform name
+  case "$1" in
+    macos-arm64) echo "macOS 14+ on Apple silicon ($1)" ;; linux-arm64) echo "Linux aarch64 ($1)" ;;
+    linux-x86_64) echo "Linux x86_64 ($1)" ;; *) echo "$1" ;;
+  esac
+}
+page() { # the releases page of DIST_URL (a /latest/download base: the releases; a /download/<tag> base: that release)
+  pg="${DIST_URL%/latest/download}"; case "$pg" in */download/v*) pg="${pg%/download/*}/tag/${pg##*/}" ;; esac
+  printf '%s' "$pg"
+}
+# INIT installed in another ROOT_HOME (v0.5.2; the post-release review of v0.5.1). An owner who installed with
+# INIT_ROOT_HOME=X and then pastes the one-liner without it got a second install: install.sh rewrote the one service
+# file (the LaunchAgent dev.init.root, or the systemd user unit init-root.service) for the new home and overwrote the
+# init-agent launcher, which left the INIT in X, and everything it had become, behind. install.sh checks the same.
+svc_file() { # the service file this install would write: none with --no-service, or with HOME not the passwd home
+  # (install.sh then refuses the service)
+  [ "$NO_SERVICE" = 0 ] && [ -n "$PW_HOME" ] && [ "$HOME" = "$PW_HOME" ] || return 0
+  if [ "$OS" = Darwin ]; then printf '%s' "$PW_HOME/Library/LaunchAgents/dev.init.root.plist"
+  else printf '%s' "$PW_HOME/.config/systemd/user/init-root.service"; fi
+}
+other_home() { # [<service file>]: the ROOT_HOME of an INIT this install would take over, and what names it (two
+  # lines), or nothing. Read from the service file (the INIT_ROOT_HOME the Root wrote into it) and from INIT's
+  # launchers in BIN_DIR (the INIT_ROOT_HOME_DEFAULT install.sh baked into them), when that home holds an install.json.
+  # Run only when this ROOT_HOME has none.
+  /usr/bin/python3 -I - "${1:-}" "$BIN_DIR/init-agent" "$BIN_DIR/init" <<'PY' 2>/dev/null || true
+import os, plistlib, re, sys
+svc, launchers = sys.argv[1], sys.argv[2:]
+def found(home, by):
+    if isinstance(home, str) and os.path.isabs(home) and os.path.isfile(os.path.join(home, "install.json")):
+        print(home)
+        print(by)
+        sys.exit(0)
+try:
+    if svc.endswith(".plist") and os.path.isfile(svc):
+        with open(svc, "rb") as f:
+            found((plistlib.load(f).get("EnvironmentVariables") or {}).get("INIT_ROOT_HOME"), "the LaunchAgent dev.init.root runs it")
+    elif svc and os.path.isfile(svc):
+        for line in open(svc, errors="replace"):
+            m = re.fullmatch(r'Environment="INIT_ROOT_HOME=(.*)"\n?', line)
+            if m:  # systemd quoting (install.rs service_file): \\ and \" inside the quotes, %% for %
+                found(re.sub(r'\\(.)', r'\1', m.group(1)).replace("%%", "%"), "the systemd user unit init-root.service runs it")
+except Exception:
+    pass
+for p in launchers:
+    try:
+        if os.path.isfile(p) and not os.path.islink(p):
+            for line in open(p, errors="replace"):
+                m = re.fullmatch(r'INIT_ROOT_HOME_DEFAULT="(.*)"\n?', line)
+                if m:
+                    found(m.group(1), "the %s command in %s opens it" % (os.path.basename(p), os.path.dirname(p)))
+    except OSError:
+        pass
+PY
+}
+ELSEWHERE=""; SECOND="" # set when the INIT found is in another ROOT_HOME than this run's
+if [ $UPGRADE = 0 ] && [ $UNPACK_ONLY = 0 ] && [ ! -f "$RH/install.json" ]; then
+  OTHER="$(other_home "$(svc_file)")"
+  if [ -n "$OTHER" ]; then
+    NEW="$RH"; RH="$(printf '%s\n' "$OTHER" | sed -n 1p)" # every line below names that INIT's home
+    ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). A second install, in $NEW, would take that over and leave this one behind"
+    SECOND="
+(For a separate, second INIT instead: give it its own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, without the service: sh -s -- -- --no-service.)"
+  fi
+fi
+# Before it advises an upgrade, get.sh checks that the latest release has a bundle for this machine: a Linux aarch64
+# install of 0.4.1 was told to upgrade, and the upgrade then stopped on a bundle that does not exist (v0.5.2).
+latest_without_target() { # the latest release's version when its latest.json lists no bundle for TARGET; else nothing
+  # (also when latest.json cannot be fetched or read: then the upgrade itself says what it finds)
+  lj="$(mktemp "${TMPDIR:-/tmp}/init-get.XXXXXX")" || return 0
+  if curl -q -fsSL --proto '=https' --tlsv1.2 --retry 2 --max-time 60 "$DIST_URL/latest.json" -o "$lj" 2>/dev/null; then
+    lv="$(sed -n 's/^ *"version": "\([0-9A-Za-z.-]*\)".*/\1/p' "$lj" | head -n 1)"
+    if [ -n "$lv" ] && ! grep -q "^ *\"sha256_$TARGET\": \"[0-9a-f]\{64\}\"" "$lj" \
+      && ! { grep -q "^ *\"target\": \"$TARGET\"" "$lj" && grep -q '^ *"sha256": "[0-9a-f]\{64\}"' "$lj"; }; then
+      printf '%s' "$lv"
+    fi
+  fi
+  rm -f -- "$lj"
+}
 UNINSTALL='f="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && '"$(rh_env)"'bash "$f"'
 too_old() { # <version>: the upgrade starts at 0.4.1, the oldest release it was tested from
-  die "INIT $1 is installed in $RH. An upgrade from a release before 0.4.1 is not supported: uninstall it first, then run this again. The uninstaller moves INIT, its record and your provider key to the Trash (nothing is deleted):
-  $UNINSTALL"
+  die "INIT $1 is installed ${ELSEWHERE:-in $RH}. An upgrade from a release before 0.4.1 is not supported: uninstall it first, then run this again. The uninstaller moves INIT, its record and your provider key to the Trash (nothing is deleted):
+  $UNINSTALL$SECOND"
 }
 if [ $UPGRADE = 1 ]; then
   [ -f "$RH/install.json" ] || die "INIT is not installed in $RH (no install.json): run this without --upgrade to install it"
@@ -161,17 +244,22 @@ Or let INIT download and check the release itself:
   esac
 elif [ -f "$RH/install.json" ] && [ $UNPACK_ONLY = 0 ]; then
   HAVE="$(installed)"
+  [ -z "$HAVE" ] || ! ver_lt "$HAVE" 0.4.1 || too_old "$HAVE"
+  LV="$(latest_without_target)"
+  if [ -n "$LV" ]; then
+    UP="The latest release (INIT $LV) has no bundle yet for this machine, $(tname "$TARGET"), so an upgrade has nothing to install here: the INIT you have keeps working as it is. When a $TARGET bundle is released ($(page)), upgrade it, which keeps what INIT has become"
+  else
+    UP="Upgrade it instead, which keeps what INIT has become"
+  fi
   if [ -z "$HAVE" ]; then
-    die "INIT is already installed in $RH, and its version could not be read. From 0.5.1: $(up_agent). From 0.4.1 or 0.5.0: $(up_pipe). Before 0.4.1, uninstall it first: $UNINSTALL"
-  elif ver_lt "$HAVE" 0.4.1; then
-    too_old "$HAVE"
+    die "INIT is already installed ${ELSEWHERE:-in $RH}, and its version could not be read. $UP. From 0.5.1: $(up_agent). From 0.4.1 or 0.5.0: $(up_pipe). Before 0.4.1, uninstall it first: $UNINSTALL$SECOND"
   elif ver_lt "$HAVE" 0.5.1; then
     if ver_lt "$HAVE" 0.5.0; then WHY="0.4.1 has no init-agent upgrade"; else WHY="0.5.0's own init-agent upgrade runs 0.5.0's get.sh, which 0.5.1 fixed"; fi
-    die "INIT $HAVE is already installed in $RH. Upgrade it instead, which keeps what INIT has become. Run this once, from your own shell ($WHY):
-  $(up_pipe)"
+    die "INIT $HAVE is already installed ${ELSEWHERE:-in $RH}. $UP. Run this once, from your own shell ($WHY):
+  $(up_pipe)$SECOND"
   else
-    die "INIT $HAVE is already installed in $RH. Upgrade it instead, which keeps what INIT has become:
-  $(up_agent)"
+    die "INIT $HAVE is already installed ${ELSEWHERE:-in $RH}. $UP:
+  $(up_agent)$SECOND"
   fi
 fi
 mkdir -p "$APP"
@@ -186,33 +274,31 @@ TMP="$(mktemp -d "$APP/.get.XXXXXX")"
 trap 'rm -rf -- "$TMP"' EXIT INT TERM
 # -q first: no ~/.curlrc (the agent can write it in full access, and a config line there can turn off the TLS check)
 fetch() { curl -q -fsSL --proto '=https' --tlsv1.2 --retry 2 "$1" -o "$2"; }
-tname() { # a bundle target as a platform name
-  case "$1" in
-    macos-arm64) echo "macOS 14+ on Apple silicon ($1)" ;; linux-arm64) echo "Linux aarch64 ($1)" ;;
-    linux-x86_64) echo "Linux x86_64 ($1)" ;; *) echo "$1" ;;
-  esac
-}
 no_bundle() { # <url> <http code>: the release has no bundle for this machine (until v0.5.0: every Linux x86_64 host)
-  HAVE=""
-  [ ! -f "$TMP/latest.json" ] || HAVE="$(sed -n 's/^ *"sha256_\([a-z0-9_-]*\)": .*/\1/p; s/^ *"target": "\([a-z0-9_-]*\)".*/\1/p' \
+  LISTED=""
+  [ ! -f "$TMP/latest.json" ] || LISTED="$(sed -n 's/^ *"sha256_\([a-z0-9_-]*\)": .*/\1/p; s/^ *"target": "\([a-z0-9_-]*\)".*/\1/p' \
     "$TMP/latest.json" | sort -u)"
-  case " $(echo $HAVE) " in *" $TARGET "*) # listed but missing: an upload in progress, or a broken release
+  case " $(echo $LISTED) " in *" $TARGET "*) # listed but missing: an upload in progress, or a broken release
     die "$1 answered HTTP $2, although latest.json lists a $TARGET bundle; the release may still be uploading. Try again in a few minutes, or use --from <bundle.tar.gz>" ;;
   esac
   {
     printf 'get.sh: there is no INIT bundle for this machine (%s, target %s) in this release:\n' "$PLATFORM" "$TARGET"
     printf '  %s answered HTTP %s.\n' "$1" "$2"
-    if [ -n "$HAVE" ]; then
+    if [ -n "$LISTED" ]; then
       printf '  This release%s has bundles for:\n' "${LVER:+ (INIT $LVER)}"
-      for t in $HAVE; do printf '    %s\n' "$(tname "$t")"; done
+      for t in $LISTED; do printf '    %s\n' "$(tname "$t")"; done
     fi
-    printf '  What you can do:\n'
-    printf '    - install on %s, or\n' "$([ -n "$HAVE" ] && echo 'one of the platforms above' || echo 'a platform the release page lists')"
-    printf '    - build from source here: clone the repository and run scripts/install.sh (Rust 1.97.1; on Linux also\n'
-    printf '      bubblewrap >= 0.13, docs/platforms.md section 3.4.0)%s, or\n' \
-      "$([ "$TARGET" = linux-x86_64 ] && echo '; on Linux x86_64 this compiles but is not tested yet')"
-    PAGE="${DIST_URL%/latest/download}"; case "$PAGE" in */download/v*) PAGE="${PAGE%/download/*}/tag/${PAGE##*/}" ;; esac
-    printf '    - run this installer again when a %s bundle is released: %s\n' "$TARGET" "$PAGE"
+    if [ $UPGRADE = 1 ]; then # an upgrade: the install stays as it is, and the way on is a later release
+      printf '  Nothing was changed: the INIT you have keeps working as it is. Run this upgrade again when a %s\n' "$TARGET"
+      printf '  bundle is released: %s\n' "$(page)"
+    else
+      printf '  What you can do:\n'
+      printf '    - install on %s, or\n' "$([ -n "$LISTED" ] && echo 'one of the platforms above' || echo 'a platform the release page lists')"
+      printf '    - build from source here: clone the repository and run scripts/install.sh (Rust 1.97.1; on Linux also\n'
+      printf '      bubblewrap >= 0.13, docs/platforms.md section 3.4.0)%s, or\n' \
+        "$([ "$TARGET" = linux-x86_64 ] && echo '; on Linux x86_64 this compiles but is not tested yet')"
+      printf '    - run this installer again when a %s bundle is released: %s\n' "$TARGET" "$(page)"
+    fi
   } >&2
   exit 1
 }

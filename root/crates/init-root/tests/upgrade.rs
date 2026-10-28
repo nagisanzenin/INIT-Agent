@@ -433,6 +433,84 @@ fn a_panic_after_a_committed_upgrade_resumes_on_the_upgraded_kernel() {
     h.verify();
 }
 
+/// R-UNDO (v0.5.2, the post-release review of v0.5.1): a Root started while an upgrade is pending (a login after a
+/// terminal closed during the probe) never runs the zone on the upgrade's tuple with the old kernel's anchors. In
+/// `replaced` the start rolls the upgrade back and exits (the service then starts the old Root); in `committing` it
+/// finishes the commit and runs. The probe's own Root still runs in `replaced`. Also: install.sh's replace step
+/// (`--by-installer`) prints no "next" (the bare step does), and `--commit` installs the release's get.sh into
+/// ROOT_HOME/cache, also when the owner commits by hand.
+#[test]
+fn a_start_mid_upgrade_never_runs_the_zone_on_mixed_anchors() {
+    let h = home("ms");
+    h.install();
+    { let _d = h.daemon(); }
+    let (genesis, _) = h.ptrs();
+    let kernel0 = sha(&h.ih.join("kernel/bin/init-kernel"));
+    fs::create_dir_all(h.rh.join("cache")).unwrap();
+    fs::write(h.rh.join("cache/get.sh"), "#!/bin/sh\n# the old release's get.sh\n").unwrap();
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    fs::create_dir_all(r1.join("scripts")).unwrap();
+    fs::write(r1.join("scripts/get.sh"), "#!/bin/sh\n# the new release's get.sh\n").unwrap();
+    let bin = h.dir.join(".local/bin");
+    let fk_lines = || fs::read_to_string(h.ih.join("state/kernel/fk.jsonl")).map_or(0, |t| t.lines().count());
+    // a start that must exit by itself (one that runs the zone would not)
+    let start = |h: &Home| {
+        let mut c = h.cmd(Path::new(BIN)).arg("start").stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
+        let t = Instant::now();
+        while c.try_wait().unwrap().is_none() {
+            if t.elapsed() > Duration::from_secs(30) {
+                let _ = c.kill(); // our own child, by its handle
+                let _ = c.wait();
+                panic!("start ran on: it did not stop for the pending upgrade");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        c.wait_with_output().unwrap()
+    };
+
+    // install.sh's replace step: no "next"
+    let o = h.upgrade(&r1, &["--bin-dir", bin.to_str().unwrap(), "--by-installer"]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    let out: Value = serde_json::from_str(String::from_utf8_lossy(&o.stdout).lines().last().unwrap()).unwrap();
+    assert!(out.get("next").is_none() && out["upgrade"].is_string(), "{out}");
+    assert_eq!(h.journal()["phase"], "replaced");
+    let (n0, (upgraded, _)) = (fk_lines(), h.ptrs());
+    assert_ne!(upgraded, genesis);
+    // a start in `replaced`: rolled back, the zone never ran, and it says what happened and what to run
+    let o = start(&h);
+    assert_eq!(code(&o), Some(75), "{}", err(&o));
+    let e = String::from_utf8_lossy(&o.stderr).into_owned();
+    for want in ["it was cut off after its replace step, before its health probe and commit, so this start rolled it back",
+        "Start the Root again: run this in a terminal of its own and leave it open: ", "start --foreground", "init-agent upgrade"] {
+        assert!(e.contains(want), "{want:?} in {e}");
+    }
+    assert_eq!(h.journal()["phase"], "rolled_back");
+    assert_eq!((h.ptrs().0, sha(&h.ih.join("kernel/bin/init-kernel"))), (genesis.clone(), kernel0.clone()), "the install from before");
+    assert_eq!(fk_lines(), n0, "no kernel ran on the half-upgraded install");
+    assert!(fs::read_to_string(h.rh.join("alerts.jsonl")).unwrap().contains("rolled it back"), "an alert says so");
+    assert!(fs::read_to_string(h.rh.join("cache/get.sh")).unwrap().contains("the old release's"), "a rollback keeps the old get.sh");
+    { let _d = h.daemon(); } // the old install runs as before
+
+    // the bare replace step names the next steps; the probe's own Root runs in `replaced`
+    let o = h.upgrade(&r1, &["--bin-dir", bin.to_str().unwrap()]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    let out: Value = serde_json::from_str(String::from_utf8_lossy(&o.stdout).lines().last().unwrap()).unwrap();
+    assert!(out["next"].as_str().is_some_and(|n| n.ends_with("upgrade --probe, then --commit (or --rollback)")), "{out}");
+    h.probe();
+    // a commit cut off after `committing`: get.sh is already the release's, and a start finishes the commit, then runs
+    let o = h.verb("--commit", "root.upgrade.after_snapshot_remove:exit7");
+    assert_eq!(code(&o), Some(7), "{}", err(&o));
+    assert_eq!(h.journal()["phase"], "committing");
+    assert_eq!(fs::read_to_string(h.rh.join("cache/get.sh")).unwrap(), "#!/bin/sh\n# the new release's get.sh\n", "the commit installs it");
+    let to = h.journal()["to"]["tuple"].as_str().unwrap().to_string();
+    let _d = h.daemon();
+    assert_eq!(h.journal()["phase"], "committed", "the start finished the commit");
+    let st = h.ok("status", json!({}));
+    assert_eq!((st["tuples"]["current"].as_str(), st["tuples"]["lkg"].as_str()), (Some(to.as_str()), Some(to.as_str())), "{st}");
+    drop(_d);
+    h.verify();
+}
+
 /// v0.5.1: an anchor whose tuple file cannot be read at the commit is never skipped silently. The upgrade itself is
 /// sound, so the commit succeeds; the anchor is reported (`anchors[].skipped` in the output and the journal, one plain
 /// stderr line, a `kernel_upgrade` alert) and cleared by an `audited{tuple:null, skipped}` record, so a resume falls

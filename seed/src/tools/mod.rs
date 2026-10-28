@@ -512,7 +512,7 @@ impl Tools {
     pub fn start_text(&self, p: &Prepared) -> String {
         match p {
             Prepared::Ready { job, .. } => match job {
-                Job::Bash(b) => truncate_chars(&b.command, 200),
+                Job::Bash(b) => command_preview(&b.command),
                 Job::Read(r) => format!("read {}", r.path),
                 Job::Write(w) => format!("write {}", w.path),
                 Job::Edit(e) => format!(
@@ -592,26 +592,53 @@ impl Tools {
     }
 }
 
-pub fn truncate_chars(s: &str, n: usize) -> String {
-    let line = s.lines().next().unwrap_or("");
-    let mut out: String = line.chars().take(n).collect();
-    if line.chars().count() > n || s.lines().nth(1).is_some() {
+/// Lines and characters of a shell command's preview ([`command_preview`]).
+pub const PREVIEW_LINES: usize = 3;
+pub const PREVIEW_CHARS: usize = 400;
+
+/// v0.5.2 (user sessions v0.5.1: `/details` showed only `set -eu…`): the owner's preview of a shell
+/// command, the `tool_start` text: its first [`PREVIEW_LINES`] lines, at most [`PREVIEW_CHARS`]
+/// characters, and `…` when more follows. Display only; the model's call is unchanged.
+pub fn command_preview(s: &str) -> String {
+    let all: Vec<&str> = s.trim_end().lines().collect();
+    let mut out = String::new();
+    let mut n = 0;
+    let mut cut = all.len() > PREVIEW_LINES;
+    for (i, l) in all.iter().take(PREVIEW_LINES).enumerate() {
+        if i > 0 {
+            out.push('\n');
+            n += 1;
+        }
+        let room = PREVIEW_CHARS.saturating_sub(n);
+        let c = l.chars().count();
+        out.extend(l.chars().take(room));
+        n += c.min(room);
+        if c > room {
+            cut = true;
+            break;
+        }
+    }
+    if cut {
         out.push('…');
     }
     out
 }
 
-/// Lines and bytes of a failed call's `detail` (TUI-OBSERVE, tui.md §3.6).
+/// Lines and bytes of a call's `detail` (TUI-OBSERVE, tui.md §3.6).
 pub const DETAIL_LINES: usize = 10;
 const DETAIL_LINE_CHARS: usize = 200;
 const DETAIL_MAX: usize = 2_000;
 
-/// TUI-OBSERVE: the owner's view of why a call failed: the last [`DETAIL_LINES`] lines of its
-/// first text block (each cut to 200 characters, at most 2,000 bytes in all), without the bash
-/// trailer (`[exit_code=… wall_time=…]`, `[timeout …]`, `[aborted …]`). None for a call that
-/// succeeded or printed nothing. The model's result is unchanged; this goes only to `display`.
+/// TUI-OBSERVE: the owner's view of why a call failed and, v0.5.2, of what a shell command that
+/// ran printed (user sessions v0.5.1: "the output is above", and nothing was): the last
+/// [`DETAIL_LINES`] lines of its first text block (each cut to 200 characters, at most 2,000 bytes in
+/// all), without the bash trailer (`[exit_code=… wall_time=…]`, `[timeout …]`, `[aborted …]`). None
+/// for another call that succeeded (a read's file, an edit) or one that printed nothing. The model's
+/// result is unchanged; this goes only to `display` (owner.sock attachers), and the session log
+/// already holds the whole output.
 pub fn fail_detail(r: &ToolResult) -> Option<String> {
-    if !r.is_error {
+    // a shell command that ran has an exit code (tools/bash.rs); no other tool sets one
+    if !r.is_error && r.meta.exit_code.is_none() {
         return None;
     }
     let text = r.content.iter().find_map(|b| match b {

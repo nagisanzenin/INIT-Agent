@@ -453,6 +453,17 @@ pub fn clonefile(_: &std::path::Path, _: &std::path::Path) -> io::Result<()> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "snapshot cloning is not implemented on this OS"))
 }
 
+/// R-UNDO (v0.5.2): the local time zone's offset from UTC at Unix time `t` (seconds; `localtime_r`'s `tm_gmtoff`,
+/// from `TZ` or the system's zone), 0 if it cannot say. The owner reads snapshot times on their own clock.
+pub fn utc_offset_s(t: i64) -> i64 {
+    let t: libc::time_t = t;
+    // SAFETY: `tm` is plain data that localtime_r fills; both pointers are valid for the call.
+    unsafe {
+        let mut tm: libc::tm = std::mem::zeroed();
+        if libc::localtime_r(&t, &mut tm).is_null() { 0 } else { tm.tm_gmtoff }
+    }
+}
+
 /// The file system type of the volume holding `path` (`statfs` `f_fstypename`, e.g. `apfs`).
 #[cfg(target_os = "macos")]
 pub fn fs_type(path: &std::path::Path) -> io::Result<String> {

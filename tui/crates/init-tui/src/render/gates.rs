@@ -42,14 +42,30 @@ pub struct Step {
     pub score: Option<i64>,
     /// A failure's reason, or why a running step runs again (`insufficient`: an escalated re-run).
     pub reason: Option<String>,
+    /// v0.5.2, G0 only (the kernel's G0 notice): the export, dependency and body build before G0's
+    /// tests (`build_ms`), the dependency part of it (`deps_ms`) and how the dependencies came
+    /// (`deps_mode`: `hit` from the cache, `stub` built now, `cold` built with the body).
+    pub build_ms: Option<u64>,
+    pub deps_ms: Option<u64>,
+    pub deps_mode: Option<String>,
 }
+
+/// v0.5.2 (user session v0.5.1-new: 17 min 46 s of G0's cold dependency build read as "waited", with
+/// no estimate while it ran): the estimate shown under a running dependency build.
+pub const DEPS_ESTIMATE: &str = "first build of dependencies (not cached yet): usually 10–20 min on an M2";
 
 impl Step {
     fn new(name: &str) -> Step {
-        Step { name: name.into(), st: StepSt::Pending, since_ms: None, end_ms: None, wall_ms: None, spent_musd: None, cache_permille: None, score: None, reason: None }
+        Step { name: name.into(), st: StepSt::Pending, since_ms: None, end_ms: None, wall_ms: None, spent_musd: None, cache_permille: None, score: None, reason: None,
+            build_ms: None, deps_ms: None, deps_mode: None }
     }
     fn is_gate(&self) -> bool {
         self.name.starts_with('G')
+    }
+    /// A step that makes model requests (the boot and self-edit probes, G4's scoring): its spend is the
+    /// checks' (v0.5.2: `incl. checks` on a turn only while one of these runs).
+    fn spends(&self) -> bool {
+        matches!(self.name.as_str(), "G2" | "G3" | "G4")
     }
     /// TUI-FIX (v0.5.1 user session: G0's live timer said 8 min 33 s, its row then 1 min 39 s, and
     /// about 8 minutes of the 17 min 47 s total were on no row): the time between the step before it
@@ -144,6 +160,55 @@ impl Run {
             n.since_ms = Some(ts);
         }
     }
+    /// v0.5.2: the dependency build as a step of its own, before G0: it takes over G0's start (the
+    /// build runs in G0's slot), and G0 waits for it.
+    fn deps_step(&mut self, ts: i64) -> usize {
+        if let Some(i) = self.steps.iter().position(|s| s.name == "deps") {
+            return i;
+        }
+        let at = self.steps.iter().position(|s| s.name == "G0").unwrap_or(0);
+        let mut d = Step::new("deps");
+        d.st = StepSt::Running;
+        d.since_ms = Some(ts);
+        if let Some(g0) = self.steps.get_mut(at).filter(|s| s.name == "G0" && s.st == StepSt::Running) {
+            d.since_ms = g0.since_ms.or(Some(ts));
+            g0.st = StepSt::Pending;
+            g0.since_ms = None;
+        }
+        self.steps.insert(at, d);
+        at
+    }
+
+    /// v0.5.2: G0 ended (its notice at `ts`). The kernel's G0 time is its tests and clippy only; the
+    /// export and builds before them (`build_ms`) are G0's too, and a dependency build within them
+    /// (`deps_ms`, built now: `stub`) is the `deps` step. So the rows add up to the job's G0 time. An
+    /// older kernel sends neither: G0 stays as it was (the rest shows as `waited`).
+    fn split_g0(&mut self, ts: i64) {
+        let Some(gi) = self.steps.iter().position(|s| s.name == "G0") else { return };
+        let g = self.steps[gi].clone();
+        let (Some(build), Some(tests)) = (g.build_ms, g.wall_ms) else { return };
+        let deps = g.deps_ms.unwrap_or(0).min(build);
+        let built_now = self.steps.iter().any(|s| s.name == "deps") || (matches!(g.deps_mode.as_deref(), Some("stub" | "cold")) && deps >= 1000);
+        if !built_now {
+            self.steps[gi].wall_ms = Some(build + tests);
+            return;
+        }
+        let since = g.since_ms;
+        let di = self.deps_step(ts);
+        let gi = di + 1;
+        let own = (build - deps + tests) as i64;
+        let d = &mut self.steps[di];
+        let start = d.since_ms.or(since).unwrap_or(ts);
+        let end = (ts - own).max(start);
+        d.st = StepSt::Pass;
+        d.wall_ms = Some(deps);
+        d.end_ms = Some(end);
+        d.deps_mode = g.deps_mode.clone();
+        let g0 = &mut self.steps[gi];
+        g0.since_ms = Some(end);
+        g0.wall_ms = Some(own as u64);
+    }
+
     fn finish(&mut self, o: Outcome, ts: i64) {
         // a step still running when the change ends: kept means it passed (LKG follows the last
         // gate); otherwise it never finished
@@ -224,6 +289,13 @@ impl Track {
                 s.cache_permille = d["cache_permille"].as_u64();
                 s.score = d["score"].as_i64();
                 s.reason = reason_of(&d["reason"]);
+                s.build_ms = d["build_ms"].as_u64();
+                s.deps_ms = d["deps_ms"].as_u64();
+                s.deps_mode = d["deps_mode"].as_str().map(str::to_string);
+                if stage == "G0" && d["pass"].is_boolean() {
+                    r.split_g0(ts_ms);
+                }
+                let s = r.step_mut(&stage);
                 match d["pass"].as_bool() {
                     Some(true) => {
                         s.st = StepSt::Pass;
@@ -242,6 +314,11 @@ impl Track {
                     // inconclusive: a re-run follows; the step keeps running, with the reason shown
                     None => s.st = StepSt::Running,
                 }
+            }
+            // v0.5.2: G0 starts building the dependencies (a cache miss): its own step, with an estimate
+            "gate_deps" if self.run_mut(sha).is_some() => {
+                let r = self.run_mut(sha).expect("checked");
+                r.deps_step(ts_ms);
             }
             "promoted" if self.run_mut(sha).is_some() => {
                 let r = self.run_mut(sha).expect("checked");
@@ -283,6 +360,11 @@ impl Track {
         self.runs.iter().rev().find(|r| r.outcome.is_none())
     }
 
+    /// v0.5.2: is a step that makes model requests (G2, G3, G4) in flight in some change?
+    pub fn spending(&self) -> bool {
+        self.runs.iter().filter(|r| r.outcome.is_none()).any(|r| r.steps.iter().any(|s| s.st == StepSt::Running && s.spends()))
+    }
+
     /// Is a step ticking (the live region redraws for the timer)?
     pub fn in_flight(&self) -> bool {
         self.current().is_some()
@@ -303,6 +385,7 @@ const LABEL_W: usize = 16;
 
 fn label(name: &str) -> &'static str {
     match name {
+        "deps" => "dependencies",
         "G0" => "build + tests",
         "G1" => "self-map",
         "G2" => "boot probe",
@@ -343,7 +426,8 @@ fn strip(r: &Run) -> Line {
         if i > 0 {
             l.push(" ", Style::PLAIN);
         }
-        l.push(format!("{} ", if s.is_gate() { s.name.as_str() } else { "live" }), Style::fg(Role::Mute));
+        let n = if s.is_gate() || s.name == "deps" { s.name.as_str() } else { "live" };
+        l.push(format!("{n} "), Style::fg(Role::Mute));
         let (g, st) = step_cell(s);
         l.push(g, st);
     }
@@ -383,12 +467,15 @@ fn step_row(s: &Step, width: usize, now_ms: i64, detail: bool) -> Line {
             l.push(format!(" · {}", s.unscored().unwrap_or_default()), Style::dim());
         }
         StepSt::Pass => {
-            l.push("pass", Style::fg(Role::Pass));
+            l.push(if s.name == "deps" { "built" } else { "pass" }, Style::fg(Role::Pass));
             if let Some(t) = took {
                 l.push(format!(" · {t}"), Style::dim());
             }
             if let Some(w) = waited {
                 l.push(w, Style::dim());
+            }
+            if s.name == "deps" {
+                l.push(" · not cached before; later changes reuse it", Style::dim());
             }
         }
         StepSt::Fail => {
@@ -439,11 +526,18 @@ fn block(r: &Run, width: usize, now_ms: i64, max_rows: usize) -> Vec<Line> {
     let mut rows = vec![split(left, right, width)];
     // a step that failed after going live: the rollback comes at the next idle point
     let waiting = r.live && r.failed().is_some();
-    let room = max_rows.saturating_sub(1 + usize::from(waiting));
+    // v0.5.2: a dependency build in flight says what it is and how long it usually takes
+    let deps = r.steps.iter().any(|s| s.name == "deps" && s.st == StepSt::Running);
+    let room = max_rows.saturating_sub(1 + usize::from(waiting) + usize::from(deps)).max(1);
     let n = r.steps.len();
     let at = r.steps.iter().position(|s| s.st != StepSt::Pass).unwrap_or(n.saturating_sub(1));
     let skip = (at + 2).saturating_sub(room).min(n.saturating_sub(room));
-    rows.extend(r.steps.iter().skip(skip).take(room).map(|s| step_row(s, width, now_ms, false)));
+    for s in r.steps.iter().skip(skip).take(room) {
+        rows.push(step_row(s, width, now_ms, false));
+        if s.name == "deps" && s.st == StepSt::Running && rows.len() < max_rows {
+            rows.push(Line::from_span(format!("    {DEPS_ESTIMATE}"), Style::dim()).truncate(width));
+        }
+    }
     if waiting && rows.len() < max_rows {
         rows.push(Line::from_span("    ↺ rolling back at the next idle point", Style::fg(Role::Harm)).truncate(width));
     }
@@ -630,6 +724,54 @@ mod tests {
         let r = &done[0];
         let sum: i64 = r.steps.iter().map(|s| s.took_ms(0).unwrap_or(0) + s.waited_ms().unwrap_or(0)).sum();
         assert!((r.end_ms.unwrap() - r.start_ms - sum).abs() < 1000, "the rows add up: {sum} ms of {} ms", r.end_ms.unwrap() - r.start_ms);
+    }
+
+    /// v0.5.2 (user session v0.5.1-new: "G0 build + tests □ 12 min 3 s" with no ETA, then "G0 ■ pass ·
+    /// 2 min 32 s · waited 17 min 46 s", while the job record said G0 took 1,219,172 ms, most of it a
+    /// cold dependency build): the build is its own step with an estimate while it runs, and the rows
+    /// add up to the job's G0 time with no "waited". A warm cache shows no such step.
+    #[test]
+    fn a_cold_dependency_build_is_its_own_step() {
+        let mut t = Track::default();
+        start(&mut t, SHA, &["G0", "G1", "G2", "G3", "live", "G4"], T0);
+        assert_eq!(t.on_notice(&json!({"kind": "gate_deps", "gate_id": "j-7", "sha": SHA}), T0 + 5_000), Some(vec![]));
+        let live: Vec<String> = t.live_rows(80, T0 + 723_000, MAX_ROWS).iter().map(|l| l.text()).collect();
+        assert!(live[0].contains("deps □ G0 · G1 ·"), "{live:#?}");
+        assert!(live[1].contains("deps dependencies    □ 12 min 3 s"), "{live:#?}");
+        assert_eq!(live[2].trim(), DEPS_ESTIMATE, "{live:#?}");
+        assert!(live[3].contains("G0  build + tests    ·") && !live.iter().any(|l| l.contains("waited")), "{live:#?}");
+        assert!(live.len() <= MAX_ROWS);
+        assert!(!t.spending(), "a build spends nothing");
+        // G0 ends: its notice's wall is the tests only; build_ms and deps_ms are the rest of the job's G0
+        let g0 = |t: &mut Track, build: u64, deps: u64, mode: &str, at: i64| {
+            t.on_notice(&json!({"kind": "gate", "gate_kind": "promote", "gate_id": "j-7", "sha": SHA, "stage": "G0", "pass": true, "reason": null,
+                "score": null, "spent_musd": 0, "wall_ms": 152_648, "cache_permille": null, "build_ms": build, "deps_ms": deps, "deps_mode": mode}), at)
+        };
+        g0(&mut t, 1_066_524, 1_036_000, "stub", T0 + 1_219_172);
+        gate(&mut t, SHA, "G1", Some(true), None, 2_565, T0 + 1_221_737);
+        assert!(t.spending(), "G2's probes spend");
+        gate(&mut t, SHA, "G2", Some(true), None, 24_179, T0 + 1_245_916);
+        gate(&mut t, SHA, "G3", Some(true), None, 721_485, T0 + 1_967_401);
+        t.on_notice(&json!({"kind": "promoted", "sha": SHA, "handoff": false}), T0 + 1_967_401);
+        t.on_notice(&json!({"kind": "gate", "gate_kind": "g4", "sha": SHA, "stage": "G4", "pass": true, "reason": "gate.g4.no_instrument",
+            "score": null, "spent_musd": 0, "wall_ms": 0, "cache_permille": null}), T0 + 1_969_000);
+        let done = t.on_notice(&json!({"kind": "lkg", "sha": SHA}), T0 + 1_969_000).unwrap();
+        let rows: Vec<String> = committed_rows(&done[0], 100, true).iter().map(|l| l.text()).collect();
+        assert!(rows[1].contains("deps dependencies    ■ built · 17 min 16 s · not cached before"), "{rows:#?}");
+        assert!(rows[2].contains("G0  build + tests    ■ pass · 3 min 3 s"), "{rows:#?}");
+        assert!(!rows.iter().take(3).any(|l| l.contains("waited")), "{rows:#?}");
+        let r = &done[0];
+        let g0_job: i64 = r.steps.iter().take(2).map(|s| s.took_ms(0).unwrap_or(0) + s.waited_ms().unwrap_or(0)).sum();
+        assert!((g0_job - 1_219_172).abs() < 1000, "deps + G0 is the job record's G0: {g0_job} ms");
+        let sum: i64 = r.steps.iter().map(|s| s.took_ms(0).unwrap_or(0) + s.waited_ms().unwrap_or(0)).sum();
+        assert!((r.end_ms.unwrap() - r.start_ms - sum).abs() < 1000, "the rows add up: {sum} ms");
+        // a warm cache: no dependency step; G0's row is its build and tests
+        let mut t = Track::default();
+        start(&mut t, SHA, &T2, T0);
+        g0(&mut t, 32_000, 2_000, "hit", T0 + 190_000);
+        let r = t.current().unwrap();
+        assert_eq!((r.steps[0].name.as_str(), r.steps[0].took_ms(0), r.steps[0].waited_ms()), ("G0", Some(184_648), Some(5_352)));
+        assert!(!r.steps.iter().any(|s| s.name == "deps"));
     }
 
     #[test]

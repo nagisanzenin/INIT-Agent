@@ -2,6 +2,129 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.5.2-preview (2026-10-29)
+
+### TUI: what a first-time user saw that was not true (R-TUI; docs/user-sessions/v0.5.1-new.md, v0.5.1-returning.md)
+- **The cold dependency build is its own step.** The first self-change of the compiled core spends 10–20 min building
+  its dependencies inside G0; the gate track said `G0 build + tests □ 12 min 3 s` with no estimate, then
+  `■ pass · 2 min 32 s · waited 17 min 46 s`, and a stranger read the build as idle waiting. The kernel now sends an
+  owner-only `gate_deps` event when that build starts and adds `build_ms`, `deps_ms` and `deps_mode` to G0's owner
+  notice (`kernel-supervise` `promote/stages.rs` `prepare_deps`, `promote/record.rs` `Record::owner_extra`; the body's
+  copy of the notice is unchanged). The track shows `deps dependencies □ 12 min 3 s` with
+  `first build of dependencies (not cached yet): usually 10–20 min on an M2` under it, then
+  `■ built · 17 min 16 s · not cached before; later changes reuse it`, and G0's row is its body build plus tests, so the
+  rows add up to the job record's G0 time.
+- **`/panic` then `/resume`.** The status bar kept the dropped body's id (`body 9aa7d39624ce`) while `/status` named the
+  one running: it now hides the body while the slot is panicked, halted or stopped and after a panic, resume, halt or
+  crash-loop notice or a new kernel instance, until a fresh `state` frame or the kernel's `/status` line names it. A
+  successful resume shows `✓`, not `✕`. When the running version is newer than the audited-good one, `/panic`'s
+  question now says that the self-changes kept since then stop running after `/resume`.
+- **Unknown commands are refused locally.** `/undo list` in v0.5.1 went to the model as a chat message and was billed.
+  A line whose first word looks like a command that no part of INIT reads is not sent and stays in the box
+  (`unknown command — /help lists them; start the line with // to send it as a message`); new `/help` lists the
+  commands. `/undo list` and `/undo <id>` (R-UNDO) are in the command list and completion and go to the Root as lines.
+- **Money labels.** A turn seen only in the attach replay read `$0.000` (the ledger does not move while a replay is
+  read); it now reads `$? before this launch` (or `≥$0.002` for the part seen live), and a self-change seen only in the
+  replay is not shown as a `$0.000` check window. `incl. checks` now appears only when a step that makes model
+  requests (G2, G3, G4) was in flight during the run, not merely a self-change building.
+- **`/details` shows what it says.** The body now sends a shell command's first 3 lines (at most 400 characters, `…`
+  when cut) as its preview, and the last 10 lines of its output for every command that ran, not only for failures
+  (`seed/src/tools/mod.rs` `command_preview`, `fail_detail`; display only: the model's result is unchanged and the
+  session log already held the output). Ctrl-O and `/details` show every line of the call, say when it is a preview,
+  and show `output (last N lines)`; a shell call from an older body says that none was sent.
+- **Smaller things a stranger hit.** After a relaunch the replayed calls read `ran 5 tools in 0.0 s` and
+  `started 11:19:10Z · 0.0 s` for calls that took minutes: they now read `before this launch`. `init-tui` ignores a
+  word starting with `#` and the rest (zsh's default `interactive_comments` off passed the README's `# first run: …`
+  on, and `init-tui` refused `unknown argument "#"`). Plain `/undo` refused as `unchanged` (R-UNDO) shows the Root's
+  message, and the TUI's own `/undo: restored snapshot …` line no longer prints the snapshot's UTC time (the Root's
+  restore notice gives the local one).
+
+### Root: `/undo` after a relaunch, and an upgrade cut off part way (R-UNDO; docs/user-sessions/v0.5.1-new.md, the post-release review of v0.5.1)
+- **`/undo` reaches the state before the agent's edits after INIT is reopened.** Every launch snapshots the folder, and
+  v0.5.1's `/undo` restored the newest snapshot, which after a relaunch already held the agent's edits, so `hello.py`
+  was "restored" into place. `/undo` now restores the newest snapshot whose content differs from the folder now (a
+  sha256 digest of the Root's own clone; times are not in it). A launch whose folder is unchanged since the newest
+  snapshot keeps no new one and says so, so relaunches no longer push the useful snapshot out of the 5 kept.
+  `/undo list` shows each snapshot, newest first: its id, time on your clock (not UTC), what took it (launch, full
+  access on, before an `/undo`) and folder, with the one `/undo` restores marked. `/undo <id>` restores a chosen one
+  (`/undo <id> confirm`). Unknown ids, and a snapshot equal to the folder now, are refused with a message that names
+  `/undo list`. Every safety property of the restore is kept (busy check, typed confirmation, the current state saved
+  first, links never followed). New: the confirmation restores what it named (a folder changed since the question is
+  asked again), and the snapshot being restored is never pruned (`root/crates/init-root/src/access.rs`; root.md §3.17.4).
+- **The launch notice is true.** "snapshot … taken (/undo restores it)" became false after a relaunch; it now says
+  `(/undo list shows what /undo can restore)`. `/undo list` is not counted as an owner correction by the harm sentinel.
+- **A line queued during a panic says so.** The notice "the system is restarting; your message is queued" during a
+  panic or a stop now says INIT is stopped and that the line goes to the agent after `/resume` (`link.rs`).
+- **An upgrade cut off part way never runs the agent on a half-upgraded install.** install.sh leaves the service file
+  in place, so a terminal closed during the probe and then a login started the new Root on the new tuple while the
+  rollback anchors still named the old kernel. `init-root start` now finishes the upgrade the one sound way. If its
+  commit had begun, it commits and starts. Otherwise it rolls back to the install from before and exits, so the
+  service starts the old Root. Either way it logs the outcome, writes an alert and prints what to run
+  (`upgrade.rs` `at_start`; root.md §4.3). The health probe's own Root is marked and still runs.
+- **`upgrade --commit` installs the release's get.sh** into `~/.init-root/cache/` (staged by the replace step). A
+  commit run by hand after a failed in-script commit no longer leaves `init-agent upgrade` on the old release's get.sh.
+- **No stale "next" hint.** install.sh's replace step passes `--by-installer`, so the Root no longer prints
+  `"next": "… upgrade --probe, then --commit"` after the installer already ran both. The bare step still prints it.
+- **Small:** a failed rollback's message names every pointer it tried, `settled` included (`tuple.rs`).
+
+### Body tests: no more load-induced refusals of a good self-change (R-FLAKE; REL-051 class 6)
+- G0 runs the body's own tests on the owner's machine, and on 2026-10-28 two of them failed 3 of 5 macOS self-change
+  runs on a loaded Mac, refusing changes that were good. `t_aw_5_probe_timeout_and_failure_give_unknowns` asserted
+  that the hanging fake `git` had started, which a 2 s timeout under load can pre-empt; `took >= timeout` is the proof
+  of the timeout path, and the mark is now a diagnostic. `crash_restart_continues_pending_run` read a request body
+  that `init-mockllm` was still writing ("EOF while parsing"): the mock now writes every recorded body atomically
+  (a hidden temp name, then rename; `kernel/crates/init-testkit` `mockllm` `write_atomic`), its log reader skips a
+  line still being appended, and the body's readers retry a partial file for up to 5 s.
+- An audit of every wall-time assertion in the body suite: sleeps used as synchronisation now wait for the event
+  (a cancel after the spawn, an abort once the 429's retry began or the guest's process started), and bounds that
+  measured the scheduler rather than the behaviour are generous or measured on the body's own clock (heartbeat
+  intervals from `uptime_ms`, an interrupt's 200 ms to the bash call's end, the lock-release check as one `try_lock`).
+  Product latencies (abort, cancel, Esc) keep their bounds. Root's `m7_draw_and_g4_slice`: its fake kernel gave
+  every control-link call 30 s and died when a loaded `sealed.g4_slice` took longer (measured 25 s at load 45); an
+  injected call now waits its `wall_s` + 120 s (`tests/support/fakekernel.rs`), and the test bounds the answer by 4x
+  a slice it measured earlier in the same run (120–720 s), not a fixed 60 s.
+
+### Installers and docs: what the post-release review of v0.5.1 found (R-POST)
+- **INIT installed in another ROOT_HOME.** An owner who installed with `INIT_ROOT_HOME=X` and the service, then pasted
+  the README one-liner without it, got a second install in `~/.init-root`: install.sh rewrote the one LaunchAgent
+  (`dev.init.root`) or systemd user unit (`init-root.service`) for the new home and overwrote the `init-agent` launcher,
+  which left the evolved INIT in X behind. Before a fresh install, get.sh and install.sh now read the `INIT_ROOT_HOME`
+  of the service file this install would write (not with `--no-service`, and only when HOME is the passwd home, the
+  only case where install.sh writes one) and the ROOT_HOME baked into INIT's launchers in `INIT_BIN_DIR`. When that
+  home holds an install.json they refuse, before anything is downloaded or written, with that home's upgrade line
+  (`INIT_ROOT_HOME=X init-agent upgrade`, or the piped get.sh for 0.4.1 and 0.5.0, or the uninstall before 0.4.1),
+  and say how to make a separate second INIT instead (its own homes and bin directory, `--no-service`)
+  (`svc_file`, `other_home`; tests/install/test_installed_elsewhere.py).
+- **No bundle for this machine.** A Linux aarch64 install of 0.4.1 (no 0.5.x aarch64 bundle) was told to upgrade, and
+  the upgrade then stopped on a missing bundle with advice for a fresh install. get.sh now reads the latest release's
+  latest.json before it advises an upgrade over an install (`latest_without_target`; it fetches nothing else, and a
+  failed fetch leaves the advice as it was). When no bundle for this target is listed, it says so, that the installed
+  INIT keeps working, and to upgrade when a bundle for this target is released (the releases page). An upgrade that
+  meets a missing bundle says nothing was changed and to run it again then.
+- **install.sh's closing `Uninstall:` line** printed the uninstaller's path without `INIT_ROOT_HOME=` for a custom home;
+  it is now `INIT_ROOT_HOME=… bash '<release>/scripts/uninstall.sh'`, quoted, and runs as printed.
+- **uninstall.sh honours install.json's `bin_dir`.** After an install with `INIT_BIN_DIR` set, uninstalling without it
+  left `init-agent` and `init-tui` behind (it looked only in `~/.local/bin`). `INIT_BIN_DIR` still wins when set
+  (tests/install/test_uninstall.py).
+- **The launcher reads the passwd home with `/usr/bin/python3`**, as the other scripts do, and only when a message needs
+  it. `(unset HOME; echo ~)` returns `$HOME` under bash 5.3, so with a HOME that is not the passwd home the printed
+  `start --foreground` line lacked `INIT_ROOT_HOME=` and the LaunchAgent path named the wrong home (checked under every
+  bash on the machine).
+- 21 mutations of these fixes, each run on a copy of the scripts, are all killed by the tests above (release protocol
+  §4.1).
+- **Docs.** README and docs/guide.md: the first run is `~/.local/bin/init-agent` (a default macOS shell has no
+  `~/.local/bin` on its `PATH`, so plain `init-agent` was "command not found"), with the line that adds it. The README
+  status no longer says the v0.5.1 macOS bundle took a core change through the gates (its attempt passed G0–G2 and
+  lost G3's inner G0 to a known flaky test; x86_64 passed), and gives REL-051's count, 2,082 passed. The cold
+  core-change time is the receipt's 788 s (13.1 min; v0.5.0, M2, mock model; build/status/bundle-e2e-t2.json,
+  `promote_wait`), not 838 s, in README, the guide and the v0.5.1 notes. The guide's uninstall is the curl line get.sh
+  prints (the `~/.local/share/init/<version>/` copy does not exist after an upgrade, which unpacks into
+  `~/.init-root/cache/upgrade/<version>/`), with the `INIT_BIN_DIR` note, and its code blocks carry no `#` comments
+  (zsh does not take them as comments when pasted). The v0.5.1 notes: one flaky-test paragraph that says v0.5.2,
+  `/usr/bin:/bin:/usr/sbin:/sbin`, and absolute links (a GitHub release body renders relative links as 404s).
+  docs/foundations.md: the TCB is §10, `upgrade_commit` moves lkg and the twin too, and the protocol reports the TCB's
+  size from v0.5.3, not yet. docs/release-protocol.md: "§4 CI once, the body suite ×5 under load" (v1.1).
+
 ## v0.5.1-preview (2026-10-28)
 
 ### Workspace mode: git config can no longer be redirected (post-release review)

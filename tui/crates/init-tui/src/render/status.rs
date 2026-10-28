@@ -47,7 +47,12 @@ pub fn usage_rows(info: &Info) -> (String, Vec<(String, String)>) {
         let s = &info.session;
         rows.push(("this TUI", format!("{}: input {} ({} cached), output {}", plural(s.requests, "request"), s.input, s.cached, s.output)));
         rows.push(("cache hit", format!("{} (token-weighted: cached / input; ? when the provider reports no cache field)", s.cache().show())));
-        rows.push(("last turn", format!("{}: {}", plural(info.turn.requests, "request"), info.turn_line())));
+        let mut last = format!("{}: {}", plural(info.turn.requests, "request"), info.turn_line());
+        if info.turn_replayed {
+            // v0.5.2: why a replayed turn has no figure
+            last.push_str(" (it ran, at least in part, before this TUI attached; a turn's cost is measured only while the TUI watches it, and the Root's total includes it)");
+        }
+        rows.push(("last turn", last));
     }
     ("usage (USD estimated from usage and tariffs, not an invoice)".to_string(), rows.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
 }
@@ -62,6 +67,8 @@ fn self_change_cost(info: &Info) -> String {
     let kernel = info.state.as_ref().and_then(|s| s["evolution_checks_today_musd"].as_i64()).filter(|n| *n >= 0);
     let measured = info.gate_musd();
     let mut out = match (info.gates.seen, measured) {
+        // v0.5.2: one that ran before this TUI attached was not measured here
+        (false, _) if info.gates.seen_replayed => "a self-change ran before this TUI attached: its cost is in the Root's total, not measured here".to_string(),
         (false, _) => "none seen by this TUI".to_string(),
         (true, Some(m)) => format!("{} metered by the Root while self-changes ran (seen by this TUI; any other spend in that time is included)", usd(m)),
         (true, None) => "a self-change ran, but its cost is unknown (no ledger total from the Root)".to_string(),
@@ -248,7 +255,8 @@ pub fn bar(info: &Info, width: usize, now: Instant, now_ms: i64, _spin: usize, n
     }
     // body (drop 4): which body runs, and whether it is the last known good one; a provisional body is
     // a change in flight
-    if let Some(sha) = state.and_then(|s| s["sha12"].as_str()).filter(|s| !s.is_empty()) {
+    // v0.5.2: not a body id from before a panic, a resume or a kernel restart (`Info::body_stale`)
+    if let Some(sha) = state.and_then(|s| s["sha12"].as_str()).filter(|s| !s.is_empty() && !info.body_stale) {
         let mut l = Line::from_span("body ", Style::mute());
         l.push(sanitize::inline(sha, Style::PLAIN).text(), Style::dim());
         match state.and_then(|s| s["mode"].as_str()) {
@@ -410,11 +418,11 @@ mod usage_tests {
         info.on_egress(money(10_000));
         info.on_state(json!({"busy": false, "evolution_checks_today_musd": 0}), t0);
         assert!(info.gate_musd().is_none());
-        info.on_gate(true, t0 + Duration::from_secs(1)); // gate_start: the window opens at $0.010
+        info.on_gate(true, false, t0 + Duration::from_secs(1)); // gate_start: the window opens at $0.010
         info.on_egress(money(25_000));
         assert_eq!(info.gate_musd(), Some(15_000), "the open window so far");
         info.on_egress(money(40_000));
-        info.on_gate(false, t0 + Duration::from_secs(600)); // kept: closes at the next ledger answer
+        info.on_gate(false, false, t0 + Duration::from_secs(600)); // kept: closes at the next ledger answer
         info.on_egress(money(40_850));
         info.on_egress(money(45_850)); // a turn after the gate is not the gate's
         assert_eq!(info.gate_musd(), Some(30_850));

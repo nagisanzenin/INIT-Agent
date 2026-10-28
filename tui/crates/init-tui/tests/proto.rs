@@ -416,7 +416,7 @@ fn wire9_workspace_first_undo_and_full_confirmations() {
     assert!(out.contains(&format!("[root] workspace: {}", proj.display())), "{out}");
     assert!(out.contains("[tui] undo restores the snapshot s1 of the workspace; type confirm"), "{out}");
     assert!(out.contains("[tui] type confirm and press Enter to go ahead with /undo; anything else cancels"), "{out}");
-    assert!(out.contains("[tui] /undo: restored snapshot s1 (2026-10-20T21:00:00Z) of "), "{out}");
+    assert!(out.contains("[tui] /undo: restored snapshot s1 of ") && !out.contains("2026-10-20T21:00:00Z"), "{out}");
     assert!(out.contains("[tui] /full on: not confirmed; nothing changed"), "{out}");
     assert!(!out.contains("no workspace"), "{out}");
     let (h, b) = (out.find("> hello").unwrap(), out.find("> bye").unwrap());
@@ -619,5 +619,22 @@ fn picker_line_mode_numbered_prompt() {
     assert!(!out.contains("The agent asks:"), "{out}");
     let lines: Vec<String> = fx.received().iter().filter(|r| r.frame["t"] == "line").map(|r| r.frame["text"].as_str().unwrap_or("").to_string()).collect();
     assert_eq!(lines, ["SQLite", "and 2 more things"]);
+    cleanup(&fx.dir);
+}
+
+/// v0.5.2 (user sessions v0.5.1: a turn seen again after a relaunch read `$0.000`): line mode's
+/// `[turn]` line for a turn that came in the attach replay says its cost is not known here, never
+/// `$0.000` (the ledger does not move while the replay is read).
+#[test]
+fn line_mode_replayed_turn_is_not_free() {
+    let fx = Fixture::start("rpl");
+    fx.emit(json!({"busy": true, "t": "state"}));
+    fx.emit(json!({"boot_seq": 1, "kind": "turn_end", "t": "display", "text": "tokens: in 1000 (cached 900), out 10"}));
+    fx.emit(json!({"busy": false, "t": "state"}));
+    let o = run(&fx.rh, &["--plain", "--wait-idle", "--timeout", "20"], "", 30);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let out = text(&o);
+    let turn = out.lines().find(|l| l.starts_with("[turn] ")).unwrap_or_else(|| panic!("no turn line: {out}"));
+    assert!(turn.contains("· $? before this launch") && !turn.contains("$0.000"), "{turn}");
     cleanup(&fx.dir);
 }

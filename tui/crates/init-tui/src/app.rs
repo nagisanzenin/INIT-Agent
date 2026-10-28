@@ -172,6 +172,27 @@ pub const PANIC_ASK: &str = "[tui] /panic is the emergency stop: it kills every 
     audited-good version. \
     To stop only the current run use /stop; to stop the agent without a demotion, /root stop. \
     Type panic and press Enter to stop everything now; Esc or any other line cancels.";
+
+/// v0.5.2 (user session v0.5.1-new: "Panic quietly threw away my new tool"): `/panic`'s question,
+/// with what `/resume` will drop when the running version is not the audited-good one (the Root's
+/// status `tuples`): the self-changes kept since it stop running.
+pub fn panic_ask_text(status: Option<&serde_json::Value>) -> String {
+    let t = status.map(|s| &s["tuples"]);
+    let (cur, aud) = (t.and_then(|t| t["current"].as_str()), t.and_then(|t| t["audited"].as_str()));
+    match (cur, aud) {
+        (Some(c), Some(a)) if c != a => {
+            let (c, a) = (crate::render::sanitize::plain(c, 0), crate::render::sanitize::plain(a, 0));
+            let cut = PANIC_ASK.find(" Type panic").unwrap_or(PANIC_ASK.len());
+            format!(
+                "{} What you lose: this agent runs version {c}, newer than the audited-good {a}, so after /resume the \
+                 self-changes kept since {a} no longer run (they stay in the lineage; your files are not touched).{}",
+                &PANIC_ASK[..cut],
+                &PANIC_ASK[cut..]
+            )
+        }
+        _ => PANIC_ASK.to_string(),
+    }
+}
 /// The hint line while `/panic` waits for its confirmation.
 pub const PANIC_HINT: &str = "type panic and press Enter to stop everything now · Esc or any other line cancels";
 /// The word that confirms `/panic`.
@@ -348,9 +369,14 @@ impl App {
                     return;
                 }
                 let was_first = self.feed.attaches == 0;
+                // v0.5.2: what a replay brings ran while this TUI was not watching (its turn costs are unknown)
+                self.info.replaying = self.feed.replaying();
+                self.t.replaying = self.info.replaying;
                 for out in self.feed.on_frame(&raw, v) {
                     self.feed_out(out, at, now);
                 }
+                self.info.replaying = false;
+                self.t.replaying = false;
                 if was_first && self.feed.attaches == 1 && self.lat.first_paint_ms.is_none() {
                     self.need_first_paint = true;
                 }
@@ -498,7 +524,7 @@ impl App {
                                 self.t.push(Kind::Gate(Box::new(r)), now_ms);
                             }
                             // TUI-FIX: the ledger's spend while a self-change is in flight (/usage)
-                            self.info.on_gate(self.t.gates.in_flight(), now);
+                            self.info.on_gate(self.t.gates.in_flight(), self.t.gates.spending(), now);
                             let _ = self.poll.send(PollCmd::Egress);
                             self.t.dirty = true;
                             return;
@@ -522,6 +548,13 @@ impl App {
                             self.set_hint("not taken back: the agent already read it", 4);
                         }
                         return;
+                    }
+                    // v0.5.2: the status bar's body follows a panic, a resume or a restart, and the
+                    // kernel's own `/status` line
+                    if src == Some("kernel") {
+                        self.info.on_kernel_status_line(&text);
+                    } else if crate::notice::restarts_agent(&text, src, code.as_deref()) {
+                        self.info.on_root_restart_notice();
                     }
                     self.t.notice(&level, &text, src, code.as_deref(), now_ms);
                     if src != Some("kernel") && (text.starts_with("[root]") || text.starts_with("PANIC")) {
@@ -851,6 +884,14 @@ impl App {
             self.details();
             return;
         }
+        if text.trim() == "/help" {
+            // v0.5.2: the commands, locally (the unknown-command answer points here)
+            self.ed.push_history(&text);
+            self.ed.clear();
+            let (title, rows) = proto::help_rows();
+            self.t.push(Kind::Table { title, rows }, Self::now_ms());
+            return;
+        }
         let kind = proto::line_kind(&text, self.info.rootish());
         let now = Instant::now();
         if kind != LineKind::Panic && self.acc.holds_lines() {
@@ -889,8 +930,16 @@ impl App {
             self.ed.clear();
             let id = self.echoes.new_id();
             self.t.push(Kind::Owner { id, text: "/panic".into(), st: OwnerSt::Command }, Self::now_ms());
-            self.t.notice("warn", PANIC_ASK, Some("tui"), None, Self::now_ms());
+            let ask = panic_ask_text(self.info.status.as_ref());
+            self.t.notice("warn", &ask, Some("tui"), None, Self::now_ms());
             self.panic_ask = true;
+            return;
+        }
+        if let Some(word) = proto::unknown_command(&text) {
+            // v0.5.2 (user session v0.5.1-new: `/undo list` went to the model and was billed): an
+            // unknown command is not sent; the line stays in the box
+            self.info_block(format!("{word}: {} (nothing was sent)", proto::UNKNOWN_HINT));
+            self.set_hint("not sent: an unknown command · // at the start sends the line as a message", 5);
             return;
         }
         let frame = proto::line(&text);

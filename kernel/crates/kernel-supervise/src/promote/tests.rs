@@ -10,6 +10,8 @@ use serde_json::json;
 struct FakeSup {
     state: Mutex<Option<SupState>>,
     calls: Mutex<Vec<String>>,
+    /// Owner-only events (`kind gate_id`), kept apart from `calls` (v0.5.2: `gate_deps`).
+    events: Mutex<Vec<String>>,
 }
 
 impl Supervise for FakeSup {
@@ -33,6 +35,9 @@ impl Supervise for FakeSup {
     }
     fn notice(&self, kind: &str, _: Value) {
         self.calls.lock().unwrap().push(format!("notice {kind}"));
+    }
+    fn owner_event(&self, kind: &str, data: Value) {
+        self.events.lock().unwrap().push(format!("{kind} {}", data["gate_id"].as_str().unwrap_or("")));
     }
 }
 
@@ -273,6 +278,7 @@ fn deps_cache_stub_then_warm_hit_then_corrupt_falls_back() {
         sdkroot: sdk.map(|o| std::path::PathBuf::from(String::from_utf8_lossy(&o.stdout).trim())),
     };
     cfg.supervise.git = crate::git::testfx::GIT_BIN.into();
+    let sup = Arc::new(FakeSup::default());
     let e = Env {
         home: fx.home.clone(),
         cfg,
@@ -281,7 +287,7 @@ fn deps_cache_stub_then_warm_hit_then_corrupt_falls_back() {
         g0: Arc::new(kernel_gate::g0::DirectSpawner),
         proxy: Arc::new(NoGateProxy),
         lineage: Arc::new(FakeLineage::default()),
-        sup: Arc::new(FakeSup::default()),
+        sup: sup.clone(),
         jobs: Arc::new(MemJobs::default()),
         upload_pack: "git-upload-pack".into(),
         level: 0,
@@ -326,6 +332,8 @@ fn deps_cache_stub_then_warm_hit_then_corrupt_falls_back() {
     let stub_log = std::fs::read_to_string(e.home.join("state/kernel/gate/j-1/deps-stub.log")).unwrap();
     assert!(stub_log.contains("Compiling tinydep") && stub_log.contains("$ cargo check") && stub_log.contains("--no-run"), "{stub_log}");
     assert!(cache.lookup(&key).is_none(), "nothing is published before G0 passes");
+    // v0.5.2 (R-TUI): the owner hears that the dependency build started (the gate track's `deps` step)
+    assert_eq!(sup.events.lock().unwrap().as_slice(), ["gate_deps j-1"]);
     assert!(cache.publish(&key, p1.staged.as_deref().unwrap()).unwrap());
     let fps: Vec<String> = std::fs::read_dir(cache.lookup(&key).unwrap().join("debug/.fingerprint")).unwrap().flatten().map(|d| d.file_name().to_string_lossy().into_owned()).collect();
     assert!(fps.iter().any(|f| f.starts_with("tinydep-")) && !fps.iter().any(|f| f.starts_with("init-body-")), "{fps:?}");
@@ -334,6 +342,7 @@ fn deps_cache_stub_then_warm_hit_then_corrupt_falls_back() {
     assert_eq!((p2.mode, p2.key.as_deref()), ("hit", Some(key.as_str())), "{p2:?}");
     assert_eq!(out2, "two dep\n");
     assert!(log2.contains("Compiling init-body") && !log2.contains("Compiling tinydep"), "{log2}");
+    assert_eq!(sup.events.lock().unwrap().len(), 1, "a warm hit builds no dependencies, so no event");
     // 3. Corrupt entry: rejected, deleted, rebuilt from the stub.
     let rlib = std::fs::read_dir(cache.lookup(&key).unwrap().join("debug/deps")).unwrap().flatten().map(|d| d.path()).find(|p| p.extension().is_some_and(|x| x == "rlib")).unwrap();
     std::fs::write(&rlib, b"poisoned").unwrap();

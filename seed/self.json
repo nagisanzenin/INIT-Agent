@@ -3,14 +3,14 @@
     "crate": "init-body",
     "edition": "2024",
     "rust_version": null,
-    "version": "0.5.1"
+    "version": "0.5.2"
   },
-  "body_tokens": 431218,
+  "body_tokens": 433723,
   "budget": {
-    "bytes": 1663029,
+    "bytes": 1672198,
     "files": 99,
-    "tests_tokens": 23416,
-    "tokens": 431218,
+    "tests_tokens": 23734,
+    "tokens": 433723,
     "uncounted_tokens": 74200
   },
   "components": [
@@ -57,7 +57,7 @@
       "paths": [
         "src/boot/awareness/tests.rs"
       ],
-      "tokens": 28435
+      "tokens": 28599
     },
     {
       "compensates_for": "none",
@@ -101,7 +101,7 @@
       "paths": [
         "src/boot/housekeep.rs"
       ],
-      "tokens": 2809
+      "tokens": 2874
     },
     {
       "compensates_for": "none",
@@ -442,7 +442,7 @@
       "paths": [
         "src/ext_host/tests.rs"
       ],
-      "tokens": 17126
+      "tokens": 17267
     },
     {
       "compensates_for": "none",
@@ -530,7 +530,7 @@
       "paths": [
         "src/log/tests.rs"
       ],
-      "tokens": 8964
+      "tokens": 8969
     },
     {
       "compensates_for": "none",
@@ -618,7 +618,7 @@
       "paths": [
         "src/loop/tests.rs"
       ],
-      "tokens": 27235
+      "tokens": 27773
     },
     {
       "compensates_for": "none",
@@ -739,7 +739,7 @@
       "paths": [
         "src/provider/mock_tests.rs"
       ],
-      "tokens": 10834
+      "tokens": 11206
     },
     {
       "compensates_for": "none",
@@ -860,7 +860,7 @@
       "paths": [
         "src/tools/mod.rs"
       ],
-      "tokens": 6309
+      "tokens": 6624
     },
     {
       "compensates_for": "none",
@@ -871,7 +871,7 @@
       "paths": [
         "src/tools/tests.rs"
       ],
-      "tokens": 14226
+      "tokens": 15131
     },
     {
       "compensates_for": "none",
@@ -2204,14 +2204,14 @@
       "bytes": 49136,
       "counted": false,
       "path": "Cargo.lock",
-      "sha256": "a83d3551f6064b88e326d40f6264485d2b33a32cd9d070344f645e5013eec6eb",
+      "sha256": "cc88b2b248319e18e65a0413c25acba48d41612337fa2cbbd487b76eb7d21cb7",
       "tokens": 18415
     },
     {
       "bytes": 1840,
       "counted": true,
       "path": "Cargo.toml",
-      "sha256": "1e492cb48fefa9de644add1311e7feb771ece157c2086d1f273a2abe8c896961",
+      "sha256": "07196d383c7545dc085a8d3f8283d8593baaf4d611a7408a82615d556877ad59",
       "tokens": 524
     },
     {
@@ -2334,11 +2334,11 @@
       "tokens": 1460
     },
     {
-      "bytes": 97238,
+      "bytes": 97857,
       "counted": true,
       "path": "src/boot/awareness/tests.rs",
-      "sha256": "39a38bf1f3494011d772e9493869a9be9bc19d587da094ba37e4252576f4b701",
-      "tokens": 28435
+      "sha256": "cadc9a25871aa96a946848b460e638329a36b477a0ba7786c770bddf250aa806",
+      "tokens": 28599
     },
     {
       "bytes": 27362,
@@ -2362,11 +2362,11 @@
       "tokens": 11088
     },
     {
-      "bytes": 11252,
+      "bytes": 11507,
       "counted": true,
       "path": "src/boot/housekeep.rs",
-      "sha256": "b1583dab53f8bb4ec9eef0192f086a6a677a157a3d851ac3995cb214a4c8aa7e",
-      "tokens": 2809
+      "sha256": "fc282c2112bd981ca74e11f300a4c8edbb57aea6ef3f12c09d500c1ceab14652",
+      "tokens": 2874
     },
     {
       "bytes": 4523,
@@ -2663,11 +2663,11 @@
       "tokens": 1110
     },
     {
-      "bytes": 61833,
+      "bytes": 62455,
       "counted": true,
       "path": "src/ext_host/tests.rs",
-      "sha256": "142ea0f3bfbf1a2d796ef1922087663950e1af8c0b0445680c063ac24943733c",
-      "tokens": 17126
+      "sha256": "69f3d80fb750769038a067ec0a249d4f02891f6ffc52dd05a2ef28160b36f94b",
+      "tokens": 17267
     },
     {
       "bytes": 4892,
@@ -2726,11 +2726,11 @@
       "tokens": 3312
     },
     {
-      "bytes": 32947,
+      "bytes": 32991,
       "counted": true,
       "path": "src/log/tests.rs",
-      "sha256": "7b597177c8e36abe6f2b52807a0b6d1fb417f80c21452d709ed7e112888d538b",
-      "tokens": 8964
+      "sha256": "b13889fd7b309e775642a89ba671030e470bd548031004036d5c9b7d88c1d10a",
+      "tokens": 8969
     },
     {
       "bytes": 3880,
@@ -2782,11 +2782,11 @@
       "tokens": 1993
     },
     {
-      "bytes": 97106,
+      "bytes": 98916,
       "counted": true,
       "path": "src/loop/tests.rs",
-      "sha256": "3274f0ec33b7cb62181120764c21d2c44b25f35aadb086c296e40ba05de2b938",
-      "tokens": 27235
+      "sha256": "ee116ef275387f8a25c6afaff014a2c9e6ab0804fc7208210441cb17ce828eac",
+      "tokens": 27773
     },
     {
       "bytes": 3634,
@@ -2859,11 +2859,11 @@
       "tokens": 1891
     },
     {
-      "bytes": 40934,
+      "bytes": 42390,
       "counted": true,
       "path": "src/provider/mock_tests.rs",
-      "sha256": "39ec026e2c26246303e345c3ebc96bccc317f724e64b41a0b80cb989b715d333",
-      "tokens": 10834
+      "sha256": "911fbfe5aa4ea396459e641d2c94a30dada0e57b11df224ae19ec1c9fe3692e6",
+      "tokens": 11206
     },
     {
       "bytes": 8249,
@@ -3132,11 +3132,11 @@
       "tokens": 3612
     },
     {
-      "bytes": 25006,
+      "bytes": 26165,
       "counted": true,
       "path": "src/tools/mod.rs",
-      "sha256": "e08a46c69085c7281fdfad8ebac13e4d28f5754dda919ca896a1477e0a7b7863",
-      "tokens": 6309
+      "sha256": "bc853576ed1f3e1059ec8d447b5d3946ae92c0d67d4630d41ccd34390c29e9e6",
+      "tokens": 6624
     },
     {
       "bytes": 12520,
@@ -3153,11 +3153,11 @@
       "tokens": 1459
     },
     {
-      "bytes": 49151,
+      "bytes": 52355,
       "counted": true,
       "path": "src/tools/tests.rs",
-      "sha256": "d0009cc7d18df371d28f0ecf1f58cfafa851403878356c4adf2ac710bb8c1d34",
-      "tokens": 14226
+      "sha256": "f77533517f566e7c786a26030b154f40d96bdcc29f45c39fb823ee556dc002a5",
+      "tokens": 15131
     },
     {
       "bytes": 8955,
@@ -3174,11 +3174,11 @@
       "tokens": 1217
     },
     {
-      "bytes": 75984,
+      "bytes": 77218,
       "counted": false,
       "path": "tests/boot.rs",
-      "sha256": "eac853573152162252cf7105dfef2acdd8b0c7deb4c696aacf2eddbd9f799a6c",
-      "tokens": 21409
+      "sha256": "64412c451fbcf047e84dbf266b684fb4b28fa95786fbb1d6c30b034234e902e2",
+      "tokens": 21727
     },
     {
       "bytes": 7445,
@@ -3202,7 +3202,7 @@
   },
   "hooks": [],
   "manifest": {
-    "body_version": "0.5.1",
+    "body_version": "0.5.2",
     "control_channel": "stdio-jsonl/1",
     "env": [
       "HOME",
@@ -4629,457 +4629,457 @@
           "vis": "private"
         },
         {
-          "end_line": 586,
+          "end_line": 592,
           "kind": "fn",
           "line": 538,
           "name": "t_aw_5_probe_timeout_and_failure_give_unknowns",
-          "tokens": 503,
+          "tokens": 617,
           "vis": "private"
         },
         {
-          "end_line": 619,
+          "end_line": 625,
           "kind": "fn",
-          "line": 588,
+          "line": 594,
           "name": "t_aw_5_probe_without_path_or_tools",
           "tokens": 342,
           "vis": "private"
         },
         {
-          "end_line": 659,
+          "end_line": 665,
           "kind": "fn",
-          "line": 621,
+          "line": 627,
           "name": "t_aw_5_probe_on_this_machine",
           "tokens": 380,
           "vis": "private"
         },
         {
-          "end_line": 678,
+          "end_line": 684,
           "kind": "fn",
-          "line": 661,
+          "line": 667,
           "name": "t_aw_5_golden_full_and_short",
           "tokens": 306,
           "vis": "private"
         },
         {
-          "end_line": 709,
+          "end_line": 715,
           "kind": "fn",
-          "line": 680,
+          "line": 686,
           "name": "env_changed_ignores_date_budget_and_small_disk_moves",
           "tokens": 353,
           "vis": "private"
         },
         {
-          "end_line": 737,
+          "end_line": 743,
           "kind": "fn",
-          "line": 711,
+          "line": 717,
           "name": "env_form_follows_the_change_rule",
           "tokens": 306,
           "vis": "private"
         },
         {
-          "end_line": 753,
+          "end_line": 759,
           "kind": "fn",
-          "line": 743,
+          "line": 749,
           "name": "t_aw_6_promote_golden",
           "tokens": 336,
           "vis": "private"
         },
         {
-          "end_line": 774,
+          "end_line": 780,
           "kind": "fn",
-          "line": 755,
+          "line": 761,
           "name": "t_aw_6_cold_new_session_golden",
           "tokens": 316,
           "vis": "private"
         },
         {
-          "end_line": 813,
+          "end_line": 819,
           "kind": "fn",
-          "line": 776,
+          "line": 782,
           "name": "t_aw_6_cold_continue_and_after_panic",
           "tokens": 500,
           "vis": "private"
         },
         {
-          "end_line": 835,
+          "end_line": 841,
           "kind": "fn",
-          "line": 815,
+          "line": 821,
           "name": "t_aw_6_kernel_upgrade",
           "tokens": 401,
           "vis": "private"
         },
         {
-          "end_line": 861,
+          "end_line": 867,
           "kind": "fn",
-          "line": 837,
+          "line": 843,
           "name": "t_aw_6_kernel_rollback_with_and_without_stash",
           "tokens": 419,
           "vis": "private"
         },
         {
-          "end_line": 881,
+          "end_line": 887,
           "kind": "fn",
-          "line": 863,
+          "line": 869,
           "name": "t_aw_6_root_rolls_back_a_change_group",
           "tokens": 291,
           "vis": "private"
         },
         {
-          "end_line": 909,
+          "end_line": 915,
           "kind": "fn",
-          "line": 883,
+          "line": 889,
           "name": "t_aw_6_root_rollback_with_demotion",
           "tokens": 479,
           "vis": "private"
         },
         {
-          "end_line": 930,
+          "end_line": 936,
           "kind": "fn",
-          "line": 911,
+          "line": 917,
           "name": "t_aw_6_crash_by_code_and_by_signal",
           "tokens": 281,
           "vis": "private"
         },
         {
-          "end_line": 969,
+          "end_line": 975,
           "kind": "fn",
-          "line": 932,
+          "line": 938,
           "name": "t_aw_6_handoff_causes",
           "tokens": 476,
           "vis": "private"
         },
         {
-          "end_line": 1060,
+          "end_line": 1066,
           "kind": "fn",
-          "line": 971,
+          "line": 977,
           "name": "access_line_forms_and_position",
           "tokens": 1058,
           "vis": "private"
         },
         {
-          "end_line": 1090,
+          "end_line": 1096,
           "kind": "fn",
-          "line": 1062,
+          "line": 1068,
           "name": "t_aw_6_handoff_workspace_change",
           "tokens": 340,
           "vis": "private"
         },
         {
-          "end_line": 1113,
+          "end_line": 1119,
           "kind": "fn",
-          "line": 1092,
+          "line": 1098,
           "name": "t_aw_6_safe_and_probe_modes",
           "tokens": 290,
           "vis": "private"
         },
         {
-          "end_line": 1121,
+          "end_line": 1127,
           "kind": "fn",
-          "line": 1115,
+          "line": 1121,
           "name": "t_aw_6_is_deterministic_and_float_free",
           "tokens": 69,
           "vis": "private"
         },
         {
-          "end_line": 1172,
+          "end_line": 1178,
           "kind": "fn",
-          "line": 1123,
+          "line": 1129,
           "name": "optional_lines_in_order",
           "tokens": 726,
           "vis": "private"
         },
         {
-          "end_line": 1228,
+          "end_line": 1234,
           "kind": "fn",
-          "line": 1174,
+          "line": 1180,
           "name": "engine_line_texts",
           "tokens": 737,
           "vis": "private"
         },
         {
-          "end_line": 1254,
+          "end_line": 1260,
           "kind": "fn",
-          "line": 1230,
+          "line": 1236,
           "name": "engine_line_order_in_boot_block",
           "tokens": 267,
           "vis": "private"
         },
         {
-          "end_line": 1337,
+          "end_line": 1343,
           "kind": "fn",
-          "line": 1256,
+          "line": 1262,
           "name": "supervise_example_boot_json_renders_with_unknowns",
           "tokens": 1491,
           "vis": "private"
         },
         {
-          "end_line": 1431,
+          "end_line": 1437,
           "kind": "fn",
-          "line": 1343,
+          "line": 1349,
           "name": "t_aw_12_autonomy_and_ceilings",
           "tokens": 1300,
           "vis": "private"
         },
         {
-          "end_line": 1471,
+          "end_line": 1477,
           "kind": "fn",
-          "line": 1437,
+          "line": 1443,
           "name": "t_aw_13_level_change_shown_once",
           "tokens": 517,
           "vis": "private"
         },
         {
-          "end_line": 1509,
+          "end_line": 1515,
           "kind": "fn",
-          "line": 1473,
+          "line": 1479,
           "name": "t_aw_13_demotion_triggers_and_charter_cap",
           "tokens": 400,
           "vis": "private"
         },
         {
-          "end_line": 1536,
+          "end_line": 1542,
           "kind": "fn",
-          "line": 1516,
+          "line": 1522,
           "name": "caps_view",
           "tokens": 300,
           "vis": "private"
         },
         {
-          "end_line": 1547,
+          "end_line": 1553,
           "kind": "fn",
-          "line": 1538,
+          "line": 1544,
           "name": "extend_view",
           "tokens": 213,
           "vis": "private"
         },
         {
-          "end_line": 1554,
+          "end_line": 1560,
           "kind": "fn",
-          "line": 1549,
+          "line": 1555,
           "name": "next_l1",
           "tokens": 187,
           "vis": "private"
         },
         {
-          "end_line": 1563,
+          "end_line": 1569,
           "kind": "fn",
-          "line": 1556,
+          "line": 1562,
           "name": "extend_of",
           "tokens": 82,
           "vis": "private"
         },
         {
-          "end_line": 1576,
+          "end_line": 1582,
           "kind": "fn",
-          "line": 1565,
+          "line": 1571,
           "name": "free_root",
           "tokens": 135,
           "vis": "private"
         },
         {
-          "end_line": 1764,
+          "end_line": 1770,
           "kind": "fn",
-          "line": 1578,
+          "line": 1584,
           "name": "t_aw_x11_extend_line_per_state",
           "tokens": 2286,
           "vis": "private"
         },
         {
-          "end_line": 1820,
+          "end_line": 1826,
           "kind": "fn",
-          "line": 1766,
+          "line": 1772,
           "name": "t_aw_x11_render_boot_reads_the_root_views",
           "tokens": 650,
           "vis": "private"
         },
         {
-          "end_line": 1840,
+          "end_line": 1846,
           "kind": "fn",
-          "line": 1826,
+          "line": 1832,
           "name": "live_capability",
           "tokens": 292,
           "vis": "private"
         },
         {
-          "end_line": 1842,
+          "end_line": 1848,
           "kind": "const",
-          "line": 1842,
+          "line": 1848,
           "name": "CAP_LINE",
           "tokens": 66,
           "vis": "private"
         },
         {
-          "end_line": 1908,
+          "end_line": 1914,
           "kind": "fn",
-          "line": 1844,
+          "line": 1850,
           "name": "t_aw_14_capability_line",
           "tokens": 737,
           "vis": "private"
         },
         {
-          "end_line": 1923,
+          "end_line": 1929,
           "kind": "fn",
-          "line": 1914,
+          "line": 1920,
           "name": "th",
           "tokens": 67,
           "vis": "private"
         },
         {
-          "end_line": 1933,
+          "end_line": 1939,
           "kind": "fn",
-          "line": 1925,
+          "line": 1931,
           "name": "cx0",
           "tokens": 60,
           "vis": "private"
         },
         {
-          "end_line": 1944,
+          "end_line": 1950,
           "kind": "fn",
-          "line": 1935,
+          "line": 1941,
           "name": "stats_ok",
           "tokens": 76,
           "vis": "private"
         },
         {
-          "end_line": 1946,
+          "end_line": 1952,
           "kind": "const",
-          "line": 1946,
+          "line": 1952,
           "name": "UP",
           "tokens": 25,
           "vis": "private"
         },
         {
-          "end_line": 1954,
+          "end_line": 1960,
           "kind": "fn",
-          "line": 1948,
+          "line": 1954,
           "name": "t_aw_7_signal_golden",
           "tokens": 107,
           "vis": "private"
         },
         {
-          "end_line": 1977,
+          "end_line": 1983,
           "kind": "fn",
-          "line": 1956,
+          "line": 1962,
           "name": "t_aw_7_unknowns_render_question_marks",
           "tokens": 227,
           "vis": "private"
         },
         {
-          "end_line": 1995,
+          "end_line": 2001,
           "kind": "fn",
-          "line": 1979,
+          "line": 1985,
           "name": "t_aw_7_compaction_hint_at_85_percent_of_trigger",
           "tokens": 207,
           "vis": "private"
         },
         {
-          "end_line": 2016,
+          "end_line": 2022,
           "kind": "fn",
-          "line": 1997,
+          "line": 2003,
           "name": "signal_cx_from_boot",
           "tokens": 145,
           "vis": "private"
         },
         {
-          "end_line": 2026,
+          "end_line": 2032,
           "kind": "struct",
-          "line": 2022,
+          "line": 2028,
           "name": "FakeProxy",
           "tokens": 44,
           "vis": "private"
         },
         {
-          "end_line": 2040,
+          "end_line": 2046,
           "kind": "fn",
-          "line": 2028,
+          "line": 2034,
           "name": "relative_path",
           "tokens": 147,
           "vis": "private"
         },
         {
-          "end_line": 2054,
+          "end_line": 2060,
           "kind": "fn",
-          "line": 2042,
+          "line": 2048,
           "name": "sock_path",
           "tokens": 225,
           "vis": "private"
         },
         {
-          "end_line": 2092,
+          "end_line": 2098,
           "kind": "impl",
-          "line": 2056,
+          "line": 2062,
           "name": "impl FakeProxy",
           "tokens": 352,
           "vis": "private"
         },
         {
-          "end_line": 2098,
+          "end_line": 2104,
           "kind": "impl",
-          "line": 2094,
+          "line": 2100,
           "name": "impl Drop for FakeProxy",
           "tokens": 31,
           "vis": "private"
         },
         {
-          "end_line": 2100,
+          "end_line": 2106,
           "kind": "const",
-          "line": 2100,
+          "line": 2106,
           "name": "STATS_BODY",
           "tokens": 120,
           "vis": "private"
         },
         {
-          "end_line": 2125,
+          "end_line": 2131,
           "kind": "fn",
-          "line": 2102,
+          "line": 2108,
           "name": "fetch_stats_content_length_and_chunked",
           "tokens": 269,
           "vis": "private"
         },
         {
-          "end_line": 2151,
+          "end_line": 2157,
           "kind": "fn",
-          "line": 2127,
+          "line": 2133,
           "name": "fake_proxy_socket_fits_the_longest_g0_layout",
           "tokens": 306,
           "vis": "private"
         },
         {
-          "end_line": 2208,
+          "end_line": 2216,
           "kind": "fn",
-          "line": 2153,
+          "line": 2159,
           "name": "fetch_stats_failures_give_all_unknown",
-          "tokens": 486,
+          "tokens": 536,
           "vis": "private"
         },
         {
-          "end_line": 2247,
+          "end_line": 2255,
           "kind": "fn",
-          "line": 2210,
+          "line": 2218,
           "name": "signals_source_fills_text_and_integer_extras",
           "tokens": 457,
           "vis": "private"
         },
         {
-          "end_line": 2264,
+          "end_line": 2272,
           "kind": "fn",
-          "line": 2249,
+          "line": 2257,
           "name": "observed_proxy_stats_keep_evolution_checks_and_suppress_cap",
           "tokens": 325,
           "vis": "private"
         },
         {
-          "end_line": 2280,
+          "end_line": 2288,
           "kind": "fn",
-          "line": 2266,
+          "line": 2274,
           "name": "observed_signal_extra_contains_only_known_evolution_cost",
           "tokens": 220,
           "vis": "private"
         }
       ],
-      "lines": 2280,
+      "lines": 2288,
       "path": "src/boot/awareness/tests.rs",
-      "tokens": 28435
+      "tokens": 28599
     },
     {
       "forbid_unsafe": false,
@@ -5629,17 +5629,17 @@
           "vis": "private"
         },
         {
-          "end_line": 292,
+          "end_line": 294,
           "kind": "mod",
           "line": 135,
           "name": "tests",
-          "tokens": 1642,
+          "tokens": 1707,
           "vis": "private"
         }
       ],
-      "lines": 292,
+      "lines": 294,
       "path": "src/boot/housekeep.rs",
-      "tokens": 2809
+      "tokens": 2874
     },
     {
       "forbid_unsafe": false,
@@ -9901,33 +9901,33 @@
           "vis": "private"
         },
         {
-          "end_line": 1703,
+          "end_line": 1714,
           "kind": "fn",
           "line": 1670,
           "name": "abort_after",
-          "tokens": 228,
+          "tokens": 355,
           "vis": "private"
         },
         {
-          "end_line": 1761,
+          "end_line": 1775,
           "kind": "fn",
-          "line": 1705,
+          "line": 1716,
           "name": "h23_owner_abort_loop_run_and_read",
-          "tokens": 598,
+          "tokens": 612,
           "vis": "private"
         },
         {
-          "end_line": 1803,
+          "end_line": 1817,
           "kind": "fn",
-          "line": 1767,
+          "line": 1781,
           "name": "api_seam_through_dyn_ext_host_api",
           "tokens": 300,
           "vis": "private"
         }
       ],
-      "lines": 1803,
+      "lines": 1817,
       "path": "src/ext_host/tests.rs",
-      "tokens": 17126
+      "tokens": 17267
     },
     {
       "forbid_unsafe": false,
@@ -10973,89 +10973,89 @@
           "vis": "private"
         },
         {
-          "end_line": 577,
+          "end_line": 573,
           "kind": "fn",
           "line": 539,
           "name": "t_log_4_two_process_lock",
-          "tokens": 396,
+          "tokens": 401,
           "vis": "private"
         },
         {
-          "end_line": 641,
+          "end_line": 637,
           "kind": "fn",
-          "line": 579,
+          "line": 575,
           "name": "t_log_6_unknown_types_preserved",
           "tokens": 564,
           "vis": "private"
         },
         {
-          "end_line": 685,
+          "end_line": 681,
           "kind": "fn",
-          "line": 643,
+          "line": 639,
           "name": "t_log_7_corrupt_middle_line",
           "tokens": 485,
           "vis": "private"
         },
         {
-          "end_line": 754,
+          "end_line": 750,
           "kind": "fn",
-          "line": 687,
+          "line": 683,
           "name": "t_log_8_interrupted_rounds",
           "tokens": 750,
           "vis": "private"
         },
         {
-          "end_line": 789,
+          "end_line": 785,
           "kind": "fn",
-          "line": 756,
+          "line": 752,
           "name": "unlock_relock_rescan",
           "tokens": 345,
           "vis": "private"
         },
         {
-          "end_line": 813,
+          "end_line": 809,
           "kind": "fn",
-          "line": 791,
+          "line": 787,
           "name": "new_session_moves_pointer",
           "tokens": 272,
           "vis": "private"
         },
         {
-          "end_line": 844,
+          "end_line": 840,
           "kind": "fn",
-          "line": 815,
+          "line": 811,
           "name": "session_ids_and_creation",
           "tokens": 288,
           "vis": "private"
         },
         {
-          "end_line": 860,
+          "end_line": 856,
           "kind": "fn",
-          "line": 846,
+          "line": 842,
           "name": "schema_examples",
           "tokens": 401,
           "vis": "private"
         },
         {
-          "end_line": 888,
+          "end_line": 884,
           "kind": "fn",
-          "line": 862,
+          "line": 858,
           "name": "t_log_9_sync_latency",
           "tokens": 316,
           "vis": "private"
         },
         {
-          "end_line": 927,
+          "end_line": 923,
           "kind": "fn",
-          "line": 890,
+          "line": 886,
           "name": "blobs_content_addressed",
           "tokens": 374,
           "vis": "private"
         }
       ],
-      "lines": 927,
+      "lines": 923,
       "path": "src/log/tests.rs",
-      "tokens": 8964
+      "tokens": 8969
     },
     {
       "forbid_unsafe": false,
@@ -12485,481 +12485,481 @@
           "vis": "private"
         },
         {
-          "end_line": 731,
+          "end_line": 734,
           "kind": "fn",
           "line": 659,
           "name": "t02_parallel_batch_order_and_d1",
-          "tokens": 818,
+          "tokens": 881,
           "vis": "private"
         },
         {
-          "end_line": 770,
+          "end_line": 773,
           "kind": "fn",
-          "line": 733,
+          "line": 736,
           "name": "t03_same_file_edits_are_serialized",
           "tokens": 363,
           "vis": "private"
         },
         {
-          "end_line": 799,
+          "end_line": 802,
           "kind": "fn",
-          "line": 772,
+          "line": 775,
           "name": "t04_tool_panic_is_isolated",
           "tokens": 284,
           "vis": "private"
         },
         {
-          "end_line": 840,
+          "end_line": 843,
           "kind": "fn",
-          "line": 801,
+          "line": 804,
           "name": "t05_steer_during_bash",
           "tokens": 440,
           "vis": "private"
         },
         {
-          "end_line": 869,
+          "end_line": 872,
           "kind": "fn",
-          "line": 842,
+          "line": 845,
           "name": "t06_steer_while_final_reply_streams",
           "tokens": 249,
           "vis": "private"
         },
         {
-          "end_line": 911,
+          "end_line": 914,
           "kind": "fn",
-          "line": 871,
+          "line": 874,
           "name": "t07_follow_ups_one_per_run_end",
           "tokens": 410,
           "vis": "private"
         },
         {
-          "end_line": 972,
+          "end_line": 975,
           "kind": "fn",
-          "line": 913,
+          "line": 916,
           "name": "t08_interrupt_mid_stream",
           "tokens": 627,
           "vis": "private"
         },
         {
-          "end_line": 1021,
+          "end_line": 1027,
           "kind": "fn",
-          "line": 974,
+          "line": 977,
           "name": "t09_interrupt_during_bash_with_read",
-          "tokens": 488,
+          "tokens": 596,
           "vis": "private"
         },
         {
-          "end_line": 1081,
+          "end_line": 1087,
           "kind": "fn",
-          "line": 1023,
+          "line": 1029,
           "name": "t10_length_stops",
           "tokens": 568,
           "vis": "private"
         },
         {
-          "end_line": 1106,
+          "end_line": 1112,
           "kind": "fn",
-          "line": 1083,
+          "line": 1089,
           "name": "t11_unknown_tool_and_invalid_json",
           "tokens": 286,
           "vis": "private"
         },
         {
-          "end_line": 1188,
+          "end_line": 1197,
           "kind": "fn",
-          "line": 1108,
+          "line": 1114,
           "name": "t12_pause_idle_resume_exit",
-          "tokens": 1030,
+          "tokens": 1132,
           "vis": "private"
         },
         {
-          "end_line": 1206,
+          "end_line": 1216,
           "kind": "fn",
-          "line": 1190,
+          "line": 1199,
           "name": "t12b_stop_while_paused",
-          "tokens": 215,
+          "tokens": 245,
           "vis": "private"
         },
         {
-          "end_line": 1239,
+          "end_line": 1249,
           "kind": "fn",
-          "line": 1208,
+          "line": 1218,
           "name": "t13_pause_during_batch",
           "tokens": 407,
           "vis": "private"
         },
         {
-          "end_line": 1248,
+          "end_line": 1258,
           "kind": "fn",
-          "line": 1241,
+          "line": 1251,
           "name": "report",
           "tokens": 83,
           "vis": "private"
         },
         {
-          "end_line": 1333,
+          "end_line": 1343,
           "kind": "fn",
-          "line": 1250,
+          "line": 1260,
           "name": "t14_reload",
           "tokens": 895,
           "vis": "private"
         },
         {
-          "end_line": 1353,
+          "end_line": 1363,
           "kind": "fn",
-          "line": 1335,
+          "line": 1345,
           "name": "t14b_reload_refused_in_safe_mode",
           "tokens": 166,
           "vis": "private"
         },
         {
-          "end_line": 1394,
+          "end_line": 1404,
           "kind": "fn",
-          "line": 1355,
+          "line": 1365,
           "name": "t15_notices",
           "tokens": 488,
           "vis": "private"
         },
         {
-          "end_line": 1418,
+          "end_line": 1428,
           "kind": "fn",
-          "line": 1396,
+          "line": 1406,
           "name": "t16_duplicate_input_after_restart",
           "tokens": 302,
           "vis": "private"
         },
         {
-          "end_line": 1444,
+          "end_line": 1454,
           "kind": "fn",
-          "line": 1420,
+          "line": 1430,
           "name": "t17_budget_error",
           "tokens": 233,
           "vis": "private"
         },
         {
-          "end_line": 1454,
+          "end_line": 1464,
           "kind": "fn",
-          "line": 1446,
+          "line": 1456,
           "name": "overflow",
           "tokens": 64,
           "vis": "private"
         },
         {
-          "end_line": 1504,
+          "end_line": 1514,
           "kind": "fn",
-          "line": 1456,
+          "line": 1466,
           "name": "t18_context_overflow",
           "tokens": 414,
           "vis": "private"
         },
         {
-          "end_line": 1556,
+          "end_line": 1566,
           "kind": "fn",
-          "line": 1506,
+          "line": 1516,
           "name": "t19_crash_repair_and_auto_continue",
           "tokens": 556,
           "vis": "private"
         },
         {
-          "end_line": 1625,
+          "end_line": 1636,
           "kind": "fn",
-          "line": 1558,
+          "line": 1568,
           "name": "t20_stop_grace_and_eof",
-          "tokens": 686,
+          "tokens": 709,
           "vis": "private"
         },
         {
-          "end_line": 1672,
+          "end_line": 1683,
           "kind": "fn",
-          "line": 1627,
+          "line": 1638,
           "name": "t22_task_id",
           "tokens": 534,
           "vis": "private"
         },
         {
-          "end_line": 1706,
+          "end_line": 1717,
           "kind": "fn",
-          "line": 1674,
+          "line": 1685,
           "name": "t23_input_modes",
           "tokens": 341,
           "vis": "private"
         },
         {
-          "end_line": 1750,
+          "end_line": 1761,
           "kind": "fn",
-          "line": 1708,
+          "line": 1719,
           "name": "t24_interrupt_during_ext_call",
           "tokens": 455,
           "vis": "private"
         },
         {
-          "end_line": 1758,
+          "end_line": 1769,
           "kind": "fn",
-          "line": 1756,
+          "line": 1767,
           "name": "is_retracted",
           "tokens": 44,
           "vis": "private"
         },
         {
-          "end_line": 1762,
+          "end_line": 1773,
           "kind": "fn",
-          "line": 1760,
+          "line": 1771,
           "name": "is_info",
           "tokens": 52,
           "vis": "private"
         },
         {
-          "end_line": 1771,
+          "end_line": 1782,
           "kind": "fn",
-          "line": 1764,
+          "line": 1775,
           "name": "user_texts",
           "tokens": 57,
           "vis": "private"
         },
         {
-          "end_line": 1799,
+          "end_line": 1810,
           "kind": "fn",
-          "line": 1773,
+          "line": 1784,
           "name": "assert_paired_before_steer",
           "tokens": 251,
           "vis": "private"
         },
         {
-          "end_line": 1840,
+          "end_line": 1853,
           "kind": "fn",
-          "line": 1801,
+          "line": 1812,
           "name": "t25_retract_before_the_boundary",
-          "tokens": 373,
+          "tokens": 415,
           "vis": "private"
         },
         {
-          "end_line": 1869,
+          "end_line": 1882,
           "kind": "fn",
-          "line": 1842,
+          "line": 1855,
           "name": "t25b_retract_after_it_was_consumed",
-          "tokens": 283,
+          "tokens": 285,
           "vis": "private"
         },
         {
-          "end_line": 1913,
+          "end_line": 1926,
           "kind": "fn",
-          "line": 1871,
+          "line": 1884,
           "name": "t25c_retract_a_queued_follow_up",
-          "tokens": 412,
+          "tokens": 414,
           "vis": "private"
         },
         {
-          "end_line": 1970,
+          "end_line": 1983,
           "kind": "fn",
-          "line": 1915,
+          "line": 1928,
           "name": "t26_interrupt_and_steer_during_a_batch",
           "tokens": 574,
           "vis": "private"
         },
         {
-          "end_line": 2016,
+          "end_line": 2029,
           "kind": "fn",
-          "line": 1972,
+          "line": 1985,
           "name": "t26b_interrupt_and_steer_mid_stream",
           "tokens": 444,
           "vis": "private"
         },
         {
-          "end_line": 2036,
+          "end_line": 2049,
           "kind": "fn",
-          "line": 2018,
+          "line": 2031,
           "name": "t26c_continue_without_a_steer_stops",
           "tokens": 202,
           "vis": "private"
         },
         {
-          "end_line": 2061,
+          "end_line": 2074,
           "kind": "fn",
-          "line": 2038,
+          "line": 2051,
           "name": "t26d_plain_interrupt_with_a_steer_stops",
           "tokens": 275,
           "vis": "private"
         },
         {
-          "end_line": 2099,
+          "end_line": 2112,
           "kind": "fn",
-          "line": 2063,
+          "line": 2076,
           "name": "steer_frames_parse_and_render",
           "tokens": 332,
           "vis": "private"
         },
         {
-          "end_line": 2117,
+          "end_line": 2130,
           "kind": "fn",
-          "line": 2101,
+          "line": 2114,
           "name": "retract_gate_decides_once_and_stays_bounded",
           "tokens": 195,
           "vis": "private"
         },
         {
-          "end_line": 2129,
+          "end_line": 2142,
           "kind": "fn",
-          "line": 2119,
+          "line": 2132,
           "name": "abort_continue_wish",
           "tokens": 91,
           "vis": "private"
         },
         {
-          "end_line": 2182,
+          "end_line": 2195,
           "kind": "fn",
-          "line": 2135,
+          "line": 2148,
           "name": "frames_parse_and_render",
           "tokens": 478,
           "vis": "private"
         },
         {
-          "end_line": 2192,
+          "end_line": 2205,
           "kind": "fn",
-          "line": 2184,
+          "line": 2197,
           "name": "deltas_drop_when_the_queue_is_full",
           "tokens": 79,
           "vis": "private"
         },
         {
-          "end_line": 2202,
+          "end_line": 2215,
           "kind": "fn",
-          "line": 2194,
+          "line": 2207,
           "name": "base64_round_trip",
           "tokens": 104,
           "vis": "private"
         },
         {
-          "end_line": 2205,
+          "end_line": 2218,
           "kind": "fn",
-          "line": 2204,
+          "line": 2217,
           "name": "_unused",
           "tokens": 15,
           "vis": "private"
         },
         {
-          "end_line": 2301,
+          "end_line": 2314,
           "kind": "fn",
-          "line": 2207,
+          "line": 2220,
           "name": "t99_delegate_runs_a_subtask_in_a_fresh_context",
           "tokens": 1206,
           "vis": "private"
         },
         {
-          "end_line": 2311,
+          "end_line": 2324,
           "kind": "fn",
-          "line": 2303,
+          "line": 2316,
           "name": "delegate_record",
           "tokens": 90,
           "vis": "private"
         },
         {
-          "end_line": 2318,
+          "end_line": 2331,
           "kind": "fn",
-          "line": 2313,
+          "line": 2326,
           "name": "delayed",
           "tokens": 49,
           "vis": "private"
         },
         {
-          "end_line": 2371,
+          "end_line": 2386,
           "kind": "fn",
-          "line": 2320,
+          "line": 2333,
           "name": "t100_delegate_fan_out_runs_in_parallel_and_keeps_call_order",
-          "tokens": 687,
+          "tokens": 721,
           "vis": "private"
         },
         {
-          "end_line": 2443,
+          "end_line": 2458,
           "kind": "fn",
-          "line": 2373,
+          "line": 2388,
           "name": "t101_delegate_read_mode_refuses_write_and_edit",
           "tokens": 751,
           "vis": "private"
         },
         {
-          "end_line": 2514,
+          "end_line": 2529,
           "kind": "fn",
-          "line": 2445,
+          "line": 2460,
           "name": "t102_delegate_bounds_turns_calls_and_wall_time",
           "tokens": 789,
           "vis": "private"
         },
         {
-          "end_line": 2566,
+          "end_line": 2588,
           "kind": "fn",
-          "line": 2516,
+          "line": 2531,
           "name": "t103_delegate_owner_abort_stops_sub_tasks",
-          "tokens": 530,
+          "tokens": 633,
           "vis": "private"
         },
         {
-          "end_line": 2598,
+          "end_line": 2620,
           "kind": "fn",
-          "line": 2568,
+          "line": 2590,
           "name": "failed_call_sends_its_output_tail_as_detail",
-          "tokens": 430,
+          "tokens": 459,
           "vis": "private"
         },
         {
-          "end_line": 2610,
+          "end_line": 2632,
           "kind": "fn",
-          "line": 2604,
+          "line": 2626,
           "name": "ask_call",
           "tokens": 66,
           "vis": "private"
         },
         {
-          "end_line": 2614,
+          "end_line": 2636,
           "kind": "fn",
-          "line": 2612,
+          "line": 2634,
           "name": "is_ask",
           "tokens": 40,
           "vis": "private"
         },
         {
-          "end_line": 2629,
+          "end_line": 2651,
           "kind": "fn",
-          "line": 2616,
+          "line": 2638,
           "name": "ask_result_then_owner",
           "tokens": 155,
           "vis": "private"
         },
         {
-          "end_line": 2667,
+          "end_line": 2689,
           "kind": "fn",
-          "line": 2631,
+          "line": 2653,
           "name": "t104_ask_owner_ends_the_turn_and_the_answer_starts_the_next_run",
           "tokens": 578,
           "vis": "private"
         },
         {
-          "end_line": 2687,
+          "end_line": 2709,
           "kind": "fn",
-          "line": 2669,
+          "line": 2691,
           "name": "t105_ask_owner_with_a_steer_waiting_continues_the_run",
           "tokens": 239,
           "vis": "private"
         },
         {
-          "end_line": 2708,
+          "end_line": 2730,
           "kind": "fn",
-          "line": 2689,
+          "line": 2711,
           "name": "t106_a_restart_while_the_question_waits_does_not_continue",
           "tokens": 282,
           "vis": "private"
         },
         {
-          "end_line": 2725,
+          "end_line": 2747,
           "kind": "fn",
-          "line": 2710,
+          "line": 2732,
           "name": "t107_delegate_sub_tasks_cannot_ask_the_owner",
           "tokens": 251,
           "vis": "private"
         }
       ],
-      "lines": 2725,
+      "lines": 2747,
       "path": "src/loop/tests.rs",
-      "tokens": 27235
+      "tokens": 27773
     },
     {
       "forbid_unsafe": true,
@@ -14541,201 +14541,209 @@
           "vis": "private"
         },
         {
-          "end_line": 275,
+          "end_line": 272,
           "kind": "impl",
           "line": 186,
           "name": "impl MockLlm",
-          "tokens": 760,
+          "tokens": 742,
           "vis": "private"
         },
         {
-          "end_line": 283,
+          "end_line": 295,
+          "kind": "fn",
+          "line": 274,
+          "name": "read_recorded_json",
+          "tokens": 225,
+          "vis": "private"
+        },
+        {
+          "end_line": 303,
           "kind": "impl",
-          "line": 277,
+          "line": 297,
           "name": "impl Drop for MockLlm",
           "tokens": 47,
           "vis": "private"
         },
         {
-          "end_line": 285,
+          "end_line": 305,
           "kind": "const",
-          "line": 285,
+          "line": 305,
           "name": "META",
           "tokens": 40,
           "vis": "private"
         },
         {
-          "end_line": 400,
+          "end_line": 420,
           "kind": "fn",
-          "line": 287,
+          "line": 307,
           "name": "mock_full_turn_strict_reasoning_round_trip",
           "tokens": 1252,
           "vis": "private"
         },
         {
-          "end_line": 512,
+          "end_line": 532,
           "kind": "fn",
-          "line": 402,
+          "line": 422,
           "name": "mock_strict_foreign_turn_and_missing_reasoning_fallback",
           "tokens": 1098,
           "vis": "private"
         },
         {
-          "end_line": 589,
+          "end_line": 611,
           "kind": "fn",
-          "line": 514,
+          "line": 534,
           "name": "mock_faults",
-          "tokens": 875,
+          "tokens": 926,
           "vis": "private"
         },
         {
-          "end_line": 648,
+          "end_line": 670,
           "kind": "fn",
-          "line": 591,
+          "line": 613,
           "name": "mock_abort_mid_stream",
           "tokens": 549,
           "vis": "private"
         },
         {
-          "end_line": 691,
+          "end_line": 713,
           "kind": "fn",
-          "line": 650,
+          "line": 672,
           "name": "mock_summarizer",
           "tokens": 433,
           "vis": "private"
         },
         {
-          "end_line": 717,
+          "end_line": 739,
           "kind": "fn",
-          "line": 693,
+          "line": 715,
           "name": "mock_frontier_model_route",
           "tokens": 289,
           "vis": "private"
         },
         {
-          "end_line": 728,
+          "end_line": 750,
           "kind": "enum",
-          "line": 723,
+          "line": 745,
           "name": "Resp",
           "tokens": 43,
           "vis": "private"
         },
         {
-          "end_line": 731,
+          "end_line": 753,
           "kind": "type",
-          "line": 730,
+          "line": 752,
           "name": "Recorded",
           "tokens": 27,
           "vis": "private"
         },
         {
-          "end_line": 738,
+          "end_line": 760,
           "kind": "struct",
-          "line": 733,
+          "line": 755,
           "name": "Stub",
           "tokens": 32,
           "vis": "private"
         },
         {
-          "end_line": 800,
+          "end_line": 822,
           "kind": "impl",
-          "line": 740,
+          "line": 762,
           "name": "impl Stub",
           "tokens": 436,
           "vis": "private"
         },
         {
-          "end_line": 810,
+          "end_line": 832,
           "kind": "impl",
-          "line": 802,
+          "line": 824,
           "name": "impl Drop for Stub",
           "tokens": 61,
           "vis": "private"
         },
         {
-          "end_line": 822,
+          "end_line": 844,
           "kind": "fn",
-          "line": 812,
+          "line": 834,
           "name": "sse_200",
           "tokens": 160,
           "vis": "private"
         },
         {
-          "end_line": 827,
+          "end_line": 849,
           "kind": "fn",
-          "line": 824,
+          "line": 846,
           "name": "error_resp",
           "tokens": 74,
           "vis": "private"
         },
         {
-          "end_line": 831,
+          "end_line": 853,
           "kind": "fn",
-          "line": 829,
+          "line": 851,
           "name": "fixture",
           "tokens": 23,
           "vis": "private"
         },
         {
-          "end_line": 838,
+          "end_line": 860,
           "kind": "fn",
-          "line": 833,
+          "line": 855,
           "name": "ds_client",
           "tokens": 39,
           "vis": "private"
         },
         {
-          "end_line": 905,
+          "end_line": 927,
           "kind": "fn",
-          "line": 840,
+          "line": 862,
           "name": "stub_model_client_seam_and_headers",
           "tokens": 618,
           "vis": "private"
         },
         {
-          "end_line": 976,
+          "end_line": 998,
           "kind": "fn",
-          "line": 907,
+          "line": 929,
           "name": "stub_proxy_errors_and_backoff_jump",
           "tokens": 613,
           "vis": "private"
         },
         {
-          "end_line": 999,
+          "end_line": 1021,
           "kind": "fn",
-          "line": 978,
+          "line": 1000,
           "name": "stub_connect_errors_retry_then_fail",
           "tokens": 229,
           "vis": "private"
         },
         {
-          "end_line": 1034,
+          "end_line": 1064,
           "kind": "fn",
-          "line": 1001,
+          "line": 1023,
           "name": "stub_abort_during_backoff",
-          "tokens": 333,
+          "tokens": 448,
           "vis": "private"
         },
         {
-          "end_line": 1070,
+          "end_line": 1100,
           "kind": "fn",
-          "line": 1036,
+          "line": 1066,
           "name": "stub_idle_timeout_then_content_length_body",
           "tokens": 348,
           "vis": "private"
         },
         {
-          "end_line": 1132,
+          "end_line": 1162,
           "kind": "fn",
-          "line": 1072,
+          "line": 1102,
           "name": "mock_full_turn_anthropic_and_openai",
           "tokens": 765,
           "vis": "private"
         }
       ],
-      "lines": 1132,
+      "lines": 1162,
       "path": "src/provider/mock_tests.rs",
-      "tokens": 10834
+      "tokens": 11206
     },
     {
       "forbid_unsafe": false,
@@ -17185,77 +17193,93 @@
           "kind": "impl",
           "line": 383,
           "name": "impl Tools",
-          "tokens": 1868,
+          "tokens": 1865,
           "vis": "private"
         },
         {
-          "end_line": 602,
-          "kind": "fn",
+          "end_line": 596,
+          "kind": "const",
           "line": 595,
-          "name": "truncate_chars",
-          "tokens": 78,
+          "name": "PREVIEW_LINES",
+          "tokens": 27,
           "vis": "pub"
         },
         {
-          "end_line": 605,
+          "end_line": 597,
           "kind": "const",
-          "line": 604,
+          "line": 597,
+          "name": "PREVIEW_CHARS",
+          "tokens": 12,
+          "vis": "pub"
+        },
+        {
+          "end_line": 625,
+          "kind": "fn",
+          "line": 599,
+          "name": "command_preview",
+          "tokens": 261,
+          "vis": "pub"
+        },
+        {
+          "end_line": 628,
+          "kind": "const",
+          "line": 627,
           "name": "DETAIL_LINES",
-          "tokens": 36,
+          "tokens": 35,
           "vis": "pub"
         },
         {
-          "end_line": 606,
+          "end_line": 629,
           "kind": "const",
-          "line": 606,
+          "line": 629,
           "name": "DETAIL_LINE_CHARS",
           "tokens": 11,
           "vis": "private"
         },
         {
-          "end_line": 607,
+          "end_line": 630,
           "kind": "const",
-          "line": 607,
+          "line": 630,
           "name": "DETAIL_MAX",
           "tokens": 11,
           "vis": "private"
         },
         {
-          "end_line": 652,
+          "end_line": 679,
           "kind": "fn",
-          "line": 609,
+          "line": 632,
           "name": "fail_detail",
-          "tokens": 439,
+          "tokens": 538,
           "vis": "pub"
         },
         {
-          "end_line": 668,
+          "end_line": 695,
           "kind": "fn",
-          "line": 654,
+          "line": 681,
           "name": "summary_of_error",
           "tokens": 141,
           "vis": "pub"
         },
         {
-          "end_line": 687,
+          "end_line": 714,
           "kind": "fn",
-          "line": 670,
+          "line": 697,
           "name": "finalize",
           "tokens": 177,
           "vis": "pub"
         },
         {
-          "end_line": 738,
+          "end_line": 765,
           "kind": "fn",
-          "line": 689,
+          "line": 716,
           "name": "head_tail",
           "tokens": 443,
           "vis": "private"
         }
       ],
-      "lines": 738,
+      "lines": 765,
       "path": "src/tools/mod.rs",
-      "tokens": 6309
+      "tokens": 6624
     },
     {
       "forbid_unsafe": false,
@@ -17581,97 +17605,105 @@
           "vis": "private"
         },
         {
-          "end_line": 856,
+          "end_line": 864,
           "kind": "fn",
           "line": 817,
           "name": "bash_timeout_term_then_kill",
-          "tokens": 404,
+          "tokens": 524,
           "vis": "private"
         },
         {
-          "end_line": 893,
+          "end_line": 902,
           "kind": "fn",
-          "line": 858,
+          "line": 866,
           "name": "bash_background_jobs",
-          "tokens": 377,
+          "tokens": 458,
           "vis": "private"
         },
         {
-          "end_line": 928,
+          "end_line": 937,
           "kind": "fn",
-          "line": 895,
+          "line": 904,
           "name": "bash_abort_kills_the_group",
           "tokens": 323,
           "vis": "private"
         },
         {
-          "end_line": 941,
+          "end_line": 950,
           "kind": "fn",
-          "line": 930,
+          "line": 939,
           "name": "group_gone_within",
           "tokens": 119,
           "vis": "private"
         },
         {
-          "end_line": 1105,
+          "end_line": 1121,
           "kind": "fn",
-          "line": 947,
+          "line": 956,
           "name": "run_group_separate_stdin_cancel",
-          "tokens": 1422,
+          "tokens": 1553,
           "vis": "private"
         },
         {
-          "end_line": 1168,
+          "end_line": 1184,
           "kind": "fn",
-          "line": 1111,
+          "line": 1127,
           "name": "workspace_cwd_for_relative_paths_bash_and_ext",
           "tokens": 629,
           "vis": "private"
         },
         {
-          "end_line": 1239,
+          "end_line": 1255,
           "kind": "fn",
-          "line": 1170,
+          "line": 1186,
           "name": "ext_dispatch",
           "tokens": 783,
           "vis": "private"
         },
         {
-          "end_line": 1254,
+          "end_line": 1270,
           "kind": "fn",
-          "line": 1241,
+          "line": 1257,
           "name": "long_results_are_capped_and_spilled",
           "tokens": 169,
           "vis": "private"
         },
         {
-          "end_line": 1263,
+          "end_line": 1279,
           "kind": "fn",
-          "line": 1256,
+          "line": 1272,
           "name": "panic_hook_for_tests_exists",
           "tokens": 99,
           "vis": "private"
         },
         {
-          "end_line": 1284,
+          "end_line": 1300,
           "kind": "fn",
-          "line": 1265,
+          "line": 1281,
           "name": "fail_detail_is_the_output_tail",
           "tokens": 383,
           "vis": "private"
         },
         {
-          "end_line": 1312,
+          "end_line": 1328,
           "kind": "fn",
-          "line": 1290,
+          "line": 1306,
           "name": "ask_owner_prepares_runs_and_teaches",
           "tokens": 313,
           "vis": "private"
+        },
+        {
+          "end_line": 1354,
+          "kind": "fn",
+          "line": 1330,
+          "name": "shell_output_tail_and_command_preview_go_to_the_owner",
+          "tokens": 574,
+          "vis": "private"
         }
       ],
-      "lines": 1312,
+      "lines": 1354,
       "path": "src/tools/tests.rs",
-      "tokens": 14226
+      "tokens": 15131
     },
     {
       "forbid_unsafe": false,
@@ -17898,7 +17930,7 @@
       "tokens": 974
     }
   ],
-  "source_digest": "sha256:57db8fe2ea6e32844d3e7f2891232579241eec2a74b879094602ab9e6274920b",
+  "source_digest": "sha256:ca18f91b463b86f89852beae0c2944209f87a3388b5a8d68c182498e1451e61c",
   "tools": {
     "list": [
       {

@@ -817,10 +817,16 @@ fn bash_head_tail_spill_ansi_cr() {
 #[test]
 fn bash_timeout_term_then_kill() {
     let b = Bench::new("bash-timeout");
+    // The text below names the path (TERM only); the wall bounds show the timeout fired (not
+    // early, and long before the 30 s sleep would end) with room for a loaded machine (audit
+    // v0.5.2: the old 1.5 s ceiling measured the scheduler, not the timeout).
     let t0 = Instant::now();
-    let r = b.run("bash", json!({"command": "sleep 5", "timeout": 1}));
+    let r = b.run("bash", json!({"command": "sleep 30", "timeout": 1}));
     let wall = t0.elapsed();
-    assert!(wall < Duration::from_millis(1_500), "{wall:?}");
+    assert!(
+        wall >= Duration::from_secs(1) && wall < Duration::from_secs(10),
+        "{wall:?}"
+    );
     assert!(r.result.is_error);
     assert!(
         text(&r).starts_with("[timeout after 1s: process group killed (TERM) wall_time="),
@@ -834,8 +840,10 @@ fn bash_timeout_term_then_kill() {
         json!({"command": "trap '' TERM; sleep 30", "timeout": 1}),
     );
     let wall = t0.elapsed();
+    // At least the timeout plus the 2 s TERM grace; the ceiling only shows the KILL ended it
+    // (the sleep is 30 s), the text below names the path.
     assert!(
-        wall >= Duration::from_secs(3) && wall < Duration::from_millis(4_500),
+        wall >= Duration::from_secs(3) && wall < Duration::from_secs(10),
         "{wall:?}"
     );
     assert!(
@@ -869,8 +877,10 @@ fn bash_background_jobs() {
         ),
     );
     let wall = t0.elapsed();
+    // At least the 2 s drain grace; BG_NOTE below names the path, and the ceiling only shows the
+    // group was killed (the job sleeps 300 s), with room for a loaded machine.
     assert!(
-        wall >= Duration::from_secs(2) && wall < Duration::from_secs(4),
+        wall >= Duration::from_secs(2) && wall < Duration::from_secs(10),
         "{wall:?}"
     );
     let t = text(&r);
@@ -881,15 +891,14 @@ fn bash_background_jobs() {
     // Redirected: returns at once; the job survives (killed here by the test, by its pgid).
     let t0 = Instant::now();
     let r = bash(&b, "sleep 300 > /dev/null 2>&1 & echo $$");
-    assert!(t0.elapsed() < Duration::from_secs(1));
+    // "At once" = without the 2 s drain grace (no note, and under the grace).
+    assert!(!text(&r).contains(super::bash::BG_NOTE), "{}", text(&r));
+    assert!(t0.elapsed() < Duration::from_secs(2), "{:?}", t0.elapsed());
     let pgid: i32 = text(&r).lines().next().unwrap().trim().parse().unwrap();
     assert!(group_alive(pgid), "the redirected job should still run");
     assert!(kill_group(pgid, Signal::Kill));
-    let t0 = Instant::now();
-    while group_alive(pgid) && t0.elapsed() < Duration::from_secs(2) {
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    assert!(!group_alive(pgid));
+    // The test's own SIGKILL; init reaps the orphan when it gets to it.
+    assert!(group_gone_within(pgid, Duration::from_secs(10)));
 }
 
 #[test]
@@ -900,7 +909,7 @@ fn bash_abort_kills_the_group() {
     let pf = pidfile.clone();
     let h = std::thread::spawn(move || {
         let t0 = Instant::now();
-        while !pf.exists() && t0.elapsed() < Duration::from_secs(5) {
+        while !pf.exists() && t0.elapsed() < Duration::from_secs(30) {
             std::thread::sleep(Duration::from_millis(5));
         }
         std::thread::sleep(Duration::from_millis(50));
@@ -923,7 +932,7 @@ fn bash_abort_kills_the_group() {
     assert!(text(&r).contains("[aborted after "), "{}", text(&r));
     assert!(text(&r).ends_with("s: process group killed]"));
     assert_eq!(r.summary, "aborted");
-    assert!(group_gone_within(pg, Duration::from_secs(2)));
+    assert!(group_gone_within(pg, Duration::from_secs(10)));
     assert!(b.abort.groups().is_empty());
 }
 
@@ -1013,8 +1022,13 @@ fn run_group_separate_stdin_cancel() {
     };
     let t_cancel = std::sync::Mutex::new(None);
     let o = std::thread::scope(|s| {
+        // Cancel once the group exists (on_spawn ran), not after a fixed 200 ms: on a loaded
+        // machine the spawn can take longer, and pgid 0 would then test this process's group.
         s.spawn(|| {
-            std::thread::sleep(Duration::from_millis(200));
+            let t = Instant::now();
+            while pgid.load(Ordering::SeqCst) == 0 && t.elapsed() < Duration::from_secs(30) {
+                std::thread::sleep(Duration::from_millis(5));
+            }
             *t_cancel.lock().unwrap() = Some(Instant::now());
             cancel.store(true, Ordering::SeqCst);
         });
@@ -1035,7 +1049,7 @@ fn run_group_separate_stdin_cancel() {
     assert!(took < Duration::from_millis(100), "{took:?}");
     // `sleep` is sh's child: the group is empty once init reaps it, a few ms after run_group returns (an inner-G0
     // flake on a loaded x86_64 runner, REL-051).
-    assert!(group_gone_within(pgid.load(Ordering::SeqCst), Duration::from_secs(2)));
+    assert!(group_gone_within(pgid.load(Ordering::SeqCst), Duration::from_secs(10)));
     // trap '' TERM under cancel: KILL after 2 s. Cancel only once the trap is set (the child touches a
     // marker after `trap`): a TERM that beats a slow shell start kills sh without the KILL (a G0 flake
     // under load, REL-G0).
@@ -1066,8 +1080,10 @@ fn run_group_separate_stdin_cancel() {
     });
     assert!(o.cancelled && o.killed);
     let w = t_cancel.lock().unwrap().unwrap().elapsed();
+    // At least the 2 s TERM grace (o.killed names the KILL path); the ceiling only shows the KILL
+    // ended it (the sleep is 30 s), with room for a loaded machine.
     assert!(
-        w >= Duration::from_secs(2) && w < Duration::from_secs(4),
+        w >= Duration::from_secs(2) && w < Duration::from_secs(10),
         "{w:?}"
     );
     // Merged without a spill dir: head + tail, no file.
@@ -1309,4 +1325,30 @@ fn ask_owner_prepares_runs_and_teaches() {
         text(&r),
         "error: invalid_input: options[0].label: must not start with '/'\nhint: a label must not look like a command: the owner's answer is sent as a message"
     );
+}
+
+/// v0.5.2 (R-TUI; user sessions v0.5.1: `/details` showed only `call: set -eu…` and never what a
+/// command printed): a shell command that ran sends the last lines of its output as `detail`, whatever
+/// its exit; another call that succeeded sends none; and the call's preview is its first 3 lines (at
+/// most 400 characters), `…` when more follows.
+#[test]
+fn shell_output_tail_and_command_preview_go_to_the_owner() {
+    let res = |t: &str, err: bool, code: Option<i32>| {
+        let mut r = ToolResult { call_id: "c".into(), content: vec![ContentBlock::Text { text: t.into() }], is_error: err, meta: Default::default() };
+        r.meta.exit_code = code;
+        r
+    };
+    let body: String = (1..=12).map(|i| format!("out {i}\n")).collect();
+    let d = fail_detail(&res(&format!("{body}[exit_code=0 wall_time=0.1s]"), false, Some(0))).expect("a command that ran says what it printed");
+    assert_eq!((d.lines().count(), d.lines().next(), d.lines().last()), (DETAIL_LINES, Some("out 3"), Some("out 12")));
+    assert_eq!(fail_detail(&res("hello\ntoday is Wednesday\n[exit_code=0 wall_time=0.0s]", false, Some(0))).as_deref(), Some("hello\ntoday is Wednesday"));
+    assert_eq!(fail_detail(&res("[exit_code=0 wall_time=0.0s]", false, Some(0))), None, "printed nothing");
+    assert_eq!(fail_detail(&res("fn main() {}\n", false, None)), None, "a read's file is not shown");
+    // the preview
+    assert_eq!(command_preview("ls -la"), "ls -la");
+    assert_eq!(command_preview("set -eu\ncat > hello.py <<'EOF'\nprint('hello')\nEOF\npython3 hello.py\n"), "set -eu\ncat > hello.py <<'EOF'\nprint('hello')…");
+    assert_eq!(command_preview("set -eu\npython3 hello.py\n"), "set -eu\npython3 hello.py", "two lines, nothing cut");
+    let long = command_preview(&format!("echo {}\nnext", "x".repeat(600)));
+    assert_eq!(long.chars().count(), PREVIEW_CHARS + 1);
+    assert!(long.ends_with('…') && !long.contains('\n'));
 }

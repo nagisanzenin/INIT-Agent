@@ -539,8 +539,10 @@ fn t_aw_5_probe_with_fake_path_matches_the_fixture() {
 fn t_aw_5_probe_timeout_and_failure_give_unknowns() {
     let h = TempHome::new("probe-timeout");
     // git really hangs (absolute /bin/sleep: the fake PATH has no `sleep`, and an exit 127 would
-    // only test the non-zero rule again) far past the 2 s budget; it leaves a mark first, so a
-    // null below is the timeout, not a spawn failure. Not warmed: it times out either way.
+    // only test the non-zero rule again) far past the 2 s budget. `took >= timeout` proves the null
+    // below is the timeout and not a spawn failure (that returns at once). The mark it leaves is only
+    // a diagnostic: on a loaded Mac the probe can kill the script before its first line runs
+    // (REL-051, load 76), which is the timeout path working, so its absence is not a failure.
     let mark = h.path.join("git-started");
     let pv = fake_path(
         &h.path,
@@ -556,13 +558,17 @@ fn t_aw_5_probe_timeout_and_failure_give_unknowns() {
     let t0 = Instant::now();
     let got = probe_with(&h.path, &pv, timeout);
     let took = t0.elapsed();
-    assert!(mark.exists(), "the hanging git ran");
+    if !mark.exists() {
+        eprintln!("note: the probe's timeout killed the fake git before it started ({took:?})");
+    }
     assert!(
         took >= timeout - Duration::from_millis(50),
         "the probe waited for git's timeout: {took:?}"
     );
+    // The upper bound is the sibling test's 10 s: the timeout must bound the probe (git sleeps 30 s),
+    // and the kill-and-reap after it is slow on a loaded Mac.
     assert!(
-        took < Duration::from_secs(6),
+        took < Duration::from_secs(10),
         "the timeout bounds the probe: {took:?}"
     );
     assert_eq!(got["versions"]["git"], Value::Null, "timeout → null");
@@ -2183,14 +2189,16 @@ fn fetch_stats_failures_give_all_unknown() {
         "HTTP/1.1 200 OK\r\ncontent-length: {}\r\n\r\n{STATS_BODY}",
         STATS_BODY.len()
     );
-    let p = FakeProxy::start(resp.into_bytes(), Duration::from_millis(1500));
+    // The proxy answers after 10 s; a 200 ms timeout must end the call long before that (the
+    // ceiling leaves a loaded machine room; the old 1.5 s / 1 s pair left it 0.8 s).
+    let p = FakeProxy::start(resp.into_bytes(), Duration::from_secs(10));
     let t0 = Instant::now();
     assert_eq!(
         fetch_stats(&p.path, Duration::from_millis(200)),
         Stats::default()
     );
     assert!(
-        t0.elapsed() < Duration::from_millis(1000),
+        t0.elapsed() < Duration::from_secs(5),
         "{:?}",
         t0.elapsed()
     );

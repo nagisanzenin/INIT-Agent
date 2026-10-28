@@ -297,6 +297,20 @@ impl<W: Write> LineApp<W> {
                 }
             };
             let text = proto::canonical(&text);
+            // v0.5.2: an unknown command is refused here, not sent to the model (and billed)
+            if kind == LineKind::Input
+                && let Some(word) = proto::unknown_command(&text)
+            {
+                self.unsent.pop_front();
+                let m = format!("[tui] {word}: {} (not sent)", proto::UNKNOWN_HINT);
+                if self.o.raw {
+                    eprintln!("{m}");
+                } else {
+                    self.out.line(&m, Style::fg(Role::Warn));
+                    self.out.flush();
+                }
+                continue;
+            }
             let frame = match kind {
                 LineKind::Panic => proto::panic_frame(),
                 _ => proto::line(&text),
@@ -371,6 +385,8 @@ impl<W: Write> LineApp<W> {
                     self.exit = Some(76);
                     return;
                 }
+                // v0.5.2: a replayed turn's cost is not known here (never `$0.000`)
+                self.info.replaying = self.feed.replaying();
                 let outs = self.feed.on_frame(&raw, v);
                 self.ever_attached |= self.feed.attaches > 0;
                 if self.o.raw {
@@ -381,6 +397,7 @@ impl<W: Write> LineApp<W> {
                 for o in outs {
                     self.feed_out(o, now);
                 }
+                self.info.replaying = false;
                 self.out.flush();
                 Latency::push(&mut self.lat.frame, Instant::now().duration_since(at));
                 self.flush_unsent();
@@ -412,6 +429,15 @@ impl<W: Write> LineApp<W> {
                     }
                     for r in self.reqs.clone() {
                         self.out.line(&format!("[details] {r}"), Style::dim());
+                    }
+                    self.out.flush();
+                    return;
+                }
+                if l.trim() == "/help" && !self.o.raw {
+                    let (title, rows) = proto::help_rows();
+                    self.out.line(&format!("[help] {title}"), Style::PLAIN);
+                    for (c, d) in rows {
+                        self.out.line(&format!("[help]   {c:<14} {d}"), Style::dim());
                     }
                     self.out.flush();
                     return;

@@ -423,6 +423,10 @@ pub fn notice_text(kind: &str, d: &Value) -> String {
             let scope = d["scope"].as_str().map(|s| format!(" ({s})")).unwrap_or_default();
             return format!("[kernel] gate started for {}: {}{scope}", sha12("sha"), steps.join(" "));
         }
+        // v0.5.2 (R-TUI): G0's dependency build began (a cache miss)
+        "gate_deps" => {
+            return format!("[kernel] building the dependencies for {} (not cached yet): usually 10-20 min on an M2, once", sha12("sha"));
+        }
         "rolled_back" => {
             let to = if d["to_lkg"] == true { " (LKG)" } else { "" };
             return format!("[kernel] rolled back {} → {}{to}: {}", sha12("from_sha"), sha12("to_sha"), d["reason"].as_str().unwrap_or("?"));
@@ -519,6 +523,9 @@ mod notice_tests {
         );
         assert_eq!(notice_text("gate", &json!({"stage": "G2", "pass": true})), "[kernel] gate G2 pass");
         assert_eq!(notice_text("promoted", &json!({})), "[kernel] promoted");
+        // v0.5.2 (R-TUI): the dependency build says what it is and how long it usually takes
+        assert_eq!(notice_text("gate_deps", &json!({"gate_id": "j-1", "sha": "9aa7d39624ce0011"})),
+            "[kernel] building the dependencies for 9aa7d39624ce (not cached yet): usually 10-20 min on an M2, once");
     }
 
     /// The body's stage notice as `kernel_gate::record::stage_notice` builds it.

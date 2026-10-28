@@ -137,6 +137,48 @@ impl Record {
         let st = &self.v["stages"][stage];
         let data = rec::stage_notice(&self.gate_id(), &self.sha(), stage, pass, reason, score, st["spent_musd"].as_u64().unwrap_or(0), st["wall_ms"].as_u64().unwrap_or(0), st["cache_permille"].as_u64());
         // TUI-OBSERVE: the owner's copy also says which gate and scope (the body's stays as it was).
-        env.sup.notice_owner("gate", data, json!({"gate_kind": self.v["gate_kind"], "scope": self.v["scope"]}));
+        env.sup.notice_owner("gate", data, self.owner_extra(stage));
+    }
+
+    /// The owner-only fields of a stage notice: the gate's kind and scope, and (v0.5.2, R-TUI) for G0
+    /// the time before its tests that is G0's too: `build_ms` (export, dependencies, body build) and
+    /// the dependency part, `deps_ms` with `deps_mode` (`hit`, `stub` built now, `cold`). G0's `wall`
+    /// is its tests and clippy only, so without these a cold dependency build read as "waited".
+    pub fn owner_extra(&self, stage: &str) -> Value {
+        let st = &self.v["stages"][stage];
+        let mut x = json!({"gate_kind": self.v["gate_kind"], "scope": self.v["scope"]});
+        if let Some(b) = st["build_ms"].as_u64() {
+            x["build_ms"] = json!(b);
+        }
+        if let Some(m) = st["deps"]["ms"].as_u64() {
+            x["deps_ms"] = json!(m);
+        }
+        if let Some(m) = st["deps"]["mode"].as_str() {
+            x["deps_mode"] = json!(m);
+        }
+        x
+    }
+}
+
+#[cfg(test)]
+mod owner_extra_tests {
+    use super::*;
+
+    /// v0.5.2 (R-TUI, user session v0.5.1-new: G0 "pass · 2 min 32 s · waited 17 min 46 s" while the job
+    /// record said G0 took 20 min 19 s): the owner's G0 notice carries the build and dependency times.
+    #[test]
+    fn g0_owner_notice_carries_the_build_and_dependency_times() {
+        let mut r = Record { v: json!({"gate_kind": "promote", "scope": "t1", "stages": {}}), failure_text: None };
+        r.stage("G0", json!({"pass": true, "wall_ms": 152_648, "build_ms": 1_066_000, "cold_target": true,
+            "deps": {"mode": "stub", "key": "k", "ms": 1_036_000, "build_ms": 30_000}}));
+        r.stage("G1", json!({"pass": true, "wall_ms": 2_565}));
+        assert_eq!(r.owner_extra("G0"), json!({"gate_kind": "promote", "scope": "t1", "build_ms": 1_066_000, "deps_ms": 1_036_000, "deps_mode": "stub"}));
+        assert_eq!(r.owner_extra("G1"), json!({"gate_kind": "promote", "scope": "t1"}), "only G0 has a build");
+        // through the owner's view: the stage's own fields win, the extra ones are added
+        let d = kernel_gate::record::stage_notice("j-1", "9aa7d39624ce", "G0", Some(true), None, None, 0, 152_648, None);
+        let (_, _, data) = crate::supervisor::owner_notice_view("gate", &d, &r.owner_extra("G0"));
+        assert_eq!((data["wall_ms"].clone(), data["build_ms"].clone(), data["deps_ms"].clone(), data["deps_mode"].clone()),
+            (json!(152_648), json!(1_066_000), json!(1_036_000), json!("stub")));
+        assert!(init_proto::icj::to_line(&data).is_ok(), "ICJ: integers only");
     }
 }

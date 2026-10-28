@@ -42,11 +42,12 @@ IH="${IH:-${INIT_HOME:-$HOME/.init}}"
 IH_REAL="$(cd "$IH" 2>/dev/null && pwd -P || echo "$IH")"
 # What this prints, it prints as the owner types it in a new terminal (tests/install/test_printed_commands.py): words
 # quoted as install.sh's shq quotes them, and INIT_ROOT_HOME= in front when ROOT_HOME is not the passwd home's
-# ~/.init-root (`~` with HOME unset is the passwd home, a builtin lookup).
-PW_HOME="$(unset HOME; echo ~)"
+# ~/.init-root. The passwd home comes from /usr/bin/python3, as in the other scripts, and only when a message needs it
+# (never before a hand-over): no builtin gives it, since bash 5.3 expands `~` to $HOME even with HOME unset.
+pw_home() { /usr/bin/python3 -I -c 'import os,pwd;print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || true; }
 SQ="'\''"
 shq() { if [[ -n "$1" && "$1" != *[!A-Za-z0-9/._+,:@%=-]* ]]; then printf '%s' "$1"; else printf "'%s'" "${1//\'/$SQ}"; fi; }
-rh_env() { [ "$RH" = "$PW_HOME/.init-root" ] || printf 'INIT_ROOT_HOME=%s ' "$(shq "$RH")"; }
+rh_env() { local pw; pw="$(pw_home)"; [ -n "$pw" ] && [ "$RH" = "$pw/.init-root" ] || printf 'INIT_ROOT_HOME=%s ' "$(shq "$RH")"; }
 # The upgrade that runs the current get.sh with the system's curl and sh (docs/guide.md "Upgrade"; get.sh's up_pipe)
 up_pipe() { # [get.sh args]
   printf '/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | %s/bin/sh' "$(rh_env)"
@@ -110,7 +111,8 @@ if [ ! -S "$RH/run/owner.sock" ]; then
   case "$OSTYPE" in # the service install.sh set up: a LaunchAgent on macOS, a systemd user unit on Linux
     darwin*)
       echo "  with the service: launchctl kickstart gui/$UID/dev.init.root" >&2
-      echo "    (if launchd no longer knows the job: launchctl bootstrap gui/$UID $(shq "$PW_HOME/Library/LaunchAgents/dev.init.root.plist"))" >&2 ;;
+      PW_HOME="$(pw_home)"
+      echo "    (if launchd no longer knows the job: launchctl bootstrap gui/$UID $(shq "${PW_HOME:-$HOME}/Library/LaunchAgents/dev.init.root.plist"))" >&2 ;;
     linux*)
       echo "  with the service: systemctl --user start init-root.service" >&2
       echo "    (if systemd no longer knows the unit: systemctl --user daemon-reload && systemctl --user start init-root.service)" >&2 ;;

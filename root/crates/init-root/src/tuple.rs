@@ -226,13 +226,30 @@ pub fn rollback(root: &Root, want: &'static str, reason: &str) -> Result<(String
     let p = lock(&root.sup.ptrs).clone();
     let get = |w: &str| match w { "lkg" => p.lkg.clone(), "settled" => p.settled.clone(), "audited" => p.audited.clone(),
         "genesis" => p.genesis.clone(), _ => p.current.clone() };
-    for target in [want, "lkg", "settled", "audited", "genesis"] {
+    for target in ORDER.map(|t| if t.is_empty() { want } else { t }) {
         let Some(id) = get(target) else { continue };
         let Some(t) = load(&root.p.rh, &id).filter(|t| verify(&root.p.rh, t)) else { continue };
         install_kernel(&root.p, &t).map_err(|e| format!("install {id}: {e}"))?;
         return Ok((id.clone(), json!({"from": p.current, "reason": reason, "target": target, "to": id})));
     }
-    Err("no usable tuple (current, LKG, audited-good and genesis all fail to verify)".into())
+    Err(none_usable(want))
+}
+
+/// The rollback order after the wanted pointer (`""`).
+const ORDER: [&str; 5] = ["", "lkg", "settled", "audited", "genesis"];
+
+/// R-UNDO (v0.5.2, the post-release review of v0.5.1): the refusal names every pointer `rollback` tried, `settled`
+/// included, in its order.
+fn none_usable(want: &str) -> String {
+    let name = |t: &str| match t { "lkg" => "LKG", "audited" => "audited-good", "" | "current" => "current", other => other }.to_string();
+    let mut tried: Vec<String> = Vec::new();
+    for t in ORDER.map(|t| if t.is_empty() { want } else { t }) {
+        if !tried.contains(&name(t)) {
+            tried.push(name(t));
+        }
+    }
+    let last = tried.pop().unwrap_or_default();
+    format!("no usable tuple ({} and {last} all fail to verify)", tried.join(", "))
 }
 
 /// An owner upgrade's commit (upgrade.rs; §3.7.2): the rollback anchors of a demotion and a panic resume (`audited`, and
@@ -369,6 +386,14 @@ pub fn get(root: &Root) -> Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// R-UNDO (v0.5.2): the refusal names what `rollback` tried, `settled` included (the v0.5.1 text left it out).
+    #[test]
+    fn the_rollback_refusal_names_every_pointer_it_tried() {
+        assert_eq!(none_usable("current"), "no usable tuple (current, LKG, settled, audited-good and genesis all fail to verify)");
+        assert_eq!(none_usable("lkg"), "no usable tuple (LKG, settled, audited-good and genesis all fail to verify)");
+        assert_eq!(none_usable("settled"), "no usable tuple (settled, LKG, audited-good and genesis all fail to verify)");
+    }
 
     #[test]
     fn pointers_fold_and_ids_are_stable() {

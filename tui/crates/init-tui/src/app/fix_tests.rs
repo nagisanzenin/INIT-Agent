@@ -332,3 +332,124 @@ fn root_cmd_is_the_roots_form() {
     assert_eq!(root_cmd(Path::new("/Users/o/My Root"), h, "status"), "INIT_ROOT_HOME='/Users/o/My Root' '/Users/o/My Root/bin/init-root' status");
     assert_eq!(root_cmd(Path::new("/Users/o/it's"), h, ""), "INIT_ROOT_HOME='/Users/o/it'\\''s' '/Users/o/it'\\''s/bin/init-root'");
 }
+
+// ---------------------------------------------------------------------------------------------
+// v0.5.2 (R-TUI): docs/user-sessions/v0.5.1-new.md and v0.5.1-returning.md
+// ---------------------------------------------------------------------------------------------
+
+fn bar_text(a: &App) -> String {
+    crate::render::status::bar(&a.info, 240, Instant::now(), 0, 0, false).text()
+}
+fn status(slot: &str, inst: &str, current: &str, audited: &str) -> Value {
+    json!({"slot": slot, "mode": "normal", "level": 0, "cap": 0, "queued": 0, "kernel": {"instance": inst, "ready": slot == "running", "boot_seq": 1},
+        "tuples": {"current": current, "lkg": "t06f78dd675f4", "audited": audited}, "panic": if slot == "panicked" { json!({"at": "2026-10-28T11:20:00Z", "channel": "owner_socket"}) } else { Value::Null }})
+}
+
+/// v0.5.1-new, item 3: `/undo list` went to the model as a chat message and was billed. An unknown
+/// `/command` is refused locally and stays in the box; `/help` lists the commands; `//` sends a line
+/// beginning with `/` as a message; R-UNDO's `/undo list` and `/undo <id>` go to the Root as lines.
+#[test]
+fn unknown_commands_are_refused_locally() {
+    let (mut a, mut r, _rx) = live();
+    enter(&mut a, "/undo-list");
+    assert!(sent(&mut r).is_empty(), "nothing reaches the model");
+    assert_eq!(a.ed.text(), "/undo-list", "the line stays in the box");
+    assert_eq!(blocks(&a).last().unwrap(), &format!("· /undo-list: {} (nothing was sent)", crate::proto::UNKNOWN_HINT));
+    a.ed.clear();
+    enter(&mut a, "/help");
+    assert!(sent(&mut r).is_empty());
+    assert!(matches!(&a.t.blocks.back().unwrap().kind, Kind::Table { rows, .. } if rows.iter().any(|(c, _)| c == "/undo list")));
+    enter(&mut a, "//undo list is what I typed");
+    assert_eq!(sent(&mut r), vec![json!({"t": "line", "text": "//undo list is what I typed"})]);
+    for l in ["/undo list", "/undo 20261028T111910.728Z-project", "/undo 20261028T111910.728Z-project confirm", "/new", "/usr/bin/env is missing"] {
+        enter(&mut a, l);
+        assert_eq!(sent(&mut r), vec![json!({"t": "line", "text": l})], "{l}");
+    }
+    // completion offers R-UNDO's lines
+    typed(&mut a, "/undo");
+    let c: Vec<&str> = a.ed.completions().iter().map(|c| c.0).collect();
+    assert!(c.contains(&"/undo list") && c.contains(&"/undo "), "{c:?}");
+}
+
+/// v0.5.1-new, item 2: after `/panic` then `/resume` the status bar still said "body 9aa7d39624ce"
+/// while `/status` said "sha 4c332dd485ce"; the resume printed `✕`; and `/panic` never said that the
+/// kept change would stop running.
+#[test]
+fn panic_and_resume_tell_the_truth() {
+    let (mut a, mut r, _rx) = live();
+    a.handle(Ev::Status(status("running", "k1", "t06f78dd675f4", "tb75a7fb288b4")));
+    frame(&mut a, json!({"t": "state", "busy": false, "mode": "normal", "sha12": "9aa7d39624ce", "src": "kernel"}));
+    assert!(bar_text(&a).contains("body 9aa7d39624ce"), "{}", bar_text(&a));
+    // /panic says what /resume will drop
+    enter(&mut a, "/panic");
+    let ask = blocks(&a).last().unwrap().clone();
+    assert!(ask.contains("What you lose: this agent runs version t06f78dd675f4, newer than the audited-good tb75a7fb288b4"), "{ask}");
+    assert!(ask.ends_with("Type panic and press Enter to stop everything now; Esc or any other line cancels."), "{ask}");
+    enter(&mut a, "panic");
+    assert_eq!(sent(&mut r), vec![json!({"t": "panic"})]);
+    frame(&mut a, json!({"t": "notice", "level": "alert", "code": "panic", "src": "root", "text": "PANIC at 2026-10-28T11:20:00Z via owner_socket: killed 2 processes in 2 instances; egress closed; level 0→0", "ts": "x"}));
+    a.handle(Ev::Status(status("panicked", "k1", "t06f78dd675f4", "tb75a7fb288b4")));
+    assert!(!bar_text(&a).contains("9aa7d39624ce"), "no body runs while panicked: {}", bar_text(&a));
+    // the resume: a success, never ✕
+    frame(&mut a, json!({"t": "notice", "level": "alert", "code": "resume", "src": "root", "text": "[root] resumed after panic at level L0; the zone restarts on the audited-good tuple", "ts": "x"}));
+    let rows: Vec<String> = live::block_rows(&a.t.blocks.back().unwrap().kind, 100, Instant::now(), &live::RowOpts { verbose: false, expanded: false, spin: 0, first: false })
+        .iter().map(|l| l.text()).collect();
+    assert!(rows[0].starts_with("✓ [root] resumed after panic") && !rows.iter().any(|l| l.contains('✕')), "{rows:#?}");
+    a.handle(Ev::Status(status("running", "k2", "tb75a7fb288b4", "tb75a7fb288b4")));
+    assert!(!bar_text(&a).contains("9aa7d39624ce"), "the dropped body is not shown: {}", bar_text(&a));
+    // the kernel's /status line names the body that runs: the bar follows it
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": "x",
+        "text": "slot running · mode normal · busy false · sha 4c332dd485ce · lkg 9aa7d39624ce · level L0 · queued 0"}));
+    assert!(bar_text(&a).contains("body 4c332dd485ce"), "{}", bar_text(&a));
+    // and a fresh state frame from the new kernel too
+    frame(&mut a, json!({"t": "state", "busy": false, "mode": "normal", "sha12": "4c332dd485ce", "src": "kernel"}));
+    assert!(bar_text(&a).contains("body 4c332dd485ce"), "{}", bar_text(&a));
+}
+
+/// v0.5.1-new and -returning, item 4: after a relaunch the replayed turn read "$0.000" (and once
+/// "$0.000 incl. checks"); a T1 turn read "incl. checks" though no check had spent yet.
+#[test]
+fn a_replayed_turn_is_never_free_and_checks_are_only_named_when_they_ran() {
+    let money = |m: i64| Ev::Egress(json!({"money": {"enforced": false, "policy": "observe", "total_spent_musd": m, "day_spent_musd": m}}));
+    let (mut a, _r, _rx) = attached();
+    a.handle(money(48_518));
+    // the replay: a kept self-change, then the owner's turn after it (1,342 µUSD at the time)
+    let sha = "9aa7d39624ce0011";
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": "2026-10-28T10:43:24Z", "text": "[kernel] gate started",
+        "data": {"kind": "gate_start", "gate_id": "j-1", "sha": sha, "scope": "t1", "steps": ["G0", "G1", "G2", "G3", "live", "G4"]}}));
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": "2026-10-28T11:16:21Z", "text": "[kernel] lkg", "data": {"kind": "lkg", "sha": sha}}));
+    frame(&mut a, json!({"t": "echo", "text": "use your new tool", "seq": 9, "src": "kernel"}));
+    frame(&mut a, json!({"t": "state", "busy": true, "src": "kernel"}));
+    frame(&mut a, json!({"t": "display", "kind": "turn_end", "text": "tokens: in 16000 (cached 15000), out 110", "boot_seq": 1, "src": "kernel"}));
+    frame(&mut a, json!({"t": "state", "busy": false, "src": "kernel"}));
+    frame(&mut a, json!({"t": "replay_end"}));
+    a.handle(money(48_518)); // the poll after the run's end: the ledger did not move while it replayed
+    let b = bar_text(&a);
+    assert!(b.contains("$? before this launch") && !b.contains("$0.000 ") && !b.contains("incl. checks"), "{b}");
+    let (_, rows) = crate::render::status::usage_rows(&a.info);
+    let last = &rows.iter().find(|(k, _)| k == "last turn").unwrap().1;
+    assert!(last.contains("$? before this launch") && last.contains("before this TUI attached"), "{last}");
+    let sc = &rows.iter().find(|(k, _)| k == "self-changes").unwrap().1;
+    assert!(sc.starts_with("a self-change ran before this TUI attached") && !sc.contains("$0.000"), "{sc}");
+    // live: a turn during which a self-change only builds (G0) is not "incl. checks"…
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "root", "text": "[root] attached: slot running, level L0, 0 queued.", "ts": "x"}));
+    frame(&mut a, json!({"t": "state", "busy": true, "src": "kernel"}));
+    let sha2 = "1111111111112222";
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": "2026-10-28T12:00:00Z", "text": "[kernel] gate started",
+        "data": {"kind": "gate_start", "gate_id": "j-2", "sha": sha2, "scope": "t1", "steps": ["G0", "G1", "G2", "G3", "live", "G4"]}}));
+    frame(&mut a, json!({"t": "display", "kind": "turn_end", "text": "tokens: in 1000 (cached 0), out 10", "boot_seq": 1, "src": "kernel"}));
+    a.handle(money(53_874));
+    frame(&mut a, json!({"t": "state", "busy": false, "src": "kernel"}));
+    a.handle(money(53_874));
+    let b = bar_text(&a);
+    assert!(b.contains("· $0.005 ") && !b.contains("incl. checks") && !b.contains("before this launch"), "{b}");
+    // …one during which its probes run (G2) is
+    let gate = |stage: &str| json!({"t": "notice", "level": "info", "src": "kernel", "ts": "2026-10-28T12:20:00Z", "text": "[kernel] gate",
+        "data": {"kind": "gate", "gate_kind": "promote", "gate_id": "j-2", "sha": sha2, "stage": stage, "pass": true, "reason": null, "score": null, "spent_musd": 0, "wall_ms": 1000, "cache_permille": null}});
+    frame(&mut a, gate("G0"));
+    frame(&mut a, gate("G1"));
+    frame(&mut a, json!({"t": "state", "busy": true, "src": "kernel"}));
+    frame(&mut a, json!({"t": "display", "kind": "turn_end", "text": "tokens: in 1000 (cached 0), out 10", "boot_seq": 1, "src": "kernel"}));
+    a.handle(money(60_000));
+    assert!(bar_text(&a).contains("$0.006 incl. checks"), "{}", bar_text(&a));
+}

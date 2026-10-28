@@ -853,6 +853,16 @@ fn corrections_are_owner_interrupts_only() {
     assert_eq!(now_turn(&e), (false, 1));
 }
 
+/// R-UNDO (v0.5.2): `/undo list` (the Root's own line, which only reads the snapshots) corrects no turn; `/undo`,
+/// `/undo <id>` and `/undo <id> confirm` do (`owner_text` marks them).
+#[test]
+fn undo_list_is_not_a_correction() {
+    assert!(!super::undo_corrects("/undo list") && !super::undo_corrects("  /undo   list "));
+    for l in ["/undo", "/undo confirm", "/undo 20301010T000000.000Z-proj", "/undo 20301010T000000.000Z-proj confirm"] {
+        assert!(super::undo_corrects(l), "{l}");
+    }
+}
+
 /// MERGE: several corrections in one turn count once (the flag is per turn), so the closed turn adds one corrected
 /// turn to the rings and to the corrections trend's `owner_corrected`.
 #[test]

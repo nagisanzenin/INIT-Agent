@@ -359,14 +359,21 @@ pub fn owner_text(root: &Root, text: &str) -> bool {
             true
         }
         Some("/undo") => {
-            go(root, |e, cx| {
-                e.interrupt(cx); // a correction of the current or just-ended owner turn
-                Vec::new()
-            });
+            if undo_corrects(text) {
+                go(root, |e, cx| {
+                    e.interrupt(cx); // a correction of the current or just-ended owner turn
+                    Vec::new()
+                });
+            }
             false
         }
         _ => false,
     }
+}
+
+/// R-UNDO (v0.5.2): `/undo list` only reads the snapshots, so it corrects no turn; every other `/undo` line does.
+fn undo_corrects(text: &str) -> bool {
+    text.split_whitespace().nth(1) != Some("list")
 }
 
 /// `/rollback [sha|cap|settled|lkg|twin]` (ADR-011 §3.3 H3, Threat model "drift").

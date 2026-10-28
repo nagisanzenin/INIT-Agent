@@ -15,6 +15,8 @@ pub enum Class {
     /// TUI-OBSERVE: a gate stage failed (`[kernel] gate G2 fail …`): the change was refused, or rolled
     /// back after G4. Shown when the gate track did not take the notice (an older kernel sends no data).
     GateFail,
+    /// v0.5.2: the Root resumed after a panic (`[root] resumed after panic …`): a success, never `✕`.
+    Resumed,
     /// Anything else, styled by its level.
     Plain,
 }
@@ -52,6 +54,7 @@ pub fn classify(text: &str, src: Option<&str>, code: Option<&str>) -> Class {
             "ceiling_hit" => return Class::Ceiling,
             "halted" => return Class::Halt,
             "system_safe" | "safe_mode" => return Class::SafeMode,
+            "resume" => return Class::Resumed,
             _ => {}
         }
     }
@@ -61,6 +64,9 @@ pub fn classify(text: &str, src: Option<&str>, code: Option<&str>) -> Class {
     let Some(r) = t.strip_prefix("[root] ") else { return Class::Plain };
     if r.starts_with("level L") {
         return Class::LevelUp;
+    }
+    if r.starts_with("resumed after panic") {
+        return Class::Resumed;
     }
     if r.starts_with("demoted L") {
         return Class::Demotion;
@@ -78,6 +84,13 @@ pub fn classify(text: &str, src: Option<&str>, code: Option<&str>) -> Class {
         return Class::Ceiling;
     }
     Class::Plain
+}
+
+/// v0.5.2: does this Root notice say the agent stopped or restarts (a panic, a resume, a halt, a
+/// kernel crash loop)? The body the status bar names may then no longer run.
+pub fn restarts_agent(text: &str, src: Option<&str>, code: Option<&str>) -> bool {
+    matches!(classify(text, src, code), Class::Panic | Class::Resumed | Class::Halt)
+        || (src.is_none_or(|s| s == "root") && code == Some("kernel_crash_loop"))
 }
 
 /// Is this the Root's greeting at attach (`[root] attached: …`)?
@@ -111,6 +124,12 @@ mod tests {
         assert_eq!(classify("[kernel] gate G2 fail: probe_exit", None, None), Class::GateFail);
         assert_eq!(classify("[kernel] gate G2 pass", Some("kernel"), None), Class::Plain);
         assert_eq!(classify("[kernel] rolled back 06be87a12345 → 3f9c0a1b2c4d (LKG): gate.g4.score_inferior", Some("kernel"), None), Class::Rollback);
+        // v0.5.2: a successful resume is not a failure, whatever level the Root sends it at
+        assert_eq!(classify("[root] resumed after panic at level L0; the zone restarts on the audited-good tuple", Some("root"), Some("resume")), Class::Resumed);
+        assert_eq!(classify("[root] resumed after panic at level L0", None, None), Class::Resumed);
+        assert_eq!(classify("[root] resumed after panic", Some("kernel"), Some("resume")), Class::Plain, "a kernel cannot forge it");
+        assert!(restarts_agent("PANIC at now", Some("root"), Some("panic")) && restarts_agent("[root] resumed after panic", Some("root"), Some("resume")));
+        assert!(!restarts_agent("[root] attached: slot running", Some("root"), None));
     }
 
     #[test]

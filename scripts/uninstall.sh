@@ -5,8 +5,9 @@
 #   scripts/uninstall.sh [--apparmor]
 #
 # Paths (environment, as for install.sh): INIT_ROOT_HOME (default ~/.init-root), INIT_HOME (default: the one
-# ROOT_HOME/install.json names, else ~/.init), INIT_BIN_DIR (default ~/.local/bin). The Trash is ~/.Trash on macOS and
-# the freedesktop.org Trash (${XDG_DATA_HOME:-~/.local/share}/Trash, with a .trashinfo per item) on Linux.
+# ROOT_HOME/install.json names, else ~/.init), INIT_BIN_DIR (default: the one install.json names, else ~/.local/bin).
+# The Trash is ~/.Trash on macOS and the freedesktop.org Trash (${XDG_DATA_HOME:-~/.local/share}/Trash, with a
+# .trashinfo per item) on Linux.
 #
 # Steps:
 #   1. `init-root stop` through the running Root (the zone stops: kernel and bodies, no demotion).
@@ -38,11 +39,16 @@ done
 PW_HOME="$(/usr/bin/python3 -I -c 'import os,pwd;print(pwd.getpwuid(os.getuid()).pw_dir)')"
 HOME="${HOME:-$PW_HOME}"
 RH="${INIT_ROOT_HOME:-$HOME/.init-root}"
-IH_REC="$(/usr/bin/python3 -I -c 'import json,sys
-try: print(json.load(open(sys.argv[1])).get("init_home") or "")
+# INIT_HOME and the launchers' directory as the install recorded them (install.json "init_home", "bin_dir"); an
+# install with INIT_BIN_DIR set keeps its init-agent there, and before v0.5.2 this looked only in ~/.local/bin
+REC="$(/usr/bin/python3 -I -c 'import json,sys
+try:
+    j = json.load(open(sys.argv[1]))
+    print(j.get("init_home") or ""); print(j.get("bin_dir") or "")
 except Exception: print("")' "$RH/install.json")"
+IH_REC="$(printf '%s\n' "$REC" | sed -n 1p)"; BIN_REC="$(printf '%s\n' "$REC" | sed -n 2p)"
 IH="${INIT_HOME:-${IH_REC:-$HOME/.init}}"
-BIN_DIR="${INIT_BIN_DIR:-$HOME/.local/bin}"
+BIN_DIR="${INIT_BIN_DIR:-${BIN_REC:-$HOME/.local/bin}}"
 OS="$(uname -s)"
 if [ "$OS" = Darwin ]; then
   TRASH="$HOME/.Trash"
