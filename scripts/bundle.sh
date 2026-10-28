@@ -5,13 +5,15 @@
 # (x86_64-unknown-linux-gnu). rustc's host, the release's MANIFEST.json host and every binary's header must name that
 # triple, or it stops. Linux bundles are built on Debian 12 (glibc 2.36), with bubblewrap >= 0.13 (install.sh's preflight).
 #
-#   scripts/bundle.sh [--label preview] [--reuse-release] [--keep-release] [-- <release.sh args>]
+#   scripts/bundle.sh [--label preview] [--reuse-release] [--keep-release] [--bless] [-- <release.sh args>]
 #
 #   --label L        the pre-release label: the bundle is v<version>-L (default preview; --label "" for none)
 #   --reuse-release  use target/dist/v<version>/ as it is (it must name HEAD and be clean); else release.sh runs
 #                    with --from-head (other lanes' uncommitted edits never reach the bundle) and --skip-tests
 #                    unless --with-tests is among the release.sh args
 #   --keep-release   keep target/dist/v<version>/ afterwards (default: removed by exact path; only the bundle stays)
+#   --bless          when G1 finds the committed seed/self.json stale, copy the regenerated one (made on the packaged
+#                    seed tree, as G1 sees it) into seed/self.json and stop: commit it, then run bundle.sh again
 #
 # Output, in target/dist/v<version>-<label>/:
 #   init-v<version>-<label>-<target>.tar.gz          the bundle (top dir init-v<version>-<label>-<target>/)
@@ -35,12 +37,13 @@ set -euo pipefail
 umask 022
 
 REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
-LABEL=preview; REUSE=0; KEEP=0; RARGS=()
+LABEL=preview; REUSE=0; KEEP=0; BLESS=0; RARGS=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --label) LABEL="$2"; shift 2 ;;
     --reuse-release) REUSE=1; shift ;;
     --keep-release) KEEP=1; shift ;;
+    --bless) BLESS=1; shift ;;
     --) shift; RARGS=("$@"); break ;;
     -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "bundle.sh: unknown argument $1 (see --help)" >&2; exit 64 ;;
@@ -52,6 +55,12 @@ die() { log "FAIL: $*"; exit 1; }
 free_mb() { df -m / | awk 'NR==2{print $4}'; }
 now() { date +%s; }
 T0=$(now)
+
+# The scratch install runs scripts/install.sh from this checkout, and the bundle ships scripts/ from it too, so both must
+# be HEAD's: an uncommitted edit would ship, and a file edited while bash runs it breaks the run (REL-051).
+DIRTY="$(git -C "$REPO" status --porcelain -- scripts)"
+[ -z "$DIRTY" ] || die "scripts/ has uncommitted changes; the bundle ships scripts/ as they are in this checkout, so commit them first:
+$DIRTY"
 
 case "$(uname -s)/$(uname -m)" in
   Darwin/arm64) TARGET=macos-arm64; TRIPLE=aarch64-apple-darwin ;;
@@ -168,13 +177,20 @@ env -i PATH="$TCB:/usr/bin:/bin" HOME="$G1/home" TMPDIR="$G1/tmp/" LANG=C "$REL/
 rc=$?
 set -e
 [ $rc = 0 ] || { cat "$G1/selfmap.log" >&2; die "init-kernel selfmap (G1) exit $rc"; }
-/usr/bin/python3 -I - "$G1/src/self.json" "$G1/self.json" <<'PY' || die "G1: the seed's committed self.json differs from the regenerated one (regenerate seed/self.json and commit it)"
+if ! /usr/bin/python3 -I - "$G1/src/self.json" "$G1/self.json" <<'PY'
 import json, sys
 a, b = (json.load(open(p)) for p in sys.argv[1:3])
 if a != b:
     print("differing top-level keys:", sorted(k for k in set(a) | set(b) if a.get(k) != b.get(k)), file=sys.stderr)
     sys.exit(1)
 PY
+then
+  if [ $BLESS = 1 ]; then
+    cp "$G1/self.json" "$REPO/seed/self.json"
+    die "G1: seed/self.json was stale; --bless wrote the one regenerated on the packaged seed tree: commit it, then run bundle.sh again"
+  fi
+  die "G1: the seed's committed self.json differs from the regenerated one (rerun with --bless to write it, then commit)"
+fi
 log "G1: the committed self.json matches the prebuilt body and the seed tag's tree"
 
 # ---------------------------------------------------------------- 4. stage, checksum, pack

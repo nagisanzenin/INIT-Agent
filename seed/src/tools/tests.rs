@@ -923,8 +923,21 @@ fn bash_abort_kills_the_group() {
     assert!(text(&r).contains("[aborted after "), "{}", text(&r));
     assert!(text(&r).ends_with("s: process group killed]"));
     assert_eq!(r.summary, "aborted");
-    assert!(!group_alive(pg));
+    assert!(group_gone_within(pg, Duration::from_secs(2)));
     assert!(b.abort.groups().is_empty());
+}
+
+/// True once no process is left in the group, polled for up to `limit`: a killed group's grandchildren are reaped by
+/// init, not by run_group, so they can linger for a few ms after it returns.
+fn group_gone_within(pgid: i32, limit: Duration) -> bool {
+    let t0 = Instant::now();
+    while group_alive(pgid) {
+        if t0.elapsed() > limit {
+            return false;
+        }
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    true
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1020,7 +1033,9 @@ fn run_group_separate_stdin_cancel() {
     let took = t_cancel.lock().unwrap().unwrap().elapsed();
     assert!(o.cancelled && !o.timed_out);
     assert!(took < Duration::from_millis(100), "{took:?}");
-    assert!(!group_alive(pgid.load(Ordering::SeqCst)));
+    // `sleep` is sh's child: the group is empty once init reaps it, a few ms after run_group returns (an inner-G0
+    // flake on a loaded x86_64 runner, REL-051).
+    assert!(group_gone_within(pgid.load(Ordering::SeqCst), Duration::from_secs(2)));
     // trap '' TERM under cancel: KILL after 2 s. Cancel only once the trap is set (the child touches a
     // marker after `trap`): a TERM that beats a slow shell start kills sh without the KILL (a G0 flake
     // under load, REL-G0).

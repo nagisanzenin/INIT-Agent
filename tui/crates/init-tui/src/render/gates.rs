@@ -51,6 +51,31 @@ impl Step {
     fn is_gate(&self) -> bool {
         self.name.starts_with('G')
     }
+    /// TUI-FIX (v0.5.1 user session: G0's live timer said 8 min 33 s, its row then 1 min 39 s, and
+    /// about 8 minutes of the 17 min 47 s total were on no row): the time between the step before it
+    /// (or the gate's start) and its end that is not in its own `wall_ms`: queued, waiting for a build
+    /// slot, or kernel work outside the step. Shown from a second up, so the rows add up to the total.
+    pub fn waited_ms(&self) -> Option<i64> {
+        if !matches!(self.st, StepSt::Pass | StepSt::Fail) {
+            return None;
+        }
+        let w = self.end_ms? - self.since_ms? - self.wall_ms? as i64;
+        (w >= 1000).then_some(w)
+    }
+    /// TUI-FIX (v0.5.1): a G4 that "passed" without scoring anything (no tasks to score against, or
+    /// not run on the free path) is not a score: why it did not run, or None for a real G4 result.
+    pub fn unscored(&self) -> Option<&'static str> {
+        if self.name != "G4" || self.st != StepSt::Pass {
+            return None;
+        }
+        match self.reason.as_deref() {
+            Some("no_instrument") => Some("no tasks to score against yet; kept on G0–G3"),
+            Some("free") => Some("not run in free mode"),
+            Some(_) => None,
+            None if self.score.is_none() => Some("no score reported"),
+            None => None,
+        }
+    }
     /// The step's own time: the kernel's `wall_ms`, else the span between the notices.
     fn took_ms(&self, now_ms: i64) -> Option<i64> {
         match self.st {
@@ -130,9 +155,9 @@ impl Run {
         self.outcome = Some(o);
         self.end_ms = Some(ts);
     }
-    /// `passed/planned` gates (`4/4`).
+    /// `passed/planned` gates (`4/4`); a G4 that scored nothing counts as neither.
     pub fn gate_count(&self) -> (usize, usize) {
-        let g: Vec<&Step> = self.steps.iter().filter(|s| s.is_gate()).collect();
+        let g: Vec<&Step> = self.steps.iter().filter(|s| s.is_gate() && s.unscored().is_none()).collect();
         (g.iter().filter(|s| s.st == StepSt::Pass).count(), g.len())
     }
     fn failed(&self) -> Option<&Step> {
@@ -319,10 +344,15 @@ fn strip(r: &Run) -> Line {
             l.push(" ", Style::PLAIN);
         }
         l.push(format!("{} ", if s.is_gate() { s.name.as_str() } else { "live" }), Style::fg(Role::Mute));
-        let (g, st) = cell(s.st);
+        let (g, st) = step_cell(s);
         l.push(g, st);
     }
     l
+}
+
+/// The cell of a step: a G4 that scored nothing is `·` (not run), not `■`.
+fn step_cell(s: &Step) -> (&'static str, Style) {
+    if s.unscored().is_some() { cell(StepSt::Pending) } else { cell(s.st) }
 }
 
 fn split(left: Line, right: Line, width: usize) -> Line {
@@ -343,20 +373,31 @@ fn step_row(s: &Step, width: usize, now_ms: i64, detail: bool) -> Line {
     let name = step_name(&s.name);
     l.push(format!("{name:<3} "), Style::fg(Role::Dim));
     l.push(format!("{:<w$}", label(&s.name), w = LABEL_W.saturating_sub(name.chars().count().saturating_sub(3))), Style::fg(Role::Mute));
-    let (g, st) = cell(s.st);
+    let (g, st) = step_cell(s);
     l.push(format!(" {g} "), st);
     let took = s.took_ms(now_ms).map(secs);
+    let waited = s.waited_ms().map(|w| format!(" · waited {}", secs(w)));
     match s.st {
+        StepSt::Pass if s.unscored().is_some() => {
+            l.push("not scored", Style::PLAIN);
+            l.push(format!(" · {}", s.unscored().unwrap_or_default()), Style::dim());
+        }
         StepSt::Pass => {
             l.push("pass", Style::fg(Role::Pass));
             if let Some(t) = took {
                 l.push(format!(" · {t}"), Style::dim());
+            }
+            if let Some(w) = waited {
+                l.push(w, Style::dim());
             }
         }
         StepSt::Fail => {
             l.extend(sanitize::inline(s.reason.as_deref().unwrap_or("failed"), Style::fg(Role::Harm)));
             if let Some(t) = took {
                 l.push(format!(" · {t}"), Style::dim());
+            }
+            if let Some(w) = waited {
+                l.push(w, Style::dim());
             }
         }
         StepSt::Running => {
@@ -371,7 +412,7 @@ fn step_row(s: &Step, width: usize, now_ms: i64, detail: bool) -> Line {
     }
     if detail {
         if let Some(m) = s.spent_musd.filter(|m| *m > 0) {
-            l.push(format!(" · {}", super::usd_fine(m as i64)), Style::dim());
+            l.push(format!(" · {}", super::usd(m as i64)), Style::dim());
         }
         if let Some(c) = s.cache_permille {
             l.push(format!(" · cache {}.{}%", c / 10, c % 10), Style::dim());
@@ -421,6 +462,9 @@ pub fn committed_rows(r: &Run, width: usize, expanded: bool) -> Vec<Line> {
             let (p, n) = r.gate_count();
             if n > 0 {
                 dim(&mut l, format!(" · {p}/{n} gates"));
+            }
+            if r.steps.iter().any(|s| s.unscored().is_some()) {
+                dim(&mut l, " · G4 not scored".into());
             }
             if let Some(t) = total {
                 dim(&mut l, format!(" · {t}"));
@@ -496,8 +540,10 @@ mod tests {
         t.on_notice(&json!({"kind": "gate_start", "gate_id": "j-7", "gate_kind": "promote", "sha": sha, "parent": "3f9c0a1b2c4d5e6f7a8b", "scope": "t2", "steps": steps}), at)
     }
     fn gate(t: &mut Track, sha: &str, stage: &str, pass: Option<bool>, reason: Option<&str>, wall: u64, at: i64) -> Option<Vec<Run>> {
+        // a G4 that ran has a score (an unscored one is tested on its own)
+        let score = if stage == "G4" { json!(612) } else { Value::Null };
         t.on_notice(&json!({"kind": "gate", "gate_kind": "promote", "gate_id": "j-7", "sha": sha, "stage": stage, "pass": pass, "reason": reason,
-            "score": null, "spent_musd": 0, "wall_ms": wall, "cache_permille": null}), at)
+            "score": score, "spent_musd": 0, "wall_ms": wall, "cache_permille": null}), at)
     }
 
     const SHA: &str = "06be87a1234567890abcdef";
@@ -557,6 +603,33 @@ mod tests {
         let done = t.on_notice(&json!({"kind": "rolled_back", "from_sha": SHA, "to_sha": "3f9c0a1b2c4d5e6f7a8b", "reason": "gate.g4.score_inferior", "to_lkg": true}), T0 + 103_000).unwrap();
         out.push_str(&screen(&committed_rows(&done[0], 80, false), 80, "rolled back: collapsed"));
         golden("gates_track", &out);
+    }
+
+    /// TUI-FIX (v0.5.1 user session): a T1 change whose G0 waited 6 min 54 s before its 1 min 39 s
+    /// of work, and whose G4 had nothing to score. The rows add up to the total, and G4 does not
+    /// read as a score that ran.
+    #[test]
+    fn rows_add_up_and_an_unscored_g4_is_not_a_pass() {
+        let mut t = Track::default();
+        start(&mut t, SHA, &["G0", "G1", "G2", "G3", "live", "G4"], T0);
+        gate(&mut t, SHA, "G0", Some(true), None, 99_000, T0 + 513_000); // live timer 8 min 33 s; work 1 min 39 s
+        gate(&mut t, SHA, "G1", Some(true), None, 400, T0 + 513_400);
+        gate(&mut t, SHA, "G2", Some(true), None, 30_000, T0 + 600_000); // waited 56.6 s
+        gate(&mut t, SHA, "G3", Some(true), None, 467_000, T0 + 1_067_000);
+        t.on_notice(&json!({"kind": "promoted", "sha": SHA, "handoff": false}), T0 + 1_067_000);
+        t.on_notice(&json!({"kind": "gate", "gate_kind": "g4", "sha": SHA, "stage": "G4", "pass": true, "reason": "gate.g4.no_instrument",
+            "score": null, "spent_musd": 0, "wall_ms": 0, "cache_permille": null}), T0 + 1_067_000);
+        let done = t.on_notice(&json!({"kind": "lkg", "sha": SHA}), T0 + 1_067_000).unwrap();
+        let rows: Vec<String> = committed_rows(&done[0], 100, true).iter().map(|l| l.text()).collect();
+        assert_eq!(rows[0], "✓ kept 06be87a12345 · 4/4 gates · G4 not scored · 17 min 47 s · no restart", "{rows:#?}");
+        assert!(rows[1].contains("G0  build + tests    ■ pass · 1 min 39 s · waited 6 min 54 s"), "{rows:#?}");
+        assert!(rows[3].contains("■ pass · 30 s · waited 56 s"), "{rows:#?}");
+        assert!(rows[6].contains("G4  scored vs LKG    · not scored · no tasks to score against yet; kept on G0–G3"), "{rows:#?}");
+        assert!(!rows[6].contains("pass"), "{rows:#?}");
+        // every step's own time plus its wait is the change's total
+        let r = &done[0];
+        let sum: i64 = r.steps.iter().map(|s| s.took_ms(0).unwrap_or(0) + s.waited_ms().unwrap_or(0)).sum();
+        assert!((r.end_ms.unwrap() - r.start_ms - sum).abs() < 1000, "the rows add up: {sum} ms of {} ms", r.end_ms.unwrap() - r.start_ms);
     }
 
     #[test]

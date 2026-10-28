@@ -370,6 +370,8 @@ pub struct Machine {
     pub restart_pending: Option<String>,
     /// The primary was asked to stop for a restart: the cause and the kill deadline.
     restarting: Option<(String, Instant)>,
+    /// ROOT-MSG (v0.5.1): why the Root refused the last spawn of the primary, until a spawn succeeds.
+    pub last_spawn_error: Option<String>,
 }
 
 /// How long a deferred spawn waits for a zombie's `exited` before going ahead anyway.
@@ -397,6 +399,7 @@ impl Machine {
             rollback_pending: None,
             restart_pending: None,
             restarting: None,
+            last_spawn_error: None,
         }
     }
 
@@ -411,6 +414,29 @@ impl Machine {
     }
 
     /// The instance currently receiving owner input (None while paused, starting, …).
+    /// ROOT-MSG (v0.5.1): what the agent is doing, in the owner's words, with what the owner can do about it. Used when
+    /// an owner line waits because no body reads it, and for a `/resume` with nothing to resume.
+    pub fn state_words(&self, now: Instant) -> String {
+        let secs = |until: Instant| until.saturating_duration_since(now).as_secs().max(1);
+        match &self.slot {
+            Slot::Running if self.relay_target().is_some() => "the agent is running".into(),
+            Slot::Running | Slot::ColdStart | Slot::Starting { .. } => "the agent is starting; it reads your message as soon as it is up".into(),
+            Slot::Handoff | Slot::RollingBack => "the agent is switching versions; the new one reads your message as soon as it is up".into(),
+            Slot::Backoff { until, .. } => match &self.last_spawn_error {
+                Some(e) => format!("the agent could not start, and INIT tries again in {} s; it will keep failing until the cause \
+                    is fixed. The Root says: {}", secs(*until), refusal_words(e)),
+                None => format!("the agent stopped unexpectedly and restarts in {} s. If it keeps failing, INIT goes back to its \
+                    last good version on its own; /root status shows the state", secs(*until)),
+            },
+            Slot::Stopping { .. } => "the agent is stopping; type /resume to start it again".into(),
+            Slot::Stopped => "the agent was stopped, and your message starts it again".into(),
+            Slot::DiskFull { .. } => "the disk is almost full, so the agent is paused. Free some disk space: it starts again on \
+                its own".into(),
+            Slot::Halted { reason } => format!("the agent is halted: {}. Type /resume to start its last good version in safe mode",
+                halt_words(reason)),
+        }
+    }
+
     pub fn relay_target(&self) -> Option<&str> {
         match self.slot {
             Slot::Running => self.primary.as_ref().filter(|p| p.ready_at.is_some()).map(|p| p.id.as_str()),
@@ -493,6 +519,7 @@ impl Machine {
             (_, Ev::Halt(r)) => self.halt(r, None),
             (Slot::Starting { tag, inst: None, .. }, Ev::Spawned { tag: t, result }) if t == tag => match result {
                 Ok(id) => {
+                    self.last_spawn_error = None;
                     let sha = self.deferred_sha_hint();
                     self.primary = Some(Inst { id: id.clone(), sha, ready_at: None });
                     self.slot = Slot::Starting { tag, inst: Some(id), deadline: Some(now.mono + self.cfg.ready_timeout()) };
@@ -502,6 +529,7 @@ impl Machine {
                     // Not a crash of the body: the Root refused or the link failed.
                     let attempt = self.crash.consecutive + 1;
                     self.slot = Slot::Backoff { until: now.mono + self.cfg.backoff(attempt), attempt };
+                    self.last_spawn_error = Some(e.clone());
                     vec![Act::Alert { code: "spawn_failed", message: e }, Act::Persist]
                 }
             },
@@ -1246,6 +1274,24 @@ impl Machine {
         let mode = serde_json::to_value(self.mode.name()).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default();
         let sha12: String = self.current.sha.chars().take(12).collect();
         (slot, mode, self.busy, sha12)
+    }
+}
+
+/// A Root refusal (`root.<code>: <message>`, `SpawnError`'s display) without its code.
+fn refusal_words(e: &str) -> &str {
+    match e.split_once(": ") {
+        Some((code, rest)) if code.starts_with("root.") && !code.contains(' ') => rest,
+        _ => e,
+    }
+}
+
+fn halt_words(r: &HaltReason) -> &'static str {
+    match r {
+        HaltReason::Config => "its configuration has an error (the alert names it)",
+        HaltReason::CrashLoopSafe => "it kept crashing, even its last good version",
+        HaltReason::Layout => "INIT's own files are not laid out as expected (the alert names the file)",
+        HaltReason::Tooling => "a tool it needs is missing (the alert names it)",
+        HaltReason::NoLkg => "there is no last good version to run",
     }
 }
 

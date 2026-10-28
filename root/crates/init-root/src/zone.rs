@@ -81,6 +81,25 @@ fn vctx(root: &Root) -> ValidationCtx {
         devdir: info_path(root, "devdir").unwrap_or(kdir), home_real: root.p.home.clone(), extra_read: extra }
 }
 
+/// ROOT-MSG (v0.5.1): the refusal of a spawn whose `HOME_REAL` (the kernel takes it from the passwd entry) is not this
+/// Root's HOME, which happens when the Root was started from a shell with another `$HOME`. The refusal and its code are
+/// unchanged (V3 or the class rule refused it); only the message says what is wrong and how to fix it, in place of
+/// "root.args V3: HOME_REAL: outside INIT_HOME, …". It names no home path (alert text, root/root.md §4.6).
+fn home_mismatch(root: &Root, e: &params::ArgsError, given: &BTreeMap<String, String>, c: &ValidationCtx) -> Option<String> {
+    let h = given.get("HOME_REAL").filter(|_| e.param.as_deref() == Some("HOME_REAL"))?;
+    if Path::new(h) == c.home_real {
+        return None;
+    }
+    let how = if crate::install::service_path(&root.p).is_file() {
+        format!("then let its service start it with your real home: {}", crate::install::start_hint(&root.p))
+    } else {
+        format!("then start it again from a new terminal window, where HOME is your home, and leave that window open: {}",
+            root.p.cmd("start --foreground"))
+    };
+    Some(format!("INIT cannot start the agent: this Root runs with a HOME that is not your account's home folder, and the \
+        agent's sandbox needs your real home, so the Root refuses it. Stop this Root (Ctrl-C in its terminal), {how}"))
+}
+
 /// §3.3.1: PRELUDE + SECTION + ROOT_ALLOWS + the zone tail, as a `sandbox-exec` argv (values only as `-D`).
 /// ADR-009 (SBX-009): the deny lists for every instance, and a body's `grant`. ADR-012: a full grant takes the full
 /// lists (and the full tail).
@@ -313,7 +332,7 @@ pub fn spawn(root: &Arc<Root>, a: &Value) -> Result<(Value, [OwnedFd; 3]), Err3>
     }
     let profile = ProfileId::from_wire(&r.profile).ok_or_else(|| args(format!("unknown profile {:?}", r.profile)))?;
     let c = vctx(root);
-    params::validate_spawn_params(&r.kind, profile, &r.params, &c).map_err(|e| args(e.to_string()))?;
+    params::validate_spawn_params(&r.kind, profile, &r.params, &c).map_err(|e| args(home_mismatch(root, &e, &r.params, &c).unwrap_or_else(|| e.to_string())))?;
     params::check_spawn_misc(&r.program, &r.cwd, &r.env, &r.args, &c).map_err(|e| args(e.to_string()))?;
     if let Err(q) = quotas(root, &r.kind, r.replaces.as_deref()) {
         if q.0 == "root.level" {

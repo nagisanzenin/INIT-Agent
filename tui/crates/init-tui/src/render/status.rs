@@ -33,15 +33,12 @@ pub fn usage_rows(info: &Info) -> (String, Vec<(String, String)>) {
     } else {
         format!("live token totals unknown; reported subtotal: input {}, output {}", token("reported_input_tokens"), token("reported_output_tokens"))
     };
-    let evo = info.state.as_ref().and_then(|s| s["evolution_checks_today_musd"].as_i64()).filter(|n| *n >= 0)
-        .map(|m| format!("evolution checks today {} estimated (gate/probe only)", usd(m)))
-        .unwrap_or_else(|| "evolution checks cost unknown".into());
-    let policy = if egress.is_some_and(observe_only) { "Monetary caps off." } else { "Monetary policy is reported by Root." };
+    let policy = if egress.is_some_and(observe_only) { "Spending is metered, not capped." } else { "Monetary policy is reported by Root." };
     let mut rows: Vec<(&str, String)> = vec![
         ("Root ledger", format!("{} total settled estimate · {} today", amount("total_spent_musd"), amount("day_spent_musd"))),
         ("pending", format!("upper bound {} (separate from settled cost; interrupted requests may still be billed)", amount("total_reserved_musd"))),
         ("tokens", tokens),
-        ("evolution", format!("{evo}. Free-evolution reasoning cost is not attributed.")),
+        ("self-changes", self_change_cost(info)),
         ("policy", format!("{policy} /stop stops the current run; /panic stops all agent activity; Ctrl-C interrupts.")),
     ];
     if info.session.requests == 0 {
@@ -53,6 +50,28 @@ pub fn usage_rows(info: &Info) -> (String, Vec<(String, String)>) {
         rows.push(("last turn", format!("{}: {}", plural(info.turn.requests, "request"), info.turn_line())));
     }
     ("usage (USD estimated from usage and tariffs, not an invoice)".to_string(), rows.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
+}
+
+/// `/usage`'s self-change row (TUI-FIX, v0.5.1: it said "evolution checks today $0.00" while the gate's
+/// probe and G3 requests were two thirds of the Root's ledger). The Root's ledger has no per-purpose
+/// split yet (docs/tui.md §9 Q5), so the row gives what this TUI measured, labelled as what it is: the
+/// ledger's change while self-changes were in flight. The kernel's own gate-budget counter comes from
+/// its last `state` frame; it is shown only beside that, and never as the checks' cost when it is older
+/// than the last self-change or below what the ledger moved.
+fn self_change_cost(info: &Info) -> String {
+    let kernel = info.state.as_ref().and_then(|s| s["evolution_checks_today_musd"].as_i64()).filter(|n| *n >= 0);
+    let measured = info.gate_musd();
+    let mut out = match (info.gates.seen, measured) {
+        (false, _) => "none seen by this TUI".to_string(),
+        (true, Some(m)) => format!("{} metered by the Root while self-changes ran (seen by this TUI; any other spend in that time is included)", usd(m)),
+        (true, None) => "a self-change ran, but its cost is unknown (no ledger total from the Root)".to_string(),
+    };
+    // older than the last self-change, or lower than what the ledger moved: not shown
+    if let Some(k) = kernel.filter(|k| !info.evolution_stale() && measured.is_none_or(|m| *k >= m)) {
+        out.push_str(&format!(" · the kernel's gate-budget counter today: {}", usd(k)));
+    }
+    out.push_str(". The Root does not split spend by purpose yet.");
+    out
 }
 
 /// `/usage` as text (line mode): the title, then one `key  value` row per line.
@@ -106,7 +125,12 @@ fn root_state(info: &Info, now: Instant, now_ms: i64) -> (Line, bool) {
         }
         _ if s["mode"] == "safe" => (with_ok(Line::from_span("safe mode", Style::fg(Role::Warn))), false),
         "running" => (ok, false),
-        "stopped" => (with_ok(Line::from_span("stopped", Style::dim())), false),
+        // TUI-FIX (v0.5.1 user session: "queued: the body is backoff", with no reason and "root ok"
+        // beside it): the agent's slot in plain words; the Root's alert above says why
+        "stopped" => (with_ok(Line::from_span("agent stopped · /resume", Style::dim())), false),
+        "backoff" => (with_ok(Line::from_span("agent failed to start, retrying", Style::fg(Role::Warn))), false),
+        "starting" => (with_ok(Line::from_span("agent starting", Style::dim())), false),
+        "stopping" => (with_ok(Line::from_span("agent stopping", Style::dim())), false),
         other => (with_ok(Line::from_span(sanitize::inline(other, Style::PLAIN).text(), Style::dim())), false),
     }
 }
@@ -174,7 +198,7 @@ pub fn bar(info: &Info, width: usize, now: Instant, now_ms: i64, _spin: usize, n
         l.push(" · cache ", Style::mute());
         l.push(t.cache().show(), Style::PLAIN);
         l.push(" · ", Style::mute());
-        l.push(info.turn_musd().map_or_else(|| "$?".into(), super::usd_fine), Style::PLAIN);
+        l.push(info.turn_cost(), Style::PLAIN);
         left.push(Field { drop: 4, line: l });
         left.push(Field { drop: 7, line: Line::from_span(format!("session cache {}", info.session.cache().show()), Style::dim()) });
     }
@@ -186,9 +210,11 @@ pub fn bar(info: &Info, width: usize, now: Instant, now_ms: i64, _spin: usize, n
             .and_then(|e| e["money"]["total_input_tokens"].as_u64()?.checked_add(e["money"]["total_output_tokens"].as_u64()?))
             .map(|n| format!("{n} live tokens")).unwrap_or_else(|| "live tokens ?".into());
         left.push(Field { drop: 8, line: Line::from_span(tokens, Style::dim()) });
-        let evo = state.and_then(|s| s["evolution_checks_today_musd"].as_i64()).filter(|m| *m >= 0)
-            .map(usd).unwrap_or_else(|| "$?".into());
-        left.push(Field { drop: 8, line: Line::from_span(format!("evo checks today {evo} est"), Style::dim()) });
+        // TUI-FIX (v0.5.1): the self-changes' measured spend, once one was seen (never a `$?` or a
+        // stale kernel figure; `/usage` says what it is)
+        if let Some(m) = info.gate_musd() {
+            left.push(Field { drop: 8, line: Line::from_span(format!("checks {} est", usd(m)), Style::dim()) });
+        }
         left.push(Field { drop: 9, line: Line::from_span("/usage · /stop", Style::mute()) });
     } else {
         // run cost (drop 5)
@@ -254,6 +280,10 @@ pub fn bar(info: &Info, width: usize, now: Instant, now_ms: i64, _spin: usize, n
             let mut l = Line::from_span("● ", Style::fg(Role::Harm));
             l.push("FULL", if no_color { Style::PLAIN.with_reverse() } else { Style::PLAIN });
             l
+        } else if a["workspace"].is_null() {
+            // TUI-FIX (v0.5.1): "no workspace · WORKSPACE" contradicted itself; confined without a
+            // workspace, the agent writes only its own folder
+            Line::from_span("agent's own folder only", Style::PLAIN)
         } else {
             Line::from_span("WORKSPACE", Style::PLAIN)
         };
@@ -346,7 +376,7 @@ mod usage_tests {
         let bar = bar(&info, 240, Instant::now(), 0, 0, false).text();
         assert!(bar.contains("$12.50 live total est"), "{bar}");
         assert!(bar.contains("1250 live tokens"), "{bar}");
-        assert!(bar.contains("evo checks today $? est"), "{bar}");
+        assert!(!bar.contains("checks") && !bar.contains("$?"), "no self-change seen: no checks field, no unexplained ?: {bar}");
         assert!(bar.contains("/usage · /stop"), "{bar}");
         assert!(!bar.contains("ceiling") && !bar.contains("/$"), "{bar}");
     }
@@ -361,11 +391,54 @@ mod usage_tests {
         info.on_state(json!({"evolution_checks_today_musd": 0}), Instant::now());
         let known = usage_summary(&info);
         assert!(known.contains("input 1000, output 250"), "{known}");
-        assert!(known.contains("evolution checks today $0.00 estimated (gate/probe only)"), "{known}");
-        assert!(known.contains("Free-evolution reasoning cost is not attributed"));
-        assert!(known.contains("Monetary caps off"));
+        assert!(known.contains("self-changes none seen by this TUI · the kernel's gate-budget counter today: $0.000"), "{known}");
+        assert!(known.contains("The Root does not split spend by purpose yet"));
+        assert!(known.contains("Spending is metered, not capped"));
         info.egress_failed = true;
         assert!(usage_summary(&info).contains("unknown total"));
+    }
+
+    /// TUI-FIX (v0.5.1 user session): `/usage` said "evolution checks today $0.00" while the gate's
+    /// probe and G3 requests were two thirds of the ledger (the kernel's figure came from a `state`
+    /// frame sent before the gate ran). The row now gives the ledger's change while the self-change
+    /// was in flight, and never the stale kernel figure as the checks' cost.
+    #[test]
+    fn self_change_spend_is_what_the_ledger_metered() {
+        let t0 = Instant::now();
+        let money = |m: i64| json!({"money": {"enforced": false, "policy": "observe", "total_spent_musd": m, "day_spent_musd": m}});
+        let mut info = Info::default();
+        info.on_egress(money(10_000));
+        info.on_state(json!({"busy": false, "evolution_checks_today_musd": 0}), t0);
+        assert!(info.gate_musd().is_none());
+        info.on_gate(true, t0 + Duration::from_secs(1)); // gate_start: the window opens at $0.010
+        info.on_egress(money(25_000));
+        assert_eq!(info.gate_musd(), Some(15_000), "the open window so far");
+        info.on_egress(money(40_000));
+        info.on_gate(false, t0 + Duration::from_secs(600)); // kept: closes at the next ledger answer
+        info.on_egress(money(40_850));
+        info.on_egress(money(45_850)); // a turn after the gate is not the gate's
+        assert_eq!(info.gate_musd(), Some(30_850));
+        let s = usage_summary(&info);
+        assert!(s.contains("$0.031 metered by the Root while self-changes ran"), "{s}");
+        assert!(!s.contains("$0.000"), "the kernel's stale $0 is not shown as the checks' cost: {s}");
+        assert!(s.contains("$0.046 total settled estimate"), "{s}");
+        let bar = bar(&info, 240, t0, 0, 0, false).text();
+        assert!(bar.contains("$0.046 live total est") && bar.contains("checks $0.031 est"), "{bar}");
+        // a fresh kernel figure at least as large as the measured one is shown beside it
+        info.on_state(json!({"busy": false, "evolution_checks_today_musd": 31_000}), t0 + Duration::from_secs(700));
+        assert!(usage_summary(&info).contains("the kernel's gate-budget counter today: $0.031"));
+    }
+
+    /// TUI-FIX (v0.5.1): the agent's slot in words a stranger reads, beside `root ok`.
+    #[test]
+    fn slot_words_are_plain() {
+        let mut info = Info::default();
+        info.conn = Conn::Live;
+        for (slot, want) in [("backoff", "agent failed to start, retrying · root ok"), ("stopped", "agent stopped · /resume · root ok"), ("starting", "agent starting · root ok")] {
+            info.on_status(json!({"slot": slot, "mode": "normal", "level": 0, "kernel": null}), Instant::now());
+            let b = bar(&info, 120, Instant::now(), 0, 0, false).text();
+            assert!(b.trim_end().ends_with(want), "{slot}: {b}");
+        }
     }
 
     #[test]

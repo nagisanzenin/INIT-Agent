@@ -9,7 +9,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- busy 2 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg            L0 · root ok |.........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm..............mmmaaaaaaa 
+ busy 2 s · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg           L0 · root ok |.........mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.............mmmaaaaaaa 
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,7
 -- frozen: the summary counts the two delegate calls only
@@ -19,7 +19,7 @@ Both scouts reported.                                                           
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › Type a message · / for commands · ? for keys                                                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................................................ll
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- deepseek-flash · +$0.00 since attach · $1.23/$5.00 today                     L0 (cap L1) · root ok |.ddddddddddddddmmmdddddddddddddddddddmmm.................................................mmmaaaaaaa 
+ deepseek-flash · +$0.000 since attach · $1.23/$5.00 today                    L0 (cap L1) · root ok |.ddddddddddddddmmmddddddddddddddddddddmmm................................................mmmaaaaaaa 
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,3
 -- expanded (Ctrl-O): sub-task calls one level deeper
@@ -65,6 +65,6 @@ cursor 4,3
 ┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › Type a message · / for commands · ? for keys                               │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..............................ll
 └──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- deepseek-flash · +$0.00 since attach · $1.23/$5.00 today          L0 · root ok |.ddddddddddddddmmmdddddddddddddddddddmmm.............................mmmaaaaaaa 
+ deepseek-flash · +$0.000 since attach · $1.23/$5.00 today         L0 · root ok |.ddddddddddddddmmmddddddddddddddddddddmmm............................mmmaaaaaaa 
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  
 cursor 4,4

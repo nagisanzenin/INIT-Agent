@@ -107,6 +107,8 @@ pub struct Flow {
     /// The key field can be hidden: TTY mode, or line mode reading a pipe (nothing echoes it). Line mode on a
     /// terminal cannot hide it, so the owner stores the key with `init-root keys set` instead.
     can_hide: bool,
+    /// This install's `init-root` as the owner types it ([`crate::app::root_cmd`]): it is not on PATH.
+    root: String,
     checked: bool,
     step: Step,
     inflight: Option<(Op, Why)>,
@@ -133,8 +135,9 @@ fn exp(tested: &str) -> &'static str {
 }
 
 impl Flow {
-    pub fn new(can_hide: bool) -> Flow {
-        Flow { can_hide, checked: false, step: Step::Idle, inflight: None, why: Why::FirstRun, arg: None, ch: Choice::default(), key_only: None, catalog: vec![], pickers: false }
+    /// `root_home` and `home` (HOME): which `init-root` the key-setup texts name ([`crate::app::root_cmd`]).
+    pub fn new(can_hide: bool, root_home: &std::path::Path, home: Option<&str>) -> Flow {
+        Flow { can_hide, root: crate::app::root_cmd(root_home, home, ""), checked: false, step: Step::Idle, inflight: None, why: Why::FirstRun, arg: None, ch: Choice::default(), key_only: None, catalog: vec![], pickers: false }
     }
 
     /// TTY mode: list choices are pickers ([`Out::Pick`]).
@@ -277,7 +280,7 @@ impl Flow {
         if !self.can_hide {
             self.step = Step::Idle;
             let a = self.key_only.take().unwrap_or_else(|| self.ch.alias.clone());
-            let mut o = vec![Out::Warn(format!("this terminal would show the key: store it with `init-root keys set {a}` (hidden input) in a terminal, or run init-agent without --plain"))];
+            let mut o = vec![Out::Warn(format!("this terminal would show the key: store it with `{} keys set {a}` (hidden input) in a terminal, or run init-agent without --plain", self.root))];
             if self.why != Why::Key {
                 o.extend(self.ask_model());
             }
@@ -368,7 +371,7 @@ impl Flow {
                     return self.apply();
                 }
                 self.step = Step::Price;
-                vec![Out::Info("Its price in USD per 1M tokens as IN,CACHED,OUT (for example 0.50,0.05,1.50); Enter = unknown (spend then shows $0):".into())]
+                vec![Out::Info(format!("Its price in USD per 1M tokens as IN,CACHED,OUT (for example 0.50,0.05,1.50); Enter = unknown (spend then shows {}):", crate::render::usd(0)))]
             }
             Step::Price => {
                 if !t.is_empty() {
@@ -413,7 +416,7 @@ impl Flow {
         let v = match r {
             Ok(v) => v,
             Err(ReqErr::Refused(c, _, _)) if op == Op::List && c == "root.unknown_cmd" => {
-                return if why == Why::FirstRun { vec![] } else { vec![Out::Warn("this Root does not support in-app provider setup; use init-root providers / keys set".into())] };
+                return if why == Why::FirstRun { vec![] } else { vec![Out::Warn(format!("this Root does not support in-app provider setup; in a terminal, use `{0} providers add` and `{0} keys set`", self.root))] };
             }
             Err(e) if op == Op::Key => {
                 // stay on the key: a refused key (test mode, format) can be typed again
@@ -443,7 +446,8 @@ impl Flow {
                 let model = v["model"].as_str().unwrap_or("").to_string();
                 let mut o = vec![];
                 if v["unpriced"] == true {
-                    o.push(Out::Warn("no price given: this model's spend shows as $0.00 (unknown)".into()));
+                    // TUI-FIX2: the amount as every surface prints it (`render::usd`), not a stale `$0.00`
+                    o.push(Out::Warn(format!("no price given: this model's spend shows as {} (unknown)", crate::render::usd(0))));
                 }
                 o.push(self.send(Op::Use, why, json!({"provider": alias, "model": model})));
                 o
@@ -601,6 +605,9 @@ pub fn zero(b: &mut [u8]) {
 mod tests {
     use super::*;
 
+    /// The default install's ROOT_HOME for HOME /Users/o.
+    const RH: &str = "/Users/o/.init-root";
+
     fn list(ready: bool) -> Value {
         json!({"ready": ready, "selected": {"provider": "deepseek", "model": "deepseek-flash"},
             "providers": [{"id": "deepseek", "key": if ready { "present" } else { "missing" }, "tested": "live"}],
@@ -623,21 +630,21 @@ mod tests {
 
     #[test]
     fn ready_owner_sees_nothing() {
-        let mut f = Flow::new(true);
+        let mut f = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         assert_eq!(sent(&f.on_attached()), vec![(Op::List, json!({}))]);
         assert!(f.on_answer(Op::List, Ok(list(true))).is_empty(), "an existing DeepSeek user: no change");
         assert!(!f.holds_lines());
         assert!(f.on_line("hello").is_none());
         assert!(f.on_attached().is_empty(), "once per process");
         // an older Root: no first run, no noise
-        let mut g = Flow::new(true);
+        let mut g = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         g.on_attached();
         assert!(g.on_answer(Op::List, Err(ReqErr::Refused("root.unknown_cmd".into(), "x".into(), Value::Null))).is_empty());
     }
 
     #[test]
     fn first_run_deepseek_provider_key_model() {
-        let mut f = Flow::new(true);
+        let mut f = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         f.on_attached();
         let o = f.on_answer(Op::List, Ok(list(false)));
         assert!(texts(&o).contains("1  DeepSeek · deepseek-flash, deepseek-v4-pro · live-tested"), "{}", texts(&o));
@@ -661,7 +668,7 @@ mod tests {
 
     #[test]
     fn gateway_and_local_ask_for_url_model_and_price() {
-        let mut f = Flow::new(true);
+        let mut f = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         f.on_attached();
         f.on_answer(Op::List, Ok(list(false)));
         let o = f.on_line("2").unwrap();
@@ -674,7 +681,7 @@ mod tests {
         let o = f.on_line("0.5,1.5").unwrap();
         assert_eq!(sent(&o)[0].1, json!({"preset": "gateway", "base_url": "https://gw.example/api/v1", "model": "vendor/model-x", "price": "0.5,1.5"}));
         // local: no key, the default URL
-        let mut g = Flow::new(true);
+        let mut g = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         g.on_attached();
         g.on_answer(Op::List, Ok(list(false)));
         g.on_line("3").unwrap();
@@ -684,30 +691,80 @@ mod tests {
         assert_eq!(sent(&o)[0].1["base_url"], "http://127.0.0.1:11434/v1");
     }
 
+    /// TUI-FIX2 (v0.5.1 review): an unpriced model's spend was said to show as `$0.00`, but every surface
+    /// prints `$0.000` (`render::usd`); the texts now say exactly what the screen shows.
+    #[test]
+    fn an_unpriced_model_is_said_to_show_what_the_screen_shows() {
+        let zero = crate::render::usd(0);
+        assert_eq!(zero, "$0.000");
+        let mut f = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
+        f.on_attached();
+        f.on_answer(Op::List, Ok(list(false)));
+        f.on_line("2").unwrap();
+        f.on_line("https://gw.example/api/v1").unwrap();
+        f.on_secret(b"k".to_vec());
+        f.on_answer(Op::Key, Ok(json!({"provider": "gateway"})));
+        let o = f.on_line("vendor/model-x").unwrap();
+        assert!(texts(&o).contains(&format!("Enter = unknown (spend then shows {zero})")), "{}", texts(&o));
+        let o = f.on_line("").unwrap();
+        assert_eq!(sent(&o)[0].1["price"], Value::Null);
+        let o = f.on_answer(Op::Add, Ok(json!({"provider": "gateway", "model": "vendor/model-x", "changed": true, "unpriced": true})));
+        assert!(texts(&o).contains(&format!("no price given: this model's spend shows as {zero} (unknown)")), "{}", texts(&o));
+    }
+
     #[test]
     fn key_cannot_be_hidden_in_line_mode_on_a_terminal() {
-        let mut f = Flow::new(false);
+        let mut f = Flow::new(false, std::path::Path::new(RH), Some("/Users/o"));
         f.on_attached();
         f.on_answer(Op::List, Ok(list(false)));
         let o = f.on_line("1").unwrap();
         assert!(!o.contains(&Out::Secret(true)));
-        assert!(texts(&o).contains("init-root keys set deepseek"));
+        assert!(texts(&o).contains("`~/.init-root/bin/init-root keys set deepseek`"));
         assert!(texts(&o).contains("Choose a model"), "the setup goes on with the model");
-        let mut g = Flow::new(false);
-        assert!(texts(&g.on_line("/key").map(|_| g.on_answer(Op::List, Ok(list(true)))).unwrap()).contains("init-root keys set deepseek"));
+        let mut g = Flow::new(false, std::path::Path::new(RH), Some("/Users/o"));
+        assert!(texts(&g.on_line("/key").map(|_| g.on_answer(Op::List, Ok(list(true)))).unwrap()).contains("`~/.init-root/bin/init-root keys set deepseek`"));
+    }
+
+    /// The `init-root …` commands in `t` that a terminal would not find: `init-root` with no path before it.
+    fn bare(t: &str) -> Vec<&str> {
+        t.match_indices("init-root ").filter(|&(i, _)| i == 0 || !b"/-_.".contains(&t.as_bytes()[i - 1])).map(|(i, _)| &t[i..]).collect()
+    }
+
+    /// v0.5.1 (docs/user-sessions/v0.5.0-returning.md, "zsh: command not found: init-root"): the two key-setup
+    /// texts name this install's `init-root` in the form the Root prints (util::root_cmd), which runs as printed;
+    /// never a bare `init-root`, which is not on the owner's PATH.
+    #[test]
+    fn key_setup_texts_name_an_init_root_that_runs_as_printed() {
+        for (rh, want) in [("/Users/o/.init-root", "~/.init-root/bin/init-root"),
+            ("/private/tmp/i5 int/r", "INIT_ROOT_HOME='/private/tmp/i5 int/r' '/private/tmp/i5 int/r/bin/init-root'")] {
+            assert_eq!(crate::app::root_cmd(std::path::Path::new(rh), Some("/Users/o"), ""), want);
+            // line mode on a terminal cannot hide the key
+            let mut f = Flow::new(false, std::path::Path::new(rh), Some("/Users/o"));
+            f.on_attached();
+            f.on_answer(Op::List, Ok(list(false)));
+            let t = texts(&f.on_line("1").unwrap());
+            assert!(t.contains(&format!("`{want} keys set deepseek` (hidden input)")) && bare(&t).is_empty(), "{t}");
+            // a Root without in-app provider setup, asked by /model
+            let mut g = Flow::new(true, std::path::Path::new(rh), Some("/Users/o"));
+            g.on_line("/model").unwrap();
+            let t = texts(&g.on_answer(Op::List, Err(ReqErr::Refused("root.unknown_cmd".into(), "x".into(), Value::Null))));
+            assert!(t.contains(&format!("`{want} providers add`")) && t.contains(&format!("`{want} keys set`")) && bare(&t).is_empty(), "{t}");
+        }
+        assert_eq!(bare("use init-root keys set x"), ["init-root keys set x"]);
+        assert!(bare("~/.init-root/bin/init-root keys set x").is_empty());
     }
 
     #[test]
     fn model_lists_and_picks() {
-        let mut f = Flow::new(true);
+        let mut f = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         assert_eq!(sent(&f.on_line("/model").unwrap()), vec![(Op::List, json!({}))]);
         let o = f.on_answer(Op::List, Ok(list(true)));
         assert!(texts(&o).contains("* 1  deepseek/deepseek-flash  $0.30/$1.20"), "{}", texts(&o));
         assert_eq!(sent(&f.on_line("2").unwrap()), vec![(Op::Use, json!({"provider": "deepseek", "model": "deepseek-v4-pro"}))]);
-        let mut g = Flow::new(true);
+        let mut g = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         g.on_line("/model deepseek/deepseek-v4-pro").unwrap();
         assert_eq!(sent(&g.on_answer(Op::List, Ok(list(true)))), vec![(Op::Use, json!({"provider": "deepseek", "model": "deepseek-v4-pro"}))]);
-        let mut h = Flow::new(true);
+        let mut h = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         h.on_line("/model").unwrap();
         h.on_answer(Op::List, Ok(list(true)));
         assert!(texts(&h.on_line("").unwrap()).contains("unchanged"));
@@ -716,7 +773,7 @@ mod tests {
 
     #[test]
     fn key_command_and_escape() {
-        let mut f = Flow::new(true);
+        let mut f = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         f.on_line("/key").unwrap();
         let o = f.on_answer(Op::List, Ok(list(true)));
         assert!(o.contains(&Out::Secret(true)));

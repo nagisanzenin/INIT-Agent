@@ -16,9 +16,32 @@
 ; Z3a. never what the owner's own tools run or load unsandboxed (ADR-009 §9.3 Q5), in every mode: shell startup
 ;     files, git's user config, INIT's launchers and PATH directories, login items; one line per write deny entry i:
 (deny file-write* (literal (param "Z_WDENY_<i>")) (subpath (param "Z_WDENY_<i>")))
-; Z3b. nor git's hooks and config in any repository outside INIT_HOME (the rest of .git stays writable, so the agent can commit)
+; Z3b. nor the ".git" entry itself, nor git's config, hooks and command sources inside any git directory (.git/,
+;      .git/modules/<m>/, .git/worktrees/<w>/) of a repository outside INIT_HOME, so the config and hooks git runs
+;      unsandboxed on the owner's next git command cannot be redirected: a renamed .git, a ".git" gitdir: file, a
+;      commondir or a worktree config are all refused. The rest of .git (objects, refs, index, HEAD, logs, packed-refs,
+;      COMMIT_EDITMSG, ORIG_HEAD, FETCH_HEAD…) stays writable, so the agent can still commit. INIT_HOME is exempt (the
+;      kernel clones and configures its own repositories there).
 (deny file-write* (require-all (require-not (subpath (param "Z_INIT_HOME")))
-  (require-any (regex #"/\.git/hooks(/|$)") (regex #"/\.git/config$") (regex #"/\.git/modules/.+/hooks(/|$)") (regex #"/\.git/modules/.+/config$"))))
+  (require-any
+    (regex #"/\.git$")
+    (regex #"/\.git/(config(\.worktree)?|commondir|gitdir)$")
+    (regex #"/\.git/hooks(/|$)")
+    (regex #"/\.git/modules/.+/(config(\.worktree)?|commondir|gitdir)$")
+    (regex #"/\.git/modules/.+/hooks(/|$)")
+    (regex #"/\.git/worktrees/.+/(config(\.worktree)?|commondir|gitdir)$"))))
+; Z3b (cont.). Seatbelt checks a directory rename by the source and destination directory paths, not the files inside,
+;      so the files above do not stop the agent swapping a whole git directory in: it builds a directory holding a
+;      config elsewhere in the workspace and renames it onto .git/modules/<m> or .git/worktrees/<w> (a submodule or
+;      linked-worktree gitdir git reads on the owner's next command), or renames the .git/modules or .git/worktrees
+;      admin directory itself. So deny writes to those admin directories and to a gitdir entry directly inside them,
+;      at any depth. The refs/ and logs/ ref namespaces are excluded: a branch or tag named modules/* or worktrees/*
+;      is an ordinary writable ref, and so are a submodule's own refs and reflogs.
+(deny file-write* (require-all (require-not (subpath (param "Z_INIT_HOME")))
+  (require-not (regex #"/\.git/(.+/)?(refs|logs)/"))
+  (require-any
+    (regex #"/\.git/(.+/)?(modules|worktrees)$")
+    (regex #"/\.git/(.+/)?(modules|worktrees)/[^/]+$"))))
 ; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced
 (deny file-write* (literal (param "Z_INIT_HOME")) (literal (param "Z_RUN")) (literal (param "Z_ZONE_MARK"))
   (literal (param "Z_KERNEL")) (subpath (param "Z_KERNEL"))

@@ -141,7 +141,8 @@ impl Root {
             }
         }
         if pending {
-            root.alert("charter_pending", "[root] charter.toml differs from the active charter; run init-root charter check --apply");
+            root.alert("charter_pending", &format!("[root] charter.toml differs from the active charter (its edits are not in effect yet); \
+                to check and apply them, run {}", root.p.cmd("charter check --apply")));
         }
         root.publish();
         Ok(root)
@@ -310,7 +311,10 @@ impl Root {
             "panic": if let Slot::Panicked { at, channel } = &st.slot { json!({"at": rfc3339(*at), "channel": channel}) } else { Value::Null },
             "level": st.level.level, "cap": max.map(ledger::cap), "max_level": max, "supported_max_level": ledger::SUPPORTED_MAX_LEVEL,
             "charter_sha256": st.charter.as_ref().map(|l| &l.digest), "charter_pending": st.pending,
-            "ceilings": {"day_musd": money(ch.map(|c| &c.money.day_usd)), "total_musd": money(ch.map(|c| &c.money.total_usd))},
+            // ROOT-MSG (v0.5.1): the charter's money values are references, tracked and shown, never caps (egress
+            // `money.enforced`); the block says so, so no client shows them as a cap
+            "ceilings": {"day_musd": money(ch.map(|c| &c.money.day_usd)), "enforced": false, "policy": "observe",
+                "total_musd": money(ch.map(|c| &c.money.total_usd))},
             "tuples": lock(&self.sup.ptrs).json(), "last_audit": null, "instances": self.zone.list(),
             "kernel": self.sup.kernel().map(|k| json!({"instance": k.inst, "pid": k.pid, "ready": k.ready.load(std::sync::atomic::Ordering::SeqCst),
                 "reason": k.plan.reason, "boot_seq": self.sup.boot_seq()})),
@@ -412,7 +416,7 @@ impl Root {
                 "stop" | "start" => {
                     let slot = lock(&self.st).slot.clone();
                     match (&slot, v["cmd"] == "start") {
-                        (Slot::Panicked { .. }, true) => Err(("root.mode", "panicked: run init-root resume".into())),
+                        (Slot::Panicked { .. }, true) => Err(("root.mode", format!("INIT is in panic, so start does nothing. {}", panic::resume_hint(&self.p)))),
                         (s, start) => {
                             self.sup.send(if start { Ev::Start(Plan::plain("cold")) } else { Ev::Stop });
                             Ok(json!({"slot": s.name()}))
@@ -480,7 +484,7 @@ impl Root {
             "/root ledger" => self.notice("info", &format!("[root] {}", icj(&self.ledger()).unwrap_or_default())),
             "/root stop" => {
                 self.sup.send(Ev::Stop);
-                self.notice("info", "[root] stopping the zone (init-root start or /resume starts it again)");
+                self.notice("info", "[root] stopping the agent (the Root keeps running); type /resume to start it again");
             }
             "/root help" | "/root" => self.notice("info", "[root] /panic · /resume · /root status · /root ledger · /root stop · /root help · /workspace · /full on|off · /undo · /rollback [sha|cap|settled] · /grants · /grant <id> · /deny <id> · /release <cap> · /twin [refreeze] · /goal [\"<intent>\" …|pause|resume|stop|continue|accept|reject|adopt <id>]"),
             _ if crate::sentinel::owner_text(self, t) => {} // X3: `/rollback` (H3)

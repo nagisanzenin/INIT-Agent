@@ -235,6 +235,51 @@ pub fn rollback(root: &Root, want: &'static str, reason: &str) -> Result<(String
     Err("no usable tuple (current, LKG, audited-good and genesis all fail to verify)".into())
 }
 
+/// An owner upgrade's commit (upgrade.rs; §3.7.2): the rollback anchors of a demotion and a panic resume (`audited`, and
+/// `settled` on the free path; `ledger::anchor`) and the owner's `/rollback twin` target (`twin`) keep their body and
+/// ext and take the kernel of the upgraded tuple `to`, so no later rollback reinstalls the kernel from before the
+/// upgrade under the new Root. Each pointer whose kernel is not `to`'s moves (also when the upgrade kept the kernel: an
+/// anchor a v0.5.0 commit left on an older kernel moves then too) and gets an `audited`, `settled` or `twin` record
+/// `{tuple, from, upgrade}`; the twin's also keeps its freeze (`snapshot`, `reason`, `frozen_at`; twin.rs `pin_of`). A
+/// pointer whose tuple file cannot be read is never skipped silently: its record is `{tuple: null, from, skipped,
+/// upgrade}`, which clears it, because it cannot serve a rollback and its file coming back later must not bring the old
+/// kernel back. Returns this upgrade's moves, `anchors_of`.
+pub fn reanchor(root: &Root, to: &str, upgrade: &Value) -> Result<Vec<Value>, String> {
+    let p = lock(&root.sup.ptrs).clone();
+    let new = load(&root.p.rh, to).ok_or_else(|| format!("the upgraded tuple {to} is not in the store"))?;
+    let pin = crate::twin::pin_of(&crate::lineage::records(&root.p.rh).map_err(|e| format!("lineage: {e}"))?);
+    for (name, from) in [("audited", p.audited), ("settled", p.settled), ("twin", p.twin)] {
+        let Some(id) = from else { continue };
+        let mut d = match load(&root.p.rh, &id) {
+            Some(t) if t["kernel"] == new["kernel"] => continue,
+            Some(mut t) => {
+                t["kernel"] = new["kernel"].clone();
+                json!({"from": id, "tuple": save(&root.p.rh, &t).map_err(|e| e.to_string())?, "upgrade": upgrade})
+            }
+            None => {
+                let file = root.p.rh.join("store/tuples").join(format!("{id}.json"));
+                let why = if fs::symlink_metadata(&file).is_ok() { "its tuple file is damaged: it does not parse or does not hash to its id" }
+                    else { "its tuple file is missing from the store" };
+                json!({"from": id, "skipped": why, "tuple": null, "upgrade": upgrade})
+            }
+        };
+        // the twin's replays, weekly reports and re-freeze clock read its freeze, which the new kernel does not change
+        if name == "twin" && d["tuple"].is_string() && let Some(pin) = pin.as_ref().filter(|x| x.tuple == id) {
+            (d["snapshot"], d["reason"], d["frozen_at"]) = (json!(pin.snapshot), json!(pin.reason), json!(util::rfc3339(pin.at)));
+        }
+        root.append_by("root", name, d).map_err(|e| format!("lineage: {e}"))?;
+    }
+    Ok(anchors_of(&crate::lineage::records(&root.p.rh).map_err(|e| format!("lineage: {e}"))?, upgrade))
+}
+
+/// The pointer moves of the upgrade `upgrade`'s commit, read from the lineage (so a commit re-run after a crash reports
+/// what an earlier run recorded): `[{name, from, tuple, skipped}]`. A rolled-back upgrade's restores are not moves.
+pub fn anchors_of(recs: &[Value], upgrade: &Value) -> Vec<Value> {
+    recs.iter().filter(|r| matches!(r["kind"].as_str(), Some("audited" | "settled" | "twin")) && r["data"]["upgrade"] == *upgrade
+        && r["data"]["rolled_back"] != true)
+        .map(|r| json!({"from": r["data"]["from"], "name": r["kind"], "skipped": r["data"]["skipped"], "tuple": r["data"]["tuple"]})).collect()
+}
+
 /// `promotion{lkg:true}` (§3.7.1): the body binary and the components must already be stored.
 pub fn check_promotion(rh: &Path, d: &Value) -> Result<(), String> {
     let comps = d["components"].as_array().ok_or("components must be a list")?;

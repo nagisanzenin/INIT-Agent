@@ -520,6 +520,42 @@ fn spawn_refusal_backs_off_without_counting() {
     assert_eq!(m.counters.crashes_total, 0);
 }
 
+/// ROOT-MSG (v0.5.1): a line that waits says what is happening and what the owner can do, never a bare slot name
+/// ("queued: the body is backoff"): a refused spawn names the Root's reason without its code; a crash, a stop, a halt
+/// and a full disk each say what happens next.
+#[test]
+fn waiting_lines_say_what_happens_and_what_to_do() {
+    let mut m = m();
+    let t = Now::real();
+    m.on(Ev::Start { reason: BootReason::Cold }, t);
+    assert!(m.state_words(t.mono).starts_with("the agent is starting"), "{}", m.state_words(t.mono));
+    let Slot::Starting { tag, .. } = m.slot.clone() else { panic!() };
+    m.on(Ev::Spawned { tag, result: Err("root.args: INIT cannot start the agent: HOME differs".into()) }, t);
+    let w = m.state_words(t.mono);
+    assert!(w.contains("could not start") && w.contains("tries again in 1 s") && w.ends_with("The Root says: INIT cannot start the agent: HOME differs"), "{w}");
+    assert!(!w.contains("backoff") && !w.contains("root.args"), "{w}");
+    // the next spawn succeeds: the refusal is gone; a crash then says it restarts on its own
+    let t = t.plus(Duration::from_secs(5));
+    let a = m.on(Ev::Tick, t);
+    assert!(!spawns(&a).is_empty(), "the backoff ended: {a:?}");
+    boot(&mut m, t, "i1");
+    assert_eq!(m.state_words(t.mono), "the agent is running");
+    crash(&mut m, "i1", t);
+    let w = m.state_words(t.mono);
+    assert!(w.starts_with("the agent stopped unexpectedly and restarts in") && w.contains("last good version"), "{w}");
+    m.slot = Slot::Stopped;
+    assert!(m.state_words(t.mono).contains("your message starts it again"));
+    m.slot = Slot::Halted { reason: HaltReason::CrashLoopSafe };
+    assert!(m.state_words(t.mono).contains("Type /resume"));
+    m.slot = Slot::DiskFull { since: t.mono };
+    assert!(m.state_words(t.mono).contains("Free some disk space"));
+    // the supervisor says these words for a waiting line and for a `/resume` with nothing to resume
+    let sup = include_str!("supervisor.rs");
+    assert!(!sup.contains("queued: the body is"), "the slot name is not a reason");
+    assert!(sup.contains("your message is queued, not lost: {}.\", self.m.state_words(now.mono)"));
+    assert!(sup.contains("nothing to resume: {}.\", self.m.state_words(now.mono)"));
+}
+
 /// ADR-009: a workspace change restarts the primary at its next idle point, on the same version,
 /// booting `handoff` with the cause; the exit is not a crash.
 #[test]

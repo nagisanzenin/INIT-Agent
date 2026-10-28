@@ -202,37 +202,44 @@ pub fn line_kind(text: &str, root_rootish: bool) -> LineKind {
     }
 }
 
-/// The owner commands of §3.8 for the completion popup, with one-line descriptions.
+/// The owner commands of §3.8 for the completion popup, with one-line descriptions. v0.5.1 (user
+/// sessions): ordered so that the safe, everyday commands come first and the ones that stop the agent
+/// come last, `/panic` at the very end: Tab on a bare `/` completes the first candidate, and a
+/// destructive command must never be one keystroke from it (`/panic` also asks to confirm, app.rs).
 pub const COMMANDS: &[(&str, &str)] = &[
-    ("/panic", "stop everything now (Root; no confirmation)"),
-    ("/resume", "leave panic, halt or stop (Root), or resume the kernel"),
-    ("/root status", "the Root's status"),
-    ("/root ledger", "the autonomy ledger"),
-    ("/root stop", "stop the zone"),
-    ("/root help", "the Root's lines"),
-    ("/undo", "restore the workspace's last snapshot (asks to confirm)"),
-    ("/full on", "full access: read and write anywhere except INIT's Root, network (the default)"),
-    ("/full off", "confine this session: write only the workspace, no network but the provider"),
-    ("/workspace", "the workspace and the agent's access"),
-    ("/goal ", "the owner's goal (Root): /goal \"<intent>\" done=card:cost_turn<=N usd=1.00 wall=24h rounds=10 guard=<card>; /goal stop|pause|continue"),
-    ("/stop", "stop the current run (kernel)"),
     ("/usage", "show metered cost and tokens locally"),
     ("/details", "print the last tool activity in full (calls, tokens per request)"),
+    ("/model", "list the models and switch (the Root restarts the agent)"),
+    ("/new", "start a new session (body)"),
+    ("/clear", "start a new session (same as /new)"),
+    ("/compact", "compact the context: /compact [focus]"),
     ("/status", "the kernel's status line"),
+    ("/workspace", "the workspace and the agent's access"),
+    ("/later ", "queue a follow-up: /later <text>"),
+    ("/stop", "stop the current run (kernel)"),
+    ("/undo", "restore the workspace's last snapshot (asks to confirm)"),
+    ("/root status", "the Root's status"),
+    ("/root help", "the Root's lines"),
+    ("/root ledger", "the autonomy ledger"),
+    ("/key", "set a provider's API key (hidden; kept by the Root)"),
+    ("/setup", "choose a provider, key and model"),
+    ("/goal ", "the owner's goal (Root): /goal \"<intent>\" done=card:cost_turn<=N usd=1.00 wall=24h rounds=10 guard=<card>; /goal stop|pause|continue"),
+    ("/full off", "confine this session: write only the workspace, no network but the provider"),
+    ("/full on", "full access: read and write anywhere except INIT's Root, network (the default)"),
     ("/kernel", "the kernel's commands"),
     ("/accept ", "accept a task: /accept <task>"),
     ("/bless ", "bless a job: /bless <job>"),
     ("/reject ", "reject a job: /reject <job>"),
-    ("/later ", "queue a follow-up: /later <text>"),
-    ("/new", "start a new session (body)"),
-    ("/clear", "start a new session (same as /new)"),
-    ("/model", "list the models and switch (the Root restarts the agent)"),
-    ("/key", "set a provider's API key (hidden; kept by the Root)"),
-    ("/setup", "choose a provider, key and model"),
-    ("/compact", "compact the context: /compact [focus]"),
     ("/branch ", "branch: /branch <id> [note]"),
     ("/label ", "label an entry: /label <id> <text>"),
+    ("/resume", "leave panic, halt or stop (Root), or resume the kernel"),
+    ("/root stop", "stop the agent (Root; /resume starts it again, no demotion)"),
+    ("/panic", "emergency stop: kills every agent process and demotes a level (asks to confirm)"),
 ];
+
+/// Commands that stop the agent (TUI-FIX, v0.5.1): listed last in [`COMMANDS`]; `/panic` also asks
+/// for a typed confirmation in TTY mode (`app.rs`).
+pub const STOPPING: &[&str] = &["/resume", "/root stop", "/panic"];
 
 /// Does a kernel echo `echo` confirm the line `sent` (§3.11)? The kernel echoes a follow-up
 /// without its `/later ` prefix.
@@ -282,6 +289,19 @@ mod tests {
         assert_eq!(canonical("/clear all"), "/clear all", "only the exact command");
         assert_eq!(line_kind(&canonical("/clear"), false), line_kind("/new", false));
         assert!(COMMANDS.iter().any(|c| c.0 == "/clear") && COMMANDS.iter().any(|c| c.0 == "/new"));
+    }
+
+    /// TUI-FIX (v0.5.1 user session): Tab on a bare `/` took the first command, which was `/panic`.
+    /// The commands that stop the agent are last, `/panic` at the very end, and every command before
+    /// them is a safe one.
+    #[test]
+    fn stopping_commands_come_last() {
+        let n = COMMANDS.len();
+        assert_eq!(COMMANDS[n - 1].0, "/panic", "the kill switch is the last completion");
+        let tail: Vec<&str> = COMMANDS[n - STOPPING.len()..].iter().map(|c| c.0).collect();
+        assert_eq!(tail, STOPPING, "the commands that stop the agent come after every other one");
+        assert!(!STOPPING.contains(&COMMANDS[0].0) && COMMANDS[0].0 == "/usage", "the first completion is a safe, read-only one");
+        assert!(COMMANDS.iter().all(|c| !c.1.contains("no confirmation")), "no description invites a one-keystroke stop");
     }
 
     #[test]

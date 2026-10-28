@@ -136,8 +136,12 @@ fn status_rows(o: &Map<String, Value>) -> Vec<(String, String)> {
     }
     let c = g("ceilings");
     if c.is_object() {
+        // TUI-FIX (v0.5.1): the charter's dollar amounts are records, not caps, since the owner's
+        // 2026-10-23 decision (docs/guide.md "Spending"); "ceilings" beside "caps off" read as a cap.
+        // A Root that enforces them says so (`ceilings.enforced: true`, docs/tui.md §9 Q5).
         let m = |k: &str| c[k].as_i64().map_or_else(|| "none".into(), usd);
-        rows.push(("ceilings".into(), format!("{} a day · {} in all", m("day_musd"), m("total_musd"))));
+        let (key, tail) = if c["enforced"] == true { ("ceilings", "") } else { ("dollar refs", " (charter records, not caps)") };
+        rows.push((key.into(), format!("{} a day · {} in all{tail}", m("day_musd"), m("total_musd"))));
         used.push("ceilings");
     }
     let lin = g("lineage");
@@ -224,7 +228,7 @@ mod tests {
             "  tuples       current t72995ada3f8d · lkg t72995ada3f8d · audited t72995ada3f8d",
             "  kernel       ready · boot 1 · pid 19998 · cold",
             "  instances    body 62eedcb71882 (b0, pid 20070) · kernel 888eb55e6751 (pid 19998)",
-            "  ceilings     $5.00 a day · $25.00 in all",
+            "  dollar refs  $5.00 a day · $25.00 in all (charter records, not caps)",
             "  lineage      seq 13 · sha256:5e0efc71bf37…",
             "  mirror       off",
             "  charter      02690f3c2064…",
@@ -235,6 +239,11 @@ mod tests {
             assert!(t.contains(want), "missing {want:?} in\n{t}");
         }
         assert!(!t.contains('{') && !t.contains("\"v\""), "{t}");
+        assert!(!t.contains("ceilings"), "no cap is implied: {t}");
+        // a Root that enforces its dollar amounts keeps the word
+        let enforced = STATUS.replace(r#""ceilings":{"day_musd""#, r#""ceilings":{"enforced":true,"day_musd""#);
+        let (_, r2) = root_answer(&enforced).unwrap();
+        assert!(text(title, &r2, 100).contains("  ceilings     $5.00 a day · $25.00 in all\n"), "{}", text(title, &r2, 100));
         // narrow: values wrap under the value column, nothing is wider than the screen
         for l in rows(Line::from_span("[root]", Style::PLAIN), title, &r, 40) {
             assert!(l.width() <= 40, "{}", l.text());

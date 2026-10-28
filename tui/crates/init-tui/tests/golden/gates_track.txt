@@ -36,7 +36,7 @@
     G2  boot probe       ■ pass · 3.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
     G3  self-edit probe  ■ pass · 24 s                                          |....ddddmmmmmmmmmmmmmmmmpppppppddddddd                                          
     hand-off             ■ pass · 4.6 s                                         |....dddddddddmmmmmmmmmmmpppppppdddddddd                                         
-    G4  scored vs LKG    ■ pass · 1.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G4  scored vs LKG    ■ pass · 1.0 s · waited 1.8 s · score 612‰             |....ddddmmmmmmmmmmmmmmmmpppppppdddddddddddddddddddddddddddddddddddd             
     sha 06be87a1234567890abcdef · from 3f9c0a1b2c4d5e6f7a8b · gate j-7 · starte…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
 -- refused at G2: collapsed
 ✕ refused at G2 06be87a12345 · probe_exit · 12 s · still on 3f9c0a1b2c4d        |hhhhhhhhhhhhhhhhddddddddddddddd..........ddddddddddddddddddddddddddddddd        
@@ -45,8 +45,8 @@
 -- rolled back: G4 failed, waiting for idle
 ◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ G2 ■ G3 ■ live ■ G4 ✕      1 min 42 s|ww............ddddddddddddddddd..mmmp.mmmp.mmmp.mmmp.mmmmmp.mmmh......wwwwwwwwww
     G1  self-map         ■ pass · 1.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
-    G2  boot probe       ■ pass · 1.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
-    G3  self-edit probe  ■ pass · 1.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G2  boot probe       ■ pass · 1.0 s · waited 2.0 s                          |....ddddmmmmmmmmmmmmmmmmpppppppddddddddddddddddddddddd                          
+    G3  self-edit probe  ■ pass · 1.0 s · waited 23 s                           |....ddddmmmmmmmmmmmmmmmmpppppppdddddddddddddddddddddd                           
     hand-off             ■ pass · 4.6 s                                         |....dddddddddmmmmmmmmmmmpppppppdddddddd                                         
     G4  scored vs LKG    ✕ score_inferior · 1 min 0 s                           |....ddddmmmmmmmmmmmmmmmmhhhhhhhhhhhhhhhhhdddddddddddd                           
     ↺ rolling back at the next idle point                                       |hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh                                       

@@ -698,7 +698,7 @@ pub fn add_files(p: &Paths, r: &AddReq) -> Result<(Spec, Option<String>), String
     let cp = p.r("charter.toml");
     let src = std::fs::read_to_string(&cp).map_err(|e| format!("{}: {e}", cp.display()))?;
     if std::fs::read_to_string(p.r("state/charter.active.toml")).is_ok_and(|a| a != src) {
-        return Err("charter.toml has edits that are not applied yet; run `init-root charter check --apply` first".into());
+        return Err(format!("charter.toml has edits that are not applied yet; apply them first: {}", p.cmd("charter check --apply")));
     }
     let (ch, ..) = charter::parse(&src, &p.ctx()).map_err(|f| format!("charter.toml is invalid: {}", f.iter().map(ToString::to_string).collect::<Vec<_>>().join("; ")))?;
     let eff = ch.actions.get("providers").and_then(toml::Value::as_table).cloned().unwrap_or_default();
@@ -725,12 +725,12 @@ fn restore(p: &Paths, old: &str) {
     }
 }
 
-fn add_result(s: &Spec, changed: bool, applied: &Value) -> Value {
+fn add_result(p: &Paths, s: &Spec, changed: bool, applied: &Value) -> Value {
     let unpriced = !s.priced;
     json!({"provider": s.alias, "model": s.model, "preset": s.preset, "tested": s.tested, "changed": changed, "applied": applied,
         "needs_key": !s.local, "unpriced": unpriced,
-        "next": if s.local { format!("init-root model use {}/{}", s.alias, s.model) }
-            else { format!("init-root keys set {}; then init-root model use {}/{}", s.alias, s.alias, s.model) }})
+        "next": if s.local { p.cmd(&format!("model use {}/{}", s.alias, s.model)) }
+            else { format!("{}; then {}", p.cmd(&format!("keys set {}", s.alias)), p.cmd(&format!("model use {}/{}", s.alias, s.model))) }})
 }
 
 /// `model use`: the kernel config change, checked against the active charter. Ok(true) when the file changed.
@@ -738,9 +738,9 @@ pub fn use_files(p: &Paths, provider: &str, model: &str) -> Result<bool, String>
     let l = active_charter(p)?;
     let cls = explicit_class(l.ch.actions.get("providers").and_then(toml::Value::as_table).unwrap_or(&Table::new()));
     let pt = get(&cls, &["providers", provider]).and_then(toml::Value::as_table)
-        .ok_or_else(|| format!("provider {provider:?} is not configured; add it first: init-root providers add <preset>"))?;
+        .ok_or_else(|| format!("provider {provider:?} is not configured; add it first: {}", p.cmd("providers add <preset>")))?;
     let md = get(&cls, &["models", model]).and_then(toml::Value::as_table)
-        .ok_or_else(|| format!("model {model:?} has no tariff in the charter; add it: init-root providers add <preset> --model {model}"))?;
+        .ok_or_else(|| format!("model {model:?} has no tariff in the charter; add it: {}", p.cmd(&format!("providers add <preset> --model {model}"))))?;
     let (src, k) = kernel_cfg(p);
     let api = pt.get("api").and_then(toml::Value::as_str).unwrap_or(preset(provider).map_or("chat", |x| x.api));
     let cat = cat_model(provider, model);
@@ -813,7 +813,7 @@ pub fn add_req(root: &Root, a: &Value) -> Result<Value, Refusal> {
         None => json!({"changed": []}),
         Some(o) => root.apply_charter().inspect_err(|_| restore(&root.p, o))?,
     };
-    Ok(add_result(&s, old.is_some(), &applied))
+    Ok(add_result(&root.p, &s, old.is_some(), &applied))
 }
 
 pub fn use_req(root: &Root, a: &Value) -> Result<Value, Refusal> {
@@ -864,7 +864,7 @@ fn cli_fail(code: u8, m: &str) -> u8 {
     code
 }
 
-fn print_list(v: &Value, only: Option<&str>, models_only: bool) {
+fn print_list(p: &Paths, v: &Value, only: Option<&str>, models_only: bool) {
     if !models_only {
         println!("Configured providers:");
         for p in v["providers"].as_array().into_iter().flatten() {
@@ -879,7 +879,7 @@ fn print_list(v: &Value, only: Option<&str>, models_only: bool) {
         println!("  {sel} {}/{}  ${}/${}{t}", m["provider"].as_str().unwrap_or(""), m["model"].as_str().unwrap_or(""),
             m["input_usd"].as_str().unwrap_or(""), m["output_usd"].as_str().unwrap_or(""));
     }
-    println!("Catalog (init-root providers add <preset> [--base-url URL] [--model ID]):");
+    println!("Catalog (to add one: {}):", p.cmd("providers add <preset> [--base-url URL] [--model ID]"));
     for c in v["catalog"].as_array().into_iter().flatten().filter(|c| only.is_none_or(|o| c["preset"] == o)) {
         let t = if c["tested"] == "live" { "live-tested" } else { "experimental (not live-tested)" };
         let ms: Vec<&str> = c["models"].as_array().into_iter().flatten().filter_map(|m| m["id"].as_str()).collect();
@@ -906,7 +906,7 @@ pub fn cli(p: &Paths, mut a: Vec<String>) -> u8 {
         ["providers", "list"] | ["models"] => {
             match list(p) {
                 Ok(v) if json_out => println!("{}", util::icj(&v).unwrap_or_default()),
-                Ok(v) => print_list(&v, only.as_deref(), words[0] == "models"),
+                Ok(v) => print_list(p, &v, only.as_deref(), words[0] == "models"),
                 Err(m) => return cli_fail(1, &m),
             }
             0
@@ -921,7 +921,7 @@ pub fn cli(p: &Paths, mut a: Vec<String>) -> u8 {
                         None => json!({"changed": []}),
                         Some(o) => crate::cli::apply_own_charter(p).inspect_err(|_| restore(p, o)).map_err(|(_, m)| m)?,
                     };
-                    Ok(add_result(&s, old.is_some(), &applied))
+                    Ok(add_result(p, &s, old.is_some(), &applied))
                 }),
                 Err(Fail::Refused(_, m)) | Err(Fail::Protocol(m)) => Err(m),
             };
@@ -942,7 +942,7 @@ pub fn cli(p: &Paths, mut a: Vec<String>) -> u8 {
         }
         ["model", "use", pm] => {
             let Some((pv, mv)) = split_pm(pm).map(|(x, y)| (x.to_string(), y.to_string())) else {
-                return cli_fail(64, "usage: init-root model use <provider>/<model> (see init-root models)");
+                return cli_fail(64, &format!("usage: init-root model use <provider>/<model> (to list them: {})", p.cmd("models")));
             };
             match crate::link::request(p, "model.use", json!({"provider": pv, "model": mv}), t) {
                 Ok(v) => {

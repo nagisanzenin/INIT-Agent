@@ -3,14 +3,14 @@
     "crate": "init-body",
     "edition": "2024",
     "rust_version": null,
-    "version": "0.5.0"
+    "version": "0.5.1"
   },
-  "body_tokens": 430993,
+  "body_tokens": 431218,
   "budget": {
-    "bytes": 1662202,
+    "bytes": 1663029,
     "files": 99,
     "tests_tokens": 23416,
-    "tokens": 430993,
+    "tokens": 431218,
     "uncounted_tokens": 74200
   },
   "components": [
@@ -618,7 +618,7 @@
       "paths": [
         "src/loop/tests.rs"
       ],
-      "tokens": 27196
+      "tokens": 27235
     },
     {
       "compensates_for": "none",
@@ -871,7 +871,7 @@
       "paths": [
         "src/tools/tests.rs"
       ],
-      "tokens": 14040
+      "tokens": 14226
     },
     {
       "compensates_for": "none",
@@ -2204,14 +2204,14 @@
       "bytes": 49136,
       "counted": false,
       "path": "Cargo.lock",
-      "sha256": "c12aeb513035168766669e4d01becf64fe57ccafa978aeb8b515eb5487fb6aea",
+      "sha256": "a83d3551f6064b88e326d40f6264485d2b33a32cd9d070344f645e5013eec6eb",
       "tokens": 18415
     },
     {
       "bytes": 1840,
       "counted": true,
       "path": "Cargo.toml",
-      "sha256": "06381e112b088028c7a5ced76822b1453007eb0d1a228f819eb9252e05e549de",
+      "sha256": "1e492cb48fefa9de644add1311e7feb771ece157c2086d1f273a2abe8c896961",
       "tokens": 524
     },
     {
@@ -2782,11 +2782,11 @@
       "tokens": 1993
     },
     {
-      "bytes": 96958,
+      "bytes": 97106,
       "counted": true,
       "path": "src/loop/tests.rs",
-      "sha256": "14c26432fa9ee1898035eb1d98c8f195e52aa6d3e645c3670e7f3011f737e7ac",
-      "tokens": 27196
+      "sha256": "3274f0ec33b7cb62181120764c21d2c44b25f35aadb086c296e40ba05de2b938",
+      "tokens": 27235
     },
     {
       "bytes": 3634,
@@ -3153,11 +3153,11 @@
       "tokens": 1459
     },
     {
-      "bytes": 48472,
+      "bytes": 49151,
       "counted": true,
       "path": "src/tools/tests.rs",
-      "sha256": "49323b82d6b4ae71d1217724ee9a8dcad6130380834ece2ff5402cdcc185fc1f",
-      "tokens": 14040
+      "sha256": "d0009cc7d18df371d28f0ecf1f58cfafa851403878356c4adf2ac710bb8c1d34",
+      "tokens": 14226
     },
     {
       "bytes": 8955,
@@ -3202,7 +3202,7 @@
   },
   "hooks": [],
   "manifest": {
-    "body_version": "0.5.0",
+    "body_version": "0.5.1",
     "control_channel": "stdio-jsonl/1",
     "env": [
       "HOME",
@@ -12661,305 +12661,305 @@
           "vis": "private"
         },
         {
-          "end_line": 1624,
+          "end_line": 1625,
           "kind": "fn",
           "line": 1558,
           "name": "t20_stop_grace_and_eof",
-          "tokens": 647,
+          "tokens": 686,
           "vis": "private"
         },
         {
-          "end_line": 1671,
+          "end_line": 1672,
           "kind": "fn",
-          "line": 1626,
+          "line": 1627,
           "name": "t22_task_id",
           "tokens": 534,
           "vis": "private"
         },
         {
-          "end_line": 1705,
+          "end_line": 1706,
           "kind": "fn",
-          "line": 1673,
+          "line": 1674,
           "name": "t23_input_modes",
           "tokens": 341,
           "vis": "private"
         },
         {
-          "end_line": 1749,
+          "end_line": 1750,
           "kind": "fn",
-          "line": 1707,
+          "line": 1708,
           "name": "t24_interrupt_during_ext_call",
           "tokens": 455,
           "vis": "private"
         },
         {
-          "end_line": 1757,
+          "end_line": 1758,
           "kind": "fn",
-          "line": 1755,
+          "line": 1756,
           "name": "is_retracted",
           "tokens": 44,
           "vis": "private"
         },
         {
-          "end_line": 1761,
+          "end_line": 1762,
           "kind": "fn",
-          "line": 1759,
+          "line": 1760,
           "name": "is_info",
           "tokens": 52,
           "vis": "private"
         },
         {
-          "end_line": 1770,
+          "end_line": 1771,
           "kind": "fn",
-          "line": 1763,
+          "line": 1764,
           "name": "user_texts",
           "tokens": 57,
           "vis": "private"
         },
         {
-          "end_line": 1798,
+          "end_line": 1799,
           "kind": "fn",
-          "line": 1772,
+          "line": 1773,
           "name": "assert_paired_before_steer",
           "tokens": 251,
           "vis": "private"
         },
         {
-          "end_line": 1839,
+          "end_line": 1840,
           "kind": "fn",
-          "line": 1800,
+          "line": 1801,
           "name": "t25_retract_before_the_boundary",
           "tokens": 373,
           "vis": "private"
         },
         {
-          "end_line": 1868,
+          "end_line": 1869,
           "kind": "fn",
-          "line": 1841,
+          "line": 1842,
           "name": "t25b_retract_after_it_was_consumed",
           "tokens": 283,
           "vis": "private"
         },
         {
-          "end_line": 1912,
+          "end_line": 1913,
           "kind": "fn",
-          "line": 1870,
+          "line": 1871,
           "name": "t25c_retract_a_queued_follow_up",
           "tokens": 412,
           "vis": "private"
         },
         {
-          "end_line": 1969,
+          "end_line": 1970,
           "kind": "fn",
-          "line": 1914,
+          "line": 1915,
           "name": "t26_interrupt_and_steer_during_a_batch",
           "tokens": 574,
           "vis": "private"
         },
         {
-          "end_line": 2015,
+          "end_line": 2016,
           "kind": "fn",
-          "line": 1971,
+          "line": 1972,
           "name": "t26b_interrupt_and_steer_mid_stream",
           "tokens": 444,
           "vis": "private"
         },
         {
-          "end_line": 2035,
+          "end_line": 2036,
           "kind": "fn",
-          "line": 2017,
+          "line": 2018,
           "name": "t26c_continue_without_a_steer_stops",
           "tokens": 202,
           "vis": "private"
         },
         {
-          "end_line": 2060,
+          "end_line": 2061,
           "kind": "fn",
-          "line": 2037,
+          "line": 2038,
           "name": "t26d_plain_interrupt_with_a_steer_stops",
           "tokens": 275,
           "vis": "private"
         },
         {
-          "end_line": 2098,
+          "end_line": 2099,
           "kind": "fn",
-          "line": 2062,
+          "line": 2063,
           "name": "steer_frames_parse_and_render",
           "tokens": 332,
           "vis": "private"
         },
         {
-          "end_line": 2116,
+          "end_line": 2117,
           "kind": "fn",
-          "line": 2100,
+          "line": 2101,
           "name": "retract_gate_decides_once_and_stays_bounded",
           "tokens": 195,
           "vis": "private"
         },
         {
-          "end_line": 2128,
+          "end_line": 2129,
           "kind": "fn",
-          "line": 2118,
+          "line": 2119,
           "name": "abort_continue_wish",
           "tokens": 91,
           "vis": "private"
         },
         {
-          "end_line": 2181,
+          "end_line": 2182,
           "kind": "fn",
-          "line": 2134,
+          "line": 2135,
           "name": "frames_parse_and_render",
           "tokens": 478,
           "vis": "private"
         },
         {
-          "end_line": 2191,
+          "end_line": 2192,
           "kind": "fn",
-          "line": 2183,
+          "line": 2184,
           "name": "deltas_drop_when_the_queue_is_full",
           "tokens": 79,
           "vis": "private"
         },
         {
-          "end_line": 2201,
+          "end_line": 2202,
           "kind": "fn",
-          "line": 2193,
+          "line": 2194,
           "name": "base64_round_trip",
           "tokens": 104,
           "vis": "private"
         },
         {
-          "end_line": 2204,
+          "end_line": 2205,
           "kind": "fn",
-          "line": 2203,
+          "line": 2204,
           "name": "_unused",
           "tokens": 15,
           "vis": "private"
         },
         {
-          "end_line": 2300,
+          "end_line": 2301,
           "kind": "fn",
-          "line": 2206,
+          "line": 2207,
           "name": "t99_delegate_runs_a_subtask_in_a_fresh_context",
           "tokens": 1206,
           "vis": "private"
         },
         {
-          "end_line": 2310,
+          "end_line": 2311,
           "kind": "fn",
-          "line": 2302,
+          "line": 2303,
           "name": "delegate_record",
           "tokens": 90,
           "vis": "private"
         },
         {
-          "end_line": 2317,
+          "end_line": 2318,
           "kind": "fn",
-          "line": 2312,
+          "line": 2313,
           "name": "delayed",
           "tokens": 49,
           "vis": "private"
         },
         {
-          "end_line": 2370,
+          "end_line": 2371,
           "kind": "fn",
-          "line": 2319,
+          "line": 2320,
           "name": "t100_delegate_fan_out_runs_in_parallel_and_keeps_call_order",
           "tokens": 687,
           "vis": "private"
         },
         {
-          "end_line": 2442,
+          "end_line": 2443,
           "kind": "fn",
-          "line": 2372,
+          "line": 2373,
           "name": "t101_delegate_read_mode_refuses_write_and_edit",
           "tokens": 751,
           "vis": "private"
         },
         {
-          "end_line": 2513,
+          "end_line": 2514,
           "kind": "fn",
-          "line": 2444,
+          "line": 2445,
           "name": "t102_delegate_bounds_turns_calls_and_wall_time",
           "tokens": 789,
           "vis": "private"
         },
         {
-          "end_line": 2565,
+          "end_line": 2566,
           "kind": "fn",
-          "line": 2515,
+          "line": 2516,
           "name": "t103_delegate_owner_abort_stops_sub_tasks",
           "tokens": 530,
           "vis": "private"
         },
         {
-          "end_line": 2597,
+          "end_line": 2598,
           "kind": "fn",
-          "line": 2567,
+          "line": 2568,
           "name": "failed_call_sends_its_output_tail_as_detail",
           "tokens": 430,
           "vis": "private"
         },
         {
-          "end_line": 2609,
+          "end_line": 2610,
           "kind": "fn",
-          "line": 2603,
+          "line": 2604,
           "name": "ask_call",
           "tokens": 66,
           "vis": "private"
         },
         {
-          "end_line": 2613,
+          "end_line": 2614,
           "kind": "fn",
-          "line": 2611,
+          "line": 2612,
           "name": "is_ask",
           "tokens": 40,
           "vis": "private"
         },
         {
-          "end_line": 2628,
+          "end_line": 2629,
           "kind": "fn",
-          "line": 2615,
+          "line": 2616,
           "name": "ask_result_then_owner",
           "tokens": 155,
           "vis": "private"
         },
         {
-          "end_line": 2666,
+          "end_line": 2667,
           "kind": "fn",
-          "line": 2630,
+          "line": 2631,
           "name": "t104_ask_owner_ends_the_turn_and_the_answer_starts_the_next_run",
           "tokens": 578,
           "vis": "private"
         },
         {
-          "end_line": 2686,
+          "end_line": 2687,
           "kind": "fn",
-          "line": 2668,
+          "line": 2669,
           "name": "t105_ask_owner_with_a_steer_waiting_continues_the_run",
           "tokens": 239,
           "vis": "private"
         },
         {
-          "end_line": 2707,
+          "end_line": 2708,
           "kind": "fn",
-          "line": 2688,
+          "line": 2689,
           "name": "t106_a_restart_while_the_question_waits_does_not_continue",
           "tokens": 282,
           "vis": "private"
         },
         {
-          "end_line": 2724,
+          "end_line": 2725,
           "kind": "fn",
-          "line": 2709,
+          "line": 2710,
           "name": "t107_delegate_sub_tasks_cannot_ask_the_owner",
           "tokens": 251,
           "vis": "private"
         }
       ],
-      "lines": 2724,
+      "lines": 2725,
       "path": "src/loop/tests.rs",
-      "tokens": 27196
+      "tokens": 27235
     },
     {
       "forbid_unsafe": true,
@@ -17601,69 +17601,77 @@
           "kind": "fn",
           "line": 895,
           "name": "bash_abort_kills_the_group",
-          "tokens": 314,
+          "tokens": 323,
           "vis": "private"
         },
         {
-          "end_line": 1090,
+          "end_line": 941,
           "kind": "fn",
-          "line": 934,
+          "line": 930,
+          "name": "group_gone_within",
+          "tokens": 119,
+          "vis": "private"
+        },
+        {
+          "end_line": 1105,
+          "kind": "fn",
+          "line": 947,
           "name": "run_group_separate_stdin_cancel",
-          "tokens": 1363,
+          "tokens": 1422,
           "vis": "private"
         },
         {
-          "end_line": 1153,
+          "end_line": 1168,
           "kind": "fn",
-          "line": 1096,
+          "line": 1111,
           "name": "workspace_cwd_for_relative_paths_bash_and_ext",
           "tokens": 629,
           "vis": "private"
         },
         {
-          "end_line": 1224,
+          "end_line": 1239,
           "kind": "fn",
-          "line": 1155,
+          "line": 1170,
           "name": "ext_dispatch",
           "tokens": 783,
           "vis": "private"
         },
         {
-          "end_line": 1239,
+          "end_line": 1254,
           "kind": "fn",
-          "line": 1226,
+          "line": 1241,
           "name": "long_results_are_capped_and_spilled",
           "tokens": 169,
           "vis": "private"
         },
         {
-          "end_line": 1248,
+          "end_line": 1263,
           "kind": "fn",
-          "line": 1241,
+          "line": 1256,
           "name": "panic_hook_for_tests_exists",
           "tokens": 99,
           "vis": "private"
         },
         {
-          "end_line": 1269,
+          "end_line": 1284,
           "kind": "fn",
-          "line": 1250,
+          "line": 1265,
           "name": "fail_detail_is_the_output_tail",
           "tokens": 383,
           "vis": "private"
         },
         {
-          "end_line": 1297,
+          "end_line": 1312,
           "kind": "fn",
-          "line": 1275,
+          "line": 1290,
           "name": "ask_owner_prepares_runs_and_teaches",
           "tokens": 313,
           "vis": "private"
         }
       ],
-      "lines": 1297,
+      "lines": 1312,
       "path": "src/tools/tests.rs",
-      "tokens": 14040
+      "tokens": 14226
     },
     {
       "forbid_unsafe": false,
@@ -17890,7 +17898,7 @@
       "tokens": 974
     }
   ],
-  "source_digest": "sha256:be4e9a382a3e573c06c9f4c1b7992cdd55a2ba6530dbe4cfe6949d2d327384c4",
+  "source_digest": "sha256:57db8fe2ea6e32844d3e7f2891232579241eec2a74b879094602ab9e6274920b",
   "tools": {
     "list": [
       {

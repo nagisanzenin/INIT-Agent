@@ -15,8 +15,31 @@ use crate::conn::ReqErr;
 use serde_json::{Value, json};
 use std::time::Duration;
 
-/// The no-workspace notice (spec item 2).
-pub const NO_WORKSPACE: &str = "no workspace: cd into a project and run `init-agent` to let me edit it";
+/// The rule a workspace must meet (root/sandbox-profiles `validate_workspace`), in the owner's words.
+pub const WORKSPACE_RULE: &str = "a workspace is a folder inside your home, not your home itself and not INIT's own folders";
+
+/// TUI-FIX (v0.5.1 user sessions): with no workspace, the screen never said where the agent works,
+/// and `/undo`'s advice ("cd into a project and run init-agent") sent the owner in a circle. This says
+/// why there is none, where the agent works instead, what `/undo` can restore, and how to get one.
+/// `refused` is the Root's `workspace.set` refusal (`code`, `message`); `full` the session's access.
+pub fn no_workspace_text(cwd: Option<&str>, refused: Option<&(String, String)>, full: bool) -> String {
+    let why = match (cwd, refused) {
+        (Some(c), Some((_, m))) => format!("{c} is not one ({m})"),
+        (Some(c), None) => format!("the Root set none for {c}"),
+        (None, _) => "the current directory could not be read".to_string(),
+    };
+    let access = if full {
+        "It has full access, so it can still change your files by their full path, but nothing it changes outside its own folder can be undone."
+    } else {
+        "This session is confined (workspace mode), so it can write only its own folder."
+    };
+    format!(
+        "no workspace: {why}. The agent works in its own folder instead (INIT_HOME/work, ~/.init/work by default): \
+         files it creates by name land there, not where you started init-agent. {access} /undo restores only a workspace's \
+         snapshots, so it has nothing to restore in this session. To let it edit a project: {WORKSPACE_RULE}; cd into one \
+         and run init-agent again."
+    )
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Op {
@@ -99,9 +122,9 @@ pub struct Flow {
     ws: Ws,
     inflight: Option<Op>,
     confirm: Option<(Op, String)>,
-    /// TUI-BRAND: the Root already said "no workspace" in this process (often in the attach
-    /// replay), so the TUI does not say it a second time.
-    root_said_no_ws: bool,
+    /// TUI-FIX (v0.5.1): the Root's refusal of the cwd as the workspace (`code`, `message`), for the
+    /// no-workspace explanation and `/undo`'s advice.
+    refused: Option<(String, String)>,
 }
 
 fn err_text(e: &ReqErr) -> String {
@@ -129,14 +152,7 @@ impl Flow {
     /// refuses both); `want_full` wins if both are set.
     pub fn new(cwd: Option<String>, want_full: bool, want_workspace: bool) -> Flow {
         let want_workspace = want_workspace && !want_full;
-        Flow { cwd, want_full, want_workspace, ws: Ws::NotSent, inflight: None, confirm: None, root_said_no_ws: false }
-    }
-
-    /// A notice the Root stamped (`src:"root"`): remembers a "no workspace" it already gave.
-    pub fn on_root_notice(&mut self, text: &str) {
-        if text.starts_with("[root] no workspace") {
-            self.root_said_no_ws = true;
-        }
+        Flow { cwd, want_full, want_workspace, ws: Ws::NotSent, inflight: None, confirm: None, refused: None }
     }
 
     /// Owner lines wait while the workspace is being set (SBX-009 §A: before any owner line) and
@@ -215,6 +231,21 @@ impl Flow {
         Some(vec![Out::Send(req(op, None))])
     }
 
+    /// `/undo` with no workspace (TUI-FIX, v0.5.1): what it can and cannot restore, and the real way
+    /// to get a workspace, instead of "cd into a project and run init-agent" to someone who just did.
+    fn undo_no_workspace(&self) -> String {
+        let why = match (&self.cwd, &self.refused) {
+            (Some(c), Some((_, m))) => format!(" ({c} is not one: {m})"),
+            (Some(c), None) => format!(" (the Root set none for {c})"),
+            (None, _) => String::new(),
+        };
+        format!(
+            "/undo: nothing to restore. This session has no workspace{why}, and /undo restores only a workspace's snapshots: \
+             what the agent wrote in its own folder (INIT_HOME/work) or elsewhere is not covered. To have /undo next time, \
+             start init-agent in a project folder ({WORKSPACE_RULE})."
+        )
+    }
+
     /// The Root's answer to `op`.
     pub fn on_answer(&mut self, op: Op, r: Result<Value, ReqErr>) -> Vec<Out> {
         if self.inflight == Some(op) {
@@ -225,11 +256,12 @@ impl Flow {
             (Op::Workspace, Ok(v)) => {
                 self.ws = Ws::Done;
                 out.push(Out::Access(v["access"].clone()));
-                // A change is announced by the Root itself (`code:"access"` notices to every
-                // client); an unchanged "no workspace" is not, so the TUI says it.
-                if v["access"]["workspace"].is_null() && v["changed"] != true && !self.root_said_no_ws {
-                    let why = v["refused"]["message"].as_str().map(|m| format!(" ({m})")).unwrap_or_default();
-                    out.push(Out::Notice(format!("{NO_WORKSPACE}{why}")));
+                self.refused = v["refused"]["message"].as_str().map(|m| (v["refused"]["code"].as_str().unwrap_or("").to_string(), m.to_string()));
+                // TUI-FIX (v0.5.1): with no workspace, the TUI says why, where the agent works, what
+                // /undo can restore and how to get one; the Root's own one-liner (if any) does not
+                if v["access"]["workspace"].is_null() {
+                    let full = v["access"]["full"] == true;
+                    out.push(Out::Notice(no_workspace_text(self.cwd.as_deref(), self.refused.as_ref(), full)));
                 }
                 out.extend(self.then_full());
             }
@@ -264,7 +296,7 @@ impl Flow {
                 None => out.push(Out::Error(format!("{}: the Root asked for a confirmation without a phrase", op.label()))),
             },
             (Op::Undo, Err(ReqErr::Refused(code, _, data))) if code == "root.mode" && data["reason"] == "no_workspace" => {
-                out.push(Out::Warn(format!("/undo: {NO_WORKSPACE}")))
+                out.push(Out::Warn(self.undo_no_workspace()))
             }
             (Op::Undo, Err(ReqErr::Refused(code, ..))) if code == "root.busy" => {
                 out.push(Out::Warn("/undo: the agent is in the middle of a turn; try again when it is idle (Esc interrupts it)".into()))
@@ -306,23 +338,36 @@ mod tests {
         assert_eq!(f.on_line("hello"), None);
     }
 
+    /// TUI-FIX (v0.5.1 user sessions): with no workspace the screen says why, where the agent works
+    /// instead, what /undo can restore and the rule for a workspace, in every case (the Root's own
+    /// "no workspace" one-liner says none of that); a workspace gets no such notice.
     #[test]
-    fn no_workspace_notice_only_when_the_root_does_not_announce_it() {
-        let mut f = Flow::new(Some("/Users/o".into()), false, false);
+    fn no_workspace_says_where_the_agent_works_and_what_undo_restores() {
+        let mut f = Flow::new(Some("/private/tmp/demo".into()), false, false);
         f.on_attached();
-        let home = json!({"access": view(None, false), "changed": false, "refused": {"code": "home", "message": "the home itself"}});
-        let out = f.on_answer(Op::Workspace, Ok(home));
-        assert_eq!(out[1], Out::Notice(format!("{NO_WORKSPACE} (the home itself)")));
-        let mut f = Flow::new(Some("/Users/o".into()), false, false);
+        let out = f.on_answer(Op::Workspace, Ok(json!({"access": view(None, true), "changed": true,
+            "refused": {"code": "outside_home", "message": "the launch directory is outside your home"}})));
+        let Out::Notice(t) = &out[1] else { panic!("{out:?}") };
+        for want in ["/private/tmp/demo is not one (the launch directory is outside your home)", "works in its own folder instead (INIT_HOME/work",
+            "not where you started init-agent", "full access", "/undo restores only a workspace's snapshots", "a folder inside your home, not your home itself"] {
+            assert!(t.contains(want), "missing {want:?} in {t}");
+        }
+        assert!(!t.contains("cd into a project and run init-agent to let me edit it"));
+        // --workspace with no workspace: confined to its own folder
+        let mut f = Flow::new(Some("/Users/o".into()), false, true);
         f.on_attached();
-        let changed = json!({"access": view(None, false), "changed": true, "refused": {"code": "home", "message": "x"}});
-        assert_eq!(f.on_answer(Op::Workspace, Ok(changed)).len(), 1, "the Root's code:access notice says it");
-        // the Root said it already (the attach replay): the TUI does not say it twice
-        let mut f = Flow::new(Some("/Users/o".into()), false, false);
+        let out = f.on_answer(Op::Workspace, Ok(json!({"access": view(None, false), "changed": false, "refused": {"code": "home", "message": "the launch directory is your home itself"}})));
+        assert!(matches!(&out[1], Out::Notice(t) if t.contains("your home itself") && t.contains("can write only its own folder")), "{out:?}");
+        // /undo then says what it cannot restore, not "cd into a project and run init-agent"
+        f.on_line("/undo");
+        let out = f.on_answer(Op::Undo, refused("root.mode", json!({"reason": "no_workspace"})));
+        let Out::Warn(u) = &out[0] else { panic!("{out:?}") };
+        assert!(u.starts_with("/undo: nothing to restore. This session has no workspace (/Users/o is not one: the launch directory is your home itself)"), "{u}");
+        assert!(u.contains("not covered") && u.contains("a folder inside your home") && !u.contains("cd into a project and run"), "{u}");
+        // a workspace: no notice
+        let mut f = Flow::new(Some("/Users/o/proj".into()), false, false);
         f.on_attached();
-        f.on_root_notice("[root] no workspace: cd into a project and run init-agent to let me edit it");
-        let home = json!({"access": view(None, false), "changed": false, "refused": {"code": "home", "message": "the home itself"}});
-        assert_eq!(f.on_answer(Op::Workspace, Ok(home)).len(), 1, "only the access view");
+        assert_eq!(f.on_answer(Op::Workspace, Ok(json!({"access": view(Some("/Users/o/proj"), false), "changed": true}))).len(), 1);
     }
 
     #[test]
@@ -399,7 +444,7 @@ mod tests {
         let out = f.on_answer(Op::Full(true), refused("root.mode", json!({"reason": "charter"})));
         assert!(matches!(&out[0], Out::Warn(t) if t.contains("allow_full")));
         f.on_line("/undo");
-        assert!(matches!(&f.on_answer(Op::Undo, refused("root.mode", json!({"reason": "no_workspace"})))[0], Out::Warn(t) if t.contains("cd into a project")));
+        assert!(matches!(&f.on_answer(Op::Undo, refused("root.mode", json!({"reason": "no_workspace"})))[0], Out::Warn(t) if t.contains("nothing to restore")));
         f.on_line("/undo");
         assert!(matches!(&f.on_answer(Op::Undo, refused("root.not_found", Value::Null))[0], Out::Warn(t) if t.contains("no snapshot")));
         f.on_line("/undo");

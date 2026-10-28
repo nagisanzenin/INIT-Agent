@@ -252,6 +252,19 @@ All signals come from the Root's own observations: the egress ledger and tap, th
 
 #### 3.2 Windows and baseline
 
+> **v0.5.1 (2026-10-28): the code differs from this design as follows** (sentinel v2_fix, adopted 2026-10-22;
+> build/status/X10.md). The text below is the design as proposed and is kept as it was.
+> - **The baseline ring holds 40 *units*, not 40 owner turns** (`RING_M`, root/crates/init-root/src/sentinel/engine.rs:18). A unit is a run of
+>   consecutive owner turns of one owner session with gaps under 30 min, at most 6 turns (`UNIT_GAP_MS`, `UNIT_MAX`,
+>   :40–41; cut at :526); its value is the geometric mean of its turns' values (`unit_values`, :360). The ring is full
+>   at 40 units (:406), so the acute-only phase lasts longer than 40 turns.
+> - **α is not 0.002 throughout.** H5b, H8, H10 and H11 compare units against the **8th** largest of the ring (j = 8,
+>   `RING_J_COST`, :20) at **α = 0.005** (`HARD_COST`, :21; the loop at :407). H7 (per turn, :416) and H9 (per
+>   request, :423) keep α = 0.002 (`HARD`, root/crates/init-root/src/sentinel/stats.rs:11). S1 keeps j = 10 at
+>   α = 0.05, on units for cost, wall and zone spend (`soft`, :431).
+> - The looks are still the window's first 5, 10 and 20 owner turns (`LOOKS`, :26), but each test counts the units
+>   in them, so a 20-turn look in one long session holds as few as 4 units.
+
 - **Group window:**
   - closes at `win_turns` = 20 owner turns or `win_max_h` = 72 h after the group's last join, whichever comes first, and never before `win_min_h` = 2 h;
   - kernel changes use 40 turns, 120 h and 24 h;
@@ -260,6 +273,19 @@ All signals come from the Root's own observations: the egress ledger and tap, th
 - **Looks:** chronic tests look at n = 5, 10 and 20 window turns, at α = 0.002 per test per look (ADR-010 §3).
 
 #### 3.3 Signals
+
+> **v0.5.1 (2026-10-28): the code differs from this table as follows** (root/crates/init-root/src/sentinel/engine.rs; see the note in §3.2).
+> - **H5b** uses j = 8 of m = 40 *units* (not j = 10 of 40 turns) at tail ≤ **0.005** (not 0.002): K ≥ 5 of 5,
+>   ≥ 7 of 10, ≥ 11 of 20 window units (`RING_J_COST`, `HARD_COST`, :20–21; root/crates/init-root/src/sentinel/tests.rs:60
+>   checks this table). The 1.5× magnitude guard is unchanged.
+> - **H8, H10 and H11** test as H5b does, so they too use j = 8 of 40 units at α = 0.005 (:407–409), with their own
+>   guards (1.5×, 2×, 3×) unchanged.
+> - **H7 and H9** are as written: α = 0.002, per turn and per request (:416, :423); H7's r0 counts over all the
+>   ring units' turns.
+> - **Design numbers** below are ADR-010's, for per-turn tests. X10 measured the shipped units sentinel
+>   (build/status/X10.md, v2_fix): null false rollback 1.18% per window and 3× cost caught 64.3% (sessions of 4
+>   turns, no shared offset), and 3.09% under strong clustering, above the 2.5% bound (an open item before
+>   `extend.mode = "free"` becomes the default).
 
 | Id | Signal (Root source) | Definition | Threshold and window | Class · action |
 |---|---|---|---|---|
@@ -596,6 +622,10 @@ The agent never grants itself anything. It may ask.
 | `Predicts:` (optional) | free clauses scored when an instrument measures them (evolution.md §3.10) | — | the agent's self-signal `predict_hit_rate` |
 
 ### 9. Defaults
+
+> **v0.5.1 (2026-10-28): the code differs from the baseline row as follows** (root/crates/init-root/src/sentinel/engine.rs:14–21; §3.2's note):
+> the ring is 40 *units* (up to 6 consecutive owner turns with gaps under 30 min each), not 40 turns; the hard α is
+> 0.005 with j = 8 for H5b, H8, H10 and H11, and 0.002 for H7 and H9; the soft α stays 0.05 (j = 10).
 
 | Constant | Default | Enforced by | Tunable |
 |---|---|---|---|

@@ -32,6 +32,8 @@ pub struct St {
     live: Option<(String, &'static str, Option<PathBuf>)>,
     /// Fleet members granted the workspace write (`fleet.workspace_write`): instance id → when it was granted.
     writers: std::collections::BTreeMap<String, i64>,
+    /// ROOT-MSG (v0.5.1): why this session has no workspace, in the owner's words ([`refusal_text`]).
+    why: Option<String>,
 }
 
 /// A member's write slot counts from its grant until the broker records the instance (or the spawn failed).
@@ -227,18 +229,50 @@ fn changed(root: &Root, event: &str, text: &str) {
     root.notice_code("info", "access", text);
 }
 
-fn no_ws_text() -> &'static str {
-    "[root] no workspace: cd into a project and run init-agent to let me edit it"
+/// ROOT-MSG (v0.5.1): why a launch folder gives no workspace, in the owner's words. The rule itself is unchanged
+/// (`init_sandbox_profiles::access::validate_workspace`); this only says it.
+pub fn refusal_text(r: pa::Refusal, cwd: &str) -> String {
+    match r {
+        pa::Refusal::Relative => format!("the start folder ({cwd}) was not given as an absolute path"),
+        pa::Refusal::TooLong => "the start folder's path is longer than 1024 bytes".into(),
+        pa::Refusal::Missing => format!("{cwd} does not exist"),
+        pa::Refusal::NotDir => format!("{cwd} is not a folder"),
+        pa::Refusal::OutsideHome => format!("{cwd} is outside your home folder"),
+        pa::Refusal::Home => format!("{cwd} is your home folder itself"),
+        pa::Refusal::RootPath => format!("{cwd} is, holds or lies in INIT's own files (~/.init-root, ~/.init or the Root's service folder)"),
+        pa::Refusal::DenyList => format!("{cwd} is a protected folder (secrets such as ~/.ssh, INIT's launchers, shell startup \
+            folders, or your charter's sandbox.read_deny)"),
+    }
+}
+
+/// `p` with `~` for the home (display only).
+fn tilde(p: &Path, home: &Path) -> String {
+    match p.strip_prefix(home) {
+        Ok(r) if !r.as_os_str().is_empty() => format!("~/{}", r.display()),
+        _ => p.display().to_string(),
+    }
+}
+
+/// ROOT-MSG (v0.5.1): the workspace rule, where the agent works without one, and how to get one.
+fn ws_rule(home: &Path, ih: &Path) -> String {
+    format!("A workspace is the folder you start init-agent in, and it must be a folder inside your home ({}), not your home \
+        itself and not one of INIT's own or protected folders. Without one the agent works in {}, and /undo has nothing to \
+        restore. To get one: quit, cd into a project folder inside your home, and run init-agent there.",
+        home.display(), tilde(&ih.join("work"), home))
+}
+
+fn no_ws_text(why: Option<&str>, home: &Path, ih: &Path) -> String {
+    format!("[root] no workspace: {}. {}", why.unwrap_or("this session has none"), ws_rule(home, ih))
 }
 
 /// The owner's notice for a session's access (after `workspace.set`).
-fn session_text(st: &AccessState, refused_linux: bool) -> String {
+fn session_text(st: &AccessState, refused_linux: bool, why: Option<&str>, home: &Path, ih: &Path) -> String {
     match (&st.workspace, st.full) {
         (Some(w), true) => format!("[root] workspace: {} · access FULL: {FULL_TEXT}", w.display()),
-        (None, true) => format!("[root] no workspace (nothing has /undo) · access FULL: {FULL_TEXT}"),
+        (None, true) => format!("{} · access FULL: {FULL_TEXT}", no_ws_text(why, home, ih)),
         (Some(w), false) => format!("[root] workspace: {}", w.display()),
         (None, false) if refused_linux => NO_WS_LINUX.to_string(),
-        (None, false) => no_ws_text().to_string(),
+        (None, false) => format!("{} In workspace mode it cannot edit your files either.", no_ws_text(why, home, ih)),
     }
 }
 
@@ -261,10 +295,11 @@ pub fn workspace_set(root: &Root, a: &Value) -> Result<Value, Err3> {
     let own = fixed_of(&root.p);
     let new = pa::validate_workspace(cwd, &own.as_fixed(), &ws_deny(root));
     let ws = new.as_ref().ok().cloned();
+    let why = new.as_ref().err().map(|r| refusal_text(*r, cwd));
     let before = state(root);
     {
         let mut st = lock(&root.access);
-        (st.workspace, st.full, st.confirmed) = (ws.clone(), session_full, false);
+        (st.workspace, st.full, st.confirmed, st.why) = (ws.clone(), session_full, false, why.clone());
     }
     persist(root);
     let after = state(root);
@@ -278,14 +313,14 @@ pub fn workspace_set(root: &Root, a: &Value) -> Result<Value, Err3> {
     let change = (before.workspace.clone(), before.full) != (after.workspace.clone(), after.full);
     // LINUX: a valid cwd gives no workspace while the session is not full (workspace mode is capped off there)
     let linux_refused = new.is_ok() && after.workspace.is_none();
-    let text = session_text(&after, linux_refused);
+    let text = session_text(&after, linux_refused, why.as_deref(), &own.0, &root.p.ih);
     if change {
         changed(root, "workspace", &text);
     } else {
         root.notice_code("info", "access", &text);
     }
     let refused = match new {
-        Err(r) => Some(json!({"code": r.code(), "message": r.message()})),
+        Err(r) => Some(json!({"code": r.code(), "message": refusal_text(r, cwd)})),
         Ok(_) if linux_refused => Some(json!({"code": "platform", "message": NO_WS_LINUX.trim_start_matches("[root] ")})),
         Ok(_) => None,
     };
@@ -307,7 +342,9 @@ pub fn full_set(root: &Root, a: &Value) -> Result<Value, Err3> {
         lock(&root.access).full = Some(false);
         persist(root);
         if full {
-            changed(root, "full_off", "[root] full access off: the agent works in its workspace (workspace mode) from its next restart at an idle point");
+            changed(root, "full_off", "[root] full access off for this session: the agent works in its workspace (workspace mode) from its \
+                next restart at an idle point. A new init-agent launch starts with the charter's default again; to keep workspace mode, \
+                launch with init-agent --workspace or set sandbox.mode = \"workspace\" in the charter");
         }
         return Ok(json!({"access": view(root), "changed": full, "snapshot": null}));
     }
@@ -342,9 +379,16 @@ pub fn full_set(root: &Root, a: &Value) -> Result<Value, Err3> {
     Ok(json!({"access": view(root), "changed": true, "snapshot": snap.and_then(Result::ok)}))
 }
 
+/// ROOT-MSG (v0.5.1): `/undo` with no workspace: why there is none, what `/undo` covers, and how to get one.
+fn undo_no_ws(root: &Root) -> String {
+    let why = lock(&root.access).why.clone();
+    format!("/undo has nothing to restore: this session has no workspace ({}). {}", why.as_deref().unwrap_or("none was set"),
+        ws_rule(&home(&root.p), &root.p.ih))
+}
+
 /// `undo{confirm?}` (spec item 4): restore the latest snapshot of the workspace, saving the current state first.
 pub fn undo(root: &Root, a: &Value) -> Result<Value, Err3> {
-    let ws = state(root).workspace.ok_or(("root.mode", "no workspace is set".to_string(), json!({"reason": "no_workspace"})))?;
+    let ws = state(root).workspace.ok_or_else(|| ("root.mode", undo_no_ws(root), json!({"reason": "no_workspace"})))?;
     let latest = snaps(root, &ws).pop().ok_or(("root.not_found", format!("no snapshot of {}", ws.display()), Value::Null))?;
     // While a turn runs the body may be writing the workspace: refuse (the owner retries when it is idle).
     if root.sup.kernel().is_some_and(|k| k.busy.load(std::sync::atomic::Ordering::SeqCst)) {
@@ -378,7 +422,14 @@ pub fn line(root: &Root, t: &str) -> bool {
         let v = view(root);
         let ws = v["workspace"].as_str().unwrap_or("none");
         let full = if v["full"] == true { " · FULL" } else { "" };
-        root.notice_code("info", "access", &format!("[root] access {}{full} · workspace {ws} · default {} · read_home {} · allow_full {}",
+        // ROOT-MSG: "workspace none" says why and how to get one
+        let rule = if v["workspace"].is_null() {
+            let why = lock(&root.access).why.clone();
+            format!(" ({}. {})", why.as_deref().unwrap_or("this session has none"), ws_rule(&home(&root.p), &root.p.ih))
+        } else {
+            String::new()
+        };
+        root.notice_code("info", "access", &format!("[root] access {}{full} · workspace {ws}{rule} · default {} · read_home {} · allow_full {}",
             v["access"].as_str().unwrap_or(""), v["mode"].as_str().unwrap_or(""), v["read_home"], v["allow_full"]));
     };
     let reply = |root: &Root, r: Result<Value, Err3>, again: &str| match r {
@@ -510,4 +561,31 @@ fn restore(src: &Path, ws: &Path) -> std::io::Result<()> {
         crate::sys::clonefile(&e.path(), &ws.join(e.file_name()))?;
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod msg_tests {
+    use super::*;
+
+    /// ROOT-MSG (v0.5.1): with no workspace, the notice states the rule (a folder inside the home, not the home itself),
+    /// why this start folder was refused, where the agent works instead, that `/undo` has nothing, and how to get one.
+    #[test]
+    fn no_workspace_says_the_rule_where_the_agent_works_and_the_fix() {
+        let (home, ih) = (Path::new("/Users/o"), Path::new("/Users/o/.init"));
+        let why = refusal_text(pa::Refusal::OutsideHome, "/private/tmp/demo");
+        assert_eq!(why, "/private/tmp/demo is outside your home folder");
+        for full in [true, false] {
+            let t = session_text(&AccessState { read_home: true, workspace: None, full }, false, Some(&why), home, ih);
+            assert!(t.starts_with("[root] no workspace: /private/tmp/demo is outside your home folder. "), "{t}");
+            for want in ["must be a folder inside your home (/Users/o), not your home itself", "the agent works in ~/.init/work",
+                "/undo has nothing to restore", "cd into a project folder inside your home, and run init-agent there"] {
+                assert!(t.contains(want), "{want:?} in {t}");
+            }
+            assert!(!t.contains("cd into a project and run init-agent to let me edit it"), "the old advice: {t}");
+            assert_eq!(t.contains("access FULL"), full, "{t}");
+        }
+        assert_eq!(refusal_text(pa::Refusal::Home, "/Users/o"), "/Users/o is your home folder itself");
+        let w = session_text(&AccessState { read_home: true, workspace: Some("/Users/o/p".into()), full: false }, false, None, home, ih);
+        assert_eq!(w, "[root] workspace: /Users/o/p");
+    }
 }

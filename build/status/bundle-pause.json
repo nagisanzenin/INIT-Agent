@@ -1,7 +1,7 @@
 {
- "body_sha256": "44bc34ce57a19fc2e9692decaeb3e03acb1ceafa8e0721a2189596c7e381c948",
- "bundle": "init-v0.5.0-preview-macos-arm64.tar.gz",
- "bundle_bytes": 55075393,
+ "body_sha256": "3ba7702a90457acfad3750f8dfeaa62276882296b1eb4f2d5724dec801f46abb",
+ "bundle": "init-v0.5.1-preview-macos-arm64.tar.gz",
+ "bundle_bytes": 55133541,
  "checks": {
   "genesis_body_is_prebuilt": true,
   "idle_after_sigint_le_1s": true,
@@ -25,12 +25,12 @@
   "busy2": true,
   "idle1": true,
   "idle2": true,
-  "idle_after_sigint_ms": 25,
+  "idle_after_sigint_ms": 20,
   "infos1": [
    "paused \u00b7 type to continue, or say what to do instead"
   ],
   "reply": "resumed after the pause",
-  "wall_ms": 3028
+  "wall_ms": 3101
  },
  "mock_log_lines": 1,
  "mock_requests": 3,
@@ -40,10 +40,10 @@
  "requests": 2,
  "rust": "none (--no-rust)",
  "times_ms": {
-  "drive_wall": 3028,
-  "get_sh_install": 8119,
-  "get_sh_to_first_reply": 12543,
-  "start_to_ready": 1240
+  "drive_wall": 3101,
+  "get_sh_install": 16926,
+  "get_sh_to_first_reply": 22712,
+  "start_to_ready": 2413
  },
  "toolchain": "None",
  "v": 1

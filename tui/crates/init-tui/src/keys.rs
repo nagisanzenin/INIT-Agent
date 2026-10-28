@@ -156,15 +156,15 @@ pub const HELP: &[(&str, &str)] = &[
     ("Esc", "pause while busy: your next message continues the task (a pending steer goes in now); close a popup"),
     ("Tab (while busy)", "queue the box as the next task (/later)"),
     ("Up (empty box, pending line)", "take back the newest line not yet read"),
-    ("Ctrl-D", "quit on an empty box"),
+    ("Ctrl-D", "quit on an empty box (the agent keeps running; init-agent comes back)"),
     ("Up / Down", "lines; history on the first line"),
     ("Ctrl-A/E · Alt-←/→ · Ctrl-W/U/K", "move and delete"),
     ("/", "owner commands (Tab completes)"),
-    ("Ctrl-O", "details: the transcript, last tool activity expanded"),
-    ("/details", "print the last tool activity in full"),
+    ("Ctrl-O · /details", "the transcript, last tool activity expanded · print it in full"),
     ("Ctrl-T", "show or hide thinking"),
     ("Ctrl-L", "redraw"),
-    ("/panic", "stop everything (Root)"),
+    ("/stop · /root stop · /panic", "stop the run · stop the agent · emergency stop + demotion (asks first)"),
+    ("self-change ■ □ · ✕", "gate step passed · running · to come or not run · failed; LKG: last known good"),
     ("/new · /clear", "start a new session"),
     ("/model · /key · /setup", "switch model · set a key (hidden) · provider setup"),
     ("in a picker: ↑↓ Enter · 1–9 · Esc", "choose; type to filter, or to answer the agent in your own words"),
@@ -173,6 +173,13 @@ pub const HELP: &[(&str, &str)] = &[
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The overlay fits a 24-row terminal: KEYS, the list, the input box, the status bar, the hint.
+    #[test]
+    fn help_fits_24_rows() {
+        let rows = HELP.len() + 6; // KEYS, the list, 3 input-box rows, the status bar, the hint
+        assert!(rows <= 24, "{rows} rows");
+    }
 
     fn k(code: KeyCode, m: KeyModifiers) -> KeyEvent {
         KeyEvent::new(code, m)

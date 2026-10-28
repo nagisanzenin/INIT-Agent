@@ -17,9 +17,14 @@
 //! - `upgrade --probe [--timeout S]`: starts the installed Root as this process's child, waits until the kernel is
 //!   ready on the new tuple and the body has written `ready` since the start, checks it stays up, stops it (the zone,
 //!   then SIGTERM to the child) and verifies the whole lineage. Exit 0 healthy, 1 not.
-//! - `upgrade --commit`: `lkg` moves to the new tuple and the snapshot goes. `upgrade --rollback`: a `rollback` record
-//!   back to the tuple from before, `refs/heads/main` back, the snapshot restored (Root binary, kernel files, launchers,
-//!   install.json), checked against the recorded sha256 of the old Root binary. `upgrade --status [--json]`.
+//! - `upgrade --commit`: `lkg` moves to the new tuple, the rollback anchors (`audited`, `settled`) and the twin take
+//!   its kernel with their own body and ext (`tuple::reanchor`), goal readings on changes from before end
+//!   (`goal::upgrade_committed`), then the journal says `committing` and the snapshot goes. Every step before
+//!   `committing` is idempotent, so a commit re-run after a crash finishes it. `upgrade --rollback` (refused from
+//!   `committing` on, and while the snapshot is incomplete): a `rollback` record back to the tuple from before,
+//!   `refs/heads/main` back, the snapshot restored (Root binary, kernel files, launchers, install.json), checked
+//!   against the recorded sha256 of the old Root binary, and what a commit that stopped part way moved (`lkg`, the
+//!   anchors, the twin, `refs/heads/lkg`) back to the journal's `from`. `upgrade --status [--json]`.
 //!
 //! **The body check.** The evolved body is the agent's code, so the Root never runs it outside a sandbox: its
 //! `--manifest` (body/boot.md §4.3: no env, no files, no sockets) runs in a sealed run root (root.md §3.3.6), and so
@@ -120,7 +125,7 @@ fn save(p: &Paths, j: &Value) -> Res<()> {
 }
 
 fn pending(j: &Value) -> bool {
-    matches!(j["phase"].as_str(), Some("replacing" | "replaced"))
+    matches!(j["phase"].as_str(), Some("replacing" | "replaced" | "committing"))
 }
 
 /// The snapshot directory a journal names (always under `ROOT_HOME/state/upgrade/`).
@@ -268,7 +273,10 @@ fn upgrade(p: &Paths, dir: &Path, bin_dir: Option<PathBuf>) -> Res<Value> {
     let info: Value = fs::read_to_string(p.r("install.json")).ok().and_then(|s| serde_json::from_str(&s).ok())
         .ok_or_else(|| (1, format!("{} is missing: INIT is not installed here (install it with scripts/install.sh)", p.r("install.json").display())))?;
     if let Some(j) = journal(p).filter(pending) {
-        return Err((1, format!("{}; finish it first: init-root upgrade --rollback (or --commit after a passing --probe)", describe(&j))));
+        if j["phase"] == "committing" {
+            return Err((1, format!("{}; finish it first: {}", describe(&j), p.cmd("upgrade --commit"))));
+        }
+        return Err((1, format!("{}; finish it first: {} (or {} after a passing --probe)", describe(&j), p.cmd("upgrade --rollback"), p.cmd("upgrade --commit"))));
     }
     let _lock = crate::cli::take_lock(p).map_err(|e| (1, format!("run/root.lock: {e}")))?
         .ok_or_else(|| (1, "the Root is running: stop it first (init-agent upgrade and install.sh --upgrade stop it for you)".to_string()))?;
@@ -279,7 +287,7 @@ fn upgrade(p: &Paths, dir: &Path, bin_dir: Option<PathBuf>) -> Res<Value> {
         return Err((1, format!("run the release's own {}/init-root: the new Root performs its own upgrade", rel.dir.display())));
     }
     if fs::symlink_metadata(crate::panic::latch(&p.rh)).is_ok() {
-        return Err(refuse("INIT is in panic (the latch is set); the upgrade needs a system that runs. Resume it first (init-root resume)."));
+        return Err(refuse(format!("INIT is in panic (the latch is set); the upgrade needs a system that runs. Resume it first: start the Root, type /resume in init-agent (or run {}), then run the upgrade again.", p.cmd("resume"))));
     }
     install::check_layout(p, &active.ch.sandbox.extra_read).map_err(|m| (1, format!("layout: {m}")))?;
     if crate::lineage::verify::audit_verify(p, true, false) != 0 {
@@ -360,8 +368,11 @@ fn upgrade(p: &Paths, dir: &Path, bin_dir: Option<PathBuf>) -> Res<Value> {
         }
         list.push(json!({"key": k, "kind": kind, "path": live}));
     }
+    // `from`: what a rollback restores, the pointers a commit moves included (`undo`)
+    let kernel_lkg = crate::lineage::kgit::get(p, &git, "refs/heads/lkg");
     let mut j = json!({"v": 1, "id": id, "at": rfc3339(now_ms()), "phase": "replacing", "bin_dir": bin, "items": list, "body": body,
-        "from": {"version": old_version, "tuple": cur_id, "lkg": ptrs.lkg, "main": main, "root_sha256": root_sha},
+        "from": {"version": old_version, "tuple": cur_id, "lkg": ptrs.lkg, "audited": ptrs.audited, "settled": ptrs.settled, "twin": ptrs.twin,
+            "kernel_lkg": kernel_lkg, "main": main, "root_sha256": root_sha},
         "to": {"version": rel.version, "commit": rel.commit, "main": src_sha, "root_sha256": util::sha256_hex(&me), "tuple": null}});
     save(p, &j)?;
     match replace(p, &rel, &git, &me, &cur, &cur_id, main.as_deref(), &mut j) {
@@ -369,7 +380,7 @@ fn upgrade(p: &Paths, dir: &Path, bin_dir: Option<PathBuf>) -> Res<Value> {
             j["phase"] = json!("replaced");
             save(p, &j)?;
             Ok(json!({"upgrade": j["id"], "from": j["from"]["version"], "to": j["to"]["version"], "tuple": {"from": cur_id, "to": j["to"]["tuple"]},
-                "body": j["body"], "next": "init-root upgrade --probe, then --commit (or --rollback)"}))
+                "body": j["body"], "next": format!("{} --probe, then --commit (or --rollback)", p.cmd("upgrade"))}))
         }
         Err(m) => {
             let back = undo(p, &j, &git);
@@ -378,7 +389,7 @@ fn upgrade(p: &Paths, dir: &Path, bin_dir: Option<PathBuf>) -> Res<Value> {
             let _ = save(p, &j);
             Err((1, match back {
                 Ok(()) => format!("{m}; the snapshot was restored and the old install is as it was"),
-                Err(b) => format!("{m}; restoring the snapshot failed too ({b}): run init-root upgrade --rollback"),
+                Err(b) => format!("{m}; restoring the snapshot failed too ({b}): run {}", p.cmd("upgrade --rollback")),
             }))
         }
     }
@@ -446,10 +457,32 @@ fn replace(p: &Paths, rel: &Release, git: &str, me: &[u8], cur: &Value, cur_id: 
     write_atomic(&ip, format!("{}\n", icj(&info).map_err(s)?).as_bytes(), 0o600).map_err(s)
 }
 
+/// The snapshot items a journal names that its snapshot no longer holds (with their kind): a commit removes the
+/// snapshot, and an incomplete one cannot put the old install back.
+fn snapshot_missing(p: &Paths, j: &Value) -> Vec<String> {
+    let Some(snap) = snap_dir(p, j) else { return vec!["the snapshot".into()] };
+    j["items"].as_array().into_iter().flatten().filter_map(|it| {
+        let (k, kind) = (it["key"].as_str()?, it["kind"].as_str()?);
+        let m = fs::symlink_metadata(snap.join(k)).ok();
+        let held = match kind {
+            "dir" => m.is_some_and(|m| m.is_dir()),
+            "file" => m.is_some_and(|m| m.is_file()),
+            _ => true,
+        };
+        (!held).then(|| k.to_string())
+    }).collect()
+}
+
 /// Puts the snapshot back (exact paths): each item that existed is cloned back; each that did not is removed; links
-/// and special files are left alone. Then `main` and the tuple go back (the latter with a `rollback` record).
+/// and special files are left alone. Nothing is removed unless the snapshot holds every item. Then `main` and the
+/// tuple go back (the latter with a `rollback` record), and so do `lkg`, `audited`, `settled`, the twin and
+/// `refs/heads/lkg` when a commit that stopped part way moved them.
 fn undo(p: &Paths, j: &Value, git: &str) -> Result<(), String> {
     let snap = snap_dir(p, j).ok_or("the journal names no snapshot")?;
+    let missing = snapshot_missing(p, j);
+    if !missing.is_empty() {
+        return Err(format!("the snapshot {} no longer holds {}; nothing was restored", snap.display(), missing.join(", ")));
+    }
     let mut errs = Vec::new();
     for it in j["items"].as_array().into_iter().flatten() {
         let (Some(k), Some(live)) = (it["key"].as_str(), it["path"].as_str().map(PathBuf::from)) else { continue };
@@ -469,22 +502,52 @@ fn undo(p: &Paths, j: &Value, git: &str) -> Result<(), String> {
     {
         errs.push(format!("kernel.git main: {e}"));
     }
-    let (old, new) = (j["from"]["tuple"].as_str().unwrap_or(""), j["to"]["tuple"].as_str().unwrap_or(""));
+    let old = j["from"]["tuple"].as_str().unwrap_or("");
     let recs = crate::lineage::records(&p.rh).map_err(|e| e.to_string())?;
     let mut ptrs = tuple::Ptrs::default();
     recs.iter().for_each(|r| ptrs.apply(r));
+    let mut root: Option<std::sync::Arc<Root>> = None;
+    let boot = || -> Result<std::sync::Arc<Root>, String> { Root::boot(p.clone()).map_err(|e| e.to_string()) };
     if !old.is_empty() && ptrs.current.as_deref() != Some(old) {
         match tuple::load(&p.rh, old).filter(|t| tuple::verify(&p.rh, t)) {
             Some(t) => {
-                let root = Root::boot(p.clone()).map_err(|e| e.to_string())?;
+                let r = root.insert(boot()?);
                 tuple::install_kernel(p, &t).map_err(|e| format!("install {old}: {e}"))?;
-                root.append_by("root", "rollback", json!({"from": ptrs.current, "reason": "upgrade_failed", "target": "pre_upgrade", "to": old,
+                r.append_by("root", "rollback", json!({"from": ptrs.current, "reason": "upgrade_failed", "target": "pre_upgrade", "to": old,
                     "upgrade": j["id"]})).map_err(|e| format!("lineage: {e}"))?;
             }
             None => errs.push(format!("the tuple from before ({old}) does not verify")),
         }
     }
-    let _ = new;
+    // a commit that stopped part way: what it moved goes back, so the old Root's demotion, panic and crash-loop paths
+    // never install the release's kernel under it. Each record carries `upgrade` (for `lkg`, snapshot::settled_of's
+    // boundary: no tuple of the upgrade settles later) and `rolled_back`. A pre-v0.5.1 journal records `lkg` only.
+    let f = &j["from"];
+    for (name, have) in [("lkg", ptrs.lkg), ("audited", ptrs.audited), ("settled", ptrs.settled), ("twin", ptrs.twin)] {
+        let Some(want) = f.get(name).filter(|w| **w != json!(have)) else { continue };
+        let mut d = json!({"from": have, "rolled_back": true, "tuple": want, "upgrade": j["id"]});
+        if name == "twin" && let Some(r) = recs.iter().rev().find(|r| r["kind"] == "twin" && r["data"]["tuple"] == *want && r["data"]["rolled_back"] != true) {
+            // the twin as it was frozen (twin.rs `pin_of`)
+            (d["snapshot"], d["reason"]) = (r["data"]["snapshot"].clone(), r["data"]["reason"].clone());
+            d["frozen_at"] = if r["data"]["frozen_at"].is_string() { r["data"]["frozen_at"].clone() } else { r["at"].clone() };
+        }
+        let r = match root.take() {
+            Some(r) => r,
+            None => boot()?,
+        };
+        if let Err(e) = r.append_by("root", name, d) {
+            errs.push(format!("{name}: lineage: {e}"));
+        }
+        root = Some(r);
+    }
+    let have = crate::lineage::kgit::get(p, git, "refs/heads/lkg");
+    if let Some(want) = f["kernel_lkg"].as_str()
+        && have.as_deref() != Some(want)
+        && let Err(e) = crate::lineage::kgit::update(p, git, "refs/heads/lkg", want, have.as_deref())
+    {
+        errs.push(format!("kernel.git lkg: {e}"));
+    }
+    drop(root);
     let want = j["from"]["root_sha256"].as_str().unwrap_or("");
     if !want.is_empty() && tuple::sha_of(&p.r("bin/init-root")).as_deref() != Some(want) {
         errs.push("ROOT_HOME/bin/init-root is not the old Root binary".into());
@@ -501,6 +564,13 @@ fn locked_pending(p: &Paths) -> Res<(fs::File, Value, String)> {
 
 fn rollback(p: &Paths) -> Res<Value> {
     let (_lock, mut j, git) = locked_pending(p)?;
+    let missing = snapshot_missing(p, &j);
+    if j["phase"] == "committing" || !missing.is_empty() {
+        let why = if missing.is_empty() { "its commit has begun removing the snapshot".to_string() }
+            else { format!("its snapshot no longer holds {}", missing.join(", ")) };
+        return Err((1, format!("upgrade {} cannot be rolled back: {why}, so the install from before cannot be put back. Nothing was changed. \
+            Finish the upgrade instead: {}", j["id"].as_str().unwrap_or("?"), p.cmd("upgrade --commit"))));
+    }
     undo(p, &j, &git).map_err(|m| (1, format!("rollback incomplete: {m}; the snapshot is kept in {}", snap_dir(p, &j).unwrap_or_default().display())))?;
     if let Some(d) = snap_dir(p, &j) {
         crate::snapshot::remove(&d).map_err(err)?; // exact path, made by this upgrade
@@ -513,8 +583,8 @@ fn rollback(p: &Paths) -> Res<Value> {
 
 fn commit(p: &Paths) -> Res<Value> {
     let (_lock, mut j, git) = locked_pending(p)?;
-    if j["phase"] != "replaced" {
-        return Err((1, "the replace did not finish: init-root upgrade --rollback".into()));
+    if !matches!(j["phase"].as_str(), Some("replaced" | "committing")) {
+        return Err((1, format!("the replace did not finish: {}", p.cmd("upgrade --rollback"))));
     }
     let (to, from) = (j["to"]["tuple"].as_str().unwrap_or("").to_string(), j["from"]["tuple"].as_str().unwrap_or("").to_string());
     let root = Root::boot(p.clone()).map_err(err)?;
@@ -522,22 +592,60 @@ fn commit(p: &Paths) -> Res<Value> {
     if ptrs.current.as_deref() != Some(to.as_str()) {
         return Err((1, format!("the current tuple is {:?}, not the upgrade's {to}: roll back instead", ptrs.current)));
     }
+    // 1. the lineage. Each step is idempotent, so a commit re-run after a crash finishes it; until `committing` below,
+    //    `--rollback` stays open and `undo` puts these moves back too.
     if to != from && ptrs.lkg.as_deref() != Some(to.as_str()) {
-        root.append_by("root", "lkg", json!({"tuple": to})).map_err(err)?;
+        root.append_by("root", "lkg", json!({"tuple": to, "upgrade": j["id"]})).map_err(err)?; // `upgrade`: snapshot::settled_of
     }
+    // the rollback anchors and the twin take the release's kernel, so no demotion, panic resume or /rollback twin ever
+    // reinstalls the old one; each is compared with the release's kernel, also when this upgrade kept the kernel
+    let anchors = tuple::reanchor(&root, &to, &j["id"]).map_err(err)?;
+    // goal readings on changes from before end (root.md §3.7.2): they would count the old kernel's turns, or roll back to it
+    let cancelled = crate::goal::upgrade_committed(&root, &j["id"]).map_err(err)?;
     if let (Some(m), Some(old)) = (j["to"]["main"].as_str(), crate::lineage::kgit::get(p, &git, "refs/heads/lkg"))
         && old != m
     {
         crate::lineage::kgit::update(p, &git, "refs/heads/lkg", m, Some(old.as_str())).map_err(err)?;
     }
+    crate::lineage::env_fault("root.upgrade.after_anchors").map_err(err)?;
+    // 2. the report, from the records: a re-run reports what an earlier run recorded
+    for a in anchors.iter().filter(|a| a["skipped"].is_string()) { // cleared, never skipped silently (root.md §3.7.2)
+        let (name, from) = (a["name"].as_str().unwrap_or(""), a["from"].as_str().unwrap_or("?"));
+        let (what, then) = match name {
+            "audited" => ("audited-good", "A panic resume or a demotion now rolls back to the last-known-good tuple, on the new kernel; a sealed audit sets a new audited-good tuple."),
+            "settled" => ("settled", "A panic resume or a demotion now rolls back to the last-known-good tuple, on the new kernel; a new settled tuple forms 7 days after this upgrade."),
+            _ => ("twin", "/rollback twin has no target now; on the free path a new twin is frozen from the last-known-good tuple when the Root next runs."),
+        };
+        let msg = format!("the {what} tuple {from} could not be read ({}), so the upgrade cleared it instead of moving it to the new kernel. {then}",
+            a["skipped"].as_str().unwrap_or(""));
+        root.alert("kernel_upgrade", &format!("[root] {msg}"));
+        let run = if name == "audited" { format!(" Run: INIT_ROOT_HOME=\"{}\" \"{}\" audit run", p.rh.display(), p.r("bin/init-root").display()) } else { String::new() };
+        eprintln!("init-root upgrade: {msg}{run}");
+    }
+    if !cancelled.is_empty() {
+        let list: Vec<String> = cancelled.iter().map(|c| format!("{} (card {} on change {})", c["measure"].as_str().unwrap_or("?"), c["card"].as_str().unwrap_or("?"),
+            c["sha"].as_str().map_or("?", |s| &s[..s.len().min(12)]))).collect();
+        let msg = format!("{} goal reading(s) in flight on changes from before the upgrade were cancelled: {}. Their turns ran on the old \
+            kernel; readings of changes made from now on are unaffected.", cancelled.len(), list.join(", "));
+        root.alert("kernel_upgrade", &format!("[root] {msg}"));
+        eprintln!("init-root upgrade: {msg}");
+    }
     drop(root);
+    // 3. `committing` before the snapshot goes: from here only `--commit` finishes the upgrade, because a partly
+    //    removed snapshot can no longer put the old install back (`--rollback` refuses)
+    j["to"]["anchors"] = json!(anchors);
+    j["to"]["goal_readings_cancelled"] = json!(cancelled.iter().map(|c| c["measure"].clone()).collect::<Vec<_>>());
+    j["phase"] = json!("committing");
+    save(p, &j)?;
     if let Some(d) = snap_dir(p, &j) {
         crate::snapshot::remove(&d).map_err(err)?; // exact path, made by this upgrade
     }
+    crate::lineage::env_fault("root.upgrade.after_snapshot_remove").map_err(err)?;
     j["phase"] = json!("committed");
     j["ended"] = json!(rfc3339(now_ms()));
     save(p, &j)?;
-    Ok(json!({"upgrade": j["id"], "committed": true, "version": j["to"]["version"], "tuple": to}))
+    Ok(json!({"upgrade": j["id"], "committed": true, "version": j["to"]["version"], "tuple": to, "anchors": anchors,
+        "goal_readings_cancelled": j["to"]["goal_readings_cancelled"]}))
 }
 
 // ------------------------------------------------------------------------------------------------ the health probe
@@ -679,5 +787,42 @@ mod tests {
         }
         assert!(snap_dir(&p, &json!({"id": "u-20261027-1200-ab12cd"})).is_some());
         assert!(snap_dir(&p, &json!({"id": "../keys"})).is_none() && snap_dir(&p, &json!({"id": "u-a/b"})).is_none());
+    }
+
+    /// The second review of v0.5.1: `undo` removed each live item, then cloned it back from the snapshot; with the
+    /// snapshot partly gone it removed live files it could not restore. Now it removes nothing then.
+    #[test]
+    fn undo_restores_nothing_from_an_incomplete_snapshot() {
+        let top = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/test-homes/undo-snap-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&top); // exact path, this test's own
+        let p = Paths { rh: top.join("rh"), ih: top.join("ih"), home: top.clone() };
+        let (a, b) = (p.r("install.json"), p.i("kernel/bin"));
+        fs::create_dir_all(&b).unwrap();
+        fs::create_dir_all(&p.rh).unwrap();
+        fs::write(&a, "new").unwrap();
+        let snap = p.r(SNAPS).join("u-1");
+        fs::create_dir_all(snap.join("ih/kernel/bin")).unwrap(); // `rh/install.json` is missing from it
+        let j = json!({"id": "u-1", "from": {}, "items": [{"key": "ih/kernel/bin", "kind": "dir", "path": b}, {"key": "rh/install.json", "kind": "file", "path": a}]});
+        assert_eq!(snapshot_missing(&p, &j), ["rh/install.json"]);
+        assert!(undo(&p, &j, "/usr/bin/git").unwrap_err().contains("no longer holds rh/install.json"));
+        assert_eq!((fs::read_to_string(&a).unwrap().as_str(), b.is_dir()), ("new", true), "nothing was removed");
+        fs::remove_dir_all(&top).unwrap(); // exact path, this test's own
+    }
+
+    /// `src_head` (`git bundle list-heads`, no `--git-dir`) and every other Root git call: from `/`, never the caller's
+    /// cwd, so no repository the caller stands in is discovered; no owner or system config, no hooks, no fsmonitor.
+    #[test]
+    fn root_git_runs_from_the_filesystem_root_with_no_outside_config() {
+        let p = Paths { rh: "/h/.init-root".into(), ih: "/h/.init".into(), home: "/h".into() };
+        let c = install::git(&p, "/usr/bin/git");
+        assert_eq!(c.get_current_dir(), Some(Path::new("/")));
+        let args: Vec<String> = c.get_args().map(|a| a.to_string_lossy().into_owned()).collect();
+        for want in ["core.hooksPath=/dev/null", "core.fsmonitor=false"] {
+            assert!(args.windows(2).any(|w| w[0] == "-c" && w[1] == want), "{want}: {args:?}");
+        }
+        let env: Vec<(String, String)> = c.get_envs().filter_map(|(k, v)| Some((k.to_string_lossy().into_owned(), v?.to_string_lossy().into_owned()))).collect();
+        for (k, v) in [("GIT_CONFIG_NOSYSTEM", "1"), ("GIT_CONFIG_GLOBAL", "/dev/null"), ("PATH", "/usr/bin:/bin")] {
+            assert!(env.contains(&(k.into(), v.into())), "{k}={v}: {env:?}");
+        }
     }
 }

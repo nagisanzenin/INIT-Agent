@@ -2,6 +2,221 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.5.1-preview (2026-10-28)
+
+### Workspace mode: git config can no longer be redirected (post-release review)
+- **The hole.** In workspace mode the agent may write the folder INIT was started in, including a git repository
+  there. The macOS zone tail's rule Z3b denied writes only to `.git/hooks`, `.git/config` and the same two under
+  `.git/modules/<m>/`. git takes its config and command definitions from several other places the agent could still
+  write, so an agent acting against the owner could redirect git's config to a file it controls, and the owner's next
+  `git` command in that repository (for example `git status` running a `core.fsmonitor` or `core.hooksPath` hook) would
+  run that command unsandboxed, with the owner's full rights — a path that can reach and write the Root's files.
+- **Who could hit it.** A model acting against the owner in workspace mode writes the redirect; the owner then runs
+  git in that repository. Full access was already a documented residual (the agent can write what the owner can, except
+  the Root), so this was a workspace-mode promise (guide.md, ADR-012/ADR-009) that did not hold. Linux is unaffected:
+  workspace mode there caps the home grant off (the agent works in `INIT_HOME` only), so there is no owner workspace to
+  redirect.
+- **What changed.** Z3b now also denies the `.git` entry itself (`/\.git$`, so `.git` cannot be renamed aside,
+  replaced, or created as a `gitdir:` file) and git's config and command sources — `config`, `config.worktree`,
+  `commondir`, `gitdir` and `hooks/` — inside any git directory (`.git/`, `.git/modules/<m>/`, `.git/worktrees/<w>/`)
+  of a repository outside `INIT_HOME`. Because Seatbelt checks a directory rename by the source and destination
+  directory paths and not the files inside, Z3b also denies writes to the `modules`/`worktrees` admin directories and
+  to a submodule or linked-worktree gitdir entry inside them, at any depth (so the agent cannot build a directory
+  holding a config and rename it onto `.git/modules/<m>` or `.git/worktrees/<w>`), while excluding the `refs/` and
+  `logs/` ref namespaces so a branch named `modules/*` still commits. The rest of `.git` (objects, refs, index, HEAD,
+  logs, packed-refs, COMMIT_EDITMSG…) stays writable, so the agent can still commit; `git init` of a brand-new
+  repository, and `git submodule`/`git worktree add`, in the workspace are now refused (their fresh gitdir would
+  otherwise be agent-writable). `.git/info/attributes` is left writable (it only names filter/diff drivers whose
+  commands live in the now-denied config) and `objects/info/alternates` is an object source, not a command source.
+- **Tests.** New rows in the macOS sandbox self-test (`init-sbx-selftest`, kernel/sandbox.md §8), run under the real
+  rendered workspace profile: S-A20l–t reproduce the bypasses — `.git/commondir`, `.git/config.worktree`, the
+  `.git/worktrees/<w>/` and `.git/modules/<m>/` config/command files, a `.git` gitdir: file, and renaming `.git` aside
+  — and must now be refused; S-A20u–z reproduce the rename-swap bypass (renaming an agent-built directory onto a
+  `modules`/`worktrees` admin entry or a gitdir inside it, at any depth, and moving such a directory aside); S-A20j–k,
+  S-A20A–B and S-A20C–D run a real `git add`/`git commit`, a commit on a branch named `modules/x`, and an add+commit
+  inside a submodule gitdir, to prove committing still works. Mutation-tested (release-protocol §4.1): with the old
+  file-only Z3b, exactly S-A20l–t fail; with the admin-directory rule reverted, exactly S-A20u–z fail; the regression
+  rows pass throughout.
+- root/sandbox-profiles/profiles/zone-tail.sb, docs/root/root.md §3.3.2, docs/kernel/sandbox.md, docs/guide.md,
+  docs/adr/009 and docs/adr/012.
+
+### Upgrade: a local bundle is checked where the agent cannot reach it; --version 0.5.0 works (post-release review)
+- **The hole.** `init-agent upgrade --bundle FILE` (and `get.sh --upgrade --from FILE`) hashed the bundle where it
+  lay and then unpacked it from the same path. Without `--sha256`, it took the expected sha256 from `FILE.sha256`
+  beside it. The unpacked release's `install.sh --upgrade` then ran as the owner and replaced the Root. With full access
+  (the default) the agent can write that folder, so it could write a `.sha256` that matches a bundle of its own, or
+  swap the bundle between the check and the unpack. docs/guide.md and the v0.5.0 release notes said the checked copy
+  lived in `~/.init-root/cache/upgrade/` "so it cannot swap the code between the check and its run". That was true
+  for the download only. The same review found more. Every upgrade, the download included, ran curl, tar, shasum, git,
+  rustup and the rest from the owner's `PATH`, whose directories (`~/.cargo/bin`, Homebrew's) the agent can write in
+  full access. curl read `~/.curlrc`. install.sh wrote the new `init-agent` launcher in `TMPDIR` before copying it
+  into place. And `init-root upgrade` ran `git bundle list-heads` on the release's kernel source from the caller's
+  working directory, so an upgrade started inside a repository read that repository's `.git/config`.
+- **Who could hit it.** An owner in full access whose agent acts against them, who then upgrades from their own
+  shell: with `--bundle` on a file in a folder the agent can write (`~/Downloads`, say), or with any upgrade while a
+  tool the agent planted sits on `PATH` ahead of `/usr/bin`. In workspace mode only a bundle, tool or repository inside
+  the workspace folder was exposed. No exploit was seen; the review found it.
+- **What changed.** In an upgrade, get.sh copies a local bundle into `ROOT_HOME/cache/upgrade/` first and checks and
+  unpacks only that copy. It takes a local bundle's sha256 from `--sha256` only, and without one it stops before
+  writing anything, printing the exact `init-agent upgrade --bundle <path> --sha256 <hex>` command, where to find the
+  hex (the release page), and `init-agent upgrade --version <V>`. We chose `--sha256` over fetching the official
+  `.sha256` from GitHub because it works offline and for a bundle you built yourself, which are the reasons to use
+  `--bundle` at all. Online, `--version` already downloads and checks the release. Fresh installs, which have no agent
+  yet, still accept the `.sha256` beside the bundle. `init-agent upgrade`, `get.sh --upgrade` and
+  `install.sh --upgrade` (from a bundle) run the system tools only (PATH `/usr/bin:/bin:/usr/sbin:/sbin`), from `/`.
+  The launcher uses only bash builtins before it hands over. curl runs with `-q`. install.sh keeps its scratch files
+  under `ROOT_HOME/cache/` and runs no rustup, since the upgrade keeps the toolchain install.json records. Every Root
+  git call runs from `/` with `core.fsmonitor=false`, on top of the existing no system or global config, no hooks and
+  no inherited `GIT_*` (install.rs `git`). This covers the kernel source and the seed bundle at install too.
+- **--version.** `init-agent upgrade --version 0.5.0` asked for the tag `v0.5.0` and got HTTP 404, because the tags
+  carry the label (`v0.5.0-preview`) while `init-root --version` and the site say 0.5.0. Now a plain version tries
+  `vV`, then `vV-preview`. A version with a label is that tag, and if neither exists the error names both tags and
+  the releases page.
+- **Leaving 0.5.0.** `init-agent upgrade` runs the get.sh the installed release kept, so an upgrade from 0.5.0 still
+  runs 0.5.0's get.sh, with the holes above, and its `--version 0.5.1` still asks for `v0.5.1`.
+  docs/guide.md "Upgrade" gives the command that runs the new get.sh with the system's curl and sh. The pre-release
+  review found the scripts still printing `init-agent upgrade` to 0.5.0 owners: get.sh, install.sh and the launcher now
+  print that command for an installed 0.4.1 or 0.5.0 (with `--from`/`--sha256` for a bundle; `init-agent upgrade` from
+  0.5.1 on), with `INIT_ROOT_HOME=` on the `sh` side for a ROOT_HOME other than `~/.init-root`; the launcher names the
+  systemd user unit on Linux, a failed upgrade commit says the Root stays stopped and how to start it, and `--version`
+  probes its tags silently and says when it is ignored (tests/install, each mutation-tested).
+- **Breaking for scripts.** `get.sh --upgrade --from FILE` without `--sha256` now exits 1. scripts/upgrade-e2e.sh and
+  scripts/install-matrix.sh pass it.
+- Tests: tests/install/test_upgrade_trust.py (sidecar refused, the copy under ROOT_HOME, a wrong sha256, tools planted
+  on PATH in get.sh, install.sh and the launcher, the four `--version` cases); tests/upgrade.rs
+  `an_upgrade_started_inside_a_repository_reads_none_of_its_git_config`; upgrade.rs
+  `root_git_runs_from_the_filesystem_root_with_no_outside_config`. Each was mutation-tested (release-protocol §4.1):
+  with its fix reverted, it fails.
+
+### Upgrade: a panic after an upgrade resumes the upgraded tuple
+- **The bug.** `init-root upgrade --commit` moved `lkg` to the upgraded tuple but left `audited` (and `settled` on
+  the free path) on the tuple from before the upgrade. A panic resume and a demotion roll back to that pointer
+  (root.md §3.9.5), so after `/panic` and `/resume` the Root reinstalled the old `init-kernel` from its store and ran
+  it under the new Root. `/root status` then showed `current` and `audited` on the old tuple while every banner said
+  the new version. A returning-user session saw it on 0.4.1 → 0.5.0 (docs/user-sessions/v0.5.0-returning.md);
+  tests/upgrade.rs reproduces it without that session's harness. docs/guide.md "Upgrade" listed it as a limit of
+  0.5.0; the commit now removes that limit.
+- **Who could hit it.** Anyone who upgraded and then panicked or was demoted before a sealed audit passed on the new
+  tuple. In Phase 0 that audit is a manual owner step, so in practice that was every upgraded install.
+- **What changed.** At the commit, each rollback anchor whose kernel is not the release's becomes {the release's
+  kernel, the anchor's own body and ext}: an `audited` or `settled` record with `from` and `upgrade`, and `anchors` in
+  the commit's output. An anchor whose tuple file cannot be read is cleared instead (`{tuple: null, skipped}`), and
+  the commit reports it in its output, its journal, an alert and one plain line. The commit's `lkg` record carries
+  `upgrade`, and `settled` counts only `lkg` moves from there on. root.md §3.7.2 records the decision. Only
+  `upgrade --rollback`, before the commit, and the genesis tuple, the last resort when no other tuple verifies, go
+  back to the old kernel.
+- **Leaving 0.5.0.** An install upgraded to 0.5.0 keeps its old anchor until its next upgrade. That upgrade's commit
+  is the new release's own, so it moves the anchor.
+- **What the pre-release reviews added.** Several more paths could run the old kernel under the new Root, or delete
+  the install:
+  - **`/rollback twin`.** The twin is re-anchored too, keeping its body, ext and freeze: its replays never run its
+    kernel.
+  - **A release that keeps the kernel.** Each anchor is compared with the release's kernel, also when the release
+    kept the kernel.
+  - **A commit cut short.** It now records `committing` before it removes the snapshot, and is finished by re-running
+    `--commit`. `--rollback` is refused from then on, and also whenever the snapshot is incomplete. Before, a rollback
+    after such a crash deleted the Root, the kernel files and the launchers.
+  - **A rollback after a commit cut short earlier.** The rollback now restores `lkg`, `audited`, `settled`, the twin
+    and `refs/heads/lkg` from the journal.
+  - **A cleared anchor.** It is reported from the lineage records, so a re-run commit reports it too.
+  - **Goal readings.** Those in flight on pre-upgrade changes are cancelled, with a `card_reading{action:"cancelled"}`
+    record. No later reading takes its baseline or rollback target from before the upgrade.
+
+  root.md §3.7.2 argues each decision. Tests in tests/upgrade.rs:
+  - `the_commit_moves_the_twin_so_rollback_twin_runs_the_release_kernel`
+  - `a_commit_that_keeps_the_kernel_still_moves_an_anchor_left_on_an_older_one`
+  - `a_commit_cut_short_while_the_snapshot_goes_finishes_and_is_never_rolled_back`
+  - `a_rollback_on_an_incomplete_snapshot_changes_nothing`
+  - `a_rollback_after_a_commit_cut_short_restores_lkg_the_anchors_and_the_twin`
+  - the re-run in `an_unreadable_anchor_is_reported_and_cleared_at_the_commit`
+
+  Unit tests: goal `readings_never_span_an_owner_upgrade`, upgrade `undo_restores_nothing_from_an_incomplete_snapshot`
+  and twin `an_upgrade_keeps_the_twin_freeze`. Each was mutation-tested.
+- Tests: tests/upgrade.rs `a_panic_after_a_committed_upgrade_resumes_on_the_upgraded_kernel` (upgrade, probe,
+  commit, panic, resume: the resumed tuple and `kernel/bin/init-kernel` are the release's) and
+  `an_unreadable_anchor_is_reported_and_cleared_at_the_commit`; snapshot/tests.rs
+  `no_tuple_from_before_an_upgrade_settles_after_its_commit`. Each was mutation-tested (release-protocol §4.1): with
+  its fix reverted, it fails.
+- root/crates/init-root/src/tuple.rs (`reanchor`), upgrade.rs (`commit`), snapshot.rs (`settled_of`); docs/root/root.md
+  §3.7.2, §3.9.5 and §4.3; docs/guide.md "Upgrade".
+
+### TUI: what the user sessions found (docs/user-sessions/v0.5.0-new.md, v0.5.0-returning.md)
+- `/` then Tab completed to `/panic`, which ran with no confirmation. Completions now list safe commands first and `/resume`, `/root stop`, `/panic` last, and `/panic` in the TTY says what it does and waits for you to type `panic` (Esc or any other line cancels). Line mode is unchanged. The pre-release review found two holes, now closed: an agent question (or a setup answer) that arrived during the confirmation cancelled it and took the keys, so typing `panic` answered the agent's picker and nothing stopped (it now waits until the confirmation is sent or cancelled, then shows); and `/panic` again or Up+Enter cancelled and asked again without end (`panic` and `/panic`, any case, now confirm). Tests `nothing_preempts_a_pending_panic_confirmation` and `panic_again_confirms_the_panic`; the unpriced-model text now says `$0.000` as the screen does, and the start hint names a systemd user unit on Linux.
+- An answered `ask_owner` picker came back after a relaunch, and "waiting on you" stayed after Esc. An owner line the kernel echoes, live or replayed, now closes the question as `answered`, and Esc ends the waiting state with a one-line hint.
+- `/usage` said "evolution checks today $0.00" while the gate's probes were about two thirds of the ledger. That figure was a stale kernel number. The row now shows what the Root metered while a self-change ran, labelled as that. The Root has no per-purpose split yet (the requirement is docs/tui.md §9 Q5).
+- The turn's `$` kept rising during a gate after the reply, with its tokens fixed. It now stops when the run ends and says `incl. checks` when a gate ran during the run.
+- `$0.05` on the status bar against `$0.04` in `/usage`: every amount now uses one rule, a tenth of a cent below $1 (`$0.046`) and `<$0.001` for spend under that, never `$0.000`.
+- G0's timer showed 8 min 33 s and its row 1 min 39 s, leaving 8 minutes on no row. A step now shows `waited …` for the time outside its own work, so the rows add up to the total. A G4 with nothing to score reads `not scored`, not `pass · 0.0 s`.
+- `/root status` "ceilings $5/$25" beside "caps off" now reads `dollar refs … (charter records, not caps)`.
+- The lineage panel's "9 records" above seq 1–8 now names the range: `newest 8 of 9: seq 1–8`, `9 records (seq 0–8)`.
+- Ctrl-D left half an input box. Quitting now erases the live region and prints one line: the agent keeps running, how to come back, and the ledger total.
+- With no workspace, the screen now says why, that the agent works in its own folder (`~/.init/work`), and what `/undo` cannot restore. `/undo` no longer gives the circular "cd into a project" advice, and the status bar no longer says "no workspace · WORKSPACE".
+- "start it with `init-root start`" (not on PATH) now names the binary by its full path, and the slot word "backoff" now reads "agent failed to start, retrying".
+- Tests: app/fix_tests.rs, proto `stopping_commands_come_last`, input `tab_on_a_bare_slash_is_never_a_stop`, status `self_change_spend_is_what_the_ledger_metered` and `slot_words_are_plain`, model `turn_cost_stops_when_the_run_ends`, gates `rows_add_up_and_an_unscored_g4_is_not_a_pass`, access `no_workspace_says_where_the_agent_works_and_what_undo_restores`, plus lineage, table and render `usd_formats`. Each was mutation-tested: with its fix reverted, it fails (release-protocol §4.1). Goldens regenerated for the intended changes (money format, gate waits, popup order, no-workspace badge, `/usage` row, lineage rule). tests/e2e_root.rs types the `/panic` confirmation.
+
+### Root: every command it prints runs as printed; refusals say the rule and the fix
+- The toolchain hint after `launchctl bootout` now says `launchctl bootstrap gui/<uid> <plist>` (kickstart only for a job still loaded), as install.sh does.
+- docs/foundations.md v1 states INV-2, INV-3 and INV-5 as the code is, with their gaps: the admission's Root re-hash (ADR-011 A0) is not built; a free-path promotion is matched by commit sha only; a sealed audit can move lkg backwards. Planned for v0.5.2 (build/status/PLAN-052.md, lane L2).
+- **Commands not on PATH.** `init-root` lives in `~/.init-root/bin` and only `init-agent` is on PATH, so the Root's
+  own advice failed with "zsh: command not found: init-root" (docs/user-sessions/v0.5.0-returning.md). Every command
+  the Root prints now runs as printed: this install's binary (`~/.init-root/bin/init-root …`, or
+  `INIT_ROOT_HOME=… …/bin/init-root …` for another ROOT_HOME; `util::root_cmd`) or the `init-agent` form (`/resume`,
+  `/key`). That covers the panic lines, `/root stop`, `start` while panicked, charter-pending, proposals, a rejected
+  key, providers, sealed and toolchain messages; a kernel alert's `` `init-root …` `` is rewritten the same way.
+- **An unreachable Root** (`init-root` CLI) now says how to start it: `launchctl kickstart …` when its service is
+  installed, else `… start --foreground` in a terminal of its own. It said "is `init-root start` running?".
+- **The toolchain hint was wrong.** It said `init-root stop && init-root toolchain --set && init-root start`, but
+  `stop` stops only the agent, so `--set` was refused while the Root held its lock. It now names how to stop and start
+  the Root itself.
+- **A hand-started Root** (`init-root start` in a terminal) now says the terminal is the Root's and to open INIT from
+  another one; it printed nothing.
+- **HOME mismatch.** A Root started from a shell whose HOME is not the account's home still refuses the agent (the same
+  `root.args` refusal), but the alert now says what is wrong and how to fix it, in place of
+  "root.args V3: HOME_REAL: outside INIT_HOME, TOOLCHAIN, DEVDIR and extra_read".
+- **Queued lines** (kernel). "queued: the body is backoff" now says what is happening and what to do, for example
+  "your message is queued, not lost: the agent could not start, and INIT tries again in 1 s; … The Root says: <its
+  reason>". A crash, a stop, a halt and a full disk each say what happens next. `/resume` with nothing to resume says
+  so; it printed nothing.
+- **Workspace refusal.** The notice now says why the start folder was refused, the rule (a folder inside your home,
+  not the home itself and not one of INIT's own or protected folders), that without one the agent works in
+  `~/.init/work` and `/undo` has nothing to restore, and how to get one. `/workspace` and `/undo` say the same. The
+  rule itself is unchanged. `/full off` now says it holds for this session only (a plain relaunch was back to FULL),
+  and how to keep workspace mode.
+- **Integrity halts.** `/resume` refused after one now says it cannot clear it, where the cause is logged and how to
+  restart the Root; it said "fix it and restart the Root".
+- **Money.** `status`'s `ceilings` block now carries `"enforced": false, "policy": "observe"`: the charter's $5 a day
+  and $25 in all are references, tracked and not caps, which the TUI's `dollar refs` row reads.
+- **Docs.** docs/guide.md and the charter template print `~/.init-root/bin/init-root …`; root.md §3.17.1 (the
+  no-workspace notice) and §4.6 (the one path an alert may name: this install's `init-root`).
+- **Upgrade messages** (upgrade.rs): the pending-upgrade refusal, the panic-latch refusal (which now says to start the
+  Root and `/resume` first), the `next` hint, a failed restore and an unfinished replace print `Paths::cmd`, so
+  tests/msg.rs has no exemption list left.
+- **TUI key setup** (setup.rs): "store it with `init-root keys set …`" and "use init-root providers / keys set" name this
+  install's binary in the Root's form (`app::root_cmd`, from the TUI's ROOT_HOME and HOME). The TUI's unreachable-Root
+  hint (`start_hint`) uses the same form now, in place of `…/bin/init-root --root-home DIR start`.
+- **Installers** (install.sh, get.sh): every `init-root` command they print goes through `rcmd`, the Root's form with
+  the absolute path (`$RH/bin/init-root …`, with `INIT_ROOT_HOME=` in front when ROOT_HOME is not `~/.init-root`, and
+  quoted when the path needs it). install.sh's closing T0-only steps said `init-root stop; init-root toolchain --set;
+  init-root start`, and `--set` was refused because `stop` stops only the agent. They now stop the Root itself
+  (launchctl bootout, systemctl --user stop, or Ctrl-C), run `toolchain --set`, and start it again, as the Root's own
+  hint does (docs/release.md's owner steps had the same wrong sequence; fixed). get.sh's "From a shell instead" key
+  line no longer drops a non-default ROOT_HOME, and neither does install.sh's failed-rollback hint.
+- **Docs that disagreed with the code.** ADR-011 §3.2, §3.3 and §9 carry a dated note with the sentinel's real numbers:
+  a ring of 40 units, not 40 turns; j = 8 at α = 0.005 for H5b, H8, H10 and H11; α = 0.002 for H7 and H9
+  (sentinel/engine.rs). ADR-013 decision 4's "≈ 2.3%" false rollbacks per guardrail is ≈ 5.1% at the default 5 readings
+  against 40 (Welch's df ≈ 5); the fix is planned for v0.5.2. docs/guide.md's Linux requirement and limit bullets
+  described Linux before v0.5.0 ("next release", x86_64 not run); they now say Linux x86_64 ships, experimental,
+  tested on a hosted Ubuntu 24.04 VM, and aarch64 stays on v0.4.1.
+- Tests: tests/msg.rs (a source audit of every string the Root prints, the charter template and docs/guide.md; an
+  unreachable Root; live: the panic message and `status`, a spawn refused for HOME, the workspace refusal, its notice
+  and `/undo`); access.rs `no_workspace_says_the_rule_where_the_agent_works_and_the_fix`; util.rs
+  `root_cmd_runs_as_printed`; sup.rs `a_kernel_alert_names_init_root_runnable_as_printed`; kernel machine_tests.rs
+  `waiting_lines_say_what_happens_and_what_to_do`; TUI setup `key_setup_texts_name_an_init_root_that_runs_as_printed`,
+  app/fix_tests.rs `the_apps_setup_names_its_own_root_home` and `root_cmd_is_the_roots_form`;
+  tests/install/test_printed_commands.py (an audit of install.sh, get.sh, init-agent and uninstall.sh for a bare or
+  typed-out `init-root` command, `rcmd`'s output run by a shell against a stand-in binary, and the toolchain steps' order
+  on each service kind). Each was mutation-tested (release-protocol §4.1): with its fix reverted, it fails.
+
 ## v0.5.0-preview (2026-10-28)
 
 Workspaces are at version 0.5.0 (seed tag `seed-v0.5.0`). Release notes: docs/release-notes/v0.5.0-preview.md.

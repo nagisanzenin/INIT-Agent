@@ -383,4 +383,23 @@ mod tests {
         assert!(e.completions().len() > 10);
         assert!(!e.completions().iter().any(|(c, _)| ["/approve", "/deny", "/clear-safe"].contains(c)));
     }
+
+    /// TUI-FIX (v0.5.1 user session): `/` then Tab completed to `/panic`. Now it completes to a safe
+    /// command, and the commands that stop the agent are the last candidates of a bare `/`.
+    #[test]
+    fn tab_on_a_bare_slash_is_never_a_stop() {
+        let mut e = Editor::default();
+        e.set("/");
+        assert!(e.complete());
+        assert_eq!(e.text(), "/usage");
+        e.set("/");
+        let c = e.completions();
+        assert_eq!(c.last().map(|x| x.0), Some("/panic"));
+        let first_stop = c.iter().position(|x| crate::proto::STOPPING.contains(&x.0)).unwrap();
+        assert!(first_stop >= c.len() - crate::proto::STOPPING.len(), "{c:?}");
+        // `/r` offers the Root's read-only lines before /resume and /root stop
+        e.set("/r");
+        assert!(e.complete());
+        assert_eq!(e.text(), "/root status");
+    }
 }

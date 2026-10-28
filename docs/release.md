@@ -11,7 +11,7 @@ A release is a directory of binaries and bundles built from one commit, plus a g
 ## 1. Preconditions
 
 1. `main` is clean: `git status --porcelain -- kernel root seed wit` prints nothing.
-2. The version is the same in the four workspaces: `[workspace.package] version` in `kernel/Cargo.toml`, `root/Cargo.toml` and `tui/Cargo.toml`, and `[package] version` in `seed/Cargo.toml` (0.2.0 since 2026-10-23); refresh the lock files (`cargo metadata --offline` in each workspace) and regenerate `seed/self.json`, which records the body version (G1 fails on drift; `scripts/bundle.sh` checks it). Regenerate it on the packaged seed tree, as G1 sees it, not in the repository: `scripts/slice1/seedpack.py --repo . --dst <dir> --kind repo --rev HEAD`, remove `<dir>/.git`, then `init-kernel selfmap --root <dir> --binary <release body> --components <ext dir> --out <file>` and copy the result to `seed/self.json` (seedpack rewrites `.cargo/config.toml`'s vendor path, so an in-repo `--write` differs by a few bytes; REL-050). The TUI's golden `brand_identity` shows the version too: `UPDATE_GOLDEN=1 cargo test --offline --bin init-tui brand_identity_line` in `tui/`. `release.sh` refuses a mismatch. The seed tag is `seed-v<version>`, always plain semver: a pre-release label such as `preview` names the bundle (`v0.2.0-preview`), never the seed tag, because the Root and the kernel pick seed tags by `seed-v<a>.<b>.<c>`.
+2. The version is the same in the four workspaces: `[workspace.package] version` in `kernel/Cargo.toml`, `root/Cargo.toml` and `tui/Cargo.toml`, and `[package] version` in `seed/Cargo.toml` (0.2.0 since 2026-10-23); refresh the lock files (`cargo metadata --offline` in each workspace) and regenerate `seed/self.json`, which records the body version (G1 fails on drift; `scripts/bundle.sh` checks it). Regenerate it on the packaged seed tree, as G1 sees it, not in the repository: `scripts/bundle.sh --bless` does it (on a G1 mismatch it writes the regenerated file to `seed/self.json` and stops; commit it and run bundle.sh again). By hand: `scripts/slice1/seedpack.py --repo . --dst <dir> --kind repo --rev HEAD`, remove `<dir>/.git`, then `init-kernel selfmap --root <dir> --binary <release body> --components <ext dir> --out <file>` and copy the result to `seed/self.json` (seedpack rewrites `.cargo/config.toml`'s vendor path, so an in-repo `--write` differs by a few bytes; REL-050). The TUI's golden `brand_identity` shows the version too: `UPDATE_GOLDEN=1 cargo test --offline --bin init-tui brand_identity_line` in `tui/`. `release.sh` refuses a mismatch. The seed tag is `seed-v<version>`, always plain semver: a pre-release label such as `preview` names the bundle (`v0.2.0-preview`), never the seed tag, because the Root and the kernel pick seed tags by `seed-v<a>.<b>.<c>`.
 3. CI is green: `ci/local.sh` three times in a row with no flake (RELEASE_PLAN.md item 5), and the GitHub `fast-linux` job.
 4. `CHANGELOG.md` has the version's entry.
 5. Disk: at least 9 GB free (the release target dirs grow by about 4 GB; the floor is 5 GB).
@@ -78,8 +78,14 @@ Measured on 2026-10-23 for v0.2.0-preview: see build/status/UX-BUNDLE.md.
 
 ```sh
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.97.1 --target wasm32-wasip2
-init-root stop; init-root toolchain --set; init-root start
+launchctl bootout gui/$(id -u)/dev.init.root          # stop the Root itself (Linux: systemctl --user stop init-root.service)
+~/.init-root/bin/init-root toolchain --set
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.init.root.plist   # Linux: systemctl --user start init-root.service
 ```
+
+`init-root stop` (and `/root stop`) stops only the agent, so `toolchain --set` would be refused while the Root holds
+its lock (v0.5.1 fix; the Root's own hint and install.sh print the same steps). A Root started by hand stops with
+Ctrl-C in its terminal and starts again with `~/.init-root/bin/init-root start --foreground`.
 
 `init-root toolchain --set [DIR]` (Root stopped) checks `rustc 1.97.x` and the Wasm target and records the toolchain in `install.json` and the kernel config's `[sandbox]` together, which the broker compares. A rustup on PATH with 1.97.x and the target at install time is recorded directly.
 
@@ -164,9 +170,9 @@ sh get.sh --from init-v0.5.0-preview-macos-arm64.tar.gz [-- <install.sh args>]  
 curl -fsSL …/get.sh | sh -s -- --upgrade                                                        # upgrade an install of 0.4.1 or later
 ```
 
-POSIX `sh` (checked with dash). It refuses root, and any platform except macOS 14+ on arm64 or Linux on x86_64 or aarch64 with `/usr/bin/bwrap` (install.sh then checks it is 0.13.0 or newer) and `/usr/bin/python3`. On macOS it also refuses a machine without the Command Line Tools. It downloads over HTTPS only, or takes `--from` a local file. It checks the archive's sha256 against `--sha256`, the `.sha256` file next to it, or `latest.json`, and refuses without one. It unpacks into `~/.local/share/init/<version>/` (`INIT_APP_DIR` overrides the parent), checks `SHA256SUMS`, makes the tree read-only, and installs the Rust toolchain unless `--no-rust`. Then it runs the bundle's `scripts/install.sh --yes` plus any arguments after `--`.
+POSIX `sh` (checked with dash). It refuses root, and any platform except macOS 14+ on arm64 or Linux on x86_64 or aarch64 with `/usr/bin/bwrap` (install.sh then checks it is 0.13.0 or newer) and `/usr/bin/python3`. On macOS it also refuses a machine without the Command Line Tools. It downloads over HTTPS only (curl `-q`: no `~/.curlrc`), or takes `--from` a local file, which it copies into its own directory first and then checks and unpacks only that copy. It checks the archive's sha256 against `--sha256`, `latest.json`, or the `.sha256` file next to the bundle, and refuses without one. An upgrade from a local file takes `--sha256` only, because the agent can write that file's folder. It unpacks into `~/.local/share/init/<version>/` (`INIT_APP_DIR` overrides the parent), checks `SHA256SUMS`, makes the tree read-only, and installs the Rust toolchain unless `--no-rust`. Then it runs the bundle's `scripts/install.sh --yes` plus any arguments after `--`.
 
-The provider, the key and the model are chosen on the first run of `init-agent`. `INIT_DIST_URL` overrides the release URL, and `--version V` picks a release. Trust on first install rests on HTTPS plus the sha256. There is no signature yet.
+The provider, the key and the model are chosen on the first run of `init-agent`. `INIT_DIST_URL` overrides the release URL. `--version V` picks a release: the tag `vV`, else `vV-preview`, so `0.5.0` finds `v0.5.0-preview`. A version with a label is that tag, and with neither tag get.sh names both. A mirror URL, one not ending in `/latest/download`, holds one release, and `--version` leaves it as it is. Trust on first install rests on HTTPS plus the sha256. There is no signature yet.
 
 **On an existing install** (`ROOT_HOME/install.json`), get.sh reads the installed release with `init-root --version` and prints the way forward instead of installing:
 
@@ -198,6 +204,15 @@ evolved body, its extensions, the sessions, the lineage, the keys and the charte
 release's `scripts/install.sh --upgrade`, which stops the Root, runs the new `init-root upgrade --release <dir>` (version
 and body-protocol checks, a snapshot, the replace, a new tuple with the new kernel), installs the launchers, then
 `init-root upgrade --probe` and `--commit`, or `--rollback` when the probe fails (root/crates/init-root/src/upgrade.rs).
+What it trusts (v0.5.1, after the post-release review). With INIT installed, the agent may have written whatever the
+owner can, except ROOT_HOME, the launchers and the service files. So the bundle is checked and unpacked under
+`ROOT_HOME/cache/upgrade/`: the download, or a copy of a local `--bundle`, whose sha256 comes from `--sha256` only.
+`init-agent`, `get.sh --upgrade` and `install.sh --upgrade` from a bundle run the system tools only (PATH
+`/usr/bin:/bin:/usr/sbin:/sbin`), from `/`. install.sh writes its scratch files under `ROOT_HOME/cache/` and runs no
+rustup, since the toolchain stays the one install.json records. Every Root git call runs from `/` with no system,
+global or hook config and `core.fsmonitor=false` (install.rs `git`). Tests: tests/install/test_upgrade_trust.py, and in
+tests/upgrade.rs `an_upgrade_started_inside_a_repository_reads_none_of_its_git_config`. An install of 0.5.0 still
+upgrades with 0.5.0's own get.sh; docs/guide.md "Upgrade" gives the command that avoids it.
 Not done yet: merging a release's new seed into the evolved body, and a live kernel swap (`system.swap`). The check is
 `scripts/upgrade-e2e.sh --bundle <new tarball>` on an install changed by a T1 self-change (scripts/upgrade-e2e-t1.sh):
 the kept state, the lineage, the sandbox, a broken bundle's rollback and an incompatible body's refusal

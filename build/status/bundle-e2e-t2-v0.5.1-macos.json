@@ -1,0 +1,72 @@
+{
+ "body_sha256": "3ba7702a90457acfad3750f8dfeaa62276882296b1eb4f2d5724dec801f46abb",
+ "bundle": "init-v0.5.1-preview-macos-arm64.tar.gz",
+ "bundle_bytes": 55133541,
+ "checks": {
+  "gate_g0_to_g3_pass": false,
+  "genesis_body_is_prebuilt": true,
+  "install_with_rust_plus_first_reply_le_390s": true,
+  "old_name_old_launcher_removed": true,
+  "promote_job_succeeded": false,
+  "promote_started_by_agent": true,
+  "reply_is_the_mocks": true,
+  "status_json_evolution_t2": true,
+  "toolchain_in_test_home": true
+ },
+ "mock_requests": 15,
+ "ok": false,
+ "promote": {
+  "error": {
+   "code": "E_GATE_FAILED",
+   "data": {
+    "reason": "gate.g3.inner_g0",
+    "report": "state/kernel/gate/j-000001/report.json",
+    "stage": "G3"
+   },
+   "details": [
+    {
+     "code": "gate.g3.inner_g0",
+     "detail": "gate.g0.test: G0 step `test` failed:\nerror: test failed, to rerun pass `--test boot`\nerror: 1 target failed:\nrunning 346 tests\ninit-mockllm: listening on ../out/target/test-homes/wp10/abort-36632-0/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/faults-36632-1/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/route-36632-2/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/anthropic-turn-36632-3/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/openai-turn-36632-4/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/full-36632-5/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/flat-36632-6/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/summ-36632-7/p.sock\nrunning 21 tests\ntest crash_restart_continues_pending_run ... FAILED\nfailures:\n---- crash_restart_continues_pending_run stdout ----\nthread 'crash_restart_continues_pending_run' (38074748) panicked at tests/boot.rs:302:73:\ncalled `Re \u2026"
+    }
+   ],
+   "message": "G3 failed: gate.g3.inner_g0"
+  },
+  "failure_head": "gate.g0.test: G0 step `test` failed:\nerror: test failed, to rerun pass `--test boot`\nerror: 1 target failed:\nrunning 346 tests\ninit-mockllm: listening on ../out/target/test-homes/wp10/abort-36632-0/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/faults-36632-1/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/route-36632-2/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/anthropic-turn-36632-3/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/openai-turn-36632-4/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/full-36632-5/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/flat-36632-6/p.sock\ninit-mockllm: listening on ../out/target/test-homes/wp10/summ-36632-7/p.sock\nrunning 21 tests\ntest crash_restart_continues_pending_run ... FAILED\nfailures:\n---- crash_restart_continues_pending_run stdout ----\nthread 'crash_restart_continues_pending_run' (38074748) panicked at tests/boot.rs:302:73:\ncalled `Result::unwrap()` on an `Err` value: Error(\"EOF while parsing a value\", line: 1, column: 0)\nnote: run with `RUST_BACKTRACE=1` environment variable to display a backtrace\nfailures:\n    crash_restart_continues_pending_run\ntest result: FAILED. 20 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.84s\nrunning 9 tests\n    `--test boot`",
+  "job": "j-000001",
+  "sha": "79031a69d57a21440d5f99924a06eb65432db475",
+  "stages": [
+   {
+    "pass": true,
+    "stage": "G0",
+    "wall_ms": 728469
+   },
+   {
+    "pass": true,
+    "stage": "G1",
+    "wall_ms": 1324
+   },
+   {
+    "pass": true,
+    "stage": "G2",
+    "wall_ms": 20384
+   },
+   {
+    "pass": false,
+    "stage": "G3",
+    "wall_ms": 742696
+   }
+  ],
+  "state": "failed"
+ },
+ "reply": "hello from the mock",
+ "rust": "installed by get.sh into the test home",
+ "times_ms": {
+  "drive_wall": 1380,
+  "get_sh_install": 53383,
+  "get_sh_to_first_reply": 57993,
+  "promote_wait": 1496720,
+  "start_to_ready": 2860
+ },
+ "toolchain": "/Users/quanduong/Documents/INIT Agent/target/test-homes/ub2/home/.rustup/toolchains/1.97.1-aarch64-apple-darwin",
+ "v": 1
+}

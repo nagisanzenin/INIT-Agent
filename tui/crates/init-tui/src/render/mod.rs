@@ -208,45 +208,43 @@ pub fn grid(rows: &[Line], width: usize) -> String {
     s
 }
 
-/// Money in micro-USD as `$1.23`; amounts below a cent but above zero as `<$0.01`.
+/// Money in micro-USD, one rule on every surface (TUI-FIX, v0.5.1: the status bar said `$0.05` and
+/// `/usage` `$0.04` around the same 45,850 µUSD): below a dollar to a tenth of a cent (`$0.046`,
+/// `$0.004`, `$0.000`), from a dollar up to the cent (`$1.23`), both rounded half up; an amount above
+/// zero but below a tenth of a cent is `<$0.001`, never `$0.000`.
 pub fn usd(musd: i64) -> String {
-    if musd > 0 && musd < 10_000 {
-        return "<$0.01".into();
+    let musd = musd.max(0);
+    if musd > 0 && musd < 500 {
+        return "<$0.001".into();
     }
-    let cents = (musd + 5_000).div_euclid(10_000);
+    if musd < 999_500 {
+        let m = (musd + 500) / 1000;
+        return format!("$0.{m:03}");
+    }
+    let cents = (musd + 5_000) / 10_000;
     format!("${}.{:02}", cents / 100, cents % 100)
-}
-
-/// A small estimate with a tenth of a cent: `$0.004`, `$0.123`; `$1.23` from a dollar up.
-pub fn usd_fine(musd: i64) -> String {
-    if musd >= 1_000_000 {
-        return usd(musd);
-    }
-    let m = (musd.max(0) + 500) / 1000;
-    format!("${}.{:03}", m / 1000, m % 1000)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    #[test]
-    fn usd_fine_formats() {
-        assert_eq!(usd_fine(0), "$0.000");
-        assert_eq!(usd_fine(4_200), "$0.004");
-        assert_eq!(usd_fine(123_456), "$0.123");
-        assert_eq!(usd_fine(999_600), "$1.000");
-        assert_eq!(usd_fine(1_230_000), "$1.23");
-    }
-
+    /// One rounding rule on every surface (TUI-FIX, v0.5.1).
     #[test]
     fn usd_formats() {
-        assert_eq!(usd(0), "$0.00");
+        assert_eq!(usd(0), "$0.000");
+        assert_eq!(usd(-3), "$0.000");
+        assert_eq!(usd(1), "<$0.001", "spend that happened is never $0.000");
+        assert_eq!(usd(499), "<$0.001");
+        assert_eq!(usd(500), "$0.001");
+        assert_eq!(usd(4_200), "$0.004");
+        assert_eq!(usd(44_999), "$0.045");
+        assert_eq!(usd(45_850), "$0.046", "the user session's ledger total");
+        assert_eq!(usd(123_456), "$0.123");
+        assert_eq!(usd(999_499), "$0.999");
+        assert_eq!(usd(999_500), "$1.00");
         assert_eq!(usd(1_230_000), "$1.23");
         assert_eq!(usd(5_000_000), "$5.00");
-        assert_eq!(usd(1500), "<$0.01");
-        assert_eq!(usd(44_999), "$0.04");
-        assert_eq!(usd(45_000), "$0.05");
     }
 
     #[test]

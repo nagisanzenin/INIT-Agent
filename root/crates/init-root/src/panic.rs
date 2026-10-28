@@ -17,6 +17,11 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
 
+/// ROOT-MSG (v0.5.1): how the owner restarts after a panic, runnable as printed (`init-root` is not on PATH).
+pub fn resume_hint(p: &crate::install::Paths) -> String {
+    format!("To restart: type /resume in init-agent, or run {}.", p.cmd("resume"))
+}
+
 pub fn latch(root_home: &Path) -> PathBuf {
     root_home.join("run/panic")
 }
@@ -61,7 +66,7 @@ pub fn panic(root: &Arc<Root>, channel: &str) -> Value {
     let sweep = if cfg!(feature = "live-sweep") { "d1" } else { "held_only" };
     let note = if sweep == "held_only" { " (held-only build: a process that left its group is reported, not killed)" } else { "" };
     let msg = format!("PANIC at {} via {channel}: killed {processes} processes in {instances} instances; egress closed; \
-        level {from}→{to}. init-root resume to restart.{note}", rfc3339(at));
+        level {from}→{to}. {}{note}", rfc3339(at), resume_hint(&root.p));
     root.alert("panic", &msg);
     root.publish();
     json!({"at": rfc3339(at), "channel": channel, "killed": {"instances": instances, "processes": processes},
@@ -96,7 +101,7 @@ pub fn cold_start(root: &Arc<Root>, records: &[Value]) {
     let last = records.iter().rev().find_map(|r| r["kind"].as_str().filter(|k| *k == "panic" || *k == "resume"));
     if last != Some("panic") {
         record(root, &mut lock(&root.lin), &channel, 0, 0);
-        root.alert("panic", &format!("PANIC (latched at {}, via {channel}) found at Root start. init-root resume to restart.", rfc3339(at)));
+        root.alert("panic", &format!("PANIC (latched at {}, via {channel}) found at Root start. {}", rfc3339(at), resume_hint(&root.p)));
     }
 }
 
@@ -121,7 +126,9 @@ pub fn resume(root: &Arc<Root>) -> Result<Value, Refusal> {
         let (at, channel) = match &st.slot {
             Slot::Panicked { at, channel } => (*at, channel.clone()),
             Slot::Halted { reason, .. } if INTEGRITY.contains(reason) => {
-                return Err(("root.mode", format!("Halted{{{reason}}} is an integrity failure; fix it and restart the Root")));
+                return Err(("root.mode", format!("Halted{{{reason}}} is an integrity failure, which /resume cannot clear: fix the cause the \
+                    Root's log names (logs/root.jsonl in ROOT_HOME), then restart the Root: {}, then {}", crate::install::stop_hint(&root.p),
+                    crate::install::start_hint(&root.p))));
             }
             s @ (Slot::Halted { .. } | Slot::Stopped | Slot::Backoff { .. }) => {
                 let name = s.name();

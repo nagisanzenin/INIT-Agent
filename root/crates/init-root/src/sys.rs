@@ -38,6 +38,24 @@ pub fn isatty(fd: RawFd) -> bool {
     unsafe { libc::isatty(fd) == 1 }
 }
 
+/// ROOT-MSG (v0.5.1): the owner's home from the passwd entry, as a fresh terminal's `$HOME` has it (the kernel sends the
+/// same value as `HOME_REAL`). Read-only; None when the entry cannot be read.
+pub fn passwd_home() -> Option<std::path::PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    let mut buf = vec![0 as libc::c_char; 4096];
+    // SAFETY: a zeroed passwd is a valid out-buffer.
+    let mut pw: libc::passwd = unsafe { std::mem::zeroed() };
+    let mut out: *mut libc::passwd = std::ptr::null_mut();
+    // SAFETY: every buffer outlives the call, `buf.len()` is its size, and getuid cannot fail.
+    let r = unsafe { libc::getpwuid_r(libc::getuid(), &mut pw, buf.as_mut_ptr(), buf.len(), &mut out) };
+    if r != 0 || out.is_null() || pw.pw_dir.is_null() {
+        return None;
+    }
+    // SAFETY: pw_dir points into `buf`, NUL-terminated, and `buf` is still alive.
+    let dir = unsafe { std::ffi::CStr::from_ptr(pw.pw_dir) };
+    Some(std::path::PathBuf::from(std::ffi::OsStr::from_bytes(dir.to_bytes())))
+}
+
 /// Terminal echo off on `fd` until the guard drops (`keys set`, R-F4: secrets only from the TTY).
 pub struct EchoOff(RawFd, libc::termios);
 

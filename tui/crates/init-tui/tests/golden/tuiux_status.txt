@@ -1,5 +1,5 @@
 -- turn with cache @140
- busy 41 s · turn in 238k out 1.0k · cache 99.6% · $0.004 · +<$0.01 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg   L0 · root ok |..........mmmmmmmm................mmmmmmmmm.....mmm......mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.....mmmaaaaaaa 
+ busy 41 s · turn in 238k out 1.0k · cache 99.6% · $0.004 · +$0.004 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg   L0 · root ok |..........mmmmmmmm................mmmmmmmmm.....mmm......mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.....mmmaaaaaaa 
 -- turn with cache @100
  busy 41 s · turn in 238k out 1.0k · cache 99.6% · $0.004 · $1.23/$5.00 today          L0 · root ok |..........mmmmmmmm................mmmmmmmmm.....mmm......mmm.............................mmmaaaaaaa 
 -- turn with cache @80
@@ -15,7 +15,7 @@
 -- no cache field @40
  $1.23 live total est      L0 · root ok |.............................mmmaaaaaaa 
 -- no token lines yet @140
- busy 41 s · deepseek-flash · $1.23 live total est · live tokens ? · evo checks today $? est · body 3f9c0a1b2c4d lkg           L0 · root ok |..........mmmddddddddddddddmmm....................mmmdddddddddddddmmmdddddddddddddddddddddddmmmmmmmmddddddddddddmmmm.............mmmaaaaaaa 
+ busy 41 s · deepseek-flash · $1.23 live total est · live tokens ? · /usage · /stop · body 3f9c0a1b2c4d lkg           L0 (cap L1) · root ok |..........mmmddddddddddddddmmm....................mmmdddddddddddddmmmmmmmmmmmmmmmmmmmmmmmmmddddddddddddmmmm......................mmmaaaaaaa 
 -- no token lines yet @100
  busy 41 s · deepseek-flash · $1.23 live total est · body 3f9c0a1b2c4d lkg             L0 · root ok |..........mmmddddddddddddddmmm....................mmmmmmmmddddddddddddmmmm...............mmmaaaaaaa 
 -- no token lines yet @80

@@ -18,11 +18,17 @@ use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use serde_json::Value;
 use std::time::Instant;
 
+/// The hint after Esc on an agent question (TUI-FIX, v0.5.1).
+pub const DISMISSED_HINT: &str = "question dismissed · the agent stays idle until you send a message; your next message is its answer";
+
 impl App {
     /// Opens a picker. The TUI's own (setup) comes first: an agent question open at that moment, or one
     /// that arrives while setup asks or the hidden key field is up, waits in `picker_next`.
+    /// TUI-FIX2 (v0.5.1 review): so does one that arrives while `/panic` waits for its word: the agent can
+    /// ask at any time, and the confirmation's answer comes from the box, never from a picker; the
+    /// question shows when the confirmation is over (`panic_over`). Setup's answers wait there too.
     pub(super) fn open_picker(&mut self, p: Picker) {
-        let busy = self.ed.picker.is_some() || self.secret.is_some();
+        let busy = self.ed.picker.is_some() || self.secret.is_some() || self.panic_ask;
         if p.who == Who::Agent && busy {
             if let Some(old) = self.ed.picker_next.replace(p) {
                 self.info_block(format!("{} · replaced by a newer question", old.record()));
@@ -37,8 +43,9 @@ impl App {
     }
 
     /// After a picker closed (or the key field went away): the agent question that waited, if any.
+    /// Never while `/panic` waits for its word.
     pub(super) fn next_picker(&mut self) {
-        if self.ed.picker.is_none() && self.secret.is_none() && self.setup_idle() {
+        if self.ed.picker.is_none() && self.secret.is_none() && self.setup_idle() && !self.panic_ask {
             self.ed.picker = self.ed.picker_next.take();
         }
     }
@@ -59,6 +66,26 @@ impl App {
         self.ed.waiting = None;
         self.open_picker(a.picker());
         true
+    }
+
+    /// TUI-FIX (v0.5.1 user session: "after a relaunch … the old, already-answered picker pops up
+    /// again"): an owner line reached the kernel (its kernel echo, live or in the attach replay), so
+    /// the agent's question was answered, here, in another client, or before this relaunch. An open
+    /// agent picker closes and leaves its record; the "waiting on you" state ends. The TUI's own
+    /// pickers (setup) are not the agent's and stay.
+    pub(super) fn on_owner_input(&mut self) {
+        self.ed.waiting = None;
+        let agent = |p: &Option<Picker>| p.as_ref().is_some_and(|p| p.who == Who::Agent);
+        if agent(&self.ed.picker_next) {
+            let p = self.ed.picker_next.take().expect("checked");
+            self.info_block(format!("{} · answered", p.record()));
+        }
+        if agent(&self.ed.picker) {
+            let p = self.ed.picker.take().expect("checked");
+            self.info_block(format!("{} · answered", p.record()));
+            self.next_picker();
+        }
+        self.dirty = true;
     }
 
     /// Keys while a picker is open. Ctrl-C closes it and interrupts as usual; Ctrl-D closes it and
@@ -126,10 +153,16 @@ impl App {
                 self.info_block(p.record());
                 self.send_answer(p.answer(&ids));
             }
+            (Who::Agent, PickOut::Cancel) => {
+                // TUI-FIX (v0.5.1): Esc dismisses the question and the waiting state with it; the hint
+                // says once what that means (the agent stays idle; the next message is its answer)
+                self.info_block(format!("{} · dismissed", p.record()));
+                self.ed.waiting = None;
+                self.set_hint(DISMISSED_HINT, 8);
+            }
             (Who::Agent, rest) => {
-                // the owner answers in their own words, or later: the agent keeps waiting
-                let how = if rest == PickOut::Cancel { " · dismissed" } else { "" };
-                self.info_block(format!("{}{how}", p.record()));
+                // the owner answers in their own words: the agent keeps waiting until they send it
+                self.info_block(p.record());
                 self.ed.waiting = Some(p.title.clone());
                 if let PickOut::Type(s) = rest {
                     self.ed.insert(&s);
@@ -288,11 +321,13 @@ mod tests {
         key(&mut a, KeyCode::Enter);
         assert_eq!(sent(&mut r), vec![json!({"t": "line", "text": "neither, use DuckDB"})]);
         assert!(a.ed.waiting.is_none());
-        // Esc dismisses; the agent still waits and the hint says so; a slash command still works
+        // Esc dismisses the question and the waiting state (TUI-FIX, v0.5.1: "waiting on you" stayed
+        // after Esc); the hint says once what that means; a slash command still works
         frame(&mut a, ask("Which database?"));
         key(&mut a, KeyCode::Esc);
-        assert!(a.ed.picker.is_none());
-        assert!(text(&a).contains("waiting on you · the agent asked a question (above)"), "{}", text(&a));
+        assert!(a.ed.picker.is_none() && a.ed.waiting.is_none());
+        assert!(!text(&a).contains("waiting on you"), "{}", text(&a));
+        assert_eq!(a.hint.as_ref().map(|h| h.0.as_str()), Some(super::DISMISSED_HINT));
         assert!(blocks(&a).last().unwrap().ends_with("· dismissed"));
         frame(&mut a, ask("Which database?"));
         typed(&mut a, "/usage");

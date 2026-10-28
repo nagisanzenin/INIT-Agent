@@ -7,14 +7,20 @@
 #
 #   --from PATH|URL   a local bundle (.tar.gz) or a URL; default "$INIT_DIST_URL/init-v<version>-<target>.tar.gz", the
 #                     version from "$INIT_DIST_URL/latest.json" and the target from this machine
-#   --sha256 HEX      the bundle's expected sha256; default: the <bundle>.sha256 file next to it (or latest.json's)
+#   --sha256 HEX      the bundle's expected sha256; default: latest.json's, or the <bundle>.sha256 next to it (a URL's,
+#                     or a local file's on a fresh install). An upgrade from a local file needs --sha256
 #   --unpack-only     verify and unpack, do not install
 #   --no-rust         skip the Rust toolchain (INIT then rewrites only its skills and prompts, tier T0)
-#   --upgrade         INIT is installed: upgrade it to this bundle (docs/guide.md "Upgrade"). The download, its check and
-#                     the unpacked copy go under ROOT_HOME/cache/upgrade/ (the agent cannot write ROOT_HOME in any access
-#                     mode), then that copy's scripts/install.sh --upgrade runs. No Rust step. `init-agent upgrade` runs
-#                     this; INIT 0.4.1 has no such command: curl -fsSL <get.sh URL> | sh -s -- --upgrade
-#   --version V       that release (tag v<V>) instead of the latest
+#   --upgrade         upgrade the installed INIT to this bundle (docs/guide.md "Upgrade"). With INIT installed, its
+#                     agent may have written whatever the owner can (full access): the PATH directories, the working
+#                     directory, the folder a bundle sits in. So an upgrade runs the system tools (PATH
+#                     /usr/bin:/bin:/usr/sbin:/sbin) from /; the download, or a copy of the local bundle, its check and
+#                     the unpacked copy go under ROOT_HOME/cache/upgrade/ (the agent cannot write ROOT_HOME in any
+#                     access mode); a local bundle's sha256 comes from --sha256 only. Then that copy's
+#                     scripts/install.sh --upgrade runs. No Rust step. From 0.5.1 `init-agent upgrade` runs this; from
+#                     0.4.1 or 0.5.0: /usr/bin/curl -q -fsSL <get.sh URL> | /bin/sh -s -- --upgrade
+#   --version V       that release instead of the latest: the tag v<V>, else v<V>-preview (0.5.0 finds v0.5.0-preview;
+#                     0.5.0-preview is taken as it is)
 #   -- ARGS           passed to the bundle's scripts/install.sh, after --yes (for example --no-service, --disk-floor 10)
 #
 # Steps: macOS 14+ on Apple silicon or Linux on aarch64/x86_64, not root → download (curl) → sha256 → unpack into
@@ -42,7 +48,7 @@ while [ $# -gt 0 ]; do
     --upgrade) UPGRADE=1; shift ;;
     --version) RELEASE="$2"; shift 2 ;;
     --) shift; break ;;
-    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
     *) echo "get.sh: unknown argument $1 (see --help)" >&2; exit 64 ;;
   esac
 done
@@ -50,6 +56,17 @@ done
 say() { printf '%s\n' "$*"; }
 ok() { printf '  ok  %s\n' "$*"; }
 die() { printf 'get.sh: %s\n' "$*" >&2; exit 1; }
+shq() { # a word as the shell reads it back: as it is when plain, else in single quotes
+  case "$1" in *[!A-Za-z0-9._/+=:,@%-]*|"") printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;; *) printf '%s' "$1" ;; esac
+}
+if [ $UPGRADE = 1 ]; then
+  # INIT is installed: with full access its agent can write the owner's PATH directories and the working directory
+  # (ADR-012). The upgrade replaces the Root, so it runs no tool from them and reads no file there: the system tools,
+  # from / (a relative --from is made absolute first).
+  case "$FROM" in ""|http://*|https://*|/*) ;; *) FROM="$(pwd -P)/$FROM" ;; esac
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH
+  cd / || die "cannot change to /"
+fi
 T0=$(date +%s)
 
 # ---------------------------------------------------------------- who and where
@@ -80,16 +97,37 @@ case "$(uname -s)" in
 esac
 APP="${INIT_APP_DIR:-$HOME/.local/share/init}"
 RH="${INIT_ROOT_HOME:-$HOME/.init-root}"
+# ROOT-MSG (v0.5.1): `init-root <args>` as you type it in a new terminal, the form the Root prints (util::root_cmd; the
+# same rcmd as install.sh's). init-root is not on PATH (only init-agent is), so a bare `init-root …` is "command not
+# found"; a ROOT_HOME other than ~/.init-root needs INIT_ROOT_HOME= in front (init-root finds its home there).
+rh_env() { # "INIT_ROOT_HOME=<ROOT_HOME> " when a new terminal would not find this ROOT_HOME (not ~/.init-root), else ""
+  pw="$(/usr/bin/python3 -I -c 'import os,pwd;print(pwd.getpwuid(os.getuid()).pw_dir)' 2>/dev/null || true)"
+  [ -n "$pw" ] && [ "$RH" = "$pw/.init-root" ] || printf 'INIT_ROOT_HOME=%s ' "$(shq "$RH")"
+}
+rcmd() { printf '%s%s' "$(rh_env)" "$(shq "$RH/bin/init-root")"; [ $# = 0 ] || printf ' %s' "$*"; }
+# The upgrade as the owner types it, with get.sh's arguments after --upgrade (already quoted). From 0.5.1:
+# `init-agent upgrade` (up_agent; --from is its --bundle), which runs the get.sh this install kept. From 0.4.1 (no
+# init-agent upgrade) or 0.5.0 (whose init-agent upgrade runs 0.5.0's get.sh, without 0.5.1's fixes): this get.sh,
+# fetched again and run with the system's curl and sh (up_pipe; docs/guide.md "Upgrade"). INIT_ROOT_HOME goes to sh.
+up_agent() { printf '%sinit-agent upgrade' "$(rh_env)"; [ $# = 0 ] || printf ' %s' "$*"; }
+up_pipe() {
+  printf '/usr/bin/curl -q -fsSL %s | %s/bin/sh -s -- --upgrade' "$(shq "$DIST_URL/get.sh")" "$(rh_env)"
+  [ $# = 0 ] || printf ' %s' "$*"
+}
+# --version V: the release's tags carry a label (v0.5.0-preview); `init-root --version` and the site say 0.5.0. So a
+# plain V tries the tag vV, then vV-preview; a V with a label is that tag. The download base is the releases' (a
+# DIST_URL ending in /latest/download); another INIT_DIST_URL is a mirror of one release, which --version leaves as it is.
+TAGS=""; RV="${RELEASE#v}"
 case "$RELEASE" in
   "") ;;
   *[!0-9A-Za-z.-]*) die "--version takes a version such as 0.5.0 or 0.5.0-preview" ;;
-  *) [ -n "${INIT_DIST_URL:-}" ] || DIST_URL="https://github.com/nagisanzenin/INIT-Agent/releases/download/v${RELEASE#v}" ;;
+  *) case "$DIST_URL" in */latest/download) case "$RV" in *-*) TAGS="v$RV" ;; *) TAGS="v$RV v$RV-preview" ;; esac ;; esac ;;
 esac
 # The installed release ("" when its Root cannot say): `init-root --version` prints "init-root X.Y.Z" in every release.
 installed() { "$RH/bin/init-root" --version 2>/dev/null | sed -n 's/^init-root \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1; }
 ver_lt() { /usr/bin/python3 -I -c 'import sys; v = lambda s: tuple(int(x) for x in s.split("."))
 sys.exit(0 if v(sys.argv[1]) < v(sys.argv[2]) else 1)' "$1" "$2"; }
-UNINSTALL='f="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && bash "$f"'
+UNINSTALL='f="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && '"$(rh_env)"'bash "$f"'
 too_old() { # <version>: the upgrade starts at 0.4.1, the oldest release it was tested from
   die "INIT $1 is installed in $RH. An upgrade from a release before 0.4.1 is not supported: uninstall it first, then run this again. The uninstaller moves INIT, its record and your provider key to the Trash (nothing is deleted):
   $UNINSTALL"
@@ -100,27 +138,54 @@ if [ $UPGRADE = 1 ]; then
   HAVE="$(installed)"
   [ -z "$HAVE" ] || ! ver_lt "$HAVE" 0.4.1 || too_old "$HAVE"
   APP="$RH/cache/upgrade" # the download, its check and the unpacked release live where the zone cannot write
+  case "$FROM" in
+    ""|http://*|https://*) ;;
+    *) # a local bundle: its sha256 comes from the owner, never from a file beside it, which the agent can write
+      [ -n "$WANT" ] || {
+        FILE="$(basename "$FROM")"; LV="$(printf '%s\n' "$FILE" | sed -n "s/^init-v\([0-9A-Za-z.-]*\)-$TARGET\.tar\.gz\$/\1/p")"
+        HEX='<the 64 hex digits>'; ALT=""
+        if [ -n "$HAVE" ] && ver_lt "$HAVE" 0.5.1; then # 0.4.1 and 0.5.0: this get.sh again, piped (the owner may have no file of it)
+          RUN="$(up_pipe --from "$(shq "$FROM")" --sha256 "$HEX")"; RUNV="$(up_pipe --version "$LV")"
+        else
+          RUN="$(up_agent --bundle "$(shq "$FROM")" --sha256 "$HEX")"; RUNV="$(up_agent --version "$LV")"
+          [ -n "$HAVE" ] || ALT="
+(from INIT 0.4.1 or 0.5.0: $(up_pipe --from "$(shq "$FROM")" --sha256 "$HEX"))"
+        fi
+        die "an upgrade from a local bundle needs its sha256 on the command line. A $FILE.sha256 beside it is not used: with
+full access the agent can write that folder, so a checksum from there proves nothing. Copy the sha256 that the release
+page lists for $FILE (https://github.com/nagisanzenin/INIT-Agent/releases${LV:+/tag/v$LV}), then run:
+  $RUN$ALT${LV:+
+Or let INIT download and check the release itself:
+  $RUNV}"
+      } ;;
+  esac
 elif [ -f "$RH/install.json" ] && [ $UNPACK_ONLY = 0 ]; then
   HAVE="$(installed)"
   if [ -z "$HAVE" ]; then
-    die "INIT is already installed in $RH, and its version could not be read. From 0.5.0: init-agent upgrade. From 0.4.1: curl -fsSL $DIST_URL/get.sh | sh -s -- --upgrade. Before 0.4.1, uninstall it first: $UNINSTALL"
+    die "INIT is already installed in $RH, and its version could not be read. From 0.5.1: $(up_agent). From 0.4.1 or 0.5.0: $(up_pipe). Before 0.4.1, uninstall it first: $UNINSTALL"
   elif ver_lt "$HAVE" 0.4.1; then
     too_old "$HAVE"
-  elif ver_lt "$HAVE" 0.5.0; then
-    die "INIT $HAVE is already installed in $RH. Upgrade it instead, which keeps what INIT has become (0.4.1 has no init-agent upgrade):
-  curl -fsSL $DIST_URL/get.sh | sh -s -- --upgrade"
+  elif ver_lt "$HAVE" 0.5.1; then
+    if ver_lt "$HAVE" 0.5.0; then WHY="0.4.1 has no init-agent upgrade"; else WHY="0.5.0's own init-agent upgrade runs 0.5.0's get.sh, which 0.5.1 fixed"; fi
+    die "INIT $HAVE is already installed in $RH. Upgrade it instead, which keeps what INIT has become. Run this once, from your own shell ($WHY):
+  $(up_pipe)"
   else
     die "INIT $HAVE is already installed in $RH. Upgrade it instead, which keeps what INIT has become:
-  init-agent upgrade"
+  $(up_agent)"
   fi
 fi
 mkdir -p "$APP"
 say "INIT installer · $PLATFORM · $APP"
+if [ -n "$RELEASE" ] && { [ -n "$FROM" ] || [ -z "$TAGS" ]; }; then # --version picks a tag of the releases' download base only
+  if [ -n "$FROM" ]; then printf 'get.sh: note: --version %s is ignored: --from names the bundle\n' "$RELEASE" >&2
+  else printf 'get.sh: note: --version %s is ignored: INIT_DIST_URL (%s) does not end in /latest/download, so it is one release\n' "$RELEASE" "$DIST_URL" >&2; fi
+fi
 
 # ---------------------------------------------------------------- download (or a local file)
 TMP="$(mktemp -d "$APP/.get.XXXXXX")"
 trap 'rm -rf -- "$TMP"' EXIT INT TERM
-fetch() { curl -fsSL --proto '=https' --tlsv1.2 --retry 2 "$1" -o "$2"; }
+# -q first: no ~/.curlrc (the agent can write it in full access, and a config line there can turn off the TLS check)
+fetch() { curl -q -fsSL --proto '=https' --tlsv1.2 --retry 2 "$1" -o "$2"; }
 tname() { # a bundle target as a platform name
   case "$1" in
     macos-arm64) echo "macOS 14+ on Apple silicon ($1)" ;; linux-arm64) echo "Linux aarch64 ($1)" ;;
@@ -146,7 +211,8 @@ no_bundle() { # <url> <http code>: the release has no bundle for this machine (u
     printf '    - build from source here: clone the repository and run scripts/install.sh (Rust 1.97.1; on Linux also\n'
     printf '      bubblewrap >= 0.13, docs/platforms.md section 3.4.0)%s, or\n' \
       "$([ "$TARGET" = linux-x86_64 ] && echo '; on Linux x86_64 this compiles but is not tested yet')"
-    printf '    - run this installer again when a %s bundle is released: %s\n' "$TARGET" "${DIST_URL%/latest/download}"
+    PAGE="${DIST_URL%/latest/download}"; case "$PAGE" in */download/v*) PAGE="${PAGE%/download/*}/tag/${PAGE##*/}" ;; esac
+    printf '    - run this installer again when a %s bundle is released: %s\n' "$TARGET" "$PAGE"
   } >&2
   exit 1
 }
@@ -154,8 +220,27 @@ case "$FROM" in
   http://*) die "refusing a plain-http URL: $FROM" ;;
   https://*|"")
     command -v curl >/dev/null || die "curl is missing"
-    if [ -z "$FROM" ]; then
+    if [ -z "$FROM" ] && [ -n "$TAGS" ]; then # --version: the first of its tags that the releases have
+      BASE="${DIST_URL%/latest/download}"; DIST_URL=""
+      for t in $TAGS; do
+        CODE=0 # silent (no -S): a 404 for the first tag is expected; the errors are ours, below
+        HTTP="$(curl -q -fsL --proto '=https' --tlsv1.2 --retry 2 -w '%{http_code}' "$BASE/download/$t/latest.json" -o "$TMP/latest.json")" || CODE=$?
+        case "$CODE/$HTTP" in
+          0/*) DIST_URL="$BASE/download/$t"; break ;;
+          22/404) ;;
+          *) die "cannot fetch $BASE/download/$t/latest.json (curl exit $CODE, HTTP ${HTTP:-none}); check the connection, or use --from <bundle.tar.gz>" ;;
+        esac
+      done
+      if [ -z "$DIST_URL" ]; then
+        case "$TAGS" in
+          *" "*) die "there is no INIT release $RV: neither the tag ${TAGS%% *} nor ${TAGS#* } exists (each answered HTTP 404 for latest.json). The releases: $BASE" ;;
+          *) die "there is no INIT release $RV: the tag $TAGS does not exist (HTTP 404 for latest.json). The releases: $BASE" ;;
+        esac
+      fi
+    elif [ -z "$FROM" ]; then
       fetch "$DIST_URL/latest.json" "$TMP/latest.json" || die "cannot fetch $DIST_URL/latest.json (or use --from <bundle.tar.gz>)"
+    fi
+    if [ -z "$FROM" ]; then
       LVER="$(sed -n 's/^ *"version": "\([0-9A-Za-z.-]*\)".*/\1/p' "$TMP/latest.json")"
       LTARGET="$(sed -n 's/^ *"target": "\([^"]*\)".*/\1/p' "$TMP/latest.json")"
       [ -n "$LVER" ] || die "$DIST_URL/latest.json names no version"
@@ -169,7 +254,7 @@ case "$FROM" in
     FILE="$(basename "$FROM")"
     say "  downloading $FILE"
     CODE=0
-    HTTP="$(curl -fL --progress-bar --proto '=https' --tlsv1.2 --retry 2 -w '%{http_code}' "$FROM" -o "$TMP/$FILE")" || CODE=$?
+    HTTP="$(curl -q -fL --progress-bar --proto '=https' --tlsv1.2 --retry 2 -w '%{http_code}' "$FROM" -o "$TMP/$FILE")" || CODE=$?
     case "$CODE/$HTTP" in
       0/*) ;;
       22/404|22/410) no_bundle "$FROM" "$HTTP" ;;
@@ -179,15 +264,21 @@ case "$FROM" in
     TGZ="$TMP/$FILE" ;;
   *)
     [ -f "$FROM" ] || die "no such bundle: $FROM"
-    TGZ="$(cd "$(dirname "$FROM")" && pwd -P)/$(basename "$FROM")"
+    SRC="$(cd "$(dirname "$FROM")" && pwd -P)/$(basename "$FROM")"
     FILE="$(basename "$FROM")"
-    [ -n "$WANT" ] || { [ -f "$TGZ.sha256" ] && WANT="$(cut -d' ' -f1 "$TGZ.sha256")"; } || true ;;
+    # a fresh install (no INIT, so no agent yet) may take the .sha256 beside the bundle; an upgrade stopped above without --sha256
+    [ -n "$WANT" ] || [ $UPGRADE = 1 ] || { [ -f "$SRC.sha256" ] && WANT="$(cut -d' ' -f1 "$SRC.sha256")"; } || true
+    # The bytes checked are the bytes unpacked: a copy in this run's own directory (in an upgrade under
+    # ROOT_HOME/cache/upgrade/, where the agent cannot write), so the file at $SRC cannot be swapped between the two.
+    cp -- "$SRC" "$TMP/$FILE" || die "cannot copy $SRC into $TMP"
+    TGZ="$TMP/$FILE" ;;
 esac
 
 # ---------------------------------------------------------------- verify
 case "$WANT" in
-  [0-9a-f]*) [ ${#WANT} = 64 ] || die "the expected sha256 is not 64 hex digits" ;;
-  *) die "no checksum to verify $FILE against: pass --sha256 HEX, or keep $FILE.sha256 next to it" ;;
+  "") die "no checksum to verify $FILE against: pass --sha256 HEX, or keep $FILE.sha256 next to it" ;;
+  *[!0-9a-f]*) die "the expected sha256 is not 64 lowercase hex digits: $WANT" ;;
+  *) [ ${#WANT} = 64 ] || die "the expected sha256 is not 64 hex digits: $WANT" ;;
 esac
 GOT="$(sha256 "$TGZ" | cut -d' ' -f1)"
 [ "$GOT" = "$WANT" ] || die "checksum mismatch for $FILE: got $GOT, expected $WANT. Download it again."
@@ -234,7 +325,7 @@ if [ $NO_RUST = 0 ]; then
   [ -n "$RUSTUP" ] || { [ -x "$CARGO_BIN/rustup" ] && RUSTUP="$CARGO_BIN/rustup"; } || true
   if [ -z "$RUSTUP" ]; then
     say "  ..  installing Rust $RUST_TC with rustup (self-rewrite needs it; about 1-2 min; --no-rust skips it)"
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
+    curl -q --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | sh -s -- -y --quiet --no-modify-path --profile minimal --component clippy --default-toolchain "$RUST_TC" --target wasm32-wasip2 \
         >"$TMP/rustup.log" 2>&1 \
       || { tail -5 "$TMP/rustup.log" >&2; die "installing Rust failed; rerun with --no-rust to install without self-rewrite (T0 only), or install rustup yourself"; }
@@ -251,7 +342,7 @@ if [ $NO_RUST = 0 ]; then
   # install.sh records the toolchain rustup resolves; pin it to the one above for this run only.
   PATH="$(dirname "$RUSTUP"):$PATH"; RUSTUP_TOOLCHAIN="$RUST_TC"; export PATH RUSTUP_TOOLCHAIN
 else
-  say "  --  no Rust (--no-rust): INIT will rewrite only its skills and prompts (T0). Later: install Rust $RUST_TC, then init-root toolchain --set"
+  say "  --  no Rust (--no-rust): INIT will rewrite only its skills and prompts (T0). Later: install Rust $RUST_TC, then, with the Root stopped, $(rcmd toolchain --set) (the install's last lines give the steps)"
 fi
 
 # ---------------------------------------------------------------- install (non-interactive, defaults)
@@ -265,6 +356,6 @@ INIT $VERSION installed in $(( $(date +%s) - T0 )) s (after the download).
 Start it:
   $BIN/init-agent
 The first run asks for the provider, your key (hidden) and the model, then opens the chat.
-From a shell instead: $RH/bin/init-root keys set deepseek   (the key is never echoed or logged)
+From a shell instead: $(rcmd keys set deepseek)   (the key is never echoed or logged)
 EOF
 case ":$PATH:" in *":$BIN:"*) ;; *) say "($BIN is not on your PATH; for this terminal: export PATH=\"$BIN:\$PATH\")" ;; esac

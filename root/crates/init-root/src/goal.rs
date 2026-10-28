@@ -670,7 +670,7 @@ fn stop(root: &Root, a: &Value) -> Result<Value, Err3> {
             ("met", Some("card")) => {
                 // the goal card's readings in this goal on changes that were not rolled back, oldest first
                 let kept: Vec<&Value> = recs.iter().filter(|r| r["kind"] == "card_reading" && r["data"]["card"] == g.done["card"] && r["data"]["goal"] == g.id.as_str()
-                    && !recs.iter().any(|x| x["kind"] == "card_reading" && x["data"]["sha"] == r["data"]["sha"] && x["data"]["action"] == "rollback"))
+                    && r["data"]["action"] != "cancelled" && !recs.iter().any(|x| x["kind"] == "card_reading" && x["data"]["sha"] == r["data"]["sha"] && x["data"]["action"] == "rollback"))
                     .map(|r| &r["data"]).collect();
                 let (v, le) = (g.done["value"].as_i64().unwrap_or(0) * 1000, g.done["op"] == "<=");
                 // the threshold, on the newest kept reading
@@ -857,6 +857,40 @@ pub fn turn_closed(root: &Root, t: &Turn) {
     }
 }
 
+/// The newest owner upgrade's commit (`lkg{upgrade}`, upgrade.rs; root.md §3.7.2): (seq, time, upgrade id). No reading
+/// spans it: its turns before and after ran on two kernels, and its rollback would reinstall the old one.
+fn upgraded(recs: &[Value]) -> Option<(u64, i64, Value)> {
+    recs.iter().rev().find(|r| r["kind"] == "lkg" && r["data"]["upgrade"].is_string())
+        .map(|r| (r["seq"].as_u64().unwrap_or(0), r["at"].as_str().and_then(parse_rfc3339).unwrap_or(0), r["data"]["upgrade"].clone()))
+}
+
+/// Readings of changes that went live before the newest owner upgrade end, recorded `card_reading{action:"cancelled",
+/// verdict:"cancelled", upgrade}`: whatever registered them (a commit's `Measure:`, `card.measure`, a guardrail on the
+/// upgraded tuple, which keeps the old body), they would count turns of the old kernel only, or roll back to it.
+fn cancel_upgraded(st: &mut State, recs: &[Value], out: &mut Vec<Out>) {
+    let Some((useq, _, uid)) = upgraded(recs) else { return };
+    st.measures.retain(|m| match anchor(recs, &m.sha) {
+        Some((seq, _, tid)) if seq < useq => {
+            out.push(Out::Append("card_reading", json!({"action": "cancelled", "card": m.card, "gate": m.gate && m.guard.is_none(), "goal": m.goal,
+                "guard": m.guard, "measure": m.id, "sha": m.sha, "tuple": tid, "upgrade": uid, "verdict": "cancelled"})));
+            false
+        }
+        _ => true,
+    });
+}
+
+/// `upgrade --commit` (upgrade.rs), after its `lkg{upgrade}`: the readings in flight on changes from before it end now
+/// (`cancel_upgraded`). Returns this upgrade's cancelled readings, from the records, so a re-run reports them too.
+pub fn upgrade_committed(root: &Root, upgrade: &Value) -> Result<Vec<Value>, String> {
+    let recs = crate::lineage::records(&root.p.rh).map_err(|e| e.to_string())?;
+    with(root, |st, out, _| {
+        cancel_upgraded(st, &recs, out);
+        Ok(())
+    }).map_err(|(_, m, _)| m)?;
+    Ok(crate::lineage::records(&root.p.rh).map_err(|e| e.to_string())?.into_iter()
+        .filter(|r| r["kind"] == "card_reading" && r["data"]["action"] == "cancelled" && r["data"]["upgrade"] == *upgrade).map(|r| r["data"].clone()).collect())
+}
+
 /// The change's anchor: the first `tuple` record whose body is `sha` (seq, time, tuple id).
 fn anchor(recs: &[Value], sha: &str) -> Option<(u64, i64, String)> {
     recs.iter().find(|r| r["kind"] == "tuple" && r["data"]["tuple"]["body"]["sha"] == sha)
@@ -873,6 +907,9 @@ fn anchor(recs: &[Value], sha: &str) -> Option<(u64, i64, String)> {
 /// scores nothing (no outcome). A change rolled back before its card reading has `n` turns is read on the turns it had
 /// (at least 3), since no more turns will come on it.
 fn complete(st: &mut State, recs: &[Value], out: &mut Vec<Out>) {
+    cancel_upgraded(st, recs, out);
+    // the baseline (and so the rollback target) never reaches back before an owner upgrade
+    let since = upgraded(recs).map_or(i64::MIN, |u| u.1);
     let mut done = Vec::new();
     // guardrails and gates first: their harm is on the prediction before the goal card's own reading resolves it
     let mut ms = st.measures.clone();
@@ -886,7 +923,7 @@ fn complete(st: &mut State, recs: &[Value], out: &mut Vec<Out>) {
         if after.len() < m.n && !(rolled.contains(&m.sha) && after.len() >= AFTER_MIN) {
             continue;
         }
-        let prior: Vec<&Obs> = st.obs.iter().filter(|o| o.end <= at && o.tuple != tid).collect();
+        let prior: Vec<&Obs> = st.obs.iter().filter(|o| o.end <= at && o.end >= since && o.tuple != tid).collect();
         let parent = prior.last().map(|o| o.tuple.clone()).unwrap_or_default();
         let before: Vec<i64> = prior.iter().rev().filter(|o| o.tuple == parent).filter_map(|o| (c.value)(o)).take(BASE_MAX).collect::<Vec<_>>().into_iter().rev().collect();
         let mut r = reading(c, &before, &after);

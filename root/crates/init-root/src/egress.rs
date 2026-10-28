@@ -439,7 +439,7 @@ impl Egress {
             _ => {}
         }
         if panicked {
-            return self.reply(w, Family::None, &refusal("root.panicked", "the Root is panicked; init-root resume restarts it"), Vec::new());
+            return self.reply(w, Family::None, &refusal("root.panicked", "INIT is in panic: no model request goes out until the owner types /resume in init-agent"), Vec::new());
         }
         let now = now_ms();
         let admitted = {
@@ -496,7 +496,7 @@ impl Egress {
         let auth = match r.provider {
             Some((_, p)) if p.no_auth && p.local && classes::loopback(&p.host) => None,
             Some((pid, p)) => {
-                let k = cfg.keys.get(pid).ok_or_else(|| no("class.disabled", format!("no usable key for provider {pid} (init-root keys check)")))?;
+                let k = cfg.keys.get(pid).ok_or_else(|| no("class.disabled", format!("no usable key for provider {pid}: the owner sets one with /key in init-agent")))?;
                 let anthropic = r.path.starts_with(&format!("{}/anthropic/", p.base_path));
                 Some((if anthropic { Auth::XApiKey } else { p.auth }, k.clone()))
             }
@@ -621,7 +621,8 @@ impl Egress {
             self.finish(&a, h, body.len(), 0, 0, status, (None, None), vec![]);
             if status >= 400 {
                 let p = a.provider.as_deref().unwrap_or(&a.class);
-                self.alert("upstream_auth", &format!("[egress] {p} rejected the Root's key (HTTP {status}); init-root keys set {p}"));
+                self.alert("upstream_auth", &format!("[egress] {p} rejected the Root's key (HTTP {status}): set a working key with /key in \
+                    init-agent, or run {}", util::root_cmd(&self.rh, &format!("keys set {p}"))));
                 let r = Refusal { status: Some(status), ..refusal("upstream.auth", format!("the provider rejected the Root's credentials (HTTP {status}); body withheld")) };
                 return self.reply(w, a.family, &r, hs);
             }

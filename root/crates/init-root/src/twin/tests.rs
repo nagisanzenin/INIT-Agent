@@ -562,3 +562,13 @@ fn the_pointer_refreeze_capture_and_report_on_a_root() {
     drop(root);
     fs::remove_dir_all(&dir).unwrap();
 }
+
+/// v0.5.1: an owner upgrade's commit moves the twin onto the release's kernel and keeps its freeze (tuple::reanchor),
+/// so the pin reads `frozen_at`: its replays, weekly reports and 90-day re-freeze clock are unchanged.
+#[test]
+fn an_upgrade_keeps_the_twin_freeze() {
+    let t = |ms: i64| crate::util::rfc3339(ms);
+    let recs = vec![json!({"kind": "twin", "at": t(1_000), "data": {"reason": "enable", "snapshot": "s1", "tuple": "tA"}}),
+        json!({"kind": "twin", "at": t(9_000), "data": {"from": "tA", "frozen_at": t(1_000), "reason": "enable", "snapshot": "s1", "tuple": "tB", "upgrade": "u-1"}})];
+    assert_eq!(pin_of(&recs), Some(Pin { tuple: "tB".into(), snapshot: Some("s1".into()), at: 1_000, reason: "enable".into() }));
+}

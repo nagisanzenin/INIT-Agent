@@ -3,7 +3,7 @@
 ◇ bash initctl promote evo/compaction --wait                       1 call · 12 s|ww.................................................................ddddddddddddd
     running 12 s · still working… no output yet                                 |....ddddddddddddddddddddddddddddddddddddddddddd                                 
 ◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ G2 □ G3 · live · G4 ·            12 s|ww............ddddddddddddddddd..mmmp.mmmp.mmmw.mmmm.mmmmmm.mmmm............wwww
-    G0  build + tests    ■ pass · 2.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G0  build + tests    ■ pass · 2.0 s · waited 7.0 s                          |....ddddmmmmmmmmmmmmmmmmpppppppddddddddddddddddddddddd                          
     G1  self-map         ■ pass · 2.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
     G2  boot probe       □ 2.5 s                                                |....ddddmmmmmmmmmmmmmmmmwwwwwwww                                                
     G3  self-edit probe  ·                                                      |....ddddmmmmmmmmmmmmmmmmmmm                                                     

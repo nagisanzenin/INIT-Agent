@@ -225,6 +225,21 @@ fn settled_moves_after_seven_days_and_skips_harmed_tuples() {
     assert_eq!(settled_of(&recs, t0 + 10 * day).as_deref(), Some("tA"));
 }
 
+/// v0.5.1: an owner upgrade's commit (`lkg{upgrade}`) starts the window again. A tuple of the kernel from before the
+/// upgrade never becomes `settled` afterwards (the commit re-anchored `settled` onto the new kernel, tuple::reanchor);
+/// the upgraded tuple settles 7 days after the commit.
+#[test]
+fn no_tuple_from_before_an_upgrade_settles_after_its_commit() {
+    let day = 86_400_000i64;
+    let t0 = 1_800_000_000_000i64;
+    let rec = |kind: &str, at: i64, d: Value| json!({"at": rfc3339(at), "data": d, "kind": kind});
+    let recs = vec![rec("lkg", t0, json!({"tuple": "tOld"})), rec("lkg", t0 + 3 * day, json!({"tuple": "tNew", "upgrade": "u-1"}))];
+    assert_eq!(settled_of(&recs, t0 + 2 * day), None, "nothing is 7 days old");
+    assert_eq!(settled_of(&recs, t0 + 8 * day), None, "tOld is 8 days lkg, but from before the upgrade");
+    assert_eq!(settled_of(&recs, t0 + 10 * day).as_deref(), Some("tNew"));
+    assert_eq!(settled_of(&recs[..1], t0 + 8 * day).as_deref(), Some("tOld"), "without the upgrade it would settle");
+}
+
 /// A fixture body for A4: a `/bin/sh` script; `@CHECKS@` is replaced by the common checks of mode `check`.
 fn body(rh: &Path, script: &str, live_ih: &Path) -> String {
     let checks = format!(r#"[ "$INIT_MODE" = check ] || exit 3

@@ -20,7 +20,8 @@
 #              is made first: OLD_TARBALL (default the published v0.4.1-preview macOS bundle) installed and changed by T1
 #              (about 26 min). BASE (default DIR.base when it exists): a copy of DIR (APFS clone) that DIR is reset from
 #              before the run, so a run can be repeated. DIR is removed afterwards unless --keep; BASE is never touched.
-#       NEW    the release to upgrade to (its .sha256 next to it): at integration the 0.5.0 bundle from scripts/bundle.sh.
+#       NEW    the release to upgrade to (its .sha256 next to it, which this harness passes as --sha256: an upgrade
+#              trusts no .sha256 beside a local bundle): at integration the 0.5.0 bundle from scripts/bundle.sh.
 #   scripts/upgrade-e2e.sh --make-test-bundle OUT [--old OLD_TARBALL] [--root INIT_ROOT] [--label L]
 #       a TEST bundle without a release build: OLD_TARBALL with INIT_ROOT (default root/target/debug/init-root, this
 #       tree's Root) and this tree's scripts, a marker appended to init-kernel (a different binary that runs the same),
@@ -118,6 +119,8 @@ if [ -n "$MAKE" ]; then
 fi
 [ -n "$NEW" ] && [ -f "$NEW" ] && [ -f "$NEW.sha256" ] || die "--bundle NEW_TARBALL (with its .sha256) is required"
 NEW="$(cd "$(dirname "$NEW")" && pwd -P)/$(basename "$NEW")"
+# an upgrade from a local bundle takes its sha256 from the command line only (v0.5.1): the harness reads it here
+NEW_SHA="$(cut -d' ' -f1 "$NEW.sha256")"
 [ "$(t1_free_gib)" -ge 21 ] || die "$(t1_free_gib) GiB free on /, below 21 GiB"
 [ -z "$BASE" ] && [ -d "$DIR.base" ] && BASE="$DIR.base"
 t1_paths "$DIR"
@@ -146,6 +149,16 @@ elif [ ! -d "$DIR" ]; then
   ROOT_PID=""; MOCK_PID=""
 fi
 [ -f "$RH/install.json" ] || die "$DIR holds no install ($RH/install.json)"
+# An old install reused from an earlier run must carry the kept T1 extension, or the "an evolved body survives the
+# upgrade" check would pass on an unevolved one (REL-051: a run reused the DIR of a run whose T1 promote had failed).
+/usr/bin/python3 -I - "$DIR/tuples.json" "$T1_EXT" <<'PY' || die "$DIR carries no kept T1 extension ($T1_EXT in the current tuple's ext set): its T1 change did not finish; remove $DIR and run again"
+import json, sys
+try:
+    t = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    sys.exit(1)  # t1_change writes tuples.json only after its promote; no file means no kept change
+sys.exit(0 if any(n == sys.argv[2] for n, _ in (t.get("current_ext") or {}).get("components", [])) else 1)
+PY
 PORT="$(tr -d '\n' <"$DIR/mock.port")"
 W="$DIR/upg"; mkdir -p "$W"
 t1_snap >"$W/owner-before.txt"
@@ -254,7 +267,7 @@ t stage_dir mkdir "$RH/cache/upgrade/evil"
 t get_sh sh -c 'printf x >>"$RH/cache/get.sh"'
 t journal sh -c 'printf x >"$RH/state/upgrade.json"'
 t snapshot_dir mkdir "$RH/state/upgrade/evil"
-t launcher_upgrade "$BIN/init-agent" upgrade --bundle "$ATT"
+t launcher_upgrade "$BIN/init-agent" upgrade --bundle "$ATT" --sha256 "$NEW_SHA"
 t replace_step sh -c 'd=\$(mktemp -d "\$INIT_HOME/work/rel.XXXXXX") && tar -xzf "$ATT" -C "\$d" && r=\$(ls -d "\$d"/init-v*) && INIT_ROOT_HOME="$RH" "\$r/init-root" upgrade --release "\$r" --bin-dir "$BIN"'
 echo end >>"\$out"
 cat "\$out"
@@ -374,7 +387,7 @@ OLD_INIT="$( [ -e "$BIN/init" ] && echo present || echo absent)"
 # ---------------------------------------------------------------- 2. the upgrade (NEW's get.sh: 0.4.1 has no init-agent upgrade)
 T=$(t1_ms)
 set +e
-"${GET_ENV[@]}" /bin/sh "$(mk_get "$NEW")" --upgrade --from "$NEW" -- --probe-timeout 120 >"$W/up1.log" 2>&1 </dev/null
+"${GET_ENV[@]}" /bin/sh "$(mk_get "$NEW")" --upgrade --from "$NEW" --sha256 "$NEW_SHA" -- --probe-timeout 120 >"$W/up1.log" 2>&1 </dev/null
 RC1=$?
 set -e
 UP1_MS=$(( $(t1_ms) - T ))
@@ -432,7 +445,7 @@ BROKEN="$(mk_bundle "$NEW" "$W/bundles" "$NV-broken" "init-kernel=$W/broken-kern
 kept "$W/kept-2.json"; tuples >"$W/tuples-2.json"; protected >"$W/protected-2.txt"
 T=$(t1_ms)
 set +e
-"${GET_ENV[@]}" "$BIN/init-agent" upgrade --bundle "$BROKEN" -- --probe-timeout 60 >"$W/up2.log" 2>&1 </dev/null
+"${GET_ENV[@]}" "$BIN/init-agent" upgrade --bundle "$BROKEN" --sha256 "$(cut -d' ' -f1 "$BROKEN.sha256")" -- --probe-timeout 60 >"$W/up2.log" 2>&1 </dev/null
 RC2=$?
 set -e
 UP2_MS=$(( $(t1_ms) - T ))
@@ -462,7 +475,7 @@ printf '#!/bin/sh\n[ "$1" = --manifest ] || exit 64\necho %s\n' \
 INCOMPAT="$(mk_bundle "$NEW" "$W/bundles" "$NV-incompat" "body/init-body=$W/fake-body" "init-kernel=+upgrade-e2e: incompatible variant")"
 cp "$RH/lineage/lineage.jsonl" "$W/lineage-4.jsonl"; protected >"$W/protected-4.txt"; cp "$RH/state/upgrade.json" "$W/journal-4.json"
 set +e
-"${GET_ENV[@]}" "$BIN/init-agent" upgrade --bundle "$INCOMPAT" >"$W/up3.log" 2>&1 </dev/null
+"${GET_ENV[@]}" "$BIN/init-agent" upgrade --bundle "$INCOMPAT" --sha256 "$(cut -d' ' -f1 "$INCOMPAT.sha256")" >"$W/up3.log" 2>&1 </dev/null
 RC3=$?
 set -e
 log "upgrade 3 (incompatible body) exit $RC3"

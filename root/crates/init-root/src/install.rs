@@ -46,6 +46,10 @@ impl Paths {
     pub fn r(&self, rel: &str) -> PathBuf {
         self.rh.join(rel)
     }
+    /// ROOT-MSG (v0.5.1): `init-root <args>` as the owner types it ([`util::root_cmd`]): the CLI is not on PATH.
+    pub fn cmd(&self, args: &str) -> String {
+        util::root_cmd(&self.rh, args)
+    }
     pub fn i(&self, rel: &str) -> PathBuf {
         self.ih.join(rel)
     }
@@ -290,7 +294,8 @@ pub fn evolution(p: &Paths) -> Value {
     }
     json!({"tiers": ["T0"], "toolchain": tc,
         "hint": format!("Self-evolution is limited to T0 (skills, prompts, extension source): no Rust toolchain is configured. \
-            T1/T2 (rebuilding itself) need Rust 1.97.1. The owner runs: {RUSTUP_CMD}; then: init-root stop && init-root toolchain --set && init-root start")})
+            T1/T2 (rebuilding itself) need Rust 1.97.1. The owner runs: {RUSTUP_CMD}; then stops the Root ({}), runs {} \
+            and starts the Root again ({})", stop_hint(p), p.cmd("toolchain --set"), start_hint(p))})
 }
 
 /// `init-root toolchain [--set [DIR]]`: show the toolchain, or record one (default: `~/.cargo/bin/rustup which rustc`,
@@ -307,7 +312,8 @@ pub fn toolchain_cmd(p: &Paths, set: bool, dir: Option<PathBuf>) -> Result<(), (
         return Ok(());
     }
     let _lock = crate::cli::take_lock(p).map_err(|e| (1, format!("run/root.lock: {e}")))?
-        .ok_or((1u8, "the Root is running: init-root stop first, then init-root start after".to_string()))?;
+        .ok_or_else(|| (1u8, format!("the Root is running, and it reads the toolchain only when it starts: stop it ({}), run this again, \
+            then start it ({})", stop_hint(p), start_hint(p))))?;
     let o = Opts { release: None, charter: None, git: String::new(), with_testkit: false, toolchain: dir, seed_source: None, seed_tag: None,
         no_service: true, bin_dir: None };
     let tc = toolchain(p, &o).ok_or((1u8, format!("no Rust toolchain found (rustup not installed?). Install it: {RUSTUP_CMD}")))?;
@@ -588,12 +594,16 @@ fn install_seed(p: &Paths, bundle: &Path, tag: &str) -> Result<String, String> {
     crate::sup::install_seed(&root, bundle, tag, std::time::Duration::from_secs(crate::sup::INSTALL_TIMEOUT_S))
 }
 
-/// The hardened Root git prefix (§3.11): no owner config, no hooks, UTC.
+/// The hardened Root git prefix (§3.11): no owner config, no hooks, no fsmonitor, UTC, no inherited `GIT_*`, and the
+/// working directory `/`. A call without `--git-dir` (`bundle list-heads` of a release's kernel source or of a seed)
+/// discovers a repository from its cwd and reads that repository's config; the caller's cwd may be a repository the
+/// agent can write (full access, ADR-012), so the Root never runs git from it (post-release review of v0.5.0).
 pub fn git(p: &Paths, git: &str) -> Command {
     let mut c = Command::new(git);
     c.env_clear().env("PATH", "/usr/bin:/bin").env("HOME", p.r("cache/git-home")).env("LC_ALL", "C").env("TZ", "UTC")
-        .env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_TERMINAL_PROMPT", "0")
-        .args(["-c", "core.hooksPath=/dev/null", "-c", "user.useConfigOnly=true", "-c", "user.name=init-root", "-c", "user.email=root@init.invalid"]);
+        .env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", "/dev/null").env("GIT_TERMINAL_PROMPT", "0").current_dir("/")
+        .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-c", "user.useConfigOnly=true", "-c", "user.name=init-root",
+            "-c", "user.email=root@init.invalid"]);
     c
 }
 
@@ -673,6 +683,42 @@ fn platform_tool_prefix() -> io::Result<Option<PathBuf>> {
 /// The Root's service file (tail Z2): the LaunchAgent plist, or the systemd user unit.
 pub fn service_path(p: &Paths) -> PathBuf {
     p.home.join(if cfg!(target_os = "macos") { "Library/LaunchAgents/dev.init.root.plist" } else { ".config/systemd/user/init-root.service" })
+}
+
+/// ROOT-MSG (v0.5.1): how the owner starts the Root daemon, runnable as printed: through its service when the service
+/// file is installed, else in a terminal of its own (`start` runs the daemon in the calling process until Ctrl-C).
+/// On macOS it loads the LaunchAgent again (`bootstrap`), as install.sh does: `stop_hint`'s `bootout` unloads the job,
+/// after which `kickstart` fails; `kickstart` is only the fallback for a job launchd still has loaded.
+pub fn start_hint(p: &Paths) -> String {
+    if !service_path(p).is_file() {
+        return format!("run this in a terminal of its own and leave it open: {}", p.cmd("start --foreground"));
+    }
+    if cfg!(target_os = "macos") {
+        let (u, plist) = (sys::euid(), service_shown(p));
+        format!("launchctl bootstrap gui/{u} {plist} (if launchd says the job is already loaded: launchctl kickstart gui/{u}/dev.init.root)")
+    } else {
+        "systemctl --user start init-root.service".into()
+    }
+}
+
+/// ROOT-MSG (v0.5.1): how the owner stops the Root daemon itself (`init-root stop` and `/root stop` stop only the agent).
+pub fn stop_hint(p: &Paths) -> String {
+    if !service_path(p).is_file() {
+        "Ctrl-C in the terminal where it runs".into()
+    } else if cfg!(target_os = "macos") {
+        format!("launchctl bootout gui/{}/dev.init.root", sys::euid())
+    } else {
+        "systemctl --user stop init-root.service".into()
+    }
+}
+
+/// The service file as the owner types it: `~/…` when the Root's HOME is the passwd home, else its absolute path.
+fn service_shown(p: &Paths) -> String {
+    let path = service_path(p);
+    match (sys::passwd_home(), path.strip_prefix(&p.home)) {
+        (Some(h), Ok(rel)) if h == p.home => format!("~/{}", rel.display()),
+        _ => util::sh_word(&path.to_string_lossy()),
+    }
 }
 
 fn service_file(p: &Paths) -> io::Result<PathBuf> {
@@ -827,7 +873,25 @@ mod tests {
         fs::write(p.r("install.json"), r#"{"toolchain":null}"#).unwrap();
         let v = evolution(&p);
         assert_eq!(v["tiers"], json!(["T0"]));
-        assert!(v["hint"].as_str().unwrap().contains(RUSTUP_CMD) && v["hint"].as_str().unwrap().contains("init-root toolchain --set"));
+        let hint = v["hint"].as_str().unwrap();
+        assert!(hint.contains(RUSTUP_CMD) && hint.contains(&p.cmd("toolchain --set")), "{hint}");
+        // ROOT-MSG: `init-root stop` stops only the agent, so `toolchain --set` (it needs the Root's lock) would be refused
+        assert!(hint.contains("stops the Root (Ctrl-C in the terminal where it runs)") && !hint.contains(" stop && "), "{hint}");
+        // with the service: the Root is stopped by unloading it, so it starts again by loading it (install.sh's sequence;
+        // after `launchctl bootout`, `launchctl kickstart` fails: launchd no longer knows the job)
+        let svc = service_path(&p);
+        fs::create_dir_all(svc.parent().unwrap()).unwrap();
+        fs::write(&svc, "service\n").unwrap(); // the test's own fake home
+        let hint = evolution(&p)["hint"].as_str().unwrap().to_string();
+        let (stop, start) = if cfg!(target_os = "macos") {
+            (format!("launchctl bootout gui/{}/dev.init.root", sys::euid()), format!("launchctl bootstrap gui/{} {}", sys::euid(), service_shown(&p)))
+        } else {
+            ("systemctl --user stop init-root.service".to_string(), "systemctl --user start init-root.service".to_string())
+        };
+        let (i, k) = (hint.find(&stop).expect(&hint), hint.find(&start).expect(&hint));
+        assert!(i < k, "stop, then start: {hint}");
+        assert!(hint[i..].find("kickstart").is_none_or(|x| i + x > k), "after the stop the start loads the job again: {hint}");
+        fs::remove_file(&svc).unwrap(); // exact path, written above
         let tc = top.join("tc");
         fs::create_dir_all(tc.join("bin")).unwrap();
         fs::write(tc.join("bin/cargo"), b"").unwrap();

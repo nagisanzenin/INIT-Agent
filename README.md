@@ -1,136 +1,84 @@
 <p align="center"><img src="assets/init-rebuild.svg" alt="INIT: it rewrites its own harness and grows with every model. Everything is writable except the Root." width="100%"></p>
 
-
-INIT is a coding agent that can rewrite any part of itself (its prompts, its tools, its compiled Rust core) while it works. One part sits outside its reach: the **Root**, which holds your keys, the sandbox, a signed history of every change, and the power to roll it all back.
+INIT is a coding agent that rewrites its own harness while it works. The harness is everything around the model: prompts, tools, the loop, how context is kept. People write it by hand for the models they have, and Sutton's bitter lesson says hand-built structure loses to learning and scale. Once a model outgrows its designers, each scaffold is a ceiling. So INIT lets the model change its own harness, compiled Rust core included, mid-task. One part stays fixed: the Root, a separate process the agent cannot modify, which checks each change, records it in a signed log and can undo it.
 
 ```sh
 curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh
-init-agent  # first run: pick a provider, paste a key, pick a model
+init-agent
 ```
 
-macOS 14+ on Apple silicon · Linux x86_64, experimental ([bubblewrap ≥ 0.13](docs/platforms.md) built from source) · about 1–2 min; get.sh also installs the Rust toolchain INIT rebuilds itself with · Apache-2.0
-Already installed? From 0.5.0: `init-agent upgrade`, which keeps the body INIT evolved, its lineage, your keys and charter. From 0.4.1: `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh -s -- --upgrade`. Before 0.4.1 there is no upgrade: uninstall first (get.sh prints the command), then install ([upgrade](docs/guide.md#upgrade)).
-**Spend is metered, not capped.** Set a limit at your provider. Details: [user guide](docs/guide.md).
-**Full access by default:** the agent reads and writes your files and uses the network, like your own shell; only the Root (`~/.init-root`, its service, INIT's launchers) is off-limits. **The Root protects INIT, not your files, in full mode:** its rollback undoes INIT's own changes, and `/undo` restores only the folder you started in. `init-agent --workspace` confines it to that folder ([ADR-012](docs/adr/012-full-access-by-default.md)).
+The first run asks you to pick a provider, paste your key and pick a model.
 
-## Why
-
-**Harnesses are the hand-written features of this era.** The loop, the tools, the memory and the planner were designed by people, for models weaker than those people. Sutton's *bitter lesson* says hand-crafted structure loses to learning and scale. When the model outgrows its designers, every scaffold becomes a ceiling.
-
-**You cannot write the reward for what you did not foresee.** Research self-improvers (Darwin Gödel Machine and its kin) optimize a score someone fixed in advance; product agents that learn (Hermes Agent's skills, for instance) change only their notes and skills, never the loop or the code that runs them. The improvements that matter most (a new kind of memory, a tool for a task nobody anticipated, a different loop) have no score until they exist. And a fixed score gets gamed.
-
-**So INIT trusts the model the way we trust engineers: with an undo button.** Nobody makes an engineer prove a commit is better before merging. We give them version control, rollback, an audit trail and a stop button. INIT asks only two questions of every self-change: *can we undo it, and did it cause harm?*
-
-> Govern the recovery path and the measuring stick, never the model's choices.
-
-## Same model, two harnesses
-
-A frontier model gets three weeks to migrate a 2-million-line monorepo off an in-house build DSL.
-
-| Day 2, the model notices… | A fixed harness | INIT |
-|---|---|---|
-| `grep` can't parse the DSL | lives with the noise | writes a Wasm tool that does, uses it the same session |
-| compaction drops type signatures | re-reads 40 files every session | rewrites its own compaction; the new core is hot-swapped mid-task |
-| a sub-task wants a fresh context | waits for the vendor to ship sub-agents | writes a delegation tool |
-| a new, smarter model is released | same scaffolds, same ceiling | rewrites the scaffolds |
-| one of its changes makes things worse | (it can't make changes) | the Root rolls the whole system back |
-
-A fixed harness caps the agent at the imagination of the people who built it. INIT caps it at what can be undone.
-
-**This happened (2026-10-24, on a small model).** INIT v0.2 had no sub-agents, so we asked for them:
-- **It built them:** a `delegate` tool, plus a nested loop with a fresh context, capped at 8 turns and 24 tool calls, with no recursion. Only a summary returns to the main context, and the prompt-cache prefix stays intact.
-- **It verified them:** it regenerated its own self-map, re-blessed its golden tests and added one; 304 tests passed.
-- **Then its own Root stopped it:** free disk fell below the Root's floor, so the Root refused every new process, even `git commit`. The agent explained what was blocked and asked how to proceed.
-- **v0.3 ships it:** the built-in `delegate` sub-agents are based on the tool INIT wrote for itself.
+macOS 14+ on Apple silicon; Linux x86_64 is experimental. Upgrades, Linux setup and removal: [Install, upgrade, uninstall](docs/guide.md#install-upgrade-uninstall).
 
 ## How it works
 
 ```text
-                                  you
-                                   │  init-agent · /stop · /panic · /undo
-                                   ▼
-╔══════════════════════════════════════════════════════════════════╗
-║  ROOT                         the agent can never write here     ║
-║                                                                  ║
-║   keys              egress + metering       sandbox composer     ║
-║   signed lineage    harm sentinel H1–H12    snapshots + rollback ║
-║   stop · panic      autonomy ledger         memory watchdog      ║
-╚══════════════════════════════════╤═══════════════════════▲═══════╝
-                                   │ one Unix socket       │
-                                   │ no IP, no TCP         │ every model call
-                                   ▼                       │ is metered here
-┌──────────────────────────────────────────────────────────┼───────┐
-│  AGENT ZONE · sandboxed · the model may change all of it │       │
-│                                                          │       │
-│    ┌─────────────────────────────────────────────────┐   │       │
-│    │  KERNEL   admits changes · gates · hot-swaps    │   │       │
-│    └──────────────────────────┬──────────────────────┘   │       │
-│                               ▼                          │       │
-│    ┌─────────────────────────────────────────────────┐   │       │
-│    │  BODY     T0  prompts + skills                  ├───┘       │
-│    │           T1  new tools (Wasm components)       │           │
-│    │           T2  its own compiled core and loop    │           │
-│    └─────────────────────────────────────────────────┘           │
-└──────────────────────────────────────────────────────────────────┘
+  you:  init-agent · /stop · /panic · /undo · /rollback
+   │
+   ▼
+╔═ ROOT · init-root, a separate process the agent cannot write ════════════╗
+║                                                                          ║
+║  holds   your API keys · your charter · its signing key                  ║
+║          the signed lineage · the spend ledger · snapshots               ║
+║  does    starts every agent process in a sandbox it composes             ║
+║          adds your key to each model call and meters it                  ║
+║          harm signals · stop and panic · memory and disk watchdog        ║
+║          rolls the whole system back to a known-good version             ║
+║                                                                          ║
+╚═════════════╤═══════════════════════════════════════════▲════════════════╝
+              │ starts, sandboxes,                        │ every model call
+              │ rolls back                                │ (no key on this side)
+              ▼                                           │
+┌─ AGENT ZONE · sandboxed, holds no API key ──────────────┴────────────────┐
+│                                                                          │
+│  kernel  gates each change and hot-swaps the body      editable from L1  │
+│  body    T0  prompts and skills                        editable now (L0) │
+│          T1  tools, as Wasm components                                   │
+│          T2  the compiled Rust core and its loop                         │
+│                                                                          │
+└──────────────────────────────────────────────────────────────────────────┘
 ```
 
-**The life of a self-change.** If the new body crashes at boot, nothing happens, because the old one never stopped. The code changes; the memory does not, since the conversation is an append-only log with one writer.
+A change to the compiled core takes five steps. Prompts, skills and Wasm tools skip the process swap and reload in place.
 
-```text
- ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐    ┌──────────┐
- │  edit    │───▶│  build   │───▶│  boot    │───▶│ hot-swap │───▶│ watched  │
- │  itself  │    │  + test  │    │  probe   │    │ mid-chat │    │ by Root  │
- │  evo/ID  │    │  G0 · G1 │    │  G2 · G3 │    │ same log │    │ H1 – H12 │
- └──────────┘    └──────────┘    └────┬─────┘    └──────────┘    └────┬─────┘
-                                      │ crashes?                      │ harm?
-                                      ▼                               ▼
-                           the old body never stopped:     roll the whole system
-                           nothing happened                back to last known-good
-```
+1. **Edit a copy.** The agent edits its source on a branch beside the running body.
+2. **Gates.** G0 builds it and runs the tests and clippy. G1 regenerates the self-map (`self.json`, its inventory of itself) byte for byte. G2 boots the new binary beside the live one and probes it. G3 has the new version complete a self-edit, so a change cannot break the ability to change. If a gate fails, nothing happened: the live body never stopped.
+3. **Hot-swap.** At a turn boundary the new process takes over the same conversation log. Rust has no stable ABI, so a new core always runs as a new process ([ADR-001](docs/adr/001-overlapped-handoff.md)).
+4. **Watch.** In the default `gated` mode, a sealed test (G4) on tasks the agent never sees decides whether the change stays; a fresh install has no such tasks, so G0–G3 decide. In `free` mode the Root watches each change for 2 to 72 hours with twelve harm signals, such as crashes, your `/rollback`, and spikes in cost or errors measured against your own recent turns ([ADR-011](docs/adr/011-reward-free-self-extension.md)).
+5. **Roll back.** A failed G4, a crash, a harm signal, `/rollback` or `/panic` returns the system to a known-good version, with a signed record.
 
-**Autonomy is earned from records the Root writes itself, never from what the agent reports.** This release caps it at L0, which already allows the whole body.
+No step asks a change to prove it is better, because nobody can write the score for a capability nobody foresaw. The Root checks what it can check for any change: can it be undone, and did it cause harm?
 
-```text
-        what it may change                               how it gets there
-  L4 ┃  + the model itself, as a component             ▲  days at level
-  L3 ┃  + more external actions                        │  + your turns
-  L2 ┃  + a wider blast radius                         │  + clean change groups
-  L1 ┃  + its own kernel                               │  (only records the Root
-  L0 ┃  its whole body: prompts · tools · core  ◀ v0.5 │   writes itself count)
-     ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━━━━━━━━━━━━━━━━
-        ▼ one level down on: harm · /panic · crash loop
-```
+**The Root is the fixed part.** `init-root` is its own service (a LaunchAgent on macOS, a systemd user unit on Linux) with its own directory, `~/.init-root`, which holds your keys, your charter (the settings), its Ed25519 signing key, the signed lineage, the spend ledger and the snapshots. It starts every agent process in a sandbox it composes (Seatbelt on macOS, bubblewrap on Linux), adds your key to each model request and meters it, and signs a record of every promotion, rollback, grant and panic. That sandbox, in every access mode, denies the agent the Root's files, its service file, INIT's launchers and signals to the Root. The Root is 20,334 lines of Rust in v0.5.0, without tests ([REL-050](build/status/REL-050.md)).
 
-## Under the hood
+**Why a compiled core and not plugins?** A plugin API fixes in advance where the model may extend the agent. What a stronger model is likely to want to change sits elsewhere: how context is compacted, how the loop retries, how requests are laid out so the prompt cache keeps hitting. That code is the core, so the core is editable (T1 Wasm tools are the plugin path). The cost is time. A no-op core change on a fresh v0.5.0 install, built cold, took 838 s from G0 to the hot-swap (mock model, [release notes](docs/release-notes/v0.5.0-preview.md)); with a warm dependency cache, a small change's build and G0 took 126 s (mock model, measured before v0.5), and the later gates were not timed ([CHANGELOG](CHANGELOG.md), "Warm T2 builds").
 
-| | |
-|---|---|
-| **Hot-swapping a compiled core** | Rust has no stable ABI, so a fresh process is started: it is probed first, runs overlapped with the old one, takes over at a step boundary, and receives the same conversation. The swapper is never the swapped. ([ADR-001](docs/adr/001-overlapped-handoff.md)) |
-| **Five gates** | G0 build, test and clippy · G1 self-map regenerated byte for byte · G2 boot probe · **G3 the new version must itself complete a self-edit**, so a change can't break the ability to change · G4 sealed regression. ([gate.md](docs/kernel/gate.md)) |
-| **A test set it never sees** | G4 draws from Root-held task templates, plus canaries for tamper, leak and impossible tasks, using paired cluster-bootstrap non-inferiority. |
-| **Reward-free admission** | In `free` mode a change needs only checks A0–A5: it builds, it boots, it can be rolled back. No benchmark decides what the model may build. ([ADR-011](docs/adr/011-reward-free-self-extension.md)) |
-| **A harm sentinel that doesn't know your goals** | 12 generic signals (crashes, refusals, your stops and undos, cost and error spikes), counted per session against a 40-session baseline at α = 0.005. |
-| **Frozen twin** | A pre-change copy replays your sessions nightly; an exact signed-rank test runs over 14 nights. It only reports; it never blocks. |
-| **Selection by use** | Unused capabilities decay into an archive; ones that keep coinciding with trouble are quarantined by a Fisher exact test. |
-| **Knows itself from evidence** | Models are poor at introspection, so INIT gets verified files instead: `SELF.md` (its own map), `self.json` (inventory, checked at G1), a boot block saying why it woke up, and live signals for context, cache, spend and level. ([awareness.md](docs/awareness.md)) |
-| **The sandbox** | Seatbelt profiles composed by the Root. By default the agent reads and writes anything you can and uses the network, but never the Root's files, its service or INIT's launchers; workspace mode (`init-agent --workspace`) adds no IP, a secrets deny-list and writes only in the start folder. The agent never holds your API key. ([ADR-012](docs/adr/012-full-access-by-default.md)) |
-| **Undo and history** | APFS clones before every change; every promotion, rollback, grant and panic goes into an Ed25519-signed, append-only lineage. |
-| **Watchdog** | Every workload is polled each second; a runaway process tree is killed by PID; work stops below a disk floor. |
+## What it has done
 
-About 200k lines of Rust in four workspaces (Root, kernel, body, TUI), on `std` threads with no async runtime. The Root is not small: 20,334 lines without tests in v0.5.0 (counted as in [root.md §4.8](docs/root/root.md); 3,474 more for its sandbox profiles), against the 7,540-line budget set for it on 2026-10-20.
+- **It wrote itself a sub-agent tool** (v0.2.0-preview, a small model, 2026-10-24). Asked for sub-agents, INIT wrote a `delegate` tool on its own branch: a nested loop with a fresh context and the same prompt head (so the cache still hits), at most 8 turns and 24 tool calls, no recursion, only a summary returned. It never promoted itself (stale tests, then a 900 s build limit we later raised); v0.3's built-in `delegate` is built on it ([tools.md §3.7](docs/body/tools.md), [REL-G0](build/status/REL-G0.md)).
+- **It swapped its compiled core mid-conversation and kept the cache** (v0.1, deepseek-flash, 2026-10-20). A comment-only core change from the test harness passed G0–G3 and was handed to the running session. The first request after the swap read 5,888 of 6,696 prompt tokens from DeepSeek's cache, 87.9% ([real-v0.1.md](measurements/real-v0.1.md), E2E-3).
+- **A sealed test refused its own change, and the rollback is signed** (pre-v0.2 code, deepseek-flash, gated mode, 2026-10-21). From its own failed runs the agent wrote a change to its `bash` tool, which passed G0–G3 and went live. G4 scored it 5 points worse (d = −50‰, 29 tasks × 3 runs, inside the noise), and the gate rolled it back ([m7-results.md](measurements/m7-results.md), [technical report](reports/INIT%20technical%20report.md)).
+- **A guardrail rolled back a bad change in 3.8 s** (v0.4.0-preview, deepseek-flash, free mode). In a `/goal` test run, a deliberately bad change raised cost per turn by 137%; the Root rolled it back to its parent and kept the good change before it ([v0.4.0 notes](docs/release-notes/v0.4.0-preview.md)).
 
-## Status: v0.5 research preview
+**Not shown yet:** that self-changes make a model better. The one change the sealed test measured was not kept, and a test built to find tasks INIT fails for lack of a mechanism found none on deepseek-flash: where INIT failed, Claude Code on the same model and budget failed too ([evo-test protocol §11.8](measurements/evo-test-protocol.md)). If you run frontier models, we would like your results.
 
-- **Works:** the edit → gate → hot-swap → rollback loop has run end to end on a real model. The Root holds against our red-team suite. On macOS, 2,022 CI tests pass (v0.5.0); known load flakes pass when rerun alone.
-- **New in v0.5: upgrade in place, and self-changes on screen.** `init-agent upgrade` moves INIT to a new release and keeps the body it evolved, its lineage, your keys and your charter (stop, snapshot, replace, a health probe, then commit or roll back; bundles are checked by SHA-256, not signed). The TUI shows each self-change as a gate track that ends kept, refused at a gate, or rolled back, gives the Root its own colour, and puts the signed lineage in Ctrl-O; `init-root audit verify --file` checks a published lineage offline. ([release notes](docs/release-notes/v0.5.0-preview.md))
-- **New in v0.4: goals.** `/goal "<what you want>" done=card:requests_turn<=2 usd=0.40 guard=cost_turn:300` gives the agent a direction for its self-changes. The Root, which the agent cannot change, measures each change on your turns (mean, σ, z against the turns before), counts a reading only if the agent predicted it before the change went live, scores the forecasts, rolls back a change that breaks a guardrail, and accepts `met` only when a predicted change moved the card beyond noise. On deepseek-flash ($0.25 over four runs) the record, the guardrail rollback (3.8 s, to the parent) and the scoring worked; the two registered goal changes read as noise, and the two that read better (z +3.5 and +6.6) were unregistered, so they count for nothing. ([release notes](docs/release-notes/v0.4.0-preview.md), [ADR-013](docs/adr/013-goal-based-agentic-loop.md))
-- **New in v0.3:** **steering** (type while the agent works: a pending tray shows your line until the agent reads it; Esc interrupts and continues with it; Up takes back an unread line) and **built-in `delegate` sub-agents**, based on the tool INIT wrote for itself (parallel read-only scouts, one writer at a time, bounded per sub-task, no recursion). Linux aarch64 is experimental.
-- **Self-rewrite out of the box:** get.sh installs Rust 1.97.1 with wasm32-wasip2 and clippy (`--no-rust` skips it), so T1 tools and T2 core changes work on a fresh install. The first T2 promote on a fresh install builds cold: 10–16 min for build and tests (G0), 17–26 min end to end with G3's self-edit check, measured on an M2. Later ones reuse the dependency cache: about 2 min end to end for a small change.
-- **Not shown yet:** that self-evolution makes today's models better. On a small model, our one real self-change was neither kept nor shown harmful. In a missing-mechanism test, wherever INIT failed, a well-known agent on the same model failed too. A harness built to be outgrown only shows its value once the model can outgrow it. If you run frontier models, we would love your results. ([technical report](reports/INIT%20technical%20report.md))
-- **Limits:**
-  - **Linux is experimental:** x86_64, tested on a GitHub-hosted Ubuntu 24.04 VM on the mock model (install, pause, a self-change of the compiled core through the gates); aarch64 was tested in Docker (Debian 12, Ubuntu 24.04) for v0.4 and has no 0.5.0 bundle yet. It needs bubblewrap ≥ 0.13 at `/usr/bin/bwrap`, built from source because no LTS distro ships it ([docs/platforms.md §3.4.0](docs/platforms.md)). On Ubuntu 24.04, whose AppArmor restricts user namespaces, the installer prints a one-time sudo step: root-owned copies of `unshare` and `bwrap` and a profile that lets only those two create user namespaces ([§3.4.6](docs/platforms.md)). Full access works as on macOS; workspace mode on Linux keeps the agent in its own home (it cannot read or edit your files).
-  - Autonomy is capped at L0. DeepSeek is tested live; OpenAI-compatible, Anthropic, Responses and local servers are experimental. Windows is unsupported (WSL2 untested).
+## Safety model
 
-**More:** [user guide](docs/guide.md) · [design overview](docs/overview.md) · [ADRs](docs/adr/) · [changelog](CHANGELOG.md) · [docs conventions](docs/CONVENTIONS.md) · [testing](docs/testing.md).
+- **Full access by default.** The agent reads and writes anything you can and uses the network, including files your own tools run later (shell startup files, `PATH` directories, git hooks), so trust it as you trust your shell. The Root protects INIT, not your files; `/undo` restores only the folder you started in ([ADR-012](docs/adr/012-full-access-by-default.md)).
+- **Workspace mode** (`init-agent --workspace` or `/full off`). The agent reads your home except secrets (`~/.ssh`, cloud credentials, keychains, browser and mail data), writes only the start folder and `~/.init`, and reaches only the model provider. From 0.5.1 on macOS it also cannot redirect git's config or hooks there, or `git init`. On Linux it stays in its own home.
+- **Spend is metered, not capped.** The Root records each request's estimated cost; no dollar amount stops INIT. Set a limit at your provider ([Spending](docs/guide.md#spending)).
+- **Keys never reach the agent.** The key you paste goes to the Root, which adds it to each request on the way out.
+
+## Status and limits
+
+INIT 0.5 is a research preview.
+
+- **Tested:** DeepSeek (deepseek-flash, deepseek-v4-pro) on the live API. At $0 on a mock model, the v0.5.1 bundles on macOS and on Linux x86_64 (a hosted Ubuntu 24.04 VM): install, a core change through the gates and the hot-swap; on macOS, upgrades from every public release since 0.3.1 (or the uninstall they need) and an upgrade that kept an evolved body. 2,083 Rust tests in CI on macOS (v0.5.1; one timing-bound test failed under a load average of 76 and passed alone).
+- **Not tested or not built:** Anthropic and OpenAI on a live API (offline tests only); a Linux aarch64 bundle for 0.5.x; signed releases (bundles are checked by SHA-256 only); autonomy above L0 (L0 already covers the whole body; the kernel opens at L1); Windows.
+
+## Docs
+
+[User guide](docs/guide.md) · [technical report](reports/INIT%20technical%20report.md) · [design decisions (ADRs)](docs/adr/) · [release notes](docs/release-notes/) · [changelog](CHANGELOG.md) · [release protocol](docs/release-protocol.md)
 
 Apache-2.0. See [LICENSE](LICENSE) and [NOTICE](NOTICE).

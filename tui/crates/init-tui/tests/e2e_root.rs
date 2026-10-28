@@ -308,10 +308,14 @@ fn tui_r_real_root_session() {
     wait(15, "the demotion", || h.status()["level"] == 0);
     t.ok(json!(["wait", "demoted L1→L0", 10]));
     t.ok(json!(["wait", "L0\u{1b}[", 10])); // the status bar's level (the notice text has no escape after it)
-    // /panic: PANICKED in the status bar within 1 s
+    // /panic asks first (TUI-FIX, v0.5.1), then PANICKED in the status bar within 1 s of the confirmation
+    t.ok(json!(["mark"]));
+    t.ok(json!(["type", "/panic\r"]));
+    t.ok(json!(["wait", "type panic and press Enter", 5]));
+    assert_ne!(h.status()["slot"], "panicked", "nothing is stopped before the confirmation");
     t.ok(json!(["mark"]));
     let p0 = Instant::now();
-    t.ok(json!(["type", "/panic\r"]));
+    t.ok(json!(["type", "panic\r"]));
     t.ok(json!(["wait", "PANICKED", 5]));
     let panic_ms = p0.elapsed().as_millis();
     assert_eq!(h.status()["slot"], "panicked");

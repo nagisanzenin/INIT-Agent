@@ -104,7 +104,11 @@ The release notes must have:
 
 ## 4 · CI
 
-- `ci/local.sh` three times in a row with no flake, and `clippy -D warnings` clean in all four workspaces.
+- `ci/local.sh` once, with `clippy -D warnings` clean in all four workspaces. Then the body's test suite (`cargo test`
+  in `seed/`, the suite G0 runs on the user's machine) five more times while the machine is loaded, for example
+  alongside the e2e chain. A flake in the body suite refuses a good self-change on a user's machine (class 6). A flake in the
+  Root, kernel or TUI suites costs only a developer a rerun. So the repetition goes where the harm is. (v1.1: this
+  replaced "three full runs in a row", which took about 3 hours and stressed every suite equally.)
 - The GitHub `fast-linux` job.
 - The x86_64 workflow run on the private repository's CI branch, which has a $0 Actions budget with stop-usage.
 - Record the test count. README and the site use that exact count, or none at all.
@@ -285,6 +289,19 @@ VERDICT: ship / do not ship
 The verdict is binding. Real-world signal outranks a simulated verdict: an owner's report, a GitHub issue or an HN
 comment. When the two disagree, the next release says so on the record.
 
+**Harness rules.** Every one of these was learned in v0.5.0's sessions, where harness artifacts drove both verdicts
+alongside real bugs:
+- Run the persona's shells and the Root with the **passwd HOME**. Isolate with INIT_ROOT_HOME, INIT_HOME and
+  INIT_BIN_DIR. The broker refuses a Root whose HOME is not the passwd home. A persona that restarts the Root from a
+  test-HOME shell gets a body that never spawns, and blames the product.
+- Put the persona's project folder **inside the passwd home**, for example `~/init-us-<n>/project`, removed afterwards
+  by exact path. The Root refuses a workspace outside the home, so a project under /private/tmp silently becomes "no
+  workspace".
+- Keep the Root's tmux window alive after the Root exits (`remain-on-exit on`), so a Ctrl-C does not tear down the
+  window chain.
+- Diff the persona's own keystroke log against its report. Use the log where the two disagree.
+- The persona returns its report as text, and the operator files it verbatim.
+
 ---
 
 ## 6 · Tag and publish
@@ -334,7 +351,7 @@ release an hour later, is not a failure. A stranded user left standing is.
 - [ ] REL-<version>.md opened; targets and live-tested providers decided
 - [ ] version swept everywhere (§2); stale-version and dead-command grep read hit by hit
 - [ ] CHANGELOG dated (no "candidate"); release notes with Verified, Not verified and Upgrading for every prior release
-- [ ] §4 `ci/local.sh` ×3 with no flake, clippy clean, fast-linux green, x86_64 run green; test count recorded
+- [ ] §4 `ci/local.sh` once, clippy clean, the body suite ×5 under load, fast-linux green, x86_64 run green; test count recorded
 - [ ] §4.1 every new test mutation-tested; sibling bugs grepped
 - [ ] §4.2 R-SAFE, sandbox and upgrade-boundary tests green; new signal/exec callers reviewed
 - [ ] §4.3 adversarial review on an extracted tree; reports received = reviewers launched; findings fixed and tested
@@ -372,6 +389,10 @@ looking in a mirror.
 
 ## Version history of this protocol
 
+- **v1.1 (2026-10-28, during v0.5.1):**
+  - §4: one full CI run plus five loaded runs of the body suite, instead of three full runs.
+  - §5.7: the harness rules.
+  - bundle.sh: `--bless`, and it refuses a dirty scripts/.
 - **v1 (2026-10-28, after v0.5.0-preview):** first version. Combined Engram's RELEASE_PROTOCOL (bug classes,
   mutation test, adversarial and post-release reviews, the agent-run user session) and temm1e's tem-release-protocol
   (version sweep, distribution parity, tag only after green) with REL-050's lessons and the get.sh incident

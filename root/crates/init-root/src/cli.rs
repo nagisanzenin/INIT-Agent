@@ -90,7 +90,7 @@ pub fn run(mut a: Vec<String>) -> u8 {
         ["resume", ..] | ["stop", ..] => match link::request(&p, words[0], json!({}), T) {
             Ok(r) => out(&r, 0),
             Err(Fail::Refused(_, m)) => fail(if words[0] == "resume" { 77 } else { 1 }, &m),
-            Err(f) => unreachable_or(f),
+            Err(f) => unreachable_or(&p, f),
         },
         ["keys", "set"] => keys_set(&p, flag(&mut a, "--action"), a.get(2).cloned()),
         // UX-KEYMODEL: providers, the catalog and the model selection (providers.rs)
@@ -98,7 +98,7 @@ pub fn run(mut a: Vec<String>) -> u8 {
         ["keys", "check"] => keys_check(&p),
         ["egress", "stats"] => match link::request(&p, "egress.stats", json!({}), T) {
             Ok(v) => out(&v, 0),
-            Err(f) => unreachable_or(f),
+            Err(f) => unreachable_or(&p, f),
         },
         ["audit", "verify"] if a.iter().any(|x| x == "--file" || x == "--pub") => {
             let (file, key, head) = (opt(&mut a, "--file"), opt(&mut a, "--pub"), opt(&mut a, "--head"));
@@ -148,10 +148,10 @@ pub fn run(mut a: Vec<String>) -> u8 {
             match link::request(&p, "test.clock", args, T) {
                 Ok(r) => out(&r, 0),
                 Err(Fail::Refused(_, m)) => fail(2, &m),
-                Err(f) => unreachable_or(f),
+                Err(f) => unreachable_or(&p, f),
             }
         }
-        ["test", ..] => fail(2, "init-root test …: only in a test build (cargo feature test-fixtures)"),
+        ["test", ..] => fail(2, "the test commands exist only in a test build (cargo feature test-fixtures)"),
         _ => fail(64, USAGE),
     }
 }
@@ -200,7 +200,7 @@ fn sealed_cmd(p: &Paths, word: &str, mut a: Vec<String>) -> u8 {
             _ => return fail(1, "owner.sock is unreachable but a Root holds run/root.lock"),
         },
         Err(Fail::Refused(_, m)) => return fail(1, &m),
-        Err(f) => return unreachable_or(f),
+        Err(f) => return unreachable_or(p, f),
         Ok(v) => Ok(v),
     };
     r.map_or_else(|(_, m)| fail(1, &m), |v| out(&v, 0))
@@ -230,9 +230,9 @@ fn out(v: &Value, code: u8) -> u8 {
     code
 }
 
-fn unreachable_or(f: Fail) -> u8 {
+fn unreachable_or(p: &Paths, f: Fail) -> u8 {
     match f {
-        Fail::Unreachable(e) => fail(69, &format!("the Root is unreachable ({e}); is `init-root start` running?")),
+        Fail::Unreachable(e) => fail(69, &format!("the Root is not running ({e}). Start it: {}", install::start_hint(p))),
         Fail::Protocol(m) => fail(76, &format!("protocol error: {m}")),
         Fail::Refused(c, m) => fail(1, &format!("{c}: {m}")),
     }
@@ -281,6 +281,11 @@ fn start(p: &Paths, fg: bool) -> u8 {
     if fg {
         eprintln!("init-root: {}", icj(&root.status()).unwrap_or_default());
     }
+    // ROOT-MSG (v0.5.1): a person who started the daemon by hand learns that this terminal is now the Root's
+    if sys::isatty(2) {
+        eprintln!("init-root: the Root is running in this terminal. Leave it open (Ctrl-C stops the Root and the agent), \
+            and open INIT from another terminal: init-agent");
+    }
     crate::sup::start(&root);
     crate::memwatch::spawn_zone(root.clone()); // MEM-RUNAWAY: every held instance, every second
     crate::lineage::mirror::spawn(&root, crate::sup::integrity_halt);
@@ -297,7 +302,7 @@ fn start(p: &Paths, fg: bool) -> u8 {
 fn attach(p: &Paths, replay: bool, raw: bool) -> u8 {
     let s = match UnixStream::connect(p.r("run/owner.sock")) {
         Ok(s) => s,
-        Err(e) => return unreachable_or(Fail::Unreachable(e)),
+        Err(e) => return unreachable_or(p, Fail::Unreachable(e)),
     };
     let Ok(mut w) = s.try_clone() else { return 76 };
     let hello = icj(&json!({"client": "init-root attach", "replay": replay, "t": "attach"})).unwrap_or_default();
@@ -448,7 +453,7 @@ fn keys_set(p: &Paths, action: bool, id: Option<String>) -> u8 {
     };
     let dir = p.r(if action { "keys/actions" } else { "keys/providers" });
     if !dir.is_dir() {
-        return fail(1, &format!("{} is missing; run init-root install first", dir.display()));
+        return fail(1, &format!("{} is missing: INIT is not installed in {} (install it with get.sh, docs/guide.md)", dir.display(), p.rh.display()));
     }
     if !sys::isatty(0) {
         return fail(2, "keys set reads the secret from a TTY only (never from argv, the environment or a pipe)");
@@ -513,7 +518,7 @@ fn status(p: &Paths, json_out: bool, proposals: bool, selftest: bool) -> u8 {
     let mut v = match link::request(p, "status", json!({}), T) {
         Ok(v) => v,
         Err(Fail::Unreachable(_)) => offline(p),
-        Err(f) => return unreachable_or(f),
+        Err(f) => return unreachable_or(p, f),
     };
     if v.is_object() && v["evolution"].is_null() {
         v["evolution"] = install::evolution(p);

@@ -339,7 +339,9 @@ impl<W: Write> LineApp<W> {
                     return;
                 }
                 if !self.ever_attached && !self.o.wait {
-                    eprintln!("init-tui: the Root is unreachable at {} ({msg})", conn::sock(&self.o.root_home).display());
+                    let home = std::env::var("HOME").ok();
+                    let hint = crate::app::start_hint(&self.o.root_home, home.as_deref());
+                    eprintln!("init-tui: the Root is unreachable at {} ({msg}); {hint}", conn::sock(&self.o.root_home).display());
                     self.exit = Some(69);
                     return;
                 }
@@ -526,9 +528,6 @@ impl<W: Write> LineApp<W> {
                     Frame::Notice { text, code, .. } => {
                         if notice::is_queue_full(&text, proto::src(&v)) {
                             self.echoes.queue_full();
-                        }
-                        if proto::src(&v) == Some("root") {
-                            self.acc.on_root_notice(&text); // TUI-BRAND: no second "no workspace"
                         }
                         // TUI-BRAND: the same notice again and again prints once, then `  ×n in all`
                         let key = format!("{}\u{0}{}", proto::src(&v).unwrap_or(""), text);
@@ -720,6 +719,8 @@ pub fn run(o: LineOpts) -> i32 {
     let acc = access::Flow::new(o.cwd.clone(), o.full, o.workspace);
     let mut info = Info::default();
     info.home = std::env::var("HOME").ok().filter(|h| !h.is_empty());
+    // a key typed into a terminal in line mode would be echoed: only a pipe may carry one
+    let setup = setup::Flow::new(!std::io::IsTerminal::is_terminal(&std::io::stdin()), &o.root_home, info.home.as_deref());
     let mut app = LineApp {
         o,
         out: Out { w: io::BufWriter::new(io::stdout()), col: 0, style },
@@ -755,8 +756,7 @@ pub fn run(o: LineOpts) -> i32 {
         last_notice: None,
         reqs: Vec::new(),
         steers: std::collections::BTreeMap::new(),
-        // a key typed into a terminal in line mode would be echoed: only a pipe may carry one
-        setup: setup::Flow::new(!std::io::IsTerminal::is_terminal(&std::io::stdin())),
+        setup,
         ask: None,
     };
     app.start_attach();

@@ -107,8 +107,8 @@ pub fn gog(root: &Root, gate: &Path, args: &[String], source: &str) -> Result<Va
             "sample_n": tasks.len(), "source": source, "spent_musd": 0, "total": 0, "tuple": null, "underpowered": true});
         root.append("mutation", data.clone());
         root.alert_from("sealed", "gog_underpowered", &format!("[root] the gate-of-gates did not run: S holds {} tasks and {} canaries, \
-            below the {} tasks plus the canary it needs; add tasks with init-root sealed import (recorded as underpowered, no demotion)",
-            tasks.len(), canaries.len(), super::S_MIN));
+            below the {} tasks plus the canary it needs; add tasks with {} (recorded as underpowered, no demotion)",
+            tasks.len(), canaries.len(), super::S_MIN, util::root_cmd(&env.rh, "sealed import <dir>")));
         return Ok(json!({"mutation": data, "verdicts": {}}));
     }
     let id = util::hex(&util::random::<6>().map_err(|e| e.to_string())?);

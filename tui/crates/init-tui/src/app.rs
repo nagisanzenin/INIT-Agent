@@ -27,6 +27,8 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 mod pick; // TUI-PICKER: the picker's wiring (app/pick.rs)
+#[cfg(test)]
+mod fix_tests; // TUI-FIX (v0.5.1): the user sessions' defects, through the real App
 
 pub struct Opts {
     pub root_home: PathBuf,
@@ -124,6 +126,63 @@ pub struct App {
     secret: Option<Vec<u8>>,
     /// TUI-OBSERVE: the transcript view's lineage panel (the Root's `lineage.tail`).
     lineage: crate::render::lineage::Panel,
+    /// TUI-FIX (v0.5.1): `/panic` was typed; the next line must be `panic` to send it (§3.8).
+    pub panic_ask: bool,
+    /// TUI-FIX2: setup answers that arrived while `/panic` waited for its word; they run after it.
+    panic_held: Vec<(setup::Op, Result<serde_json::Value, conn::ReqErr>)>,
+}
+
+/// v0.5.1: `init-root <args>` as the owner types it in a terminal, the same form the Root prints
+/// (`util::root_cmd_for`, root/crates/init-root/src/util.rs). `init-root` is not on the owner's PATH (only
+/// `init-agent` is), so a bare `init-root …` fails with "zsh: command not found: init-root". The default
+/// install (`$HOME/.init-root`) prints as `~/.init-root/bin/init-root <args>`; any other ROOT_HOME prints its
+/// absolute binary with `INIT_ROOT_HOME=` in front, quoted when the path needs it.
+pub fn root_cmd(root_home: &std::path::Path, home: Option<&str>, args: &str) -> String {
+    let q = |s: String| {
+        if !s.is_empty() && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"/._+-,:@%=".contains(&c)) { s } else { format!("'{}'", s.replace('\'', "'\\''")) }
+    };
+    let exe = if home.is_some_and(|h| root_home == std::path::Path::new(h).join(".init-root")) {
+        "~/.init-root/bin/init-root".to_string()
+    } else {
+        format!("INIT_ROOT_HOME={} {}", q(root_home.display().to_string()), q(root_home.join("bin/init-root").display().to_string()))
+    };
+    if args.is_empty() { exe } else { format!("{exe} {args}") }
+}
+
+/// TUI-FIX (v0.5.1 user session: "zsh: command not found: init-root"): how to start the Root, with
+/// the binary where it really is ([`root_cmd`]).
+pub fn start_hint(root_home: &std::path::Path, home: Option<&str>) -> String {
+    start_hint_on(root_home, home, std::env::consts::OS)
+}
+
+/// [`start_hint`] for one OS (`std::env::consts::OS`): the Root's service is a launchd job on macOS and
+/// a systemd user unit elsewhere (Linux; init-root's install.rs `service_path`).
+pub(crate) fn start_hint_on(root_home: &std::path::Path, home: Option<&str>, os: &str) -> String {
+    let service = if os == "macos" { "its launchd job" } else { "its systemd user unit init-root.service" };
+    format!(
+        "start it in another terminal with `{}` and leave that terminal open (or through {service}, if one is installed)",
+        root_cmd(root_home, home, "start")
+    )
+}
+
+/// TUI-FIX (v0.5.1 user session): `/panic` asks first, in TTY mode. What it does, how to confirm,
+/// how to cancel; the Root's own semantics are unchanged (root/root.md §3.9).
+pub const PANIC_ASK: &str = "[tui] /panic is the emergency stop: it kills every agent process and all model spend now, \
+    lowers the agent's autonomy level one step (when it is above L0), and /resume later restarts it on its last \
+    audited-good version. \
+    To stop only the current run use /stop; to stop the agent without a demotion, /root stop. \
+    Type panic and press Enter to stop everything now; Esc or any other line cancels.";
+/// The hint line while `/panic` waits for its confirmation.
+pub const PANIC_HINT: &str = "type panic and press Enter to stop everything now · Esc or any other line cancels";
+/// The word that confirms `/panic`.
+pub const PANIC_WORD: &str = "panic";
+
+/// TUI-FIX2 (v0.5.1 review): the lines that confirm `/panic`: the word, or `/panic` again (Up+Enter
+/// recalls it), trimmed and in any case. Before, `/panic` again cancelled and came back to the box,
+/// where Enter asked again, without end.
+pub fn panic_confirms(line: &str) -> bool {
+    let t = line.trim();
+    t.eq_ignore_ascii_case(PANIC_WORD) || t.eq_ignore_ascii_case("/panic")
 }
 
 impl App {
@@ -132,6 +191,7 @@ impl App {
         let acc = access::Flow::new(o.cwd.clone(), o.full, o.workspace);
         let mut info = Info::default();
         info.home = std::env::var("HOME").ok().filter(|h| !h.is_empty());
+        let setup = setup::Flow::new(true, &o.root_home, info.home.as_deref()).with_pickers();
         App {
             o,
             tx,
@@ -170,9 +230,11 @@ impl App {
             ever_attached: false,
             need_first_paint: false,
             acc,
-            setup: setup::Flow::new(true).with_pickers(),
+            setup,
             secret: None,
             lineage: Default::default(),
+            panic_ask: false,
+            panic_held: Vec::new(),
         }
     }
 
@@ -259,10 +321,7 @@ impl App {
                 if !self.unreachable_told {
                     self.unreachable_told = true;
                     let s = conn::sock(&self.o.root_home);
-                    self.info_block(format!(
-                        "the Root is not reachable at {} ({msg}); start it with `init-root start` (or its launchd job). Retrying.",
-                        s.display()
-                    ));
+                    self.info_block(format!("the Root is not reachable at {} ({msg}); {}. Retrying.", s.display(), start_hint(&self.o.root_home, self.info.home.as_deref())));
                 }
                 self.schedule_retry();
             }
@@ -318,6 +377,9 @@ impl App {
                 let _ = self.poll.send(PollCmd::Status);
                 self.dirty = true;
             }
+            // TUI-FIX2: nothing takes the box from a pending `/panic` confirmation (a setup picker or the
+            // hidden key field would take its keys): the answer runs when the confirmation is over
+            Ev::Setup { op, result } if self.panic_ask => self.panic_held.push((op, result)),
             Ev::Setup { op, result } => {
                 let outs = self.setup.on_answer(op, result);
                 self.setup_outs(outs);
@@ -400,6 +462,7 @@ impl App {
                     let new_session = text.trim() == "/new";
                     if seq.is_some() && proto::line_kind(&text, false) == LineKind::Input {
                         self.info.on_owner_delivered();
+                        self.on_owner_input(); // TUI-PICKER: an answered question stays answered
                     }
                     match r {
                         EchoOut::Update(id, st) if self.tray.has(id) => {
@@ -434,6 +497,9 @@ impl App {
                             for r in done {
                                 self.t.push(Kind::Gate(Box::new(r)), now_ms);
                             }
+                            // TUI-FIX: the ledger's spend while a self-change is in flight (/usage)
+                            self.info.on_gate(self.t.gates.in_flight(), now);
+                            let _ = self.poll.send(PollCmd::Egress);
                             self.t.dirty = true;
                             return;
                         }
@@ -457,9 +523,6 @@ impl App {
                         }
                         return;
                     }
-                    if src == Some("root") {
-                        self.acc.on_root_notice(&text); // TUI-BRAND: no second "no workspace"
-                    }
                     self.t.notice(&level, &text, src, code.as_deref(), now_ms);
                     if src != Some("kernel") && (text.starts_with("[root]") || text.starts_with("PANIC")) {
                         let _ = self.poll.send(PollCmd::Status);
@@ -479,6 +542,7 @@ impl App {
                         self.tray_out(o);
                     }
                     if was && !self.info.busy() {
+                        let _ = self.poll.send(PollCmd::Egress); // TUI-FIX: closes the turn's cost
                         self.t.end_activity(now); // the run ended: the activity freezes to its summary
                         for o in self.tray.flush_untracked() {
                             self.tray_out(o);
@@ -589,6 +653,16 @@ impl App {
                 View::None => {}
             }
             return;
+        }
+        if self.panic_ask && k.kind != crossterm::event::KeyEventKind::Release {
+            let ctrl_c = k.code == crossterm::event::KeyCode::Char('c') && k.modifiers.contains(crossterm::event::KeyModifiers::CONTROL);
+            if k.code == crossterm::event::KeyCode::Esc {
+                return self.panic_cancel();
+            }
+            if ctrl_c {
+                self.panic_cancel();
+                return self.ctrl_c();
+            }
         }
         if self.ed.picker.is_some() && self.secret.is_none() {
             return self.picker_key(k); // TUI-PICKER
@@ -753,6 +827,17 @@ impl App {
         if text.trim().is_empty() {
             return;
         }
+        if self.panic_ask {
+            // TUI-FIX: the line after `/panic` answers its confirmation and is never sent as a line
+            self.ed.clear();
+            if panic_confirms(&text) {
+                self.panic_now();
+            } else {
+                self.info_block("/panic cancelled: nothing was stopped; your line was not sent and is back in the box (Enter sends it)");
+                self.ed.set(&text);
+            }
+            return self.panic_over();
+        }
         if text.trim() == "/usage" {
             self.ed.push_history(&text);
             self.ed.clear();
@@ -799,15 +884,13 @@ impl App {
             return;
         }
         if kind == LineKind::Panic {
+            // TUI-FIX (v0.5.1): never one keystroke from a completion: say what it does, then ask
             self.ed.push_history(&text);
             self.ed.clear();
             let id = self.echoes.new_id();
             self.t.push(Kind::Owner { id, text: "/panic".into(), st: OwnerSt::Command }, Self::now_ms());
-            if !(self.feed.is_live() && self.send_frame(&proto::panic_frame())) {
-                conn::panic_fallback(self.o.root_home.clone(), self.tx.clone());
-                self.info_block("/panic: the attach connection is down; sending the panic request on a fresh connection");
-            }
-            let _ = self.poll.send(PollCmd::Status);
+            self.t.notice("warn", PANIC_ASK, Some("tui"), None, Self::now_ms());
+            self.panic_ask = true;
             return;
         }
         let frame = proto::line(&text);
@@ -841,6 +924,35 @@ impl App {
         if kind == LineKind::RootCommand {
             let _ = self.poll.send(PollCmd::Status);
         }
+    }
+
+    /// `/panic`, confirmed: the panic frame on the attach connection, or the request on a fresh one,
+    /// or the Root's own `init-root panic` fallback (§3.8).
+    fn panic_now(&mut self) {
+        let id = self.echoes.new_id();
+        self.t.push(Kind::Owner { id, text: PANIC_WORD.into(), st: OwnerSt::Command }, Self::now_ms());
+        if !(self.feed.is_live() && self.send_frame(&proto::panic_frame())) {
+            conn::panic_fallback(self.o.root_home.clone(), self.tx.clone());
+            self.info_block("/panic: the attach connection is down; sending the panic request on a fresh connection");
+        }
+        let _ = self.poll.send(PollCmd::Status);
+    }
+
+    /// Esc or Ctrl-C while `/panic` waits for its confirmation: nothing is stopped.
+    fn panic_cancel(&mut self) {
+        self.info_block("/panic cancelled: nothing was stopped");
+        self.panic_over();
+    }
+
+    /// TUI-FIX2: the confirmation is over (sent or cancelled). What waited for it runs now: setup's
+    /// answers, then the agent's question.
+    fn panic_over(&mut self) {
+        self.panic_ask = false;
+        for (op, result) in std::mem::take(&mut self.panic_held) {
+            self.handle(Ev::Setup { op, result });
+        }
+        self.next_picker();
+        self.dirty = true;
     }
 
     /// STEER: Tab while busy: the box goes out as `/later <text>`, the next task after this run.
@@ -1001,7 +1113,11 @@ impl App {
         };
         let commits = live::commit(&mut self.t, w, max_live, self.verbose, now, spin);
         // while the Root waits for a typed confirmation, the hint says so (ADR-009)
-        let hint = self.hint.as_ref().map(|(s, _)| s.clone()).or_else(|| self.acc.awaiting().map(|p| format!("type {p} and press Enter to confirm; anything else cancels")));
+        let hint = if self.panic_ask {
+            Some(PANIC_HINT.to_string())
+        } else {
+            self.hint.as_ref().map(|(s, _)| s.clone()).or_else(|| self.acc.awaiting().map(|p| format!("type {p} and press Enter to confirm; anything else cancels")))
+        };
         let ui = Ui { t: &self.t, tray: &self.tray, ed: &self.ed, info: &self.info, verbose: self.verbose, overlay: self.overlay, hint: hint.as_deref(), now, now_ms, no_color: self.o.no_color, spin };
         let region = live::region(&ui, w, h);
         out.queue(BeginSynchronizedUpdate)?;
@@ -1043,6 +1159,40 @@ impl App {
         self.prev_cursor_row = cy.min(n.saturating_sub(1));
         self.need_full = false;
         self.after_flush(now);
+        Ok(())
+    }
+
+    /// TUI-FIX (v0.5.1 user session: "Ctrl-D quit silently and left half an input box"): on the way
+    /// out, the live region (input box, status bar, hint line) is erased, every block not yet printed
+    /// goes up once, and one line says what keeps running and how to come back.
+    pub fn leave<W: Write>(&mut self, out: &mut W) -> io::Result<()> {
+        if self.view.take().is_some() {
+            out.queue(LeaveAlternateScreen)?;
+            term::set_alt(false);
+        }
+        let now = Instant::now();
+        let w = self.w.max(1) as usize;
+        let spin = live::spin_at(self.t0, now);
+        out.queue(BeginSynchronizedUpdate)?;
+        if self.prev_cursor_row > 0 {
+            out.queue(MoveToPreviousLine(self.prev_cursor_row as u16))?;
+        } else {
+            out.queue(MoveToColumn(0))?;
+        }
+        out.queue(Clear(ClearType::FromCursorDown))?;
+        let mut rows = live::commit(&mut self.t, w, 0, self.verbose, now, spin);
+        rows.extend(live::live_rows(&self.t, w, self.verbose, now, spin));
+        rows.extend(live::goodbye(&self.info, w, self.ever_attached && self.exit != Some(76)));
+        for l in &rows {
+            term::write_line(out, l, self.o.no_color)?;
+            out.queue(Clear(ClearType::UntilNewLine))?;
+            out.write_all(b"\r\n")?;
+        }
+        out.queue(Show)?;
+        out.queue(EndSynchronizedUpdate)?;
+        out.flush()?;
+        self.prev.clear();
+        self.prev_cursor_row = 0;
         Ok(())
     }
 
@@ -1114,7 +1264,7 @@ impl App {
                 Err(RecvTimeoutError::Disconnected) => return 1,
             }
             if let Some(code) = self.exit {
-                let _ = self.render(out);
+                let _ = self.leave(out);
                 return code;
             }
             let now = Instant::now();
@@ -1188,9 +1338,7 @@ pub fn run(o: Opts) -> i32 {
     let _ = out.flush();
     stop.store(true, Ordering::SeqCst);
     let _ = ptx.send(PollCmd::Stop);
-    term::restore();
-    // leave the cursor below the live region
-    println!();
+    term::restore(); // the cursor is already below the goodbye line (`App::leave`)
     if latency {
         eprint!("{}", app.lat.report());
     }

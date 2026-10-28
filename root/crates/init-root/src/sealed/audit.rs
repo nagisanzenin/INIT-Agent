@@ -42,7 +42,7 @@ pub fn audit(root: &Root, reason: &str) -> Result<Value, String> {
     let state: Value = std::fs::read_to_string(&state_p).ok().and_then(|x| serde_json::from_str(&x).ok()).unwrap_or(json!({}));
     let (canaries, mut tasks): (Vec<Task>, Vec<Task>) = task::store(&env.rh).into_iter().partition(|t| t.canary);
     if tasks.is_empty() {
-        return Err("S is empty: init-root sealed import <dir>".into());
+        return Err(format!("S is empty: {}", util::root_cmd(&env.rh, "sealed import <dir>")));
     }
     // the sample rotates over a fixed order, so every task runs at least once per ⌈|S|/n⌉ audits
     let want = (s.audit_n.max(1) as usize) * if state["double"] == true { 2 } else { 1 };

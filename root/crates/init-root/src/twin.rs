@@ -5,7 +5,8 @@
 //! - **The twin** is the `lkg` tuple when `extend.mode` first becomes `"free"`, with a system snapshot of the agent
 //!   state taken then (snapshot.rs; `keep_set` pins it by id). Only the owner re-freezes it (`/twin refreeze`, with
 //!   the typed confirmation, on `owner.sock`); the Root suggests a re-freeze after 90 days. No control-link request,
-//!   grant or record moves it.
+//!   grant or record moves it. An owner upgrade's commit gives it the release's kernel with its body, ext and freeze
+//!   kept (tuple::reanchor): the replays never run the twin's kernel, and `/rollback twin` must not run an old one.
 //! - **The replay store** `ROOT_HOME/extend/replay/<id>/` (0700; never mirrored, never in the lineage, 7 days, at
 //!   most 64): the first line of an owner session that has a workspace snapshot (ADR-009's `session` snapshot, the
 //!   state that turn started from), an APFS clone of that snapshot, and the caps its turn used.
@@ -114,8 +115,9 @@ pub struct Pin {
 pub fn pin_of(records: &[Value]) -> Option<Pin> {
     let r = records.iter().rev().find(|r| r["kind"] == "twin")?;
     let d = &r["data"];
+    // `frozen_at`: an owner upgrade's commit moved the twin onto the release's kernel and kept its freeze (tuple::reanchor)
     Some(Pin { tuple: d["tuple"].as_str()?.to_string(), snapshot: d["snapshot"].as_str().map(String::from),
-        at: r["at"].as_str().and_then(util::parse_rfc3339).unwrap_or(0), reason: d["reason"].as_str().unwrap_or("").to_string() })
+        at: d["frozen_at"].as_str().or(r["at"].as_str()).and_then(util::parse_rfc3339).unwrap_or(0), reason: d["reason"].as_str().unwrap_or("").to_string() })
 }
 
 /// Freezes the `lkg` tuple with a fresh system snapshot and appends `twin{tuple, snapshot, reason}`. On `enable` a

@@ -331,7 +331,7 @@ impl Lineage {
 }
 
 /// A fault point outside a `Lineage` (mirror, `kernel.git`): `INIT_FAULT` from the environment.
-fn env_fault(point: &str) -> io::Result<()> {
+pub(crate) fn env_fault(point: &str) -> io::Result<()> {
     #[cfg(feature = "fault-injection")]
     {
         let spec = std::env::var("INIT_FAULT").unwrap_or_default();

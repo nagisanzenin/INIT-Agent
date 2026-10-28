@@ -66,7 +66,7 @@ fn says(r: &Value) -> (String, Style) {
 
 /// The panel's rows: a rule, the verify line, then the records (oldest first).
 pub fn rows(p: &Panel, width: usize) -> Vec<Line> {
-    let mut out = vec![Line::from_span("── lineage (signed by the Root) ", Style::fg(Role::Line)).pad(width, Style::fg(Role::Line)).truncate(width)];
+    let mut out = vec![rule("── lineage (signed by the Root) ", width)];
     let ans = match &p.answer {
         None if p.pending => return [out, vec![Line::from_span("  asking the Root…", Style::dim())]].concat(),
         None => return [out, vec![Line::from_span("  not asked yet", Style::dim())]].concat(),
@@ -77,13 +77,25 @@ pub fn rows(p: &Panel, width: usize) -> Vec<Line> {
         Some(Ok(a)) => a,
     };
     let v = &ans["verify"];
+    let recs: Vec<&Value> = ans["rows"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
+    let room = MAX_ROWS.saturating_sub(out.len() + 1);
+    let shown = &recs[recs.len().saturating_sub(room)..];
+    // TUI-FIX (v0.5.1 user session: "verify ✓ 9 records … head 8" above records 1–8): the records are
+    // numbered from 0, and the panel lists the newest few; the rule says which ones
+    let seqs: Vec<u64> = shown.iter().filter_map(|r| r["seq"].as_u64()).collect();
+    if let (Some(a), Some(b)) = (seqs.first(), seqs.last()) {
+        let total = v["records"].as_u64().map(|n| format!(" of {n}")).unwrap_or_default();
+        let which = if a == b { format!("seq {a}") } else { format!("seq {a}–{b}") };
+        out[0] = rule(&format!("── lineage (signed by the Root) · newest {}{total}: {which} ", shown.len()), width);
+    }
     let mut l = Line::from_span("  ", Style::PLAIN);
     if v["ok"] == true {
         l.push("verify ✓", Style::fg(Role::Pass));
         let n = v["records"].as_u64().unwrap_or(0);
         let sigs = v["sigs_checked"].as_u64().unwrap_or(0);
         let scope = if sigs >= n { "every signature".to_string() } else { format!("signatures of the last {sigs}") };
-        let head = format!(" {n} records · {scope} · head {} #{}", v["head_seq"].as_u64().unwrap_or(0),
+        let range = if n > 0 { format!(" (seq 0–{})", n - 1) } else { String::new() };
+        let head = format!(" {n} records{range} · {scope} · head {} #{}", v["head_seq"].as_u64().unwrap_or(0),
             s(v, "head_hash").trim_start_matches("sha256:").chars().take(12).collect::<String>());
         l.extend(sanitize::inline(&head, Style::dim()));
     } else {
@@ -95,9 +107,7 @@ pub fn rows(p: &Panel, width: usize) -> Vec<Line> {
         l.extend(sanitize::inline(&format!(" · key {}", s(v, "key")), Style::fg(Role::Mute)));
     }
     out.push(l.truncate(width));
-    let recs: Vec<&Value> = ans["rows"].as_array().map(|a| a.iter().collect()).unwrap_or_default();
-    let room = MAX_ROWS.saturating_sub(out.len());
-    for r in recs.iter().skip(recs.len().saturating_sub(room)) {
+    for r in shown {
         let mut l = Line::from_span(format!("  {:>6} ", r["seq"].as_u64().map_or("?".into(), |x| x.to_string())), Style::fg(Role::Mute));
         l.extend(sanitize::inline(&format!("{:<14}", s(r, "kind")), Style::PLAIN));
         let (what, st) = says(r);
@@ -114,6 +124,10 @@ pub fn rows(p: &Panel, width: usize) -> Vec<Line> {
         out.push(row.truncate(width));
     }
     out
+}
+
+fn rule(text: &str, width: usize) -> Line {
+    sanitize::inline(text, Style::fg(Role::Line)).pad(width, Style::fg(Role::Line)).truncate(width)
 }
 
 #[cfg(test)]
@@ -156,6 +170,14 @@ mod tests {
         out.push_str(&format!("-- an older Root\n{}", grid(&rows(&p, 100), 100)));
         p.on_answer(Ok(answer(true)));
         out.push_str(&format!("-- narrow\n{}", grid(&rows(&p, 60), 60)));
+        // TUI-FIX (v0.5.1): 9 records (seq 0–8) with the newest 8 listed says so
+        let rec = |seq: u64| json!({"seq": seq, "by": "root", "kind": "turns", "data": {}, "hash": "ab"});
+        let nine = Panel { answer: Some(Ok(json!({"records": 9, "rows": (1..=8).map(rec).collect::<Vec<_>>(),
+            "verify": {"ok": true, "records": 9, "sigs_checked": 9, "head_seq": 8, "head_hash": "sha256:00", "key": "k"}}))), pending: false };
+        let t: Vec<String> = rows(&nine, 100).iter().map(|l| l.text()).collect();
+        assert!(t[0].starts_with("── lineage (signed by the Root) · newest 8 of 9: seq 1–8 "), "{t:#?}");
+        assert!(t[1].contains("verify ✓ 9 records (seq 0–8) · every signature · head 8"), "{t:#?}");
+        assert_eq!(t.len(), 10);
         let path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/golden/lineage_panel.txt");
         if std::env::var_os("UPDATE_GOLDEN").is_some() {
             std::fs::write(&path, &out).unwrap();

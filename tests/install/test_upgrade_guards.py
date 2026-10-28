@@ -4,7 +4,11 @@
   install.sh without --upgrade over an install: each exits 1 with a message that names the right command, and leaves
   the scratch directory as it was (get.sh checks this before it downloads or unpacks anything).
 - `init-agent upgrade` runs the get.sh kept in ROOT_HOME/cache/ with --upgrade and its own flags mapped (--bundle is
-  get.sh's --from); with no kept copy (an install of 0.4.1) it exits 69 and prints the one-line curl command.
+  get.sh's --from); with no kept copy (an install of 0.4.1) it exits 69 and prints the one-line upgrade that runs the
+  current get.sh with the system's curl and sh.
+- install.sh over 0.4.1 or 0.5.0 names its own `install.sh --upgrade` and that one-line upgrade, never
+  `init-agent upgrade` (0.5.0's runs 0.5.0's get.sh); over 0.5.1 or later, `init-agent upgrade`. Each line carries this
+  ROOT_HOME and quotes the paths (the repository's own path has a space).
 
 Each run gets a scratch HOME, ROOT_HOME and INIT_HOME. Stdlib only; ci/local.sh runs it with the other tests here
 (`python3 -m unittest discover -s tests/install`). The upgrade itself runs end to end in scripts/upgrade-e2e.sh.
@@ -15,6 +19,8 @@ import shutil
 import subprocess
 import tempfile
 import unittest
+
+from test_printed_commands import shq
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 SCRIPTS = os.path.join(REPO, "scripts")
@@ -107,23 +113,34 @@ class UpgradeGuards(unittest.TestCase):
             self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
             self.assertIn("INIT 0.3.1 is installed", p.stderr)
             self.assertIn("before 0.4.1 is not supported", p.stderr)
-            self.assertIn("scripts/uninstall.sh", p.stderr)
+            self.assertIn("\n  INIT_ROOT_HOME=%s bash %s\n" % (shq(self.rh), shq(os.path.join(SCRIPTS, "uninstall.sh"))), p.stderr)
             self.assertNotIn("init-agent upgrade", p.stderr)
 
-    def test_install_over_041_points_to_install_sh_upgrade(self):
+    def test_install_over_041_or_050_points_to_install_sh_upgrade_and_the_safe_line(self):
         self.installed()
-        self.fake_root("0.4.1")
+        rh = "INIT_ROOT_HOME=%s " % shq(self.rh)
+        for version in ("0.4.1", "0.5.0"):
+            self.fake_root(version)
+            p = self.run_script(["/bin/bash", os.path.join(SCRIPTS, "install.sh"), "--yes", "--no-service"])
+            self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+            self.assertIn("INIT %s is already installed" % version, p.stderr)
+            self.assertIn("\n  %s%s --upgrade\n" % (rh, shq(os.path.join(SCRIPTS, "install.sh"))), p.stderr)
+            self.assertIn("once from your own shell: /usr/bin/curl -q -fsSL https://releases.invalid/init/get.sh | %s/bin/sh -s --"
+                          " --upgrade\n" % rh, p.stderr)
+            self.assertNotIn("\n  init-agent upgrade", p.stderr)
+            self.assertNotIn("\n  %sinit-agent upgrade" % rh, p.stderr)
+        self.fake_root("0.5.1")
         p = self.run_script(["/bin/bash", os.path.join(SCRIPTS, "install.sh"), "--yes", "--no-service"])
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
-        self.assertIn("INIT 0.4.1 is already installed", p.stderr)
-        self.assertIn("scripts/install.sh --upgrade", p.stderr)
-        self.assertNotIn("\n  init-agent upgrade", p.stderr)
+        self.assertIn("\n  %sinit-agent upgrade        (or: %s%s --upgrade)\n" % (rh, rh, shq(os.path.join(SCRIPTS, "install.sh"))), p.stderr)
+        self.assertNotIn("/usr/bin/curl", p.stderr)
 
     def test_launcher_without_a_kept_get_sh(self):
-        os.makedirs(os.path.join(self.rh, "cache"))
+        self.installed()
         p = self.run_script(["/bin/bash", os.path.join(SCRIPTS, "init-agent"), "upgrade"])
         self.assertEqual(p.returncode, 69, p.stderr)
-        self.assertIn("sh -s -- --upgrade", p.stderr)
+        self.assertIn("/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh |"
+                      " INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade\n" % shq(self.rh), p.stderr)
 
     def test_launcher_runs_the_kept_get_sh_with_its_flags(self):
         cache = os.path.join(self.rh, "cache")

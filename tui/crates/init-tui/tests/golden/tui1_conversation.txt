@@ -36,7 +36,7 @@ The anchor moved, so I'll read the file again and retry                         
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › also add a timeout flag                                                                                            │|llmm..................................................................................................................ll
 └──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- busy 17 s · deepseek-flash · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg     L0 (cap L1) · root ok |..........mmmddddddddddddddmmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm................mmmaaaaaaa 
+ busy 17 s · deepseek-flash · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg    L0 (cap L1) · root ok |..........mmmddddddddddddddmmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm...............mmmaaaaaaa 
 cursor 27,15
 == 40x12 ==
 ◇ ran 2 tools in 1.8 s · ba…  ✕ 1 failed|mm....................dddddd..hhhhhhhhhh

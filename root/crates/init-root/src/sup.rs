@@ -381,7 +381,7 @@ fn proposal(root: &Root, a: &Value) -> Result<Value, Err3> {
     *n += 1;
     day.push_back(now);
     drop(g);
-    root.alert("proposal", &format!("[root] the agent filed proposal {id}: {title} (never applied; init-root status --proposals)"));
+    root.alert("proposal", &format!("[root] the agent filed proposal {id}: {title} (never applied; to list them, run {})", root.p.cmd("status --proposals")));
     Ok(json!({"id": id}))
 }
 
@@ -452,11 +452,17 @@ fn handle(root: &Arc<Root>, k: &Kctl, id: &str, cmd: &str, a: &Value) -> Result<
         "alert" if !root.sup.rate("alert", 30) => Err(("root.rate", "at most 30 kernel alerts per hour".into(), Value::Null)),
         "alert" => {
             let m: String = a["message"].as_str().unwrap_or("").chars().take(2000).collect();
-            root.alert_from("kernel", a["code"].as_str().unwrap_or("kernel"), &m);
+            root.alert_from("kernel", a["code"].as_str().unwrap_or("kernel"), &runnable(&root.p.cmd(""), &m));
             Ok(json!({}))
         }
         c => Err(("root.unknown_cmd", format!("command {c:?} is not supported by this Root"), Value::Null)),
     }
+}
+
+/// ROOT-MSG (v0.5.1): a kernel cannot know this install's `init-root`, which is not on the owner's PATH, so a command a
+/// kernel alert names in backticks (`` `init-root sealed draw` ``) gets `exe`, the command that runs it as printed.
+fn runnable(exe: &str, m: &str) -> String {
+    m.replace("`init-root ", &format!("`{exe} "))
 }
 
 /// The control-link reader of one kernel (§4.1.1): requests, `hb` and `owner.out` events, and the answers to
@@ -1139,6 +1145,13 @@ fn config_digest(root: &Root) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_kernel_alert_names_init_root_runnable_as_printed() {
+        let m = "Draw S (`init-root sealed draw`) to measure T1/T2 changes. init-root itself is unchanged.";
+        assert_eq!(runnable("~/.init-root/bin/init-root", m),
+            "Draw S (`~/.init-root/bin/init-root sealed draw`) to measure T1/T2 changes. init-root itself is unchanged.");
+    }
 
     fn c() -> RootCfg {
         RootCfg { backoff_initial_ms: 1000, backoff_max_ms: 60_000, crash_window_s: 600, crash_limit: 3, safe_crash_limit: 2, ..RootCfg::default() }

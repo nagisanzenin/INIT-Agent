@@ -739,6 +739,8 @@ pub const TRAY_HINT: &str = "Esc interrupt and send it now · ↑ take back the 
 pub const BUSY_PLACEHOLDER: &str = "Enter steers · Tab queues the next task · Esc interrupts";
 /// STEER: tray rows shown at most; older ones fold into `… +N more`.
 pub const TRAY_ROWS: usize = 4;
+/// Completion popup rows shown at once (a window that follows the selection).
+pub const POPUP_ROWS: usize = 8;
 
 /// STEER: when a pending line will be read: after the running call (the batch's results come
 /// first), after the reply being written, or why it waits.
@@ -820,10 +822,14 @@ pub fn region(ui: &Ui, width: usize, height: usize) -> Region {
     } else {
         let c = ui.ed.completions();
         let sel = ui.ed.sel.min(c.len().saturating_sub(1));
-        for (i, (cmd, desc)) in c.iter().enumerate().take(8) {
+        // a window of 8 that follows the selection (the stopping commands sit at the end of the list)
+        let first = (sel + 1).saturating_sub(POPUP_ROWS);
+        for (i, (cmd, desc)) in c.iter().enumerate().skip(first).take(POPUP_ROWS) {
             let st = if i == sel { Style::PLAIN.with_reverse() } else { Style::PLAIN };
             let mut l = Line::from_span(format!("  {cmd:<14}"), st);
-            l.push(format!(" {desc}"), if i == sel { st } else { Style::dim() });
+            // TUI-FIX: the commands that stop the agent read as attention, not as routine
+            let quiet = if crate::proto::STOPPING.contains(cmd) { Style::fg(Role::Warn) } else { Style::dim() };
+            l.push(format!(" {desc}"), if i == sel { st } else { quiet });
             extra.push(l.truncate(width));
         }
     }
@@ -860,7 +866,7 @@ pub fn region(ui: &Ui, width: usize, height: usize) -> Region {
 pub fn max_live(ui: &Ui, width: usize, height: usize) -> usize {
     let cap = 10.min(height * 2 / 5).max(1);
     let (input, _) = match &ui.ed.picker { Some(p) => super::picker::rows(p, width), None => input_box(ui.ed, width, cap, "") };
-    let extra = if ui.overlay { HELP.len() + 1 } else { ui.ed.completions().len().min(8) };
+    let extra = if ui.overlay { HELP.len() + 1 } else { ui.ed.completions().len().min(POPUP_ROWS) };
     let tray = ui.tray.items.len().min(TRAY_ROWS + 1);
     let gates = ui.t.gates.live_rows(width, ui.now_ms, super::gates::Track::rows_for(height)).len();
     let busy = usize::from(liveness(ui, width).is_some());
@@ -911,6 +917,20 @@ pub fn liveness(ui: &Ui, width: usize) -> Option<Line> {
     }
     let right = Line::from_span(format!("run {}", crate::time::elapsed(now.saturating_duration_since(run))), Style::mute());
     Some(split_row(left, right, width))
+}
+
+/// TUI-FIX (v0.5.1): the line printed when `init-agent` quits: what keeps running, how to come back
+/// and how to stop it, and the Root ledger's total (an estimate), so quitting is never silent.
+pub fn goodbye(info: &Info, width: usize, attached: bool) -> Vec<Line> {
+    if !attached {
+        return wrapped("init-agent closed. It never reached the Root, so nothing was attached or changed.", "· ", Style::dim(), Style::dim(), width);
+    }
+    let spent = info.egress.as_ref().filter(|_| !info.egress_failed).and_then(|e| e["money"]["total_spent_musd"].as_i64()).filter(|m| *m >= 0);
+    let money = spent.map(|m| format!(" Metered so far: {} in all (Root ledger, an estimate).", super::usd(m))).unwrap_or_default();
+    let text = format!(
+        "init-agent closed. The agent keeps running under the Root (idle until it has work): run init-agent to come back; /root stop or /panic there stops it.{money}"
+    );
+    wrapped(&text, "· ", Style::dim(), Style::dim(), width)
 }
 
 /// For the spinner: the elapsed tenth-seconds since `t0`.

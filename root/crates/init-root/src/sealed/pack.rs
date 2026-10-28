@@ -101,7 +101,7 @@ pub fn installed(rh: &Path, pack: &str) -> Result<PathBuf, String> {
     fs::read_dir(rh.join("sealed/packs")).into_iter().flatten().flatten()
         .filter(|e| e.file_name().to_string_lossy().starts_with(&pre) && e.path().is_dir())
         .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok()).map(|e| e.path())
-        .ok_or(format!("no pack {pack} is installed: init-root sealed draw --pack-dir <dir>"))
+        .ok_or_else(|| format!("no pack {pack} is installed: {}", util::root_cmd(rh, "sealed draw --pack-dir <dir>")))
 }
 
 /// Every template in the pack: `<family>/<template>/template.json` and `canary/<kind>/template.json`.

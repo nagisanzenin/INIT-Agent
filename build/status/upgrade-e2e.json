@@ -1,32 +1,32 @@
 {
  "audit_verify_full": "0 before, after the upgrade, after the sandbox check, after the rollback",
  "broken_bundle": "probe failed, rolled back to the old binaries and tuple; the old install answered",
- "bundle": "init-v0.5.0-preview-macos-arm64.tar.gz",
- "commit": "3712dd50e3ee6c71cbefc45f567059a42c716812",
+ "bundle": "init-v0.5.1-preview-macos-arm64.tar.gz",
+ "commit": "0a8b57bb812744788930758a54aa0dc2e325a371",
  "drives": {
   "full": {
    "idle": true,
    "rc": 0,
    "reply": "sandbox check done",
-   "wall_ms": 843
+   "wall_ms": 1199
   },
   "hello1": {
    "idle": true,
    "rc": 0,
    "reply": "hello from the mock",
-   "wall_ms": 777
+   "wall_ms": 570
   },
   "hello2": {
    "idle": true,
    "rc": 0,
    "reply": "hello from the mock",
-   "wall_ms": 478
+   "wall_ms": 699
   },
   "ws": {
    "idle": true,
    "rc": 0,
    "reply": "sandbox check done",
-   "wall_ms": 840
+   "wall_ms": 1894
   }
  },
  "incompatible_body": "refused (stdio-jsonl/1 vs stdio-jsonl/2); lineage, journal, binaries unchanged",
@@ -47,7 +47,7 @@
    "get_sh 1 sh: /private/tmp/i5-upg-t1/r/cache/get.sh: Operation not permitted",
    "journal 1 sh: /private/tmp/i5-upg-t1/r/state/upgrade.json: Operation not permitted",
    "snapshot_dir 1 mkdir: /private/tmp/i5-upg-t1/r/state/upgrade/evil: Operation not permitted",
-   "launcher_upgrade 69  curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh -s -- --upgrade",
+   "launcher_upgrade 69  /usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | INIT_ROOT_HOME=/pri",
    "replace_step 1 init-root upgrade: /private/tmp/i5-upg-t1/r/install.json is missing: INIT is not installed here (install it with scripts"
   ],
   "full.txt": [],
@@ -71,14 +71,14 @@
  },
  "test_bundle": null,
  "times_ms": {
-  "broken_upgrade_and_rollback": 12470,
-  "total": 52291,
-  "upgrade": 8893
+  "broken_upgrade_and_rollback": 14492,
+  "total": 1557607,
+  "upgrade": 11510
  },
  "tuples": {
   "after_broken": {
-   "body": "7df3a161ba9b38541066c5b565c350999adc2d04f539b8e803c84a2355163124",
-   "current": "tedd2b80ff586",
+   "body": "44bc34ce57a19fc2e9692decaeb3e03acb1ceafa8e0721a2189596c7e381c948",
+   "current": "tae0b49077531",
    "ext": {
     "components": [
      {
@@ -92,7 +92,7 @@
     ],
     "set": "c6f0f0d4a745"
    },
-   "kernel": "5277fef0e38bebf5edd53949b31b26ce82c0c3337e9768b1ad25e7d547ffcb97",
+   "kernel": "dbb283cfae566e624f8f8603e3a76a19dd574e2ad7de230263308c0e5d0c19bc",
    "kinds_tail": [
     "zone_exit",
     "crash_loop",
@@ -101,12 +101,12 @@
     "zone_exit",
     "stop"
    ],
-   "lkg": "tedd2b80ff586",
-   "seq": 36
+   "lkg": "tae0b49077531",
+   "seq": 33
   },
   "before": {
-   "body": "7df3a161ba9b38541066c5b565c350999adc2d04f539b8e803c84a2355163124",
-   "current": "t6892a3bd9a6a",
+   "body": "44bc34ce57a19fc2e9692decaeb3e03acb1ceafa8e0721a2189596c7e381c948",
+   "current": "tff2105c7e89b",
    "ext": {
     "components": [
      {
@@ -120,21 +120,21 @@
     ],
     "set": "c6f0f0d4a745"
    },
-   "kernel": "164f1a42ae9adcca6da363df2876339a8b6823b7b973f818bb61398258fee39d",
+   "kernel": "61feb5c03fe73b98901daa0fbf9bbcb74bc0ce2d45862cc5a8e65f9c4c8f48f9",
    "kinds_tail": [
+    "promotion",
+    "gate",
     "gate",
     "promotion",
     "tuple",
-    "lkg",
-    "zone_exit",
-    "stop"
+    "lkg"
    ],
-   "lkg": "t6892a3bd9a6a",
-   "seq": 16
+   "lkg": "tff2105c7e89b",
+   "seq": 13
   },
   "upgraded": {
-   "body": "7df3a161ba9b38541066c5b565c350999adc2d04f539b8e803c84a2355163124",
-   "current": "tedd2b80ff586",
+   "body": "44bc34ce57a19fc2e9692decaeb3e03acb1ceafa8e0721a2189596c7e381c948",
+   "current": "tae0b49077531",
    "ext": {
     "components": [
      {
@@ -148,18 +148,18 @@
     ],
     "set": "c6f0f0d4a745"
    },
-   "kernel": "5277fef0e38bebf5edd53949b31b26ce82c0c3337e9768b1ad25e7d547ffcb97",
+   "kernel": "dbb283cfae566e624f8f8603e3a76a19dd574e2ad7de230263308c0e5d0c19bc",
    "kinds_tail": [
-    "tuple",
     "kernel_start",
     "zone_start",
     "zone_exit",
     "stop",
-    "lkg"
+    "lkg",
+    "audited"
    ],
-   "lkg": "tedd2b80ff586",
-   "seq": 22
+   "lkg": "tae0b49077531",
+   "seq": 20
   }
  },
- "version": "0.5.0-preview"
+ "version": "0.5.1-preview"
 }

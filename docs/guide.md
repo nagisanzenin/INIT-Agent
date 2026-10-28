@@ -2,11 +2,34 @@
 
 Install, upgrade, daily use, goals, spending, the safety model, and a status record from v0.2.0-preview. The [README](../README.md) has the overview and the current status; each release's notes are in [release-notes/](release-notes/).
 
+## Install, upgrade, uninstall
+
+Which command to run, by what you have now. [Install](#install), [Upgrade](#upgrade) and [Uninstall](#uninstall) below give the details.
+
+| You have | Run |
+|---|---|
+| no INIT | `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh \| sh`, then `init-agent` |
+| 0.5.1 or later | `init-agent upgrade` |
+| 0.5.0 | once, from your own shell: `/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh \| /bin/sh -s -- --upgrade`. 0.5.0's own `init-agent upgrade` runs 0.5.0's get.sh, with the problems 0.5.1 fixed ([Upgrade](#upgrade), limits). After that, `init-agent upgrade` |
+| 0.4.1 | once, from your own shell: `/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh \| /bin/sh -s -- --upgrade` (0.4.1 has no `init-agent upgrade`). After that, `init-agent upgrade` |
+| a release before 0.4.1 | no upgrade: uninstall it (get.sh prints the command), then install |
+| INIT, and you want it gone | the uninstaller the install left in `~/.local/share/init/<version>/scripts/uninstall.sh`, or [Uninstall](#uninstall); it moves everything to the Trash |
+
+An upgrade keeps what INIT has become: the body it evolved, its extensions, skills and sessions, the signed lineage, your keys and your charter.
+
+If you installed with `INIT_ROOT_HOME` set to a directory other than `~/.init-root`, put the same `INIT_ROOT_HOME=<that directory>` before `/bin/sh` (or `sh`) in the upgrade lines above, and before `bash` when you uninstall; get.sh prints the line with it filled in.
+
+**Time.** `get.sh` takes about 1–2 minutes on a fast link, including the Rust toolchain it installs so that INIT can rebuild itself (`--no-rust` skips it; INIT then changes only its skills and prompts). The first change to the compiled core on a fresh install builds cold: 838 s from G0 to the hot-swap in the v0.5.0 release check on macOS, and G0 806 s plus G3 789 s on the Linux x86_64 VM, both on the mock model ([v0.5.0 notes](release-notes/v0.5.0-preview.md)). Later changes reuse the dependency cache: the build and G0 of a small change took 126 s in one measurement, with G1–G3 and the hot-swap not timed ([CHANGELOG](../CHANGELOG.md), "Warm T2 builds").
+
+**Linux x86_64 is experimental.** It was tested on a GitHub-hosted Ubuntu 24.04 VM on the mock model, not on physical hardware or another distribution. It needs glibc ≥ 2.36, working user namespaces, util-linux `unshare`, python3, git ≥ 2.39.4, and bubblewrap ≥ 0.13.0 at `/usr/bin/bwrap`, which no LTS distribution ships, so you build it from the upstream release ([platforms.md §3.4.0](platforms.md)). On Ubuntu 24.04, whose AppArmor restricts unprivileged user namespaces, the installer stops and prints a one-time sudo step: root-owned copies of `unshare` and `bwrap`, and a profile that lets only those two create user namespaces (`curl … | sh -s -- -- --apparmor` runs it after asking; [platforms.md §3.4.6](platforms.md)). The Root runs as a systemd user unit. Full access works as on macOS; workspace mode keeps the agent in its own home, so it cannot read or edit your files.
+
+**Linux aarch64** has no 0.5.x bundle yet. aarch64 machines stay on [v0.4.1-preview](release-notes/v0.4.1-preview.md), which was tested in Docker (Debian 12, Ubuntu 24.04). **Windows** is unsupported, and WSL2 is untested.
+
 ## Install
 
 ### Requirements
 
-- macOS 14 or newer on Apple silicon (tested on an M2), with the Command Line Tools (`xcode-select --install`), which provide `git` and `/usr/bin/python3`. Linux (next release): Debian 12 or Ubuntu 24.04 class, aarch64 verified (x86_64 compiled, not run), glibc ≥ 2.36, bubblewrap ≥ 0.13.0 at `/usr/bin/bwrap`, unprivileged user namespaces, python3 and git; full access works as on macOS, while workspace mode keeps the agent in its own home. See docs/platforms.md §3.4.0. Windows is unsupported.
+- macOS 14 or newer on Apple silicon (tested on an M2), with the Command Line Tools (`xcode-select --install`), which provide `git` and `/usr/bin/python3`. Linux x86_64 (experimental since v0.5.0; tested on a GitHub-hosted Ubuntu 24.04 VM on the mock model, not on physical hardware or another distribution): glibc ≥ 2.36, bubblewrap ≥ 0.13.0 at `/usr/bin/bwrap`, util-linux `unshare`, unprivileged user namespaces (on Ubuntu 24.04 after INIT's one-time AppArmor step), python3 and git ≥ 2.39.4; full access works as on macOS, while workspace mode keeps the agent in its own home. Linux aarch64 has no 0.5.x bundle yet and stays on v0.4.1-preview. See docs/platforms.md §3.4.0. Windows is unsupported.
 - An API key. DeepSeek is the only provider used against a live API. OpenAI-compatible gateways, Anthropic Messages, OpenAI Responses and local servers are offered as **experimental** (offline tests only).
 - Disk: about 0.5 GB for the install, plus the free-space floor you choose (default 20 GB).
 - The Rust toolchain INIT rebuilds itself with (1.97.1 plus the `wasm32-wasip2` target). `get.sh` installs it for you through rustup, leaving your shell files and your default toolchain alone. Self-rewrite is the point of INIT; `get.sh --no-rust` skips it, and INIT then changes only its skills and prompts (tier T0).
@@ -31,9 +54,9 @@ The installer asks one question. It prints the settings it writes into your char
 | autonomy | up to L4 | `--max-level N` | the highest level INIT may earn; it starts at L0 |
 | access | full | `--access full\|workspace` | full: anything you can, never INIT's Root files; workspace: writes only the folder `init-agent` starts in |
 
-Change any of them later: edit the charter, then `init-root charter check --apply`. `--purpose TEXT` sets the charter's one-line purpose, and `--charter FILE` uses a charter of your own instead.
+Change any of them later: edit the charter, then `~/.init-root/bin/init-root charter check --apply`. `--purpose TEXT` sets the charter's one-line purpose, and `--charter FILE` uses a charter of your own instead.
 
-The installer never touches your key. It writes `~/.init-root/` (the Root: your charter, keys, signed lineage) and `~/.init/` (the agent's world). It puts the `init-agent` command and the TUI `init-tui` in `~/.local/bin/`: `init-agent` opens the TUI, or the plain `init-root attach` terminal when the TUI is not installed, and `init-agent --which` shows which. It also loads the LaunchAgent `dev.init.root`, which keeps the Root running and starts it at login. Use `--no-service` to skip the service and run `init-root start --foreground` yourself.
+The installer never touches your key. It writes `~/.init-root/` (the Root: your charter, keys, signed lineage) and `~/.init/` (the agent's world). It puts the `init-agent` command and the TUI `init-tui` in `~/.local/bin/`: `init-agent` opens the TUI, or the plain `~/.init-root/bin/init-root attach` terminal when the TUI is not installed, and `init-agent --which` shows which. It also loads the LaunchAgent `dev.init.root`, which keeps the Root running and starts it at login. Use `--no-service` to skip the service and run `~/.init-root/bin/init-root start --foreground` yourself.
 
 Up to v0.4.0 the command was `init`. It is `init-agent` from v0.4.1, because `~/.local/bin/init` shadows Linux's `/sbin/init` ([issue #1](https://github.com/nagisanzenin/INIT-Agent/issues/1)). v0.4.1 kept `init` on macOS as a shim that printed a rename notice; v0.5.0 drops it. The installer and the upgrade install no `init` and remove INIT's own old one (the pre-v0.4.1 launcher or the shim, recognised by content), and leave any other file named `init`. The installer refuses to install into `/sbin`, `/usr/sbin`, `/bin` or `/usr/bin`.
 
@@ -41,55 +64,59 @@ Up to v0.4.0 the command was `init`. It is `init-agent` from v0.4.1, because `~/
 
 ```sh
 init-agent upgrade                       # the latest release
-init-agent upgrade --version 0.5.1       # a given release
-init-agent upgrade --bundle init-v0.5.1-macos-arm64.tar.gz   # a downloaded bundle (its .sha256 next to it, or --sha256 HEX)
+init-agent upgrade --version 0.5.1       # a given release (0.5.1 finds the tag v0.5.1-preview; 0.5.1-preview works too)
+init-agent upgrade --bundle init-v0.5.1-preview-macos-arm64.tar.gz --sha256 HEX   # a downloaded bundle
 ```
 
-INIT 0.4.1 has no `init-agent upgrade`. Upgrade it once with `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh -s -- --upgrade`; after that, `init-agent upgrade` works. A release before 0.4.1 cannot be upgraded: uninstall it (`scripts/uninstall.sh` moves it, its lineage and your key to the Trash), then install. get.sh names the installed release and prints the uninstall command.
+For `--bundle`, HEX is the SHA-256 the release page lists for that file (also in its `.sha256` asset there). A `.sha256` file next to your download is not used: with full access the agent can write that folder, so a checksum from there proves nothing. Without `--sha256` the upgrade stops before it changes anything and prints the command to type.
+
+INIT 0.4.1 has no `init-agent upgrade`. Upgrade it once with `/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | /bin/sh -s -- --upgrade`; after that, `init-agent upgrade` works. A release before 0.4.1 cannot be upgraded: uninstall it (`scripts/uninstall.sh` moves it, its lineage and your key to the Trash), then install. get.sh names the installed release and prints the uninstall command.
 
 The upgrade replaces the Root, the kernel and the `init-agent` and `init-tui` commands, and keeps what INIT has become: the body it evolved, its extensions, skills and sessions, the signed lineage, your keys and your charter. Run it from your own shell. In order:
 
-1. **Download and check.** The bundle and its SHA-256 come from the GitHub release over HTTPS (only when you run the command). The download, the check and the unpacked copy live in `~/.init-root/cache/upgrade/`, which the agent cannot write in any access mode, so it cannot swap the code between the check and its run.
+1. **Download and check.** The bundle and its SHA-256 come from the GitHub release over HTTPS (only when you run the command). With `--bundle`, the bundle is first copied from where you put it, and its SHA-256 is the one you typed. The download (or that copy), the check and the unpacked copy live in `~/.init-root/cache/upgrade/`, which the agent cannot write in any access mode, so it cannot swap the code between the check and its run. The upgrade runs only the system's own tools (`/usr/bin`, `/bin`, `/usr/sbin`, `/sbin`), from `/`. It never runs a program from your `PATH` directories, never reads the git config of the folder you run it in, and never reads `~/.curlrc`. With full access the agent can write all three.
 2. **Stop.** With the LaunchAgent (or the systemd user unit), the upgrade stops the Root. A Root you started in a terminal is never signalled: stop it with Ctrl-C, then run the upgrade.
 3. **Check.** Nothing changes if the release is older than the one installed, if it is the same release, or if its kernel cannot run your evolved body. For the body check the Root runs `--manifest` of your body and of the release's own body, each in a sealed sandbox, and compares the control protocol, the manifest format and the extension WIT majors. INIT never migrates or rewrites an evolved body: an incompatible release is refused with the reason.
 4. **Snapshot and replace.** The Root takes a snapshot of everything it will replace (APFS clones on macOS; reflinks or copies on Linux) into `~/.init-root/state/upgrade/`, then installs the new Root, kernel and kernel source, and forms a new system tuple with the new kernel and your current body and extensions.
 5. **Health probe.** The new Root starts, the kernel must be ready on the new tuple and your body must boot, within 120 s (`-- --probe-timeout S` changes it), and the whole lineage must verify.
 6. **Commit or roll back.** If the probe passes, the new tuple becomes last-known-good and the snapshot goes. If it fails, the old Root, kernel and commands come back from the snapshot, a `rollback` record returns the system to the tuple from before, and INIT runs its old version unchanged. The service is started again either way.
 
-`init-root upgrade --status` shows the last upgrade. Limits of this release, plainly:
+`~/.init-root/bin/init-root upgrade --status` shows the last upgrade. Limits of this release, plainly:
 
 - **Bundles are checked by SHA-256 only.** The checksum comes from the same GitHub release as the bundle, so it detects a broken download, not a compromised release. Releases are not signed yet.
+- **From 0.5.0, `init-agent upgrade` runs 0.5.0's own get.sh.** That get.sh (fixed in 0.5.1) checks a `--bundle` where it lies and trusts a `.sha256` beside it, runs tools found on your `PATH`, and makes `--version 0.5.1` ask for a tag `v0.5.1` that does not exist. To leave 0.5.0, run the new get.sh with the system's curl and sh: `/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | /bin/sh -s -- --upgrade`. Plain `init-agent upgrade`, with no `--bundle` or `--version`, also works and checks its download under `~/.init-root/cache/upgrade/`, but it still runs curl, tar and shasum from your `PATH`. From 0.5.1 on, `init-agent upgrade` has the fixes.
+- **The shell you type it in.** With full access the agent can write your shell startup files, which run as you (ADR-012). The upgrade is only as safe as the shell that starts it.
 - **The new seed is not offered to INIT.** A release's new seed body (its prompts, skills, tools) is not merged into the body INIT evolved; INIT keeps running its own. Merging is planned for a later release.
 - **No live swap.** The upgrade stops INIT for its duration (seconds); the running conversation continues after it.
-- **An open self-change refuses the upgrade.** In `free` mode a change group in its watch window (2-72 h) must close first, so that a later rollback never returns to a tuple of the old kernel. Older tuples (audited-good, genesis) keep their old kernel; a rollback to one of them runs that kernel under the new Root.
+- **An open self-change refuses the upgrade.** In `free` mode a change group in its watch window (2-72 h) must close first, so that a later rollback never returns to a tuple of the old kernel. From 0.5.1 the commit also moves the targets of a demotion and of `/resume` after `/panic` (audited-good, and `settled` in `free` mode) onto the new kernel, each with its own body and extensions, so a resume runs the new kernel. In 0.5.0 they kept the old kernel, and a resume ran it under the new Root. Only genesis, the last resort when no other tuple verifies, keeps its old kernel.
 
 ## Daily use
 
 | You want to | Do |
 |---|---|
-| chat or give a task | `init-agent`, type a line, press Enter. Ctrl-C or Esc pauses the current turn (your next message continues the task, or says what to do instead); Ctrl-D detaches and INIT keeps running. |
-| work on a project | `cd` into it and run `init-agent`. By default (v0.3.1, [ADR-012](adr/012-full-access-by-default.md)) the agent has **full access**: it reads and writes anything you can, `~/.ssh` included, and uses the network, like your own shell. Only the Root is off-limits: `~/.init-root`, its service (`~/Library/LaunchAgents`), the `init-agent` and `init-tui` launchers, `~/.config/init-agent` and your `read_deny` list. `FULL` shows in the status bar. The folder you started in is the workspace, the only place `/undo` covers. |
-| confine the agent to the project | `init-agent --workspace` for one session, or `/full off` in the chat (`/full on` lifts it). `WORKSPACE` shows in the status bar. The agent then reads your home except secrets (`~/.ssh`, cloud credentials, keychains, browser and mail data), edits only that folder and its own `~/.init`, and has no network except the model provider. Run from `~`, it can read but not edit. To make this the default, set `mode = "workspace"` under `[sandbox]` in `~/.init-root/charter.toml`, then `init-root charter check --apply`; `/full on` then asks you to type `/full on confirm`. |
+| chat or give a task | `init-agent`, type a line, press Enter. Ctrl-C or Esc pauses the current turn (your next message continues the task, or says what to do instead); Ctrl-D detaches and INIT keeps running: the input box is cleared and one line says so, with how to come back. |
+| work on a project | `cd` into it and run `init-agent`. By default (v0.3.1, [ADR-012](adr/012-full-access-by-default.md)) the agent has **full access**: it reads and writes anything you can, `~/.ssh` included, and uses the network, like your own shell. Only the Root is off-limits: `~/.init-root`, its service (`~/Library/LaunchAgents`), the `init-agent` and `init-tui` launchers, `~/.config/init-agent` and your `read_deny` list. `FULL` shows in the status bar. The folder you started in is the workspace, the only place `/undo` covers. It must be a folder inside your home, not your home itself and not INIT's own folders; started anywhere else (`~`, `/tmp`, another volume) there is no workspace, and the screen says so: the agent then works in its own folder (`~/.init/work`), so files it creates by name land there, and `/undo` has nothing to restore. |
+| confine the agent to the project | `init-agent --workspace` for one session, or `/full off` in the chat (`/full on` lifts it). `WORKSPACE` shows in the status bar. The agent then reads your home except secrets (`~/.ssh`, cloud credentials, keychains, browser and mail data), edits only that folder and its own `~/.init`, and has no network except the model provider. Run from `~`, it can read but not edit. To make this the default, set `mode = "workspace"` under `[sandbox]` in `~/.init-root/charter.toml`, then `~/.init-root/bin/init-root charter check --apply`; `/full on` then asks you to type `/full on confirm`. |
 | undo the agent's edits | when the agent is idle, `/undo`, then `/undo confirm`: the folder goes back to the snapshot the Root took when you ran `init-agent` there. The state it replaces is saved first, so an undo can be undone. Folders over 2 GiB or not on APFS get no snapshot. |
-| keep the agent out of a folder | add it to `read_deny` under `[sandbox]` in `~/.init-root/charter.toml`, then `init-root charter check --apply`; it holds in full access too. `read_home = false` turns home reads off in workspace mode; `allow_full = false` forbids full access altogether. |
-| see what it has spent | `/usage` in the chat, or the status bar (estimated USD and tokens). `init-root egress stats` prints the Root's full money block; it says `"enforced": false`. Every request is logged in `~/.init-root/egress/usage/`. |
+| keep the agent out of a folder | add it to `read_deny` under `[sandbox]` in `~/.init-root/charter.toml`, then `~/.init-root/bin/init-root charter check --apply`; it holds in full access too. `read_home = false` turns home reads off in workspace mode; `allow_full = false` forbids full access altogether. |
+| see what it has spent | `/usage` in the chat, or the status bar (estimated USD and tokens, to a tenth of a cent below $1). The `self-changes` row of `/usage` is what the Root metered while a self-change was being checked, as the TUI saw it; the Root does not split spend by purpose yet. `~/.init-root/bin/init-root egress stats` prints the Root's full money block; it says `"enforced": false`. Every request is logged in `~/.init-root/egress/usage/`. |
 | stop the current run | `/stop` in the chat, with no demotion. `/resume` starts it again. |
-| stop everything, now | `/panic` in the chat, or `init-root panic` from any terminal. Every agent process stops, the panic is latched, and the agent drops one autonomy level (when it is above L0). `/resume` (or `init-root resume`) when you are ready. |
-| stop for the day (no demotion) | `init-root stop`; later `init-root start` |
-| see state and level | `init-root status` (slot, mode, level and cap, panic, charter), `init-root ledger` (level history and progress); `/status` in the chat for the kernel's view |
+| stop everything, now | `/panic` in the chat (it first says what it does; type `panic` and press Enter to go ahead, Esc cancels), or `~/.init-root/bin/init-root panic` from any terminal. Every agent process stops, the panic is latched, and the agent drops one autonomy level (when it is above L0). `/resume` (or `~/.init-root/bin/init-root resume`) when you are ready. |
+| stop for the day (no demotion) | `~/.init-root/bin/init-root stop`; later `~/.init-root/bin/init-root start` |
+| see state and level | `~/.init-root/bin/init-root status` (slot, mode, level and cap, panic, charter), `~/.init-root/bin/init-root ledger` (level history and progress); `/status` in the chat for the kernel's view |
 | take back the agent's last self-change | `/rollback` in the chat: the Root rolls back the newest open change group (free mode) to its parent version and records it as your reversal (harm signal H3). `/rollback <sha\|cap>` names the group. Only that group's own changes are undone; the seed's skills and prompt files are never quarantined by it. `/rollback settled`, `/rollback lkg` or `/rollback twin` returns the whole system to that tuple in either mode (`settled`: the newest tuple that has been last-known-good for 7 days with no rollback since). `/root help` lists the forms. |
 | give the agent a goal to pursue | `/goal "<what you want>" [done=card:cost_turn<=600\|exemplar:<sha256>\|owner] [usd=1.00] [wall=24h] [rounds=10] [guard=requests_turn,…]`. Only you can set a goal; the agent may propose one (`/goal adopt <id>`). `/goal` shows it; `/goal pause\|resume\|stop`; `/goal continue` after the agent checks in; `/goal accept\|reject` judges its last change. The Root meters the goal's spend, records the agent's predictions and the measured outcomes, and rolls back a change that makes a `guard` card worse ([Goals](#goals-goal-v04), [ADR-013](adr/013-goal-based-agentic-loop.md)). |
 | answer the agent's request for more room | `/grants` lists open requests; `/grant <id> [for <n>d\|<n>h]` approves one with a typed confirmation; `/deny <id>` refuses it. |
 | see the frozen twin | `/twin` shows the nightly shadow-replay report (report only; it changes nothing). |
-| change the charter | edit `~/.init-root/charter.toml` (autonomy cap, sandbox, memory cap, disk floor, `[extend]`), then `init-root charter check --apply` |
-| change the model | edit `~/.init/kernel/config.toml`, then `init-root stop && init-root start`. The `[budget]` dollar values there are not enforced while the Root reports observe-only money. |
+| change the charter | edit `~/.init-root/charter.toml` (autonomy cap, sandbox, memory cap, disk floor, `[extend]`), then `~/.init-root/bin/init-root charter check --apply` |
+| change the model | edit `~/.init/kernel/config.toml`, then `~/.init-root/bin/init-root stop && ~/.init-root/bin/init-root start`. The `[budget]` dollar values there are not enforced while the Root reports observe-only money. |
 
-`init-root` lives in `~/.init-root/bin/`; add it to your PATH or use the full path.
+`init-root` is not on your PATH (only `init-agent` is): it lives in `~/.init-root/bin/`, so this guide types it as `~/.init-root/bin/init-root`. If you installed with a custom `INIT_ROOT_HOME`, use that folder's `bin/init-root`, with `INIT_ROOT_HOME` set.
 
 Where things are:
 - Root logs: `~/.init-root/logs/` (`launchd.log` for the service).
 - Kernel and body logs: `~/.init/state/kernel/logs/`; conversations: `~/.init/state/sessions/`.
-- Every metered request with its usage and estimated cost: `~/.init-root/egress/usage/`. Every promotion, rollback, panic, grant and charter change: `~/.init-root/lineage/lineage.jsonl`, signed; check it with `init-root audit verify --full`.
+- Every metered request with its usage and estimated cost: `~/.init-root/egress/usage/`. Every promotion, rollback, panic, grant and charter change: `~/.init-root/lineage/lineage.jsonl`, signed; check it with `~/.init-root/bin/init-root audit verify --full`.
 - The agent's own source and history: `~/.init/body/` and `~/.init/lineage/`.
 
 ## Goals (`/goal`, v0.4)
@@ -135,10 +162,10 @@ where a T0 change (a skill or a prompt file) goes live in about a second.
 Since 2026-10-23 (owner decision) the Root **observes** spending and does not cap it:
 
 - The Root records every model request with the provider's reported token usage and an estimated cost from the charter's tariffs. When a provider reports no usage, the Root keeps the reservation estimate and marks token totals incomplete; it never counts unknown usage as zero.
-- You see the estimates in the status bar, with `/usage` and with `init-root egress stats`. They are estimates, not invoices.
+- You see the estimates in the status bar, with `/usage` and with `~/.init-root/bin/init-root egress stats`. They are estimates, not invoices.
 - The Root does **not** refuse, stop or demote anything when a dollar amount is reached. The charter's `day_usd`, `total_usd` and the twin's dollar keys are kept as metadata. The kernel's dollar soft budgets are switched off as well.
 - Non-dollar limits are still enforced: per-class request counts, bytes per day and rate per minute, a bounded output size on every request, and the time and token limits of runs.
-- You stop spending with `/stop`, `/panic` or `init-root stop`.
+- You stop spending with `/stop`, `/panic` or `~/.init-root/bin/init-root stop`.
 
 **The risk, plainly:** a self-modifying agent can keep making model requests, and so keep spending, until you stop it. **Set a spend limit at your provider.** For DeepSeek, which bills against a prepaid balance, keep that balance small. Check `/usage` while it works.
 
@@ -151,27 +178,28 @@ Since 2026-10-23 (owner decision) the Root **observes** spending and does not ca
   It stops the goal, not INIT: after that the agent still answers you, and those requests are not capped.
 - **What is the hard limit, then?** The one at your provider: a monthly or per-key spend limit, or a small prepaid
   balance. It holds even if INIT, its estimates or your machine misbehave.
-- **How do I see what it spent?** The status bar, `/usage`, and `init-root egress stats`. They are estimates from the
+- **How do I see what it spent?** The status bar, `/usage`, and `~/.init-root/bin/init-root egress stats`. They are estimates from the
   charter's prices and the provider's reported usage, not invoices; compare them with your provider's console.
-- **How do I stop it now?** `/stop` ends the turn, `/panic` stops every agent process, `init-root stop` stops INIT.
+- **How do I stop it now?** `/stop` ends the turn, `/panic` stops every agent process, `~/.init-root/bin/init-root stop` stops INIT.
 
 ## Safety model
 
 1. **The Root** (`init-root`) is a separate process the agent can never write. It holds your key, your charter and the signed lineage, and it runs the agent only inside a macOS sandbox (Seatbelt) it composes. Model requests always go through the Root, which meters and logs them. In full access (the default) the agent's tools also use the network directly, and INIT does not log that traffic; in workspace mode the sandbox has no network at all.
 2. **Spending is observed, not capped** (see [Spending](#spending)). The Root meters and logs every request; you stop it.
 3. **Rollback.** In the default `gated` mode every self-change passes the gate (G0–G4) first. The Root keeps the last known-good system and rolls back the whole tuple when a change fails, and a panic demotes.
-4. **Self-extension (ADR-011).** The charter key `extend.mode` chooses `gated` (the default) or `free`. In `free` mode a change is admitted after mechanical checks only (A0–A5), and the Root then watches it: a harm sentinel (signals H1–H12, such as crashes, refusals, owner stops and undos, cost and error spikes) rolls back the change group that caused harm, using Root-held snapshots and a rollback probe. **Admission takes a snapshot, so it needs free disk of at least `sandbox.disk_floor_gib` plus 2 GiB** (22 GiB with the default 20 GiB floor); below that, every free-path change is refused. Switching `extend.mode` with `init-root charter check --apply` reaches the running kernel at once. In `gated` mode with no sealed S and an empty gate pool (a fresh install), G4 has nothing to measure: a T1/T2 change is kept on G0–G3 alone and you get one `g4_no_instrument` alert (until this fix it was rolled back about a second after the swap). Autonomy levels L0–L4 are earned from records and owner grants, but **this build caps autonomy at L0**.
+4. **Self-extension (ADR-011).** The charter key `extend.mode` chooses `gated` (the default) or `free`. In `free` mode a change is admitted after mechanical checks only (A0–A5), and the Root then watches it: a harm sentinel (signals H1–H12, such as crashes, refusals, owner stops and undos, cost and error spikes) rolls back the change group that caused harm, using Root-held snapshots and a rollback probe. **Admission takes a snapshot, so it needs free disk of at least `sandbox.disk_floor_gib` plus 2 GiB** (22 GiB with the default 20 GiB floor); below that, every free-path change is refused. Switching `extend.mode` with `~/.init-root/bin/init-root charter check --apply` reaches the running kernel at once. In `gated` mode with no sealed S and an empty gate pool (a fresh install), G4 has nothing to measure: a T1/T2 change is kept on G0–G3 alone and you get one `g4_no_instrument` alert (until this fix it was rolled back about a second after the swap). Autonomy levels L0–L4 are earned from records and owner grants, but **this build caps autonomy at L0**.
 5. **Memory and disk.** The Root polls every workload each second. A tool call's process tree that passes `sandbox.mem_cap_mib` (default 4096 MiB) is killed alone, by pid. Below `sandbox.disk_floor_gib` (default 5 GiB) free, the Root refuses new workloads and kills the running ones. The Root and the kernel are never killed.
 6. **Owner-machine mode (ADR-008).** On your live account the Root signals only the processes it holds, by PID; the process sweep (`live-sweep`) is compiled out. Enabling it still requires the disposable-account tests first ([docs/adr/](adr/)).
-7. **Permissions (ADR-012, ADR-009).** By default the agent has full access: it reads and writes anything you can and uses the network, except the Root's files (`~/.init-root`, its service, the `init-agent` and `init-tui` launchers, `~/.config/init-agent`, your `read_deny` list). It can never touch your keys or the lineage, signal the Root, or start apps outside its sandbox. Anything it reads, secrets included, may be sent to the model provider or, in full access, anywhere else on the network. The Root snapshots the folder you started in before the agent can edit it, and `/undo` restores that folder only: changes elsewhere have no undo, and the Root's rollback covers INIT, not your files. Files your own tools run later (shell startup files, `PATH` directories, editor configs, git hooks) are writable and then run with your full rights, so full access is trusted like your own shell. Workspace mode (`init-agent --workspace`, `/full off` or `sandbox.mode = "workspace"`) restores ADR-009: home reads minus secrets, writes only in the folder and `~/.init`, no network but the provider, and shell startup files, git config and hooks, `~/.local/bin`, `~/bin` and login items unwritable. The agent can end INIT itself (`launchctl remove dev.init.root` stops the Root and every agent process; log in again, or `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.init.root.plist`), but it cannot escape it.
+7. **Permissions (ADR-012, ADR-009).** By default the agent has full access: it reads and writes anything you can and uses the network, except the Root's files (`~/.init-root`, its service, the `init-agent` and `init-tui` launchers, `~/.config/init-agent`, your `read_deny` list). It can never touch your keys or the lineage, signal the Root, or start apps outside its sandbox. Anything it reads, secrets included, may be sent to the model provider or, in full access, anywhere else on the network. The Root snapshots the folder you started in before the agent can edit it, and `/undo` restores that folder only: changes elsewhere have no undo, and the Root's rollback covers INIT, not your files. Files your own tools run later (shell startup files, `PATH` directories, editor configs, git hooks) are writable and then run with your full rights, so full access is trusted like your own shell. Workspace mode (`init-agent --workspace`, `/full off` or `sandbox.mode = "workspace"`) restores ADR-009: home reads minus secrets, writes only in the folder and `~/.init`, no network but the provider, and shell startup files, git config and hooks, `~/.local/bin`, `~/bin` and login items unwritable. The whole `.git` directory entry of your repositories is protected too, so the agent cannot rename it aside, redirect it, or point git's config or hooks at a file it can write; the rest of `.git` stays writable, so it can still commit. The agent can end INIT itself (`launchctl remove dev.init.root` stops the Root and every agent process; log in again, or `launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.init.root.plist`), but it cannot escape it.
 
 ### Checking a published lineage
 
-`init-root audit verify --full` checks your own install's lineage. To check a lineage file someone published (for
-example a demo's records), without installing INIT, run the `init-root` binary of v0.5.0 or later:
+`~/.init-root/bin/init-root audit verify --full` checks your own install's lineage. To check a lineage file someone published (for
+example a demo's records), without installing INIT, run the `init-root` binary of v0.5.0 or later, here from the folder of
+an unpacked release bundle (on an install it is `~/.init-root/bin/init-root`):
 
 ```sh
-init-root audit verify --file lineage.jsonl --pub <public key> --head <head hash>
+./init-root audit verify --file lineage.jsonl --pub <public key> --head <head hash>
 ```
 
 It checks every record's hash chain and Ed25519 signature from genesis, and follows key rotations signed by the old
@@ -183,10 +211,11 @@ show that the binaries you run were built from the published source.
 ## Uninstall
 
 ```sh
-scripts/uninstall.sh
+bash ~/.local/share/init/0.5.1-preview/scripts/uninstall.sh        # the uninstaller of the release you installed (install.sh prints its path)
+f="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && bash "$f"   # or the current one, from the repository
 ```
 
-It stops INIT through `init-root stop`, unloads the LaunchAgent, then, after you type `uninstall`, **moves** `~/.init-root`, `~/.init`, the `init-agent` and `init-tui` commands and INIT's old launcher or shim at `~/.local/bin/init` to the Trash (with a timestamp in the name). Nothing is deleted: empty the Trash yourself. Your key file goes to the Trash with `~/.init-root`.
+It stops INIT through `~/.init-root/bin/init-root stop`, unloads the LaunchAgent, then, after you type `uninstall`, **moves** `~/.init-root`, `~/.init`, the `init-agent` and `init-tui` commands and INIT's old launcher or shim at `~/.local/bin/init` to the Trash (with a timestamp in the name). Nothing is deleted: empty the Trash yourself. Your key file goes to the Trash with `~/.init-root`.
 
 ## Status (v0.2.0-preview)
 
@@ -204,7 +233,7 @@ This section is the v0.2.0-preview record and is kept as it was. Later releases 
 **What is not shown:**
 - **There is no evidence yet that self-evolution improves results.** The one real self-change was not kept, and its sealed result (−5 points) was inside the measurement noise, so it shows neither help nor harm. The ADR-011 evolution test on deepseek-flash found no task where INIT failed but a missing mechanism was to blame (where INIT failed, Claude Code on the same model failed too), so its evolution phases never ran. See the [verdict](../reports/INIT%20proof%20sprint%20verdict.md) (in Vietnamese; erratum and evolution test at the end), the [technical report](../reports/INIT%20technical%20report.md) and the [evolution test protocol](../measurements/evo-test-protocol.md) §10–§11.
 - **Real-model coverage of this release is one smoke turn on DeepSeek.** Everything else since the spending and provider changes is checked at $0.
-- **Linux is verified for the next release.** Verified natively, in Docker, on Debian 12 and Ubuntu 24.04 (aarch64, Linux 6.10). Covered: the zone with a real compiler run (the cc1 fix), the memory watchdog plus a cgroup v2 `memory.max` per workload, the bundle installed with no Rust and run end to end on the mock, and the systemd user service. Not verified: x86_64, real hardware, Ubuntu's AppArmor user-namespace restriction, WSL2. Workspace mode is not available on Linux yet (docs/platforms.md §3.4.0). **Windows is unsupported.**
+- **Linux x86_64 is experimental.** v0.5.0's bundle was tested on a GitHub-hosted Ubuntu 24.04 VM (x86_64) on the mock model: after INIT's AppArmor step it installs, answers, pauses and resumes, and a no-op change of the compiled core passes G0–G3 and hands off ([v0.5.0 notes](release-notes/v0.5.0-preview.md)). Not verified on Linux: a live model call, physical hardware, another distribution, WSL2. Linux aarch64 was verified for v0.4.1 (in Docker, Debian 12 and Ubuntu 24.04: the zone with a real compiler run, the memory watchdog with a cgroup v2 `memory.max` per workload, the systemd user service) and has no 0.5.x bundle yet. On Linux, workspace mode keeps the agent in its own home (docs/platforms.md §3.4.0). **Windows is unsupported.**
 
 **Providers:**
 - **DeepSeek** (`deepseek-flash`, `deepseek-v4-pro`) is the only provider used live and the only one the installer offers.

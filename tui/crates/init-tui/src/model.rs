@@ -1281,6 +1281,38 @@ pub struct Info {
     pub session: Tally,
     /// The Root's `total_spent_musd` when the turn began (for the turn's estimated cost).
     turn_start_musd: Option<i64>,
+    /// TUI-FIX (v0.5.1): the ledger total when the turn's run ended; later spend (a self-change's
+    /// probes after the reply, for example) is not the turn's.
+    turn_end_musd: Option<i64>,
+    /// The run ended; the next `egress.stats` answer fixes `turn_end_musd`.
+    turn_closing: bool,
+    /// A self-change was in flight during this turn, so its cost includes the checks' spend.
+    pub turn_gate: bool,
+    /// TUI-FIX (v0.5.1): the ledger's spend while self-changes were in flight, as this TUI saw it.
+    pub gates: GateSpend,
+    /// When the kernel's last `state` frame came, and when the gate track last took a notice: the
+    /// state's `evolution_checks_today_musd` is older than a self-change that came after it.
+    pub state_at: Option<Instant>,
+    pub gate_notice_at: Option<Instant>,
+}
+
+/// TUI-FIX (v0.5.1 user session: "/usage: evolution checks today $0.00" while the gate's probes were
+/// two thirds of the bill). The Root does not split its ledger by purpose yet (Root requirement in
+/// docs/tui.md §9 Q5), so the TUI measures what it can and says what it is: the change in the Root's
+/// ledger total from the moment a self-change went in flight until the next `egress.stats` answer after
+/// the last one ended. Any other spend in that window (a turn running at the same time) is included.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct GateSpend {
+    /// Spend of the windows already closed.
+    pub done_musd: i64,
+    /// The ledger total when the open window began.
+    pub open_from: Option<i64>,
+    /// A self-change went in flight before any ledger total was known: the window opens at the next one.
+    opening: bool,
+    /// The last self-change ended: the window closes at the next ledger answer.
+    closing: bool,
+    /// A self-change was seen by this TUI.
+    pub seen: bool,
 }
 
 impl Default for Info {
@@ -1303,6 +1335,12 @@ impl Default for Info {
             turn: Tally::default(),
             session: Tally::default(),
             turn_start_musd: None,
+            turn_end_musd: None,
+            turn_closing: false,
+            turn_gate: false,
+            gates: GateSpend::default(),
+            state_at: None,
+            gate_notice_at: None,
         }
     }
 }
@@ -1339,6 +1377,71 @@ impl Info {
         }
         self.egress = Some(v);
         self.egress_failed = false;
+        let Some(spent) = self.spent() else { return };
+        if self.turn_closing {
+            self.turn_closing = false;
+            self.turn_end_musd = Some(spent);
+        }
+        let g = &mut self.gates;
+        if std::mem::take(&mut g.opening) {
+            g.open_from = Some(spent);
+        }
+        if std::mem::take(&mut g.closing)
+            && let Some(from) = g.open_from.take()
+        {
+            g.done_musd += (spent - from).max(0);
+        }
+    }
+
+    /// TUI-FIX: the gate track took a notice; `live` is whether a self-change is still in flight.
+    /// Opens the spend window when one goes in flight, and closes it (at the next ledger answer, which
+    /// the caller asks for at once) when the last one ends.
+    pub fn on_gate(&mut self, live: bool, now: Instant) {
+        self.gate_notice_at = Some(now);
+        let spent = self.spent();
+        let g = &mut self.gates;
+        g.seen = true;
+        if live {
+            g.closing = false;
+            if g.open_from.is_none() && !g.opening {
+                match spent {
+                    Some(m) => g.open_from = Some(m),
+                    None => g.opening = true,
+                }
+            }
+            if self.busy_since.is_some() {
+                self.turn_gate = true;
+            }
+        } else if g.open_from.is_some() {
+            g.closing = true;
+        } else {
+            g.opening = false;
+        }
+    }
+
+    /// The ledger's spend while self-changes were in flight (closed windows plus the open one so far);
+    /// None until this TUI has seen a self-change, or while no ledger total is known.
+    pub fn gate_musd(&self) -> Option<i64> {
+        let g = &self.gates;
+        if !g.seen {
+            return None;
+        }
+        let open = match g.open_from {
+            Some(from) => (self.spent()? - from).max(0),
+            None if g.opening => return None,
+            None => 0,
+        };
+        Some(g.done_musd + open)
+    }
+
+    fn gate_open(&self) -> bool {
+        self.gates.open_from.is_some() || self.gates.opening
+    }
+
+    /// The kernel's `evolution_checks_today_musd` is from a `state` frame older than the last
+    /// self-change notice (the kernel sends `state` only when a run starts or ends, and after a turn).
+    pub fn evolution_stale(&self) -> bool {
+        matches!((self.gate_notice_at, self.state_at), (Some(g), Some(s)) if g > s) || (self.gate_notice_at.is_some() && self.state_at.is_none())
     }
 
     pub fn on_state(&mut self, v: Value, now: Instant) {
@@ -1348,10 +1451,15 @@ impl Info {
                 self.busy_since = Some(now);
                 self.begin_turn();
             }
-            (false, _) => self.busy_since = None,
+            (false, Some(_)) => {
+                // the run ended: the next ledger answer (asked for by the caller) closes the turn's cost
+                self.busy_since = None;
+                self.turn_closing = true;
+            }
             _ => {}
         }
         self.state = Some(v);
+        self.state_at = Some(now);
     }
 
     pub fn busy(&self) -> bool {
@@ -1366,6 +1474,9 @@ impl Info {
     pub fn begin_turn(&mut self) {
         self.turn = Tally::default();
         self.turn_start_musd = self.spent();
+        self.turn_end_musd = None;
+        self.turn_closing = false;
+        self.turn_gate = self.gate_open();
     }
 
     /// An owner line reached the kernel: a new turn unless it steers the running one.
@@ -1386,16 +1497,27 @@ impl Info {
         Some(u)
     }
 
-    /// The turn's estimated cost: the change in the Root's ledger total since the turn began
-    /// (estimates from usage and tariffs, not an invoice; it includes any other spend in that time).
+    /// The turn's estimated cost: the change in the Root's ledger total from the turn's start to the
+    /// end of its run (estimates from usage and tariffs, not an invoice). TUI-FIX (v0.5.1): spend
+    /// after the run ended is not the turn's; a self-change in flight during the run is included, and
+    /// `turn_gate` says so.
     pub fn turn_musd(&self) -> Option<i64> {
-        Some((self.spent()? - self.turn_start_musd?).max(0))
+        let end = match self.turn_end_musd {
+            Some(e) => e,
+            None => self.spent()?,
+        };
+        Some((end - self.turn_start_musd?).max(0))
+    }
+
+    /// The turn's cost as shown: `$0.004`, `$0.004 incl. checks` when a self-change ran during it.
+    pub fn turn_cost(&self) -> String {
+        let cost = self.turn_musd().map_or_else(|| "$?".into(), crate::render::usd);
+        if self.turn_gate { format!("{cost} incl. checks") } else { cost }
     }
 
     /// `in 238k out 1.0k · cache 99.8% · $0.004`, the turn's line for the status bar and line mode.
     pub fn turn_line(&self) -> String {
-        let cost = self.turn_musd().map_or_else(|| "$?".into(), crate::render::usd_fine);
-        format!("in {} out {} · cache {} · {cost}", tok(self.turn.input), tok(self.turn.output), self.turn.cache().show())
+        format!("in {} out {} · cache {} · {}", tok(self.turn.input), tok(self.turn.output), self.turn.cache().show(), self.turn_cost())
     }
 
     /// The Root's slot is panicked, halted or stopped (where `/resume` is the Root's).
@@ -1769,6 +1891,32 @@ mod tests {
         assert_eq!(u.cache().show(), "~50.0%", "partial: only requests that reported a cache field");
         assert_eq!(Tally::default().cache().show(), "?");
         assert_eq!((tok(961), tok(12_345), tok(238_102), tok(1_240_000)), ("961".into(), "12.3k".into(), "238k".into(), "1.24M".into()));
+    }
+
+    /// TUI-FIX (v0.5.1 user session: the turn's `$` went $0.006 → $0.040 during G2 and G3 while its
+    /// tokens stayed put): the turn's cost stops when its run ends; a self-change that runs after the
+    /// reply is not the turn's, and one that runs during the run is labelled.
+    #[test]
+    fn turn_cost_stops_when_the_run_ends() {
+        let now = Instant::now();
+        let money = |m: i64| json!({"money": {"enforced": false, "policy": "observe", "total_spent_musd": m}});
+        let mut i = Info::default();
+        i.on_egress(money(10_000));
+        i.on_state(json!({"busy": true}), now);
+        i.on_tokens("tokens: in 85500 (cached 70600), out 555");
+        i.on_egress(money(16_000));
+        i.on_state(json!({"busy": false}), now); // the reply is done
+        i.on_egress(money(16_000)); // the poll the run's end asks for
+        i.on_gate(true, now); // the gate's probes and G3 run after the reply
+        i.on_egress(money(25_000));
+        i.on_egress(money(40_000));
+        assert_eq!(i.turn_musd(), Some(6_000), "the gate's spend is not the turn's");
+        assert_eq!(i.turn_cost(), "$0.006");
+        assert_eq!(i.gate_musd(), Some(24_000));
+        // a run that starts while a self-change is in flight: its cost includes the checks, and says so
+        i.on_state(json!({"busy": true}), now);
+        i.on_egress(money(41_000));
+        assert_eq!(i.turn_cost(), "$0.001 incl. checks");
     }
 
     #[test]

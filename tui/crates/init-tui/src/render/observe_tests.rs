@@ -113,7 +113,7 @@ fn gate_block_in_the_live_region() {
     n(&mut t, g("G2"), 12_500);
     n(&mut t, g("G3"), 30_000);
     n(&mut t, json!({"kind": "promoted", "sha": "06be87a1234567890", "handoff": true, "handoff_ms": 4_600}), 34_600);
-    n(&mut t, json!({"kind": "gate", "gate_kind": "g4", "sha": "06be87a1234567890", "stage": "G4", "pass": true, "reason": null, "wall_ms": 900}), 35_600);
+    n(&mut t, json!({"kind": "gate", "gate_kind": "g4", "sha": "06be87a1234567890", "stage": "G4", "pass": true, "reason": null, "score": 640, "wall_ms": 900}), 35_600);
     n(&mut t, json!({"kind": "lkg", "sha": "06be87a1234567890"}), 35_700);
     t.display(&call(DisplayKind::ToolEnd, "c1", "bash", "exit 0, 3 lines", Some(true), None), base + Duration::from_secs(36), NOW_MS);
     out.push_str("-- kept: one line\n");

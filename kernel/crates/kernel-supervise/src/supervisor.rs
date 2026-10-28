@@ -1307,6 +1307,12 @@ impl Supervisor {
         };
         let ev = match (word, rest.is_empty()) {
             ("/stop", true) => Some(Ev::OwnerStop),
+            // ROOT-MSG (v0.5.1): a `/resume` with nothing to resume says so instead of printing nothing
+            ("/resume", true) if !matches!(self.m.slot, Slot::Stopped | Slot::Stopping { .. } | Slot::Halted { .. }) => {
+                self.owner_notice(AlertLevel::Info, &format!("[kernel] nothing to resume: {}.", self.m.state_words(now.mono)));
+                self.link.respond(&id, Ok(json!({})));
+                return;
+            }
             ("/resume", true) => Some(Ev::OwnerResume),
             ("/status", true) => {
                 let s = self.status_line();
@@ -1353,7 +1359,8 @@ impl Supervisor {
                 if let Some(t) = self.m.relay_target().map(str::to_string) {
                     self.send_to(&t, &input.frame());
                 } else {
-                    self.owner_notice(AlertLevel::Info, &format!("queued: the body is {}", self.m.hb().0));
+                    // ROOT-MSG (v0.5.1): what is happening and what the owner can do, not "the body is backoff"
+                    self.owner_notice(AlertLevel::Info, &format!("[kernel] your message is queued, not lost: {}.", self.m.state_words(now.mono)));
                 }
                 let acts = self.m.on(Ev::OwnerLine, now);
                 self.exec(acts);

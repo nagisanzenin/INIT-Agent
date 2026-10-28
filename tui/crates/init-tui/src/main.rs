@@ -27,7 +27,8 @@ const USAGE: &str = "usage: init-tui [--root-home DIR] [--plain | --raw] [--no-r
   Access is full by default (ADR-012): the agent may read and write anywhere you can and use the
   network, except INIT's Root (~/.init-root, its service, INIT's launchers). The current directory
   is the workspace: /undo restores the snapshot the Root took of it first; nothing else has /undo.
-  Launched in ~ (or outside your home), there is no workspace.
+  Launched in ~ (or outside your home), there is no workspace: the agent then works in its own
+  folder (INIT_HOME/work, ~/.init/work by default) and /undo has nothing to restore.
 
   --root-home DIR    the Root's home (else INIT_ROOT_HOME, else ~/.init-root)
   --plain            line mode even on a TTY

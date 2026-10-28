@@ -65,6 +65,6 @@ Read it.                                                                        
 ┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › Type a message · / for commands · ? for keys                               │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..............................ll
 └──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- deepseek-flash · +$0.00 since attach · $1.23/$5.00 today          L0 · root ok |.ddddddddddddddmmmdddddddddddddddddddmmm.............................mmmaaaaaaa 
+ deepseek-flash · +$0.000 since attach · $1.23/$5.00 today         L0 · root ok |.ddddddddddddddmmmddddddddddddddddddddmmm............................mmmaaaaaaa 
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  
 cursor 4,7

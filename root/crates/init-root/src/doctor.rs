@@ -84,7 +84,7 @@ pub fn evaluate(t: &dyn ProcTable, marks: &[(String, PathBuf)], decoy: &Path, ca
 pub fn sweep_dry_run(p: &Paths) -> Result<Value, String> {
     let ih_marks = p.i("run/mark");
     if !ih_marks.is_dir() {
-        return Err(format!("{} is missing: run init-root install first", ih_marks.display()));
+        return Err(format!("{} is missing: INIT is not installed in {} (install it with get.sh, docs/guide.md)", ih_marks.display(), p.ih.display()));
     }
     let (decoy, canary) = (p.i("run/mark/decoy"), p.r("run/canary"));
     let mut v = evaluate(&crate::sys::LiveTable, &marks(&p.ih), &decoy, &canary, &recorded(&p.rh), std::process::id() as i32,

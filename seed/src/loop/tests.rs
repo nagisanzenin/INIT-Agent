@@ -1619,7 +1619,8 @@ fn t20_stop_grace_and_eof() {
     let (code, _) = h.join_exit();
     assert_eq!(code, 0);
     assert!(t0.elapsed() < Duration::from_secs(10));
-    assert!(!group_alive(pg));
+    // the group's grandchildren are reaped by init a few ms after the body exits (REL-051's x86_64 flake class)
+    wait_until("the bash group to be gone", || !group_alive(pg));
     assert_eq!(host.shutdowns.load(Ordering::SeqCst), 1);
 }
 

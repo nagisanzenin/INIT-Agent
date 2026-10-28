@@ -19,6 +19,14 @@ over-claiming describe weak models and must not be hard-coded. Goodhart is a pro
 
 ## Decision
 
+> **v0.5.1 (2026-10-28): correction to decision 4's false-rollback rate.** "A one-sided z ≤ −2 has a ≈ 2.3%
+> false-rollback rate" is the normal tail, which holds only for large samples. The code compares z with a fixed 2
+> (`Z = 2000` ‰, root/crates/init-root/src/goal.rs:34; `reading`, :276, Welch's se). With the default 5 readings
+> against 40 incumbent turns, Welch's df is ≈ 5 (5.05), and for normally distributed turns the one-sided rate of
+> z ≤ −2 is **≈ 5.1%** per guardrail per measured change (the t tail at 5 df; ≈ 4% with only 5 baseline turns, and
+> higher still with fewer readings, down to the 3 a reading allows). The fix, a threshold from the t distribution at
+> Welch's df, is planned for v0.5.2. The text below is kept as it was decided.
+
 1. **The model owns the loop (T0, rewritable).** Two seed skills: `goal-loop` (layer 1: frozen yes/no checklist,
    verbatim capture, pairwise judging against the champion with position swap and ≥ 3 runs per judge, a ledger, six stop
    reasons) and `gbal` (layer 2: choose mode A card / B judged / hybrid by three mechanical instrument tests — a noise floor

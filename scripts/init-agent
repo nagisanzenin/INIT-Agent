@@ -6,13 +6,16 @@
 #   init-agent --full        full access (ADR-012: the default; ADR-009's flag): passed through to the TUI like every other flag
 #   init-agent --workspace   confine this session to the workspace (ADR-012): passed through the same way
 #   init-agent --which       print what would run, and run nothing (the launcher's own flag)
-#   init-agent upgrade [--bundle FILE.tar.gz [--sha256 HEX]] [--version V] [-- <install.sh args>]
-#                            upgrade INIT to the latest release (or V, or a local bundle), keeping what it has become:
+#   init-agent upgrade [--version V | --bundle FILE.tar.gz --sha256 HEX] [-- <install.sh args>]
+#                            upgrade INIT to the latest release (or release V: 0.5.0 finds the tag v0.5.0-preview; or a
+#                            local bundle, with the sha256 the release page lists for it), keeping what it has become:
 #                            its body, extensions, sessions, lineage, keys and charter (docs/guide.md "Upgrade"). It runs
 #                            the get.sh that install.sh kept in ROOT_HOME/cache/ (the agent cannot write there), which
-#                            checks the bundle's sha256, unpacks it under ROOT_HOME/cache/upgrade/ and runs its
-#                            install.sh --upgrade: stop, replace, health probe, then commit or roll back. Run it from your
-#                            own shell; inside an INIT session it fails, because the agent can reach none of those paths.
+#                            downloads the bundle, or copies the local one, into ROOT_HOME/cache/upgrade/, checks that
+#                            copy's sha256, unpacks it there and runs its install.sh --upgrade (system tools only): stop,
+#                            replace, health probe, then commit or roll back. A .sha256 file beside a local bundle is not
+#                            used (with full access the agent can write it). Run it from your own shell; inside an INIT
+#                            session it fails, because the agent can reach none of those paths.
 #
 # The directory `init-agent` is launched in becomes the agent's workspace (ADR-009): `exec` keeps the cwd, and the TUI
 # sends it to the Root, which validates it (launched in ~ or outside the home: no workspace).
@@ -24,19 +27,35 @@
 # interrupts the current turn, Ctrl-D detaches.
 # ROOT_HOME is $INIT_ROOT_HOME, else the value install.sh wrote below, else ~/.init-root. INIT_HOME is the one
 # ROOT_HOME/install.json names, else $INIT_HOME, else ~/.init.
+# Before it hands over (the TUI, init-root attach, or the kept get.sh), the launcher runs no program found on PATH, only
+# bash builtins: with full access the agent can write the owner's PATH directories (ADR-012), and this runs as the owner.
 set -euo pipefail
 INIT_ROOT_HOME_DEFAULT=""
 RH="${INIT_ROOT_HOME:-${INIT_ROOT_HOME_DEFAULT:-$HOME/.init-root}}"
 export INIT_ROOT_HOME="$RH"
 ROOT_BIN="$RH/bin/init-root"
-HERE="$(cd "$(dirname "$0")" && pwd -P)"
-IH="$(sed -n 's/.*"init_home":"\([^"]*\)".*/\1/p' "$RH/install.json" 2>/dev/null || true)"
+dir_of() { case "$1" in */*) local d="${1%/*}"; printf '%s\n' "${d:-/}" ;; *) echo . ;; esac; } # dirname, as a builtin
+HERE="$(cd "$(dir_of "$0")" && pwd -P)"
+IH=""
+if [ -r "$RH/install.json" ] && [[ "$(<"$RH/install.json")" =~ \"init_home\":\"([^\"]*)\" ]]; then IH="${BASH_REMATCH[1]}"; fi
 IH="${IH:-${INIT_HOME:-$HOME/.init}}"
 IH_REAL="$(cd "$IH" 2>/dev/null && pwd -P || echo "$IH")"
+# What this prints, it prints as the owner types it in a new terminal (tests/install/test_printed_commands.py): words
+# quoted as install.sh's shq quotes them, and INIT_ROOT_HOME= in front when ROOT_HOME is not the passwd home's
+# ~/.init-root (`~` with HOME unset is the passwd home, a builtin lookup).
+PW_HOME="$(unset HOME; echo ~)"
+SQ="'\''"
+shq() { if [[ -n "$1" && "$1" != *[!A-Za-z0-9/._+,:@%=-]* ]]; then printf '%s' "$1"; else printf "'%s'" "${1//\'/$SQ}"; fi; }
+rh_env() { [ "$RH" = "$PW_HOME/.init-root" ] || printf 'INIT_ROOT_HOME=%s ' "$(shq "$RH")"; }
+# The upgrade that runs the current get.sh with the system's curl and sh (docs/guide.md "Upgrade"; get.sh's up_pipe)
+up_pipe() { # [get.sh args]
+  printf '/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | %s/bin/sh' "$(rh_env)"
+  [ $# = 0 ] || printf ' -s -- %s' "$*"
+}
 
 inside_init_home() { # <file>: true when its real directory is INIT_HOME or below it
   local d
-  d="$(cd "$(dirname "$1")" 2>/dev/null && pwd -P)" || return 1
+  d="$(cd "$(dir_of "$1")" 2>/dev/null && pwd -P)" || return 1
   case "$d/" in "$IH_REAL/"*) return 0 ;; *) return 1 ;; esac
 }
 if [ -n "${INIT_TUI:-}" ] && inside_init_home "$INIT_TUI"; then
@@ -52,10 +71,17 @@ done
 
 if [ "${1:-}" = upgrade ]; then
   shift
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH # the upgrade replaces the Root: system tools only (get.sh sets it too)
   GET="$RH/cache/get.sh"
-  if [ ! -f "$GET" ]; then
-    echo "init-agent: $GET is missing (installs of INIT 0.4.1 and earlier keep no copy). Upgrade this once with:" >&2
-    echo "  curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh -s -- --upgrade" >&2
+  if [ ! -f "$GET" ] && [ ! -f "$RH/install.json" ]; then
+    echo "init-agent: INIT is not installed in $RH (no install.json there), so there is nothing to upgrade. To install it:" >&2
+    echo "  $(up_pipe)" >&2
+    exit 69
+  elif [ ! -f "$GET" ]; then
+    echo "init-agent: $GET is missing. An install keeps get.sh there for this command from INIT 0.5.0 on: this install" >&2
+    echo "  is 0.4.1, or its copy was removed. Upgrade once with the current get.sh, which keeps a new copy (it refuses a" >&2
+    echo "  release before 0.4.1 and prints what to do instead):" >&2
+    echo "  $(up_pipe --upgrade)" >&2
     exit 69
   fi
   args=(--upgrade)
@@ -64,7 +90,7 @@ if [ "${1:-}" = upgrade ]; then
       --bundle) [ $# -ge 2 ] || { echo "init-agent upgrade: --bundle needs a file" >&2; exit 64; }; args+=(--from "$2"); shift 2 ;;
       --sha256|--version) [ $# -ge 2 ] || { echo "init-agent upgrade: $1 needs a value" >&2; exit 64; }; args+=("$1" "$2"); shift 2 ;;
       --) shift; args+=(-- "$@"); break ;;
-      -h|--help) sed -n '9,15p' "$0"; exit 0 ;;
+      -h|--help) sed -n '9,18p' "$0"; exit 0 ;;
       *) echo "init-agent upgrade: unknown argument $1 (see init-agent upgrade --help)" >&2; exit 64 ;;
     esac
   done
@@ -81,9 +107,15 @@ if [ ! -x "$ROOT_BIN" ]; then
 fi
 if [ ! -S "$RH/run/owner.sock" ]; then
   echo "init-agent: the Root is not running ($RH/run/owner.sock is missing)." >&2
-  echo "  with the service: launchctl kickstart gui/$(id -u)/dev.init.root" >&2
-  echo "    (if launchd no longer knows the job: launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.init.root.plist)" >&2
-  echo "  without it:       INIT_ROOT_HOME=\"$RH\" \"$ROOT_BIN\" start --foreground   (in another terminal)" >&2
+  case "$OSTYPE" in # the service install.sh set up: a LaunchAgent on macOS, a systemd user unit on Linux
+    darwin*)
+      echo "  with the service: launchctl kickstart gui/$UID/dev.init.root" >&2
+      echo "    (if launchd no longer knows the job: launchctl bootstrap gui/$UID $(shq "$PW_HOME/Library/LaunchAgents/dev.init.root.plist"))" >&2 ;;
+    linux*)
+      echo "  with the service: systemctl --user start init-root.service" >&2
+      echo "    (if systemd no longer knows the unit: systemctl --user daemon-reload && systemctl --user start init-root.service)" >&2 ;;
+  esac
+  echo "  without it:       $(rh_env)$(shq "$ROOT_BIN") start --foreground   (in another terminal)" >&2
   exit 69
 fi
 exec "$ROOT_BIN" attach "$@"

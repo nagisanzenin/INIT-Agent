@@ -36,6 +36,10 @@
 #                  release's Root: version and body checks, a snapshot, the replace), the new launchers, a health probe,
 #                  then commit, or roll back to the old binaries if the probe fails. `init-agent upgrade` and
 #                  `get.sh --upgrade` run this from a verified copy of the release under ROOT_HOME/cache/upgrade/.
+#                  The agent may have written the owner's PATH directories, the working directory and TMPDIR (full
+#                  access), so an upgrade from a bundle runs the system tools (PATH /usr/bin:/bin:/usr/sbin:/sbin) from
+#                  /, keeps its scratch files under ROOT_HOME/cache/, and keeps the Rust toolchain install.json records
+#                  (it runs no rustup).
 #   --probe-timeout S  how long the health probe waits for the upgraded Root, kernel and body (default 120)
 #   --apparmor     Linux, when AppArmor restricts unprivileged user namespaces (Ubuntu 24.04 and later,
 #                  kernel.apparmor_restrict_unprivileged_userns = 1): show the one-time commands below, ask, and run them
@@ -64,7 +68,6 @@
 set -euo pipefail
 umask 077
 
-REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
 YES=0; NO_SERVICE=0; REBUILD=0; REUSE=0; WITH_TESTS=0; ALLOW_DIRTY=0; FLOOR=""; CHARTER_IN=""; MOCK=""; UPGRADE=0; PROBE_S=120
 APPARMOR=0; PRINT_APPARMOR=0
 DAY=5; TOTAL=25; LEVEL=4; ACCESS=full; PURPOSE="My personal agent on this computer: it helps me with my work and improves itself, within my limits."
@@ -88,10 +91,23 @@ while [ $# -gt 0 ]; do
     --probe-timeout) PROBE_S="$2"; shift 2 ;;
     --apparmor) APPARMOR=1; shift ;;
     --print-apparmor) PRINT_APPARMOR=1; shift ;;
-    -h|--help) sed -n '2,61p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,65p' "$0"; exit 0 ;;
     *) echo "install.sh: unknown argument $1 (see --help)" >&2; exit 64 ;;
   esac
 done
+# This script's directory, with builtins only (nothing on PATH has run yet), and whether it is an unpacked bundle
+case "$0" in */*) HERE="${0%/*}" ;; *) HERE=. ;; esac
+REPO="$(cd "$HERE/.." && pwd -P)"
+BUNDLE=0
+if [ -f "$REPO/SHA256SUMS" ] && [ -f "$REPO/body/BODY.json" ] && [ -f "$REPO/MANIFEST.json" ]; then BUNDLE=1; fi
+# An upgrade from a bundle runs with INIT installed, and with full access its agent can write the owner's PATH
+# directories and the working directory (ADR-012). The upgrade replaces the Root, so nothing it runs comes from them:
+# the system tools, from /. (An upgrade from a source checkout builds that checkout with your cargo: it trusts the
+# checkout and your PATH as they are.)
+if [ $UPGRADE = 1 ] && [ $BUNDLE = 1 ]; then
+  PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH
+  cd /
+fi
 
 say() { printf '%s\n' "$*"; }
 step() { printf '\n==> %s\n' "$*"; }
@@ -132,9 +148,20 @@ export RUSTUP_HOME="${RUSTUP_HOME:-$PW_HOME/.rustup}" CARGO_HOME="${CARGO_HOME:-
 RH="${INIT_ROOT_HOME:-$HOME/.init-root}"
 IH="${INIT_HOME:-$HOME/.init}"
 BIN_DIR="${INIT_BIN_DIR:-$HOME/.local/bin}"
-BUNDLE=0
-if [ -f "$REPO/SHA256SUMS" ] && [ -f "$REPO/body/BODY.json" ] && [ -f "$REPO/MANIFEST.json" ]; then
-  BUNDLE=1 # an unpacked release bundle: the release dir is this directory
+# ROOT-MSG (v0.5.1): `init-root <args>` as you type it in a new terminal, the form the Root prints (util::root_cmd).
+# init-root is not on PATH (only init-agent is), so a bare `init-root …` is "command not found"; a ROOT_HOME other than
+# ~/.init-root needs INIT_ROOT_HOME= in front, because init-root finds its home there, else in ~/.init-root.
+# tests/install/test_printed_commands.py checks that no command this script prints is a bare one.
+shq() { case "$1" in ''|*[!A-Za-z0-9/._+,:@%=-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;; *) printf '%s' "$1" ;; esac; }
+# rh_env: "INIT_ROOT_HOME=<ROOT_HOME> " when a new terminal would not find this ROOT_HOME (not ~/.init-root), else ""
+rh_env() { [ -n "$PW_HOME" ] && [ "$RH" = "$PW_HOME/.init-root" ] || printf 'INIT_ROOT_HOME=%s ' "$(shq "$RH")"; }
+rcmd() { printf '%s%s' "$(rh_env)" "$(shq "$RH/bin/init-root")"; [ $# = 0 ] || printf ' %s' "$*"; }
+# The upgrade to the latest release with its get.sh and the system's curl and sh: what an install of 0.4.1 or 0.5.0 runs
+# (0.5.0's own `init-agent upgrade` runs 0.5.0's get.sh, without 0.5.1's fixes; docs/guide.md "Upgrade"; get.sh's up_pipe)
+up_pipe() {
+  printf '/usr/bin/curl -q -fsSL %s | %s/bin/sh -s -- --upgrade' "$(shq "${INIT_DIST_URL:-https://github.com/nagisanzenin/INIT-Agent/releases/latest/download}/get.sh")" "$(rh_env)"
+}
+if [ $BUNDLE = 1 ]; then # an unpacked release bundle: the release dir is this directory
   VERSION="$(sed -n 's/^ "version": "\(.*\)",*$/\1/p' "$REPO/MANIFEST.json" | head -1)"
   DIST="$REPO"
 else
@@ -229,7 +256,7 @@ case "$OS" in
     ns_nested \
       || die "bubblewrap cannot start inside unshare's namespace here (the zone's nesting); see docs/platforms.md, Linux install"
     if [ $NO_SERVICE = 0 ] && [ $UPGRADE = 0 ] && ! systemctl --user show-environment >/dev/null 2>&1; then
-      die "no systemd user session here (systemctl --user does not answer), so the service cannot be installed: pass --no-service and start the Root yourself (init-root start), or log in through a systemd session"
+      die "no systemd user session here (systemctl --user does not answer), so the service cannot be installed: pass --no-service and start the Root yourself after the install, in a terminal of its own ($(rcmd start --foreground)), or log in through a systemd session"
     fi
     DISTRO="$( (. /etc/os-release 2>/dev/null && printf '%s' "${PRETTY_NAME:-}") || true)" # a subshell: os-release sets VERSION
     PLATFORM="Linux $DISTRO $(uname -r) $(uname -m) · bwrap $BWV" ;;
@@ -240,7 +267,11 @@ GITV="$(git --version | awk '{print $3}')"
 /usr/bin/python3 -I -c 'import sys; v=tuple(int(x) for x in sys.argv[1].split(".")[:3]); sys.exit(0 if v>=(2,39,4) else 1)' "$GITV" \
   || die "git 2.39.4 or newer is needed (found $GITV)"
 RUSTUP_CMD="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.97.1 --target wasm32-wasip2 --component clippy"
-if [ $BUNDLE = 1 ]; then
+if [ $UPGRADE = 1 ] && [ $BUNDLE = 1 ]; then
+  # the upgrade keeps the toolchain install.json records (init-root toolchain --set changes it); a rustup found on
+  # PATH would run as you, and the agent can write the directories it lives in
+  TC=kept; TCV="the Rust toolchain install.json records (kept)"
+elif [ $BUNDLE = 1 ]; then
   # get.sh installs Rust 1.97.1 with wasm32-wasip2 before this runs (unless --no-rust). A rustup on PATH with 1.97.x and
   # wasm32-wasip2 is recorded for self-evolution T1/T2; anything else installs without a toolchain (T0: skills, prompts,
   # extension source).
@@ -249,10 +280,10 @@ if [ $BUNDLE = 1 ]; then
     case "$("$RUSTC" -V 2>/dev/null)" in
       rustc\ 1.97.*)
         if ! [ -x "$(dirname "$RUSTC")/cargo-clippy" ]; then # the gate's G0 runs cargo clippy
-          TCV="Rust without clippy (self-evolution T0 only until: rustup component add clippy; init-root toolchain --set)"
+          TCV="Rust without clippy (self-evolution T0 only until: rustup component add clippy, then the steps printed at the end)"
         elif "$RUSTUP" target list --installed 2>/dev/null | grep -qx wasm32-wasip2; then
           TC="$(cd "$(dirname "$RUSTC")/.." && pwd -P)"; TCV="$("$RUSTC" -V)"
-        else TCV="Rust without wasm32-wasip2 (self-evolution T0 only until: rustup target add wasm32-wasip2; init-root toolchain --set)"; fi ;;
+        else TCV="Rust without wasm32-wasip2 (self-evolution T0 only until: rustup target add wasm32-wasip2, then the steps printed at the end)"; fi ;;
       *) TCV="$("$RUSTC" -V 2>/dev/null) is not 1.97.x (self-evolution T0 only)" ;;
     esac
   fi
@@ -275,19 +306,24 @@ ver_lt() { /usr/bin/python3 -I -c 'import sys; v = lambda s: tuple(int(x) for x 
 sys.exit(0 if v(sys.argv[1]) < v(sys.argv[2]) else 1)' "$1" "$2"; }
 too_old() { # <version>
   die "INIT $1 is installed in $RH. An upgrade from a release before 0.4.1 is not supported: uninstall it first (it moves INIT, its record and your provider key to the Trash; nothing is deleted), then run this again:
-  bash $REPO/scripts/uninstall.sh"
+  $(rh_env)bash $(shq "$REPO/scripts/uninstall.sh")"
 }
 if [ -e "$RH/install.json" ]; then
   HAVE="$(installed)"
   [ -z "$HAVE" ] || ! ver_lt "$HAVE" 0.4.1 || too_old "$HAVE"
 fi
 if [ $UPGRADE = 0 ] && [ -e "$RH/install.json" ]; then
-  if [ -n "$HAVE" ] && ver_lt "$HAVE" 0.5.0; then
-    die "INIT $HAVE is already installed ($RH/install.json exists). Upgrade it to v$VERSION instead, which keeps what INIT has become (0.4.1 has no init-agent upgrade):
-  $REPO/scripts/install.sh --upgrade"
+  UP_HERE="$(rh_env)$(shq "$REPO/scripts/install.sh") --upgrade"
+  if [ -n "$HAVE" ] && ver_lt "$HAVE" 0.5.1; then
+    if ver_lt "$HAVE" 0.5.0; then WHY="0.4.1 has no init-agent upgrade"; else WHY="0.5.0's own init-agent upgrade runs 0.5.0's get.sh, which 0.5.1 fixed"; fi
+    die "INIT $HAVE is already installed ($RH/install.json exists). Upgrade it to v$VERSION instead, which keeps what INIT has become ($WHY):
+  $UP_HERE
+or, to the latest release, once from your own shell: $(up_pipe)"
   fi
+  [ -n "$HAVE" ] && ALT="" || ALT="
+(from 0.4.1 or 0.5.0, init-agent upgrade does not apply: $UP_HERE, or the latest release: $(up_pipe))"
   die "INIT ${HAVE:+$HAVE }is already installed ($RH/install.json exists). Upgrade it to v$VERSION instead, which keeps what INIT has become:
-  init-agent upgrade        (or: $REPO/scripts/install.sh --upgrade)"
+  $(rh_env)init-agent upgrade        (or: $UP_HERE)$ALT"
 fi
 if [ $UPGRADE = 1 ]; then
   [ -e "$RH/install.json" ] || die "INIT is not installed ($RH/install.json is missing): run this without --upgrade to install it"
@@ -398,7 +434,10 @@ keep_get() { # get.sh into ROOT_HOME/cache/ (the zone cannot write ROOT_HOME): w
 
 # ---------------------------------------------------------------- --upgrade (instead of steps 3-7)
 if [ $UPGRADE = 1 ]; then
-  WORK="$(mktemp -d "${TMPDIR:-/tmp}/init-upgrade.XXXXXX")"
+  # the launcher is written here before it is copied into BIN_DIR: under ROOT_HOME, which the agent cannot write (it
+  # can write TMPDIR, and so swap the file between the two)
+  [ -d "$RH/cache" ] && [ ! -L "$RH/cache" ] || die "$RH/cache is not a directory"
+  WORK="$(mktemp -d "$RH/cache/.install.XXXXXX")"
   trap 'rm -rf -- "$WORK"' EXIT
   IENV=(env -i HOME="$PW_HOME" INIT_ROOT_HOME="$RH" INIT_HOME="$IH" PATH=/usr/bin:/bin)
   ROOT_BIN="$RH/bin/init-root"
@@ -416,7 +455,7 @@ sys.exit(0)' "$RH/run/root.lock"
   }
   svc_start() { # the service again (if INIT has one); else how to start the Root
     if [ $SVC = 0 ]; then
-      say "  start the Root again as before, in its own terminal: INIT_ROOT_HOME=\"$RH\" \"$ROOT_BIN\" start --foreground"
+      say "  start the Root again as before, in its own terminal: $(rcmd start --foreground)"
     elif [ "$OS" = Darwin ]; then
       launchctl bootstrap "gui/$(id -u)" "$SVCF" 2>/dev/null || launchctl kickstart "gui/$(id -u)/dev.init.root" 2>/dev/null || true
     else
@@ -426,6 +465,22 @@ sys.exit(0)' "$RH/run/root.lock"
       for _ in $(seq 1 120); do [ -S "$RH/run/owner.sock" ] && ! lock_free && break; sleep 0.25; done
       lock_free && say "  warning: the Root did not come back under the service; see $RH/logs/" || say "  the Root runs again under the service"
     fi
+  }
+  # A commit or a rollback that fails leaves the upgrade half way, and the Root stopped. It is not started here: both
+  # take run/root.lock and refuse a running Root, and a Root started before the commit would run the new tuple while
+  # lkg and the rollback anchors still name the old one. So the message says it is stopped and how to start it after.
+  left_stopped() { # <the command to run first> [<the other way>]: the rest of the die message
+    local svc start alt=""
+    [ -z "${2:-}" ] || alt="  (or $2)
+"
+    if [ $SVC = 0 ]; then
+      svc="The Root is not running (it was not running before the upgrade, and has no service)"; start="$(rcmd start --foreground)   (in a terminal of its own)"
+    elif [ "$OS" = Darwin ]; then
+      svc="The Root's LaunchAgent stays stopped (the upgrade stopped it)"; start="launchctl bootstrap gui/$(id -u) $(shq "$SVCF")"
+    else
+      svc="The Root's systemd user unit stays stopped (the upgrade stopped it)"; start="systemctl --user start init-root.service"
+    fi
+    printf '%s, and this step needs it stopped. Run:\n  %s\n%sthen start the Root: %s' "$svc" "$1" "$alt" "$start"
   }
   # 1. stop: the zone through the Root, then the Root itself (service); a Root in a terminal is never signalled from here
   step "upgrade 1/5 stop INIT"
@@ -458,7 +513,8 @@ sys.exit(0)' "$RH/run/root.lock"
   step "upgrade 4/5 health probe (the new Root starts the kernel and the body, then stops)"
   if "${IENV[@]}" "$ROOT_BIN" upgrade --probe --timeout "$PROBE_S"; then
     step "upgrade 5/5 commit"
-    "${IENV[@]}" "$ROOT_BIN" upgrade --commit || die "the commit failed (above); run: $ROOT_BIN upgrade --commit"
+    "${IENV[@]}" "$ROOT_BIN" upgrade --commit \
+      || die "the commit failed (above). $(left_stopped "$(rcmd upgrade --commit)" "to go back to the old version instead: $(rcmd upgrade --rollback)")"
     keep_get
     svc_start
     cat <<EOF
@@ -480,7 +536,7 @@ EOF
     if [ -n "$UID_" ] && [ -x "$OLD" ]; then "${IENV[@]}" "$OLD" upgrade --rollback; RRC=$?; fi
   fi
   set -e
-  [ $RRC = 0 ] || die "the rollback did not finish (above). The snapshot of the old install is in $RH/state/upgrade/; run: $DIST/init-root upgrade --rollback"
+  [ $RRC = 0 ] || die "the rollback did not finish (above). The snapshot of the old install is in $RH/state/upgrade/. $(left_stopped "INIT_ROOT_HOME=$(shq "$RH") $(shq "$DIST/init-root") upgrade --rollback")"
   svc_start
   say ""
   say "The upgrade to v$VERSION failed its health probe and was rolled back: INIT runs its old version, unchanged."
@@ -569,7 +625,7 @@ else
   say "               confines a session"
 fi
 [ -z "$MOCK" ] || say "  TEST MODE    the provider egress goes to the mock at $MOCK"
-say "Change any of them later: edit $RH/charter.toml, then init-root charter check --apply. The provider, model and key: the first run of init-agent."
+say "Change any of them later: edit $RH/charter.toml, then run $(rcmd charter check --apply). The provider, model and key: the first run of init-agent."
 if [ $YES = 0 ]; then
   printf '\nInstall with these settings? [Y/n] ' >/dev/tty
   IFS= read -r ok </dev/tty || ok=n
@@ -688,12 +744,12 @@ PLIST="$PW_HOME/Library/LaunchAgents/dev.init.root.plist"
 UNIT="$PW_HOME/.config/systemd/user/init-root.service"
 if [ $NO_SERVICE = 1 ]; then
   say "  skipped (--no-service). Start the Root yourself, in its own terminal:"
-  say "    INIT_ROOT_HOME=\"$RH\" \"$RH/bin/init-root\" start --foreground"
+  say "    $(rcmd start --foreground)"
 elif [ "$OS" = Linux ]; then
   # LINUX: the systemd user unit init-root install wrote (Restart=always, Delegate=memory for the per-workload
   # memory.max). It runs while you are logged in; `loginctl enable-linger` keeps it running after logout.
   [ -f "$UNIT" ] || die "init-root install wrote no $UNIT"
-  systemctl --user daemon-reload 2>/dev/null || die "systemctl --user is not available (no systemd user session); reinstall with --no-service and run init-root start yourself"
+  systemctl --user daemon-reload 2>/dev/null || die "systemctl --user is not available (no systemd user session); reinstall with --no-service and start the Root yourself, in a terminal of its own: $(rcmd start --foreground)"
   systemctl --user enable --now init-root.service || die "systemctl --user enable --now init-root.service failed; see: journalctl --user -u init-root"
   for _ in $(seq 1 120); do [ -S "$RH/run/owner.sock" ] && break; sleep 0.25; done
   [ -S "$RH/run/owner.sock" ] || die "the Root did not open $RH/run/owner.sock within 30 s; see: journalctl --user -u init-root"
@@ -718,8 +774,9 @@ Next: init-agent
   The first run picks the provider and the model and asks for your key (hidden; stored 0600 in $RH/keys/, never by
   this script). Then type a task. /stop stops the agent's current body; /panic stops everything and demotes one level.
 
-Your limits: $RH/charter.toml (edit, then: init-root charter check --apply). Spending is tracked, not capped:
-             /usage in the chat or init-root egress stats; a goal's usd= budget is enforced; set a limit at your provider.
+Your limits: $RH/charter.toml (edit, then: $(rcmd charter check --apply)).
+             Spending is tracked, not capped: /usage in the chat, or $(rcmd egress stats);
+             a goal's usd= budget is enforced; set a limit at your provider.
 Logs:        $RH/logs/ (the Root), $IH/state/kernel/logs/ (the kernel and the body)
 Upgrade:     init-agent upgrade (keeps what INIT has become: its body, lineage, keys and charter)
 Uninstall:   $REPO/scripts/uninstall.sh (moves both homes to the Trash)
@@ -737,11 +794,23 @@ Access:      FULL (default): the agent can read and write your files and use the
 EOF
 fi
 if [ "$TC" = none ]; then
+  # `init-root toolchain --set` needs the Root's lock, and `init-root stop` (/root stop) stops only the agent: stop the
+  # Root itself, as the Root's own hint says (install.rs `evolution`, `stop_hint`, `start_hint`)
+  if [ $NO_SERVICE = 1 ]; then
+    RSTOP="Ctrl-C in the Root's terminal (if you started it)"; RSTART="$(rcmd start --foreground)   (in a terminal of its own)"
+  elif [ "$OS" = Darwin ]; then
+    RSTOP="launchctl bootout gui/$(id -u)/dev.init.root"; RSTART="launchctl bootstrap gui/$(id -u) $(shq "$PLIST")"
+  else
+    RSTOP="systemctl --user stop init-root.service"; RSTART="systemctl --user start init-root.service"
+  fi
   cat <<EOF
 
 Self-evolution: T0 only (skills, prompts, extension source). Rebuilding itself (T1/T2) needs Rust 1.97.1 with
 wasm32-wasip2. get.sh installs it unless you passed --no-rust (or rustup failed). To add it now:
   $RUSTUP_CMD
-  $RH/bin/init-root stop; $RH/bin/init-root toolchain --set; $RH/bin/init-root start
+then record it with the Root stopped (/root stop stops only the agent, and the Root holds the lock):
+  $RSTOP
+  $(rcmd toolchain --set)
+  $RSTART
 EOF
 fi

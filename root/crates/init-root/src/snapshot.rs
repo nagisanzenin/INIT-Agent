@@ -577,7 +577,8 @@ pub fn register() {
 
 /// `settled`, pure: the newest tuple that became `lkg` at least 7 days before `now` with no `direct` rollback
 /// (`change_close{attribution:"direct"}`) of one of its groups and no quarantine (`cap_state{to:"quarantined"}`) of a
-/// cap version one of its groups added or modified. A tuple's groups are those whose `change_open` named it.
+/// cap version one of its groups added or modified. A tuple's groups are those whose `change_open` named it. Only the
+/// `lkg` moves since the last owner upgrade's commit (`lkg{upgrade}`) count; that commit re-anchored `settled` itself.
 pub fn settled_of(records: &[Value], now: i64) -> Option<String> {
     let mut groups: BTreeMap<String, BTreeSet<u64>> = BTreeMap::new();
     let mut caps: BTreeMap<u64, BTreeSet<(String, String)>> = BTreeMap::new();
@@ -597,6 +598,9 @@ pub fn settled_of(records: &[Value], now: i64) -> Option<String> {
             Some("change_close") if d["attribution"] == "direct" => drop(d["group"].as_u64().map(|g| direct.insert(g))),
             Some("cap_state") if d["to"] == "quarantined" => drop(quarantined.insert((s(&d["cap"]), s(&d["ver"])))),
             Some("lkg") => {
+                if d["upgrade"].is_string() {
+                    lkg.clear(); // an owner upgrade's commit: no tuple of the kernel before it settles later (tuple::reanchor)
+                }
                 if let (Some(t), Some(at)) = (d["tuple"].as_str(), r["at"].as_str().and_then(util::parse_rfc3339)) {
                     lkg.push((t.to_string(), at));
                 }

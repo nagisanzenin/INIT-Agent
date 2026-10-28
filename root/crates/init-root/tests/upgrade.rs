@@ -171,6 +171,72 @@ impl Home {
         a.extend_from_slice(extra);
         self.run(&rel.join("init-root"), &a)
     }
+    /// The installed Root's `upgrade <verb>`, with `INIT_FAULT` set when `fault` is not empty (root.md §4.7).
+    fn verb(&self, verb: &str, fault: &str) -> Output {
+        let mut c = self.cmd(&self.rh.join("bin/init-root"));
+        if !fault.is_empty() {
+            c.env("INIT_FAULT", fault);
+        }
+        c.args(["upgrade", verb]).stdin(Stdio::null()).output().unwrap()
+    }
+    fn probe(&self) {
+        let o = self.run(&self.rh.join("bin/init-root"), &["upgrade", "--probe", "--timeout", "40"]);
+        assert_eq!(code(&o), Some(0), "probe: {}", err(&o));
+    }
+    fn records(&self) -> Vec<Value> {
+        fs::read_to_string(self.rh.join("lineage/lineage.jsonl")).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+    }
+    fn last(&self, kind: &str) -> Value {
+        self.records().into_iter().rev().find(|r| r["kind"] == kind).unwrap_or_default()
+    }
+    fn tuple(&self, id: &str) -> Value {
+        serde_json::from_str(&fs::read_to_string(self.rh.join("store/tuples").join(format!("{id}.json"))).unwrap()).unwrap()
+    }
+    /// Records through the running Root's own append path (test builds: `test.append`).
+    fn append(&self, records: Value) {
+        self.ok("test.append", json!({"records": records}));
+    }
+    /// An owner line on `owner.sock` (a Root line such as `/rollback twin`).
+    fn say(&self, text: &str) {
+        let mut s = UnixStream::connect(self.rh.join("run/owner.sock")).unwrap();
+        writeln!(s, "{}", json!({"t": "line", "text": text})).unwrap();
+        s.flush().unwrap();
+        std::thread::sleep(Duration::from_millis(300));
+    }
+    /// Every file and directory an upgrade replaces, with its bytes (directories by their listing).
+    fn live(&self) -> Vec<(String, String)> {
+        let mut v = vec![self.rh.join("bin/init-root"), self.rh.join("install.json"), self.ih.join("kernel/bin/init-kernel"), self.ih.join("kernel/bin/initctl")];
+        v.extend(["init-agent", "init-tui", "init"].map(|n| self.dir.join(".local/bin").join(n)));
+        let mut out: Vec<(String, String)> = v.iter().map(|p| (p.display().to_string(), sha(p))).collect();
+        let list = |d: &Path| fs::read_dir(d).map(|r| r.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect::<std::collections::BTreeSet<_>>())
+            .map(|s| format!("{s:?}")).unwrap_or_else(|_| "ABSENT".into());
+        out.extend(["bin", "docs", "wit", "src"].map(|d| (format!("kernel/{d}"), list(&self.ih.join("kernel").join(d)))));
+        out
+    }
+}
+
+/// The kernel source `src` of a release (or of the install): one commit on refs/heads/release, `name` its message.
+fn source_bundle(h: &Home, rel: &Path, version: &str, name: &str) -> String {
+    let git = |dir: &Path, args: &[&str]| {
+        let o = Command::new("/usr/bin/git").env_clear().env("PATH", "/usr/bin:/bin").env("HOME", &h.dir).env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null").current_dir(dir).args(args).output().unwrap();
+        assert!(o.status.success(), "git {args:?}: {}", err(&o));
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    let src = h.dir.join(format!("ksrc-{version}"));
+    fs::create_dir_all(&src).unwrap();
+    git(&src, &["init", "-q", "-b", "release"]);
+    git(&src, &["-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "-q", "--allow-empty", "-m", name]);
+    fs::create_dir_all(rel.join("src")).unwrap();
+    git(&src, &["bundle", "create", "-q", rel.join(format!("src/{version}.bundle")).to_str().unwrap(), "refs/heads/release"]);
+    git(&src, &["rev-parse", "HEAD"])
+}
+
+/// A ref of the Root's `lineage/kernel.git`.
+fn kref(h: &Home, r: &str) -> String {
+    let o = Command::new("/usr/bin/git").env_clear().env("PATH", "/usr/bin:/bin").env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .arg(format!("--git-dir={}", h.ih.join("lineage/kernel.git").display())).args(["rev-parse", "-q", "--verify", r]).output().unwrap();
+    String::from_utf8_lossy(&o.stdout).trim().to_string()
 }
 
 /// The Root daemon this test spawned. On drop: an orderly `stop`, then the daemon by its own handle.
@@ -284,6 +350,345 @@ fn replace_probe_commit_then_a_failed_probe_rolls_back() {
     // the old install still runs
     let _d = h.daemon();
     assert_eq!(h.ok("status", json!({}))["tuples"]["current"], cur.as_str());
+}
+
+/// The post-release review of v0.5.0: `init-root upgrade --release` read the release's kernel source with
+/// `git bundle list-heads` from the caller's working directory, so an upgrade started inside a repository read that
+/// repository's `.git/config`, which the agent can write in full access (ADR-012). Every Root git call runs from `/`
+/// now. Here the caller stands in a repository whose config git cannot parse; the upgrade reads the source bundle.
+#[test]
+fn an_upgrade_started_inside_a_repository_reads_none_of_its_git_config() {
+    let h = home("g");
+    h.install();
+    { let _d = h.daemon(); } // the genesis tuple
+    let rel = h.release("rel1", "9.1.0-test", "release one", None);
+    let git = |dir: &Path, args: &[&str]| {
+        let o = Command::new("/usr/bin/git").env_clear().env("PATH", "/usr/bin:/bin").env("HOME", &h.dir).env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null").current_dir(dir).args(args).output().unwrap();
+        assert!(o.status.success(), "git {args:?}: {}", err(&o));
+        String::from_utf8_lossy(&o.stdout).trim().to_string()
+    };
+    // the release's kernel source: one commit on refs/heads/release
+    let src = h.dir.join("ksrc");
+    fs::create_dir_all(&src).unwrap();
+    git(&src, &["init", "-q", "-b", "release"]);
+    git(&src, &["-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit", "-q", "--allow-empty", "-m", "kernel source"]);
+    let head = git(&src, &["rev-parse", "HEAD"]);
+    fs::create_dir_all(rel.join("src")).unwrap();
+    git(&src, &["bundle", "create", "-q", rel.join("src/9.1.0-test.bundle").to_str().unwrap(), "refs/heads/release"]);
+    // the agent's repository, where the owner runs the upgrade (its config would name core.fsmonitor or a pager the same way)
+    let repo = h.dir.join("proj");
+    git(&repo, &["init", "-q"]);
+    fs::write(repo.join(".git/config"), "[core\n\tfsmonitor = /bin/false\n").unwrap();
+    let o = h.cmd(&rel.join("init-root")).args(["upgrade", "--release", rel.to_str().unwrap()]).current_dir(&repo).stdin(Stdio::null())
+        .output().unwrap();
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    let j = h.journal();
+    assert_eq!((j["phase"].as_str(), j["to"]["main"].as_str()), (Some("replaced"), Some(head.as_str())), "{j}");
+    h.verify();
+}
+
+/// v0.5.1 (docs/user-sessions/v0.5.0-returning.md, operator note 3): a panic after a committed upgrade resumes on the
+/// upgraded kernel. Resume rolls back to audited-good (root.md §3.9.5), and before the fix `audited` still named the
+/// tuple from before the upgrade, so the resume reinstalled the old kernel under the new Root. The commit now moves the
+/// rollback anchors onto the release's kernel, each with the body and ext it had (§3.7.2).
+#[test]
+fn a_panic_after_a_committed_upgrade_resumes_on_the_upgraded_kernel() {
+    let h = home("pr");
+    h.install();
+    { let _d = h.daemon(); } // the seedless genesis tuple: current, lkg and audited
+    let (genesis, _) = h.ptrs();
+    let tuple = |id: &str| -> Value {
+        serde_json::from_str(&fs::read_to_string(h.rh.join("store/tuples").join(format!("{id}.json"))).unwrap()).unwrap()
+    };
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    let o = h.upgrade(&r1, &["--bin-dir", h.dir.join(".local/bin").to_str().unwrap()]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    let o = h.run(&h.rh.join("bin/init-root"), &["upgrade", "--probe", "--timeout", "40"]);
+    assert_eq!(code(&o), Some(0), "probe: {}", err(&o));
+    let o = h.run(&h.rh.join("bin/init-root"), &["upgrade", "--commit"]);
+    assert_eq!(code(&o), Some(0), "commit: {}", err(&o));
+    let (to, lkg) = h.ptrs();
+    assert!(to != genesis && lkg == to, "the upgraded tuple is current and lkg");
+    let (new_kernel, upgraded) = (sha(&r1.join("init-kernel")), tuple(&to));
+    let _d = h.daemon();
+    let st = h.ok("status", json!({}));
+    let audited = st["tuples"]["audited"].as_str().unwrap_or_default().to_string();
+    assert_eq!(tuple(&audited)["kernel"], upgraded["kernel"], "the commit moved audited-good onto the release's kernel: {st}");
+    assert_eq!((&tuple(&audited)["body"], &tuple(&audited)["ext"]), (&tuple(&genesis)["body"], &tuple(&genesis)["ext"]),
+        "audited-good keeps the body and ext it had");
+    h.ok("panic", json!({}));
+    wait(10, "panicked", || h.ok("status", json!({}))["slot"] == "panicked");
+    let r = h.ok("resume", json!({}));
+    wait(20, "running after the resume", || h.ok("status", json!({}))["slot"] == "running");
+    let st = h.ok("status", json!({}));
+    let cur = st["tuples"]["current"].as_str().unwrap_or_default().to_string();
+    assert_eq!(tuple(&cur)["kernel"], upgraded["kernel"], "the resume runs the release's kernel, not the one from before: {r} {st}");
+    assert_ne!(cur, genesis, "{st}");
+    assert_eq!(sha(&h.ih.join("kernel/bin/init-kernel")), new_kernel, "kernel/bin holds the release's kernel after the resume");
+    let rb = fs::read_to_string(h.rh.join("lineage/lineage.jsonl")).unwrap().lines().rev()
+        .map(|l| serde_json::from_str::<Value>(l).unwrap()).find(|r| r["kind"] == "rollback").expect("the resume's rollback record");
+    assert_eq!((rb["data"]["reason"].as_str(), rb["data"]["target"].as_str(), rb["data"]["to"].as_str()), (Some("panic"), Some("audited"), Some(cur.as_str())), "{rb}");
+    drop(_d);
+    h.verify();
+}
+
+/// v0.5.1: an anchor whose tuple file cannot be read at the commit is never skipped silently. The upgrade itself is
+/// sound, so the commit succeeds; the anchor is reported (`anchors[].skipped` in the output and the journal, one plain
+/// stderr line, a `kernel_upgrade` alert) and cleared by an `audited{tuple:null, skipped}` record, so a resume falls
+/// back to LKG on the new kernel even when the old tuple's file comes back later.
+#[test]
+fn an_unreadable_anchor_is_reported_and_cleared_at_the_commit() {
+    let h = home("ps");
+    h.install();
+    { let _d = h.daemon(); } // the seedless genesis tuple: current, lkg and audited
+    let (genesis, _) = h.ptrs();
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    let o = h.upgrade(&r1, &["--bin-dir", h.dir.join(".local/bin").to_str().unwrap()]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    // audited-good's tuple file goes missing before the commit (current is already the upgraded tuple)
+    let (file, aside) = (h.rh.join("store/tuples").join(format!("{genesis}.json")), h.dir.join("genesis-tuple.aside"));
+    fs::rename(&file, &aside).unwrap();
+    let o = h.run(&h.rh.join("bin/init-root"), &["upgrade", "--probe", "--timeout", "40"]);
+    assert_eq!(code(&o), Some(0), "probe: {}", err(&o));
+    // the second review of v0.5.1: a commit that dies after it cleared the anchor (before its report) is re-run; the
+    // re-run finds the anchor already null, and still reports it, because the report is read from the records
+    let o = h.verb("--commit", "root.upgrade.after_anchors:exit7");
+    assert_eq!(code(&o), Some(7), "cut short after the records: {}", err(&o));
+    assert_eq!(h.last("audited")["data"]["skipped"].as_str().map(|s| s.contains("missing")), Some(true), "the clear is recorded");
+    let o = h.run(&h.rh.join("bin/init-root"), &["upgrade", "--commit"]);
+    assert_eq!(code(&o), Some(0), "the commit still succeeds: {}", err(&o));
+    let out: Value = serde_json::from_str(String::from_utf8_lossy(&o.stdout).lines().last().unwrap()).unwrap();
+    let a = &out["anchors"][0];
+    assert_eq!((a["name"].as_str(), a["from"].as_str(), a["tuple"].as_str()), (Some("audited"), Some(genesis.as_str()), None), "{out}");
+    assert!(a["skipped"].as_str().is_some_and(|s| s.contains("missing")), "the reason: {out}");
+    let line = String::from_utf8_lossy(&o.stderr).into_owned();
+    assert!(line.contains(&genesis) && line.contains("last-known-good"), "one plain line for the owner: {line}");
+    assert_eq!(h.journal()["to"]["anchors"], out["anchors"], "journaled");
+    let alerts = fs::read_to_string(h.rh.join("alerts.jsonl")).unwrap_or_default();
+    assert!(alerts.lines().any(|l| l.contains("\"kernel_upgrade\"") && l.contains(&genesis)), "alerted: {alerts}");
+    let to = h.ptrs().0;
+    fs::rename(&aside, &file).unwrap(); // the file comes back (a restore from a backup)
+    let _d = h.daemon();
+    assert_eq!(h.ok("status", json!({}))["tuples"]["audited"], Value::Null, "the unreadable anchor is cleared");
+    h.ok("panic", json!({}));
+    wait(10, "panicked", || h.ok("status", json!({}))["slot"] == "panicked");
+    h.ok("resume", json!({}));
+    wait(20, "running after the resume", || h.ok("status", json!({}))["slot"] == "running");
+    assert_eq!(h.ok("status", json!({}))["tuples"]["current"], to.as_str(), "the resume falls back to LKG, the upgraded tuple");
+    assert_eq!(sha(&h.ih.join("kernel/bin/init-kernel")), sha(&r1.join("init-kernel")), "and runs the release's kernel");
+    drop(_d);
+    h.verify();
+}
+
+/// The pre-release review of v0.5.1: the owner's `/rollback twin` is a whole-system rollback to the twin tuple, and the
+/// commit did not move the twin, so after an upgrade it reinstalled the kernel from before. The twin now takes the
+/// release's kernel at the commit like the rollback anchors, keeping its body, ext and freeze (its replays never run
+/// its kernel: twin.rs). The same commit ends a goal reading in flight on a change from before the upgrade, with a record.
+#[test]
+fn the_commit_moves_the_twin_so_rollback_twin_runs_the_release_kernel() {
+    let h = home("tw");
+    h.install();
+    let genesis = {
+        let _d = h.daemon(); // the seedless genesis tuple: current, lkg and audited
+        let g = h.ptrs().0;
+        h.append(json!([{"kind": "twin", "data": {"reason": "enable", "snapshot": null, "tuple": g}}]));
+        g
+    };
+    let frozen = h.last("twin");
+    // a pending card reading on the genesis change (the seedless body's sha is ""; goal.rs matches a reading's change by it)
+    fs::create_dir_all(h.rh.join("state/goals")).unwrap();
+    fs::write(h.rh.join("state/goals/state.json"), json!({"goals": [], "preds": [], "obs": [], "next": [0, 0, 0, 1], "checkin_alerted": null,
+        "measures": [{"id": "M-000001", "card": "cost_turn", "sha": "", "goal": null, "n": 5, "gate": true, "guard": null}]}).to_string()).unwrap();
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    let o = h.upgrade(&r1, &["--bin-dir", h.dir.join(".local/bin").to_str().unwrap()]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    h.probe();
+    let o = h.verb("--commit", "");
+    assert_eq!(code(&o), Some(0), "commit: {}", err(&o));
+    let out: Value = serde_json::from_str(String::from_utf8_lossy(&o.stdout).lines().last().unwrap()).unwrap();
+    let to = h.ptrs().0;
+    let twin = h.last("twin");
+    assert!(out["anchors"].as_array().unwrap().iter().any(|a| a["name"] == "twin" && a["from"] == genesis.as_str() && a["tuple"] == twin["data"]["tuple"]), "{out}");
+    let t = twin["data"]["tuple"].as_str().unwrap().to_string();
+    assert_eq!(h.tuple(&t)["kernel"], h.tuple(&to)["kernel"], "the twin runs the release's kernel: {twin}");
+    assert_eq!((&h.tuple(&t)["body"], &h.tuple(&t)["ext"]), (&h.tuple(&genesis)["body"], &h.tuple(&genesis)["ext"]), "with its own body and ext");
+    assert_eq!((&twin["data"]["reason"], &twin["data"]["snapshot"], twin["data"]["frozen_at"].as_str()), (&json!("enable"), &Value::Null, frozen["at"].as_str()),
+        "the twin keeps its freeze: {twin}");
+    // the goal reading
+    assert_eq!(out["goal_readings_cancelled"], json!(["M-000001"]), "{out}");
+    let c = h.last("card_reading");
+    assert_eq!((c["data"]["action"].as_str(), c["data"]["measure"].as_str(), c["data"]["upgrade"].clone()), (Some("cancelled"), Some("M-000001"), out["upgrade"].clone()), "{c}");
+    assert!(err(&o).contains("goal reading"), "{}", err(&o));
+    let st: Value = serde_json::from_str(&fs::read_to_string(h.rh.join("state/goals/state.json")).unwrap()).unwrap();
+    assert_eq!(st["measures"], json!([]), "{st}");
+    // `/rollback twin` on the new Root: the release's kernel stays in kernel/bin
+    let _d = h.daemon();
+    assert_eq!(h.ok("status", json!({}))["tuples"]["twin"], t.as_str());
+    let n = h.records().iter().filter(|r| r["kind"] == "rollback").count();
+    h.say("/rollback twin");
+    wait(20, "the twin rollback", || h.records().iter().filter(|r| r["kind"] == "rollback").count() > n);
+    wait(20, "running after the rollback", || h.ok("status", json!({}))["slot"] == "running");
+    let rb = h.last("rollback");
+    assert_eq!(rb["data"]["to"], t.as_str(), "{rb}");
+    assert_eq!(sha(&h.ih.join("kernel/bin/init-kernel")), sha(&r1.join("init-kernel")), "kernel/bin holds the release's kernel after /rollback twin");
+    drop(_d);
+    h.verify();
+}
+
+/// The second review of v0.5.1: the commit re-anchored only when the upgrade changed the kernel. An anchor a v0.5.0
+/// commit left on the kernel before it must move at the next commit even when that release keeps the kernel.
+#[test]
+fn a_commit_that_keeps_the_kernel_still_moves_an_anchor_left_on_an_older_one() {
+    let h = home("ks");
+    h.install();
+    { let _d = h.daemon(); }
+    let (genesis, _) = h.ptrs();
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    assert_eq!(code(&h.upgrade(&r1, &["--bin-dir", h.dir.join(".local/bin").to_str().unwrap()])), Some(0));
+    h.probe();
+    assert_eq!(code(&h.verb("--commit", "")), Some(0));
+    let up = h.ptrs().0;
+    {
+        let _d = h.daemon();
+        h.append(json!([{"kind": "audited", "data": {"tuple": genesis}}])); // as a v0.5.0 commit left it: the old kernel
+    }
+    // a release with the same kernel and another Root
+    let r2 = h.release("rel2", "9.1.1-test", "", None);
+    fs::copy(r1.join("init-kernel"), r2.join("init-kernel")).unwrap();
+    let mut root = fs::read(BIN).unwrap();
+    root.extend_from_slice(b"\n# release two\n");
+    fs::write(r2.join("init-root"), root).unwrap();
+    fs::set_permissions(r2.join("init-root"), std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    let o = h.upgrade(&r2, &[]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    assert_eq!(h.journal()["to"]["tuple"], up.as_str(), "the kernel is unchanged: the same tuple");
+    h.probe();
+    let o = h.verb("--commit", "");
+    assert_eq!(code(&o), Some(0), "commit: {}", err(&o));
+    let a = h.last("audited");
+    assert_eq!((a["data"]["from"].as_str(), a["data"]["upgrade"].clone()), (Some(genesis.as_str()), h.journal()["id"].clone()), "{a}");
+    assert_eq!(h.tuple(a["data"]["tuple"].as_str().unwrap())["kernel"], h.tuple(&up)["kernel"], "audited-good is on the release's kernel");
+    h.verify();
+}
+
+/// The second review of v0.5.1: the commit removed the snapshot before it recorded the commit, so a commit cut short
+/// there left the journal `replaced`, and a `--rollback` then removed each live file before it found no snapshot to
+/// clone back: the Root, install.json, the kernel files and the launchers were gone. The journal now says `committing`
+/// before the snapshot goes; from then on only `--commit` is accepted, and a rollback never starts on an incomplete one.
+#[test]
+fn a_commit_cut_short_while_the_snapshot_goes_finishes_and_is_never_rolled_back() {
+    let h = home("cs");
+    h.install();
+    { let _d = h.daemon(); }
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    assert_eq!(code(&h.upgrade(&r1, &["--bin-dir", h.dir.join(".local/bin").to_str().unwrap()])), Some(0));
+    h.probe();
+    let live = h.live();
+    let snap = h.rh.join("state/upgrade").join(h.journal()["id"].as_str().unwrap());
+    // a commit cut short right after it recorded `committing`
+    let mut j = h.journal();
+    j["phase"] = json!("committing");
+    fs::write(h.rh.join("state/upgrade.json"), j.to_string()).unwrap();
+    let o = h.verb("--rollback", "");
+    assert_eq!(code(&o), Some(1), "{}", err(&o));
+    assert!(err(&o).contains("its commit has begun removing the snapshot") && err(&o).contains("upgrade --commit"), "{}", err(&o));
+    assert!(snap.is_dir() && h.live() == live, "nothing changed");
+    j["phase"] = json!("replaced");
+    fs::write(h.rh.join("state/upgrade.json"), j.to_string()).unwrap();
+    // a commit cut short after the snapshot went: the commit itself recorded `committing` first
+    let o = h.verb("--commit", "root.upgrade.after_snapshot_remove:exit7");
+    assert_eq!(code(&o), Some(7), "{}", err(&o));
+    assert_eq!((h.journal()["phase"].as_str(), snap.exists()), (Some("committing"), false));
+    let o = h.verb("--rollback", "");
+    assert_eq!(code(&o), Some(1), "{}", err(&o));
+    assert!(err(&o).contains("cannot be rolled back") && err(&o).contains("upgrade --commit"), "{}", err(&o));
+    assert_eq!(h.live(), live, "every live file is kept");
+    let o = h.verb("--commit", "");
+    assert_eq!(code(&o), Some(0), "the re-run finishes it: {}", err(&o));
+    assert_eq!(h.journal()["phase"], "committed");
+    assert_eq!(h.live(), live);
+    h.verify();
+}
+
+/// The second review of v0.5.1: `undo` removed each live item before it cloned it back from the snapshot. A snapshot
+/// that a commit (here: of v0.5.0, which recorded nothing first) had partly removed now refuses the rollback whole.
+#[test]
+fn a_rollback_on_an_incomplete_snapshot_changes_nothing() {
+    let h = home("is");
+    h.install();
+    { let _d = h.daemon(); }
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    assert_eq!(code(&h.upgrade(&r1, &["--bin-dir", h.dir.join(".local/bin").to_str().unwrap()])), Some(0));
+    let live = h.live();
+    let snap = h.rh.join("state/upgrade").join(h.journal()["id"].as_str().unwrap());
+    fs::remove_dir_all(snap.join("ih/kernel/bin")).unwrap(); // exact path, inside this test's snapshot
+    let o = h.verb("--rollback", "");
+    assert_eq!(code(&o), Some(1), "{}", err(&o));
+    assert!(err(&o).contains("no longer holds ih/kernel/bin") && err(&o).contains("upgrade --commit"), "{}", err(&o));
+    assert_eq!(h.live(), live, "no live file was removed");
+    assert_eq!(h.journal()["phase"], "replaced");
+}
+
+/// The second review of v0.5.1: a commit cut short after it moved `lkg`, the anchors, the twin and `refs/heads/lkg`
+/// left the journal `replaced`, and a `--rollback` then restored the tuple, the Root and `main` but not those, so the
+/// old Root's panic resume installed the release's kernel under it. The rollback now puts them back from the journal.
+#[test]
+fn a_rollback_after_a_commit_cut_short_restores_lkg_the_anchors_and_the_twin() {
+    let h = home("pc");
+    let rel = h.dir.join("rel");
+    let k0 = source_bundle(&h, &rel, "9.0.0-test", "the installed kernel source");
+    h.install();
+    let genesis = {
+        let _d = h.daemon();
+        let g = h.ptrs().0;
+        h.append(json!([{"kind": "settled", "data": {"tuple": g}}, {"kind": "twin", "data": {"reason": "enable", "snapshot": null, "tuple": g}}]));
+        g
+    };
+    let frozen = h.last("twin");
+    assert_eq!((kref(&h, "refs/heads/lkg"), kref(&h, "refs/heads/main")), (k0.clone(), k0.clone()), "the install's source");
+    let old_kernel = sha(&h.ih.join("kernel/bin/init-kernel"));
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    let k1 = source_bundle(&h, &r1, "9.1.0-test", "the release's kernel source");
+    assert_eq!(code(&h.upgrade(&r1, &["--bin-dir", h.dir.join(".local/bin").to_str().unwrap()])), Some(0));
+    h.probe();
+    let o = h.verb("--commit", "root.upgrade.after_anchors:exit7");
+    assert_eq!(code(&o), Some(7), "{}", err(&o));
+    let st = |h: &Home| {
+        let mut p = (String::new(), String::new(), String::new(), String::new());
+        for r in h.records() {
+            let t = r["data"]["tuple"].as_str().unwrap_or("").to_string();
+            match r["kind"].as_str() {
+                Some("lkg") => p.0 = t,
+                Some("audited") => p.1 = t,
+                Some("settled") => p.2 = t,
+                Some("twin") => p.3 = t,
+                _ => {}
+            }
+        }
+        p
+    };
+    let moved = st(&h);
+    assert!(moved.0 != genesis && moved.1 != genesis && moved.2 != genesis && moved.3 != genesis, "the cut-short commit moved them: {moved:?}");
+    assert_eq!((kref(&h, "refs/heads/lkg"), h.journal()["phase"].as_str()), (k1, Some("replaced")));
+    let o = h.verb("--rollback", "");
+    assert_eq!(code(&o), Some(0), "rollback: {}", err(&o));
+    assert_eq!(st(&h), (genesis.clone(), genesis.clone(), genesis.clone(), genesis.clone()), "lkg, audited, settled and the twin are back");
+    assert_eq!((kref(&h, "refs/heads/lkg"), kref(&h, "refs/heads/main")), (k0.clone(), k0), "and the kernel source's lkg and main");
+    let twin = h.last("twin");
+    assert_eq!((twin["data"]["reason"].as_str(), twin["data"]["frozen_at"].as_str(), twin["data"]["rolled_back"].as_bool()), (Some("enable"), frozen["at"].as_str(), Some(true)), "{twin}");
+    assert_eq!(h.last("lkg")["data"]["upgrade"], h.journal()["id"], "settled_of's boundary: no tuple of the upgrade settles later");
+    h.verify();
+    // the old Root's panic resume runs the old kernel
+    let _d = h.daemon();
+    h.ok("panic", json!({}));
+    wait(10, "panicked", || h.ok("status", json!({}))["slot"] == "panicked");
+    h.ok("resume", json!({}));
+    wait(20, "running after the resume", || h.ok("status", json!({}))["slot"] == "running");
+    assert_eq!(h.ok("status", json!({}))["tuples"]["current"], genesis.as_str());
+    assert_eq!(sha(&h.ih.join("kernel/bin/init-kernel")), old_kernel, "the kernel from before the upgrade");
+    drop(_d);
+    h.verify();
 }
 
 /// The kernel's spawn request for a body (`spawn_args` of the fake kernel), running `/bin/sh -c script`.

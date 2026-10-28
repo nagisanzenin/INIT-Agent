@@ -267,6 +267,9 @@ const DIRS: &[&str] = &[
     "ws/.git/hooks",
     "ws/.git/objects",
     "ws/.git/modules/sub/hooks",
+    "ws/.git/worktrees/wt",
+    "ws/renamerepo/.git",
+    "ws/gitdirfile",
     "other/.git/hooks",
 ];
 
@@ -1240,9 +1243,39 @@ impl<'a> Runner<'a> {
             }
         }
 
+        // Real repositories in the workspace for the git regression rows, built unsandboxed. ws/repo exercises commits
+        // and a branch named modules/x; ws/super/.git/modules/sub is a submodule-style gitdir, to prove commits still
+        // write under .git/modules/<m>/. The Z3b file and admin-directory denies are exercised against the fake ws/.git
+        // tree, ws/renamerepo and these repos.
+        let repo = ws.join("repo");
+        let repo_s = s(&repo);
+        let git = s(&self.cfg.git);
+        let repo_ready = fs::create_dir_all(&repo).is_ok()
+            && self.git_ok(&["-C", &repo_s, "init", "-q"]).is_ok()
+            && fs::write(repo.join("tracked.txt"), "initial\n").is_ok();
+        let subwt = ws.join("super/sub");
+        let subwt_s = s(&subwt);
+        let subgit = ws.join("super/.git/modules/sub");
+        let sub_ready = fs::create_dir_all(&subwt).is_ok()
+            && fs::create_dir_all(ws.join("super/.git/modules")).is_ok()
+            && self.git_ok(&["-C", &subwt_s, "init", "-q", "--separate-git-dir", &s(&subgit)]).is_ok()
+            && fs::write(subwt.join("s.txt"), "sub\n").is_ok();
+        // Agent-built directories to rename onto a gitdir admin entry (the rename-swap bypass), and a parent the nested
+        // rename target needs.
+        for d in ["ev1", "ev2", "ev3", "ev4"] {
+            let _ = fs::create_dir_all(ws.join(d));
+        }
+        let _ = fs::create_dir_all(ws.join(".git/modules/sub/modules"));
+
         if let Some(b) = self.live_body_granted("body/workspace", &with_ws) {
             self.parses("S-M0.workspace", &b);
-            let rows: Vec<(&str, &str, Vec<String>, Expect)> = vec![
+            // git runs inside the sandbox under the workspace profile; identity is passed on the command line.
+            let gcc = |dir: &str, sub: &[&str]| -> Vec<String> {
+                let mut v = ops(&["exec", &git, "-C", dir, "-c", "user.name=wp6a", "-c", "user.email=wp6a@init.invalid", "-c", "commit.gpgsign=false"]);
+                v.extend(sub.iter().map(|x| (*x).to_owned()));
+                v
+            };
+            let mut rows: Vec<(&str, &str, Vec<String>, Expect)> = vec![
                 ("S-A7", "workspace: write a new file in the workspace", ops(&["write", &hm("ws/new.txt")]), Expect::Allow),
                 ("S-A7b", "workspace: overwrite a file deep in the workspace", ops(&["write", &hm("ws/src/a.txt")]), Expect::Allow),
                 ("S-A7c", "workspace: read ~/Documents/x (read grant)", ops(&["read", &hm("Documents/x")]), Expect::Allow),
@@ -1264,7 +1297,40 @@ impl<'a> Runner<'a> {
                 ("S-A20g", "workspace: write .git/config.lock (git's lock file; the rename onto config is denied)", ops(&["write", &hm("ws/.git/config.lock")]), Expect::Allow),
                 ("S-A20h", "workspace: write ~/.zshrc (Z3, Z3a)", ops(&["write", &hm(".zshrc")]), Expect::Deny),
                 ("S-A20i", "workspace: a git repo inside INIT_HOME keeps a writable .git/config (the kernel's clones)", ops(&["write", &li("work/r/.git/config")]), Expect::Allow),
+                // v0.5.1 Z3b: the config/command sources git reads, and the .git entry itself, are unwritable outside INIT_HOME.
+                ("S-A20l", "workspace: write .git/commondir (redirect the common dir at an agent-written config; Z3b bypass a)", ops(&["write", &hm("ws/.git/commondir")]), Expect::Deny),
+                ("S-A20m", "workspace: write .git/config.worktree (worktreeConfig; Z3b bypass c)", ops(&["write", &hm("ws/.git/config.worktree")]), Expect::Deny),
+                ("S-A20n", "workspace: write .git/worktrees/wt/commondir (Z3b bypass c)", ops(&["write", &hm("ws/.git/worktrees/wt/commondir")]), Expect::Deny),
+                ("S-A20o", "workspace: write .git/worktrees/wt/config.worktree (Z3b bypass c)", ops(&["write", &hm("ws/.git/worktrees/wt/config.worktree")]), Expect::Deny),
+                ("S-A20p", "workspace: write .git/worktrees/wt/gitdir (Z3b bypass c)", ops(&["write", &hm("ws/.git/worktrees/wt/gitdir")]), Expect::Deny),
+                ("S-A20q", "workspace: write .git/modules/sub/config.worktree (Z3b bypass c)", ops(&["write", &hm("ws/.git/modules/sub/config.worktree")]), Expect::Deny),
+                ("S-A20r", "workspace: write .git/modules/sub/commondir (Z3b bypass c)", ops(&["write", &hm("ws/.git/modules/sub/commondir")]), Expect::Deny),
+                ("S-A20s", "workspace: create a .git gitdir: file redirecting the git dir (Z3b bypass b)", ops(&["write", &hm("ws/gitdirfile/.git")]), Expect::Deny),
+                ("S-A20t", "workspace: rename a repo's .git directory aside (Z3b bypass b)", ops(&["rename", &hm("ws/renamerepo/.git"), &hm("ws/renamerepo/gitmoved")]), Expect::Deny),
             ];
+            // Committing still works: in a repo, on a branch named modules/x (a ref, not a gitdir), and in a submodule.
+            if repo_ready {
+                rows.push(("S-A20j", "workspace: git add -A in a real repo (the rest of .git stays writable)", gcc(&repo_s, &["add", "-A"]), Expect::Allow));
+                rows.push(("S-A20k", "workspace: git commit in a real repo (objects, refs, index, HEAD, logs writable)", gcc(&repo_s, &["commit", "-q", "-m", "wp6a"]), Expect::Allow));
+                rows.push(("S-A20A", "workspace: git checkout -b modules/x (a branch named modules/* is a writable ref)", gcc(&repo_s, &["checkout", "-b", "modules/x"]), Expect::Allow));
+                rows.push(("S-A20B", "workspace: git commit on branch modules/x (refs/heads/modules/x, logs writable)", gcc(&repo_s, &["commit", "--allow-empty", "-q", "-m", "y"]), Expect::Allow));
+            } else {
+                self.push("S-A20j", "body/workspace", "git add+commit in a real workspace repo", Status::Fail("could not initialise the test repository".into()));
+            }
+            if sub_ready {
+                rows.push(("S-A20C", "workspace: git add -A inside a submodule (writes .git/modules/sub/objects, index)", gcc(&subwt_s, &["add", "-A"]), Expect::Allow));
+                rows.push(("S-A20D", "workspace: git commit inside a submodule (writes .git/modules/sub/refs, logs)", gcc(&subwt_s, &["commit", "-q", "-m", "sub"]), Expect::Allow));
+            } else {
+                self.push("S-A20C", "body/workspace", "git add+commit inside a submodule gitdir", Status::Fail("could not initialise the submodule repository".into()));
+            }
+            // v0.5.1 Z3b (cont.): a whole gitdir cannot be swapped in by renaming a directory onto a modules/worktrees
+            // admin entry, at any depth; renaming such an admin directory or a gitdir aside is denied too.
+            rows.push(("S-A20u", "workspace: rename an agent dir onto .git/modules/<m> (swap a submodule gitdir)", ops(&["rename", &hm("ws/ev1"), &hm("ws/.git/modules/newmod")]), Expect::Deny));
+            rows.push(("S-A20v", "workspace: rename an agent dir onto .git/modules/sub/modules/<b> (nested)", ops(&["rename", &hm("ws/ev2"), &hm("ws/.git/modules/sub/modules/nested")]), Expect::Deny));
+            rows.push(("S-A20w", "workspace: rename an agent dir onto .git/worktrees/<w> (swap a linked-worktree gitdir)", ops(&["rename", &hm("ws/ev3"), &hm("ws/.git/worktrees/w2")]), Expect::Deny));
+            rows.push(("S-A20x", "workspace: rename an agent dir onto a repo's .git/modules admin dir", ops(&["rename", &hm("ws/ev4"), &hm("ws/renamerepo/.git/modules")]), Expect::Deny));
+            rows.push(("S-A20y", "workspace: move an existing submodule gitdir .git/modules/sub aside", ops(&["rename", &hm("ws/.git/modules/sub"), &hm("ws/.git/modules/sub_bak")]), Expect::Deny));
+            rows.push(("S-A20z", "workspace: move the whole .git/modules admin dir aside", ops(&["rename", &hm("ws/.git/modules"), &hm("ws/.git/modules_bak")]), Expect::Deny));
             for (id, what, op, expect) in rows {
                 self.check(id, &b, what, &op, expect);
             }

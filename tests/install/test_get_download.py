@@ -25,24 +25,31 @@ GET = os.path.join(REPO, "scripts", "get.sh")
 
 FAKE_CURL = r"""#!/bin/sh
 # a stand-in for curl (tests/install/test_get_download.py): https://dist.invalid/<path> -> $FAKE_DIST/<path>
-url=""; out=""; fmt=""
+# Its errors go to stderr as curl's do: unless -s, or with -s and -S.
+url=""; out=""; fmt=""; silent=0; show=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
     -w) fmt="$2"; shift 2 ;;
     --proto|--retry) shift 2 ;;
+    --silent) silent=1; shift ;;
+    --show-error) show=1; shift ;;
     https://*) url="$1"; shift ;;
+    --*) shift ;;
+    -*) case "$1" in *s*) silent=1 ;; esac; case "$1" in *S*) show=1 ;; esac; shift ;;
     *) shift ;;
   esac
 done
+err() { [ $silent = 0 ] || [ $show = 1 ]; } # curl prints its error message
 echo "$url" >>"$FAKE_DIST/../curl.log"
 case "$url" in
-  https://down.invalid/*) [ -z "$fmt" ] || printf '000'; exit 6 ;;
+  https://down.invalid/*) [ -z "$fmt" ] || printf '000'; ! err || echo "curl: (6) Could not resolve host: down.invalid" >&2; exit 6 ;;
   https://dist.invalid/*) f="$FAKE_DIST/${url#https://dist.invalid/}" ;;
   *) exit 1 ;;
 esac
 if [ -f "$f" ]; then cp "$f" "$out"; [ -z "$fmt" ] || printf '200'; exit 0; fi
 [ -z "$fmt" ] || printf '404'
+! err || echo "curl: (22) The requested URL returned error: 404" >&2
 exit 22
 """
 

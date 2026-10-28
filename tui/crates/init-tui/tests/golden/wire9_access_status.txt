@@ -1,5 +1,5 @@
 -- workspace @120
- busy 41 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg     ~/code/proj · WORKSPACE · L0 · root ok |..........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.....dddddddddddmmm.........mmm..mmmaaaaaaa 
+ busy 41 s · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg    ~/code/proj · WORKSPACE · L0 · root ok |..........mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm....dddddddddddmmm.........mmm..mmmaaaaaaa 
 -- workspace @80
  busy 41 s · $1.23/$5.00 today           ~/code/proj · WORKSPACE · L0 · root ok |..........mmm............................dddddddddddmmm.........mmm..mmmaaaaaaa 
 -- workspace @40
@@ -11,19 +11,19 @@
 -- long workspace @40
                WORKSPACE · L0 · root ok |........................mmm..mmmaaaaaaa 
 -- no workspace @120
- busy 41 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg    no workspace · WORKSPACE · L0 · root ok |..........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm....mmmmmmmmmmmmmmm.........mmm..mmmaaaaaaa 
+ busy 41 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg            no workspace · agent's own folder only · L0 · root ok |..........mmm.................mmmmmmmmddddddddddddmmmm............mmmmmmmmmmmmmmm.......................mmm..mmmaaaaaaa 
 -- no workspace @80
- busy 41 s · $1.23/$5.00 today          no workspace · WORKSPACE · L0 · root ok |..........mmm...........................mmmmmmmmmmmmmmm.........mmm..mmmaaaaaaa 
+ busy 41 s · $1.23/$5.00 today           agent's own folder only · L0 · root ok |..........mmm...................................................mmm..mmmaaaaaaa 
 -- no workspace @40
-               WORKSPACE · L0 · root ok |........................mmm..mmmaaaaaaa 
+ agent's own folder only · L0 · root ok |........................mmm..mmmaaaaaaa 
 -- full @120
- busy 41 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg        ~/code/proj · ● FULL · L0 · root ok |..........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm........dddddddddddmmmhh....mmm..mmmaaaaaaa 
+ busy 41 s · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg       ~/code/proj · ● FULL · L0 · root ok |..........mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.......dddddddddddmmmhh....mmm..mmmaaaaaaa 
 -- full @80
  busy 41 s · $1.23/$5.00 today              ~/code/proj · ● FULL · L0 · root ok |..........mmm...............................dddddddddddmmmhh....mmm..mmmaaaaaaa 
 -- full @40
                   ● FULL · L0 · root ok |..................hh....mmm..mmmaaaaaaa 
 -- full, no workspace @120
- busy 41 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg       no workspace · ● FULL · L0 · root ok |..........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.......mmmmmmmmmmmmmmmhh....mmm..mmmaaaaaaa 
+ busy 41 s · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg      no workspace · ● FULL · L0 · root ok |..........mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm......mmmmmmmmmmmmmmmhh....mmm..mmmaaaaaaa 
 -- full, no workspace @80
  busy 41 s · $1.23/$5.00 today             no workspace · ● FULL · L0 · root ok |..........mmm..............................mmmmmmmmmmmmmmmhh....mmm..mmmaaaaaaa 
 -- full, no workspace @40

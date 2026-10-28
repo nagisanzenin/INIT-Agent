@@ -1,8 +1,8 @@
 == 80x24 ==
   /root status   the Root's status                                              |VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV                                              
-  /root ledger   the autonomy ledger                                            |................dddddddddddddddddddd                                            
-  /root stop     stop the zone                                                  |................dddddddddddddd                                                  
   /root help     the Root's lines                                               |................ddddddddddddddddd                                               
+  /root ledger   the autonomy ledger                                            |................dddddddddddddddddddd                                            
+  /root stop     stop the agent (Root; /resume starts it again, no demotion)    |................nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn    
 ⠸ waiting for the model · 1 s                                          run 1.0 s|.......................dddddd..........................................mmmmmmmmm
 ┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › /ro                                                                        │|llmm..........................................................................ll

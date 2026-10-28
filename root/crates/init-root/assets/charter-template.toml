@@ -1,5 +1,5 @@
 # ~/.init-root/charter.toml — the owner's charter. The agent can read a published copy and can never write it.
-# After editing: `init-root charter check` (validate + diff), then `init-root charter check --apply`.
+# After editing: `~/.init-root/bin/init-root charter check` (validate + diff), then `~/.init-root/bin/init-root charter check --apply`.
 schema_version = 1
 
 [purpose]

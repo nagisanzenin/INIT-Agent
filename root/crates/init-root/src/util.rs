@@ -188,6 +188,35 @@ pub fn log(root_home: &Path, level: &str, msg: &str) {
     let _ = append_line(&root_home.join("logs/root.jsonl"), &v);
 }
 
+/// ROOT-MSG (v0.5.1): a word for a POSIX shell, quoted only when it needs it.
+pub fn sh_word(s: &str) -> String {
+    if !s.is_empty() && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"/._+-,:@%=".contains(&c)) {
+        return s.to_string();
+    }
+    format!("'{}'", s.replace('\'', "'\\''"))
+}
+
+/// ROOT-MSG (v0.5.1): the command an owner types in a terminal to run `init-root <args>` of the install at `rh`.
+/// `init-root` is not on the owner's PATH (only `init-agent` is), so a bare `init-root …` fails with "command not
+/// found". The default install (`~/.init-root` in the passwd home, which a new terminal's `~` is) prints as
+/// `~/.init-root/bin/init-root <args>`, so alert text names no owner path (root/root.md §4.6); any other ROOT_HOME
+/// prints its absolute binary with `INIT_ROOT_HOME=` in front, as install.sh does, because `init-root` finds its
+/// ROOT_HOME from that variable, else `~/.init-root`.
+pub fn root_cmd_for(rh: &Path, passwd_home: Option<&Path>, args: &str) -> String {
+    let exe = if passwd_home.is_some_and(|h| h.join(".init-root") == rh) {
+        "~/.init-root/bin/init-root".to_string()
+    } else {
+        let rhs = rh.to_string_lossy();
+        format!("INIT_ROOT_HOME={} {}", sh_word(&rhs), sh_word(&rh.join("bin/init-root").to_string_lossy()))
+    };
+    if args.is_empty() { exe } else { format!("{exe} {args}") }
+}
+
+/// [`root_cmd_for`] with this account's passwd home.
+pub fn root_cmd(rh: &Path, args: &str) -> String {
+    root_cmd_for(rh, crate::sys::passwd_home().as_deref(), args)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -210,6 +239,23 @@ mod tests {
         let v = json!({"b":1,"a":{"d":"x/y\u{7f}","c":[true,null]}});
         assert_eq!(icj(&v).unwrap(), "{\"a\":{\"c\":[true,null],\"d\":\"x/y\u{7f}\"},\"b\":1}");
         assert!(icj(&json!({"a":[1.5]})).is_err());
+    }
+
+    /// ROOT-MSG: the printed command runs as printed: `~/…` for the default install, else the absolute binary with its
+    /// ROOT_HOME, quoted when the path needs it.
+    #[test]
+    fn root_cmd_runs_as_printed() {
+        let h = Path::new("/Users/o");
+        assert_eq!(root_cmd_for(Path::new("/Users/o/.init-root"), Some(h), "resume"), "~/.init-root/bin/init-root resume");
+        assert_eq!(root_cmd_for(Path::new("/Users/o/.init-root"), Some(h), ""), "~/.init-root/bin/init-root");
+        assert_eq!(root_cmd_for(Path::new("/private/tmp/i5/r"), Some(h), "start --foreground"),
+            "INIT_ROOT_HOME=/private/tmp/i5/r /private/tmp/i5/r/bin/init-root start --foreground");
+        assert_eq!(root_cmd_for(Path::new("/Users/o/.init-root"), None, "stop"),
+            "INIT_ROOT_HOME=/Users/o/.init-root /Users/o/.init-root/bin/init-root stop", "no passwd entry: the absolute form");
+        assert_eq!(root_cmd_for(Path::new("/Users/o/My Root"), Some(h), "status"),
+            "INIT_ROOT_HOME='/Users/o/My Root' '/Users/o/My Root/bin/init-root' status");
+        assert_eq!(sh_word("it's"), "'it'\\''s'");
+        assert_eq!(sh_word(""), "''");
     }
 
     #[test]

@@ -474,7 +474,7 @@ fn fullaccess_default_and_workspace_flag() {
     cleanup(&fx.dir);
 }
 
-/// Launched in `~`: no workspace, and the TUI says so when the Root does not (unchanged);
+/// Launched in `~`: no workspace, and the TUI says why, where the agent works and what /undo restores (v0.5.1);
 /// `--full` asks for full mode once the workspace is set, and the next line confirms it.
 #[test]
 fn wire9_home_has_no_workspace_and_full_flag_confirms() {
@@ -490,7 +490,8 @@ fn wire9_home_has_no_workspace_and_full_flag_confirms() {
     let o = wait_output(child, 30);
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
     let out = text(&o);
-    assert!(out.contains("[tui] no workspace: cd into a project and run `init-agent` to let me edit it (the home itself)"), "{out}");
+    assert!(out.contains("[tui] no workspace: ") && out.contains(" is not one (the home itself). The agent works in its own folder instead"), "{out}");
+    assert!(out.contains("/undo restores only a workspace's snapshots"), "{out}");
     let fulls: Vec<_> = fx.received().iter().filter(|r| r.frame["cmd"] == "full.set").map(|r| r.frame["args"].clone()).collect();
     assert_eq!(fulls, [json!({"on": true}), json!({"confirm": "confirm", "on": true})]);
     assert!(out.contains("[root] full mode on"), "{out}");

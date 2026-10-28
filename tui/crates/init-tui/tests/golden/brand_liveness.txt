@@ -5,7 +5,7 @@
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- busy 3 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg            L0 · root ok |.........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm..............mmmaaaaaaa 
+ busy 3 s · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg           L0 · root ok |.........mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.............mmmaaaaaaa 
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,3
 -- thinking
@@ -16,7 +16,7 @@ cursor 4,3
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- busy 5 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg            L0 · root ok |.........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm..............mmmaaaaaaa 
+ busy 5 s · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg           L0 · root ok |.........mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.............mmmaaaaaaa 
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,4
 -- writing
@@ -28,7 +28,7 @@ A small Rust CLI that prints the time in s                                      
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- busy 7 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg            L0 · root ok |.........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm..............mmmaaaaaaa 
+ busy 7 s · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg           L0 · root ok |.........mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.............mmmaaaaaaa 
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,5
 -- the stream went quiet for 9 s
@@ -40,7 +40,7 @@ A small Rust CLI that prints the time in s                                      
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- busy 15 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg           L0 · root ok |..........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.............mmmaaaaaaa 
+ busy 15 s · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg          L0 · root ok |..........mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm............mmmaaaaaaa 
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,5
 -- a tool running
@@ -54,7 +54,7 @@ A small Rust CLI that prints the time in s                                      
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- busy 57 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg           L0 · root ok |..........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.............mmmaaaaaaa 
+ busy 57 s · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg          L0 · root ok |..........mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm............mmmaaaaaaa 
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,7
 -- between requests: waiting for the model again
@@ -68,7 +68,7 @@ A small Rust CLI that prints the time in s                                      
 ┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
 └──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
- busy 1 min · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg          L0 · root ok |...........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm............mmmaaaaaaa 
+ busy 1 min · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg         L0 · root ok |...........mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm...........mmmaaaaaaa 
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,7
 -- waiting for the first token, 3 s

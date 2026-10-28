@@ -207,7 +207,7 @@ pub fn g4_slice(root: &Root, a: &Value) -> Result<Value, Err3> {
     if lkg.as_deref() != Some(inc_id) {
         return Err(bad(&format!("incumbent must be the lkg tuple ({})", lkg.unwrap_or_default())));
     }
-    let s = pack::s_json(&env.rh).ok_or(("root.sealed_none", "no S v1 is drawn (init-root sealed draw)".to_string(), Value::Null))?;
+    let s = pack::s_json(&env.rh).ok_or_else(|| ("root.sealed_none", format!("no S v1 is drawn ({})", util::root_cmd(&env.rh, "sealed draw")), Value::Null))?;
     let g4 = pack::tasks(&env.rh, &s["g4"]);
     let canary = |k: &str| s["canary"][k].as_str().and_then(|id| task::load(&env.rh.join("sealed/S").join(id)).ok());
     let can: Vec<Task> = ["health", "impossible", "tamper", "leak"].iter().filter_map(|k| canary(k)).collect();
@@ -470,7 +470,7 @@ pub fn calibrate(root: &Root, a: &Value) -> Result<Value, String> {
         return Err("--repeats: 6–10".into());
     }
     let _op = run::begin(&env.rh);
-    let mut s = pack::s_json(&env.rh).ok_or("no S v1 is drawn (init-root sealed draw)")?;
+    let mut s = pack::s_json(&env.rh).ok_or_else(|| format!("no S v1 is drawn ({})", util::root_cmd(&env.rh, "sealed draw")))?;
     let lkg = lock(&root.sup.ptrs).lkg.clone().ok_or("no lkg tuple")?;
     let inc = Arm::of_tuple(&env.rh, &lkg)?;
     let sp = Spend::new(budget(&env, a), 6 * 3600);
@@ -587,7 +587,7 @@ pub fn milestone(root: &Root, a: &Value) -> Result<Value, String> {
     let env = Env::of(root)?;
     real_ok(&env, a)?;
     let _op = run::begin(&env.rh);
-    let mut s = pack::s_json(&env.rh).ok_or("no S v1 is drawn (init-root sealed draw)")?;
+    let mut s = pack::s_json(&env.rh).ok_or_else(|| format!("no S v1 is drawn ({})", util::root_cmd(&env.rh, "sealed draw")))?;
     if s["reserve_used"] == true && a["force"] != true {
         return Err("the reserve was used by an earlier milestone (the lean build draws no fresh reserve)".into());
     }

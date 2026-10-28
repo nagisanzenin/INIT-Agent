@@ -355,6 +355,10 @@ fn met_requires_a_registered_change_beyond_noise() {
         for (i, r) in after.iter().enumerate() {
             turn_closed(&root, &Turn { seq: 10 + i as u64, kind: "owner".into(), end: e + 1 + i as i64, tuple: Some("tA".into()), requests: *r, ..Turn::default() });
         }
+        // v0.5.1: a later reading an owner upgrade cancelled (goal.rs `cancel_upgraded`) is not a kept reading
+        let gid = crate::lineage::records(&root.p.rh).unwrap().into_iter().find(|r| r["kind"] == "goal").unwrap()["data"]["id"].clone();
+        root.append("card_reading", json!({"action": "cancelled", "card": "requests_turn", "goal": gid, "measure": "M-000009", "sha": "c".repeat(40),
+            "tuple": "tC", "upgrade": "u-1", "verdict": "cancelled"})).unwrap();
         let s = k("goal.stop", json!({"reason": "met"})).unwrap();
         assert_eq!((s["reason"].as_str(), s["verified"].as_bool()), (Some(want), Some(want == "met")), "{s}");
         let last = crate::lineage::records(&root.p.rh).unwrap().into_iter().rev().find(|r| r["kind"] == "goal").unwrap();
@@ -434,4 +438,41 @@ fn an_agent_question_pauses_the_goal_clock_until_the_owner_or_a_request() {
     asked(&root);
     assert_eq!(st(&root)["waiting_owner"], false);
     let _ = std::fs::remove_dir_all(&dir); // exact path, made by test_home
+}
+
+/// The second review of v0.5.1: an owner upgrade's commit (`lkg{upgrade}`) is a boundary no reading spans. A reading in
+/// flight on a change from before it would count only the old tuple's turns (the upgraded tuple has another id) and,
+/// on a failed gate, roll back to the parent from before, the old kernel. It ends `cancelled`, with a record. A change
+/// made after the upgrade takes no baseline (and so no rollback target) from before it.
+#[test]
+fn readings_never_span_an_owner_upgrade() {
+    let (a, b) = ("a".repeat(40), "b".repeat(40));
+    let mut st = State::default();
+    measure(&mut st, "cost_turn", &a, Some(3), true, None).unwrap();
+    let at = |ms: i64| crate::util::rfc3339(ms);
+    let mut recs = vec![json!({"kind": "tuple", "seq": 9, "at": at(20), "data": {"id": "tA", "tuple": {"body": {"sha": a}}}}),
+        json!({"kind": "tuple", "seq": 11, "at": at(40), "data": {"id": "tU", "tuple": {"body": {"sha": a}}, "upgrade": {"id": "u-1"}}}),
+        json!({"kind": "lkg", "seq": 12, "at": at(50), "data": {"tuple": "tU", "upgrade": "u-1"}})];
+    st.obs = (0..5).map(|i| obs(i, 10 + i as i64, "t0", 100 + i)).collect();
+    st.obs.extend((0..3).map(|i| obs(10 + i, 30 + i as i64, "tA", 102)));
+    let mut out = Vec::new();
+    complete(&mut st, &recs, &mut out);
+    assert!(st.measures.is_empty(), "ended");
+    assert!(!out.iter().any(|o| matches!(o, Out::Rollback { .. })), "never rolled back across the upgrade");
+    assert!(out.iter().any(|o| matches!(o, Out::Append("card_reading", r) if r["action"] == "cancelled" && r["verdict"] == "cancelled"
+        && r["upgrade"] == "u-1" && r["measure"] == "M-000001" && r["tuple"] == "tA")), "recorded");
+    // a guardrail registered on the upgraded tuple (it keeps the body, so the reading's change is still tA) ends too
+    let mut out = Vec::new();
+    measure(&mut st, "cost_turn", &a, Some(3), true, Some(100)).unwrap();
+    complete(&mut st, &recs, &mut out);
+    assert!(st.measures.is_empty() && !out.iter().any(|o| matches!(o, Out::Rollback { .. })), "{}", out.len());
+    // a change after the upgrade: its baseline is the upgraded tuple's turns only; with none, no rollback target
+    recs.push(json!({"kind": "tuple", "seq": 14, "at": at(60), "data": {"id": "tB", "tuple": {"body": {"sha": b}}}}));
+    measure(&mut st, "cost_turn", &b, Some(3), true, None).unwrap();
+    st.obs.extend((0..3).map(|i| obs(20 + i, 61 + i as i64, "tB", 102)));
+    let mut out = Vec::new();
+    complete(&mut st, &recs, &mut out);
+    assert!(st.measures.is_empty());
+    assert!(!out.iter().any(|o| matches!(o, Out::Rollback { .. })), "no rollback to tA, a tuple of the old kernel");
+    assert!(out.iter().any(|o| matches!(o, Out::Append("card_reading", r) if r["sha"] == b.as_str() && r["parent_tuple"] == "")));
 }
