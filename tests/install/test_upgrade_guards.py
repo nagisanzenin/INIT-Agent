@@ -91,6 +91,34 @@ class UpgradeGuards(unittest.TestCase):
         self.assertIn("already installed", p.stderr)
         self.assertIn("init-agent upgrade", p.stderr)
 
+    def fake_root(self, version):
+        os.makedirs(os.path.join(self.rh, "bin"), exist_ok=True)
+        p = os.path.join(self.rh, "bin", "init-root")
+        with open(p, "w") as f:
+            f.write('#!/bin/sh\n[ "$1" = --version ] && echo "init-root %s"\n' % version)
+        os.chmod(p, 0o755)
+
+    def test_install_over_a_pre_041_install_prints_the_uninstall(self):
+        # the sibling of get.sh's message (build/status/REL-050.md, "After the release"): 0.3.1 has no init-agent
+        self.installed()
+        self.fake_root("0.3.1")
+        for extra in ([], ["--upgrade"]):
+            p = self.run_script(["/bin/bash", os.path.join(SCRIPTS, "install.sh"), "--yes", "--no-service", *extra])
+            self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+            self.assertIn("INIT 0.3.1 is installed", p.stderr)
+            self.assertIn("before 0.4.1 is not supported", p.stderr)
+            self.assertIn("scripts/uninstall.sh", p.stderr)
+            self.assertNotIn("init-agent upgrade", p.stderr)
+
+    def test_install_over_041_points_to_install_sh_upgrade(self):
+        self.installed()
+        self.fake_root("0.4.1")
+        p = self.run_script(["/bin/bash", os.path.join(SCRIPTS, "install.sh"), "--yes", "--no-service"])
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("INIT 0.4.1 is already installed", p.stderr)
+        self.assertIn("scripts/install.sh --upgrade", p.stderr)
+        self.assertNotIn("\n  init-agent upgrade", p.stderr)
+
     def test_launcher_without_a_kept_get_sh(self):
         os.makedirs(os.path.join(self.rh, "cache"))
         p = self.run_script(["/bin/bash", os.path.join(SCRIPTS, "init-agent"), "upgrade"])

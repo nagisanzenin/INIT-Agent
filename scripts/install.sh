@@ -268,8 +268,26 @@ for h in "$RH" "$IH"; do
   case "$h" in /*) ;; *) die "$h is not an absolute path" ;; esac
   [ ${#h} -le 64 ] || die "$h is ${#h} bytes; a home may be at most 64 (the Root's sockets must fit sun_path)"
 done
+# The installed release ("" when its Root cannot say; every release prints "init-root X.Y.Z"). The upgrade starts at
+# 0.4.1, the oldest release it was tested from; an older install is uninstalled first (scripts/get.sh says the same).
+installed() { [ -x "$RH/bin/init-root" ] || return 0; { "$RH/bin/init-root" --version 2>/dev/null || true; } | sed -n 's/^init-root \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1; }
+ver_lt() { /usr/bin/python3 -I -c 'import sys; v = lambda s: tuple(int(x) for x in s.split("."))
+sys.exit(0 if v(sys.argv[1]) < v(sys.argv[2]) else 1)' "$1" "$2"; }
+too_old() { # <version>
+  die "INIT $1 is installed in $RH. An upgrade from a release before 0.4.1 is not supported: uninstall it first (it moves INIT, its record and your provider key to the Trash; nothing is deleted), then run this again:
+  bash $REPO/scripts/uninstall.sh"
+}
+if [ -e "$RH/install.json" ]; then
+  HAVE="$(installed)"
+  [ -z "$HAVE" ] || ! ver_lt "$HAVE" 0.4.1 || too_old "$HAVE"
+fi
 if [ $UPGRADE = 0 ] && [ -e "$RH/install.json" ]; then
-  die "INIT is already installed ($RH/install.json exists). Upgrade it to v$VERSION instead, which keeps what INIT has become: init-agent upgrade (INIT 0.5.0 and later), or $REPO/scripts/install.sh --upgrade"
+  if [ -n "$HAVE" ] && ver_lt "$HAVE" 0.5.0; then
+    die "INIT $HAVE is already installed ($RH/install.json exists). Upgrade it to v$VERSION instead, which keeps what INIT has become (0.4.1 has no init-agent upgrade):
+  $REPO/scripts/install.sh --upgrade"
+  fi
+  die "INIT ${HAVE:+$HAVE }is already installed ($RH/install.json exists). Upgrade it to v$VERSION instead, which keeps what INIT has become:
+  init-agent upgrade        (or: $REPO/scripts/install.sh --upgrade)"
 fi
 if [ $UPGRADE = 1 ]; then
   [ -e "$RH/install.json" ] || die "INIT is not installed ($RH/install.json is missing): run this without --upgrade to install it"

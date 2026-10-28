@@ -96,7 +96,7 @@ A fixed harness caps the agent at the imagination of the people who built it. IN
   L3 ┃  + more external actions                        │  + your turns
   L2 ┃  + a wider blast radius                         │  + clean change groups
   L1 ┃  + its own kernel                               │  (only records the Root
-  L0 ┃  its whole body: prompts · tools · core  ◀ v0.3 │   writes itself count)
+  L0 ┃  its whole body: prompts · tools · core  ◀ v0.5 │   writes itself count)
      ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┷━━━━━━━━━━━━━━━━━━━━━━━━
         ▼ one level down on: harm · /panic · crash loop
 ```

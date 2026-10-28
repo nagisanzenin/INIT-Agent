@@ -1,5 +1,7 @@
 # Cutting a release
 
+**The order of a release and its gates are in [release-protocol.md](release-protocol.md); this file is how each script works.**
+
 *Owner: the maintainer (lane REL; the prebuilt bundle: lane UX-BUNDLE). Scripts: `scripts/release.sh`, `scripts/bundle.sh`, `scripts/get.sh`, `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/release-e2e.sh`, `scripts/init-agent`. The install path itself is root/root.md §4.3.*
 
 A release is a directory of binaries and bundles built from one commit, plus a git tag. There are two ways to install it:
@@ -88,6 +90,7 @@ scripts/bundle-e2e.sh [TARBALL]          # $0: get.sh with Rust into a temp home
 scripts/bundle-e2e.sh --t2 [TARBALL]     # $0, 20-30 min: plus a no-op T2 promote through the shipped gate (G0-G3)
 scripts/bundle-e2e.sh --pause [TARBALL]  # $0, about 30 s: Esc/Ctrl-C before the first token pauses, the resume is accepted
 UBE_LIVE_KEYFILE=~/.config/init-agent/deepseek.key scripts/bundle-e2e.sh --live [TARBALL]   # COSTS MONEY (about $0.0005)
+scripts/install-matrix.sh --bundle TARBALL [--published]   # $0, about 3 min: get.sh on a clean home and on every older public release (its message, the upgrade or the uninstall, a reinstall); --published: the live assets are the tested files
 ```
 
 Each mode installs the bundle with its own `get.sh` into its own test dir under `target/test-homes/` (`ube`, `ub2`, `ubp`, `rels`), with no Rust on PATH, starts its own Root (`--no-service`), drives the installed `init-agent --raw`, and checks that the owner's `~/.init`, `~/.init-root`, `~/.local/bin`, `~/.local/share/init`, `~/Library/LaunchAgents` and shell rc files did not change. The test dir is removed unless `--keep`. The default TARBALL is the macOS bundle in `target/dist/v<version>-preview/`. For the Linux bundle, run the same script with the Linux tarball in a fresh container (build/status/REL-033.md has the exact `docker run`). The verdicts go to `build/status/bundle-{e2e,e2e-t2,pause,live}.json`. Every mode first plants INIT's pre-v0.4.1 launcher at `~/.local/bin/init` in the test home: the install must remove it and install no `init`, on both platforms since v0.5.0 (issue #1).
@@ -156,11 +159,27 @@ merged `latest.json`, `get.sh`), first as a draft whose asset names and sizes ar
 ## 5b. The one-command install: `scripts/get.sh`
 
 ```sh
-curl -fsSL "$INIT_DIST_URL/get.sh" | sh                                   # once releases are published
-sh get.sh --from init-v0.2.0-preview-macos-arm64.tar.gz [-- <install.sh args>]   # a local bundle
+curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh      # install the latest release
+sh get.sh --from init-v0.5.0-preview-macos-arm64.tar.gz [-- <install.sh args>]                 # a local bundle
+curl -fsSL …/get.sh | sh -s -- --upgrade                                                        # upgrade an install of 0.4.1 or later
 ```
 
-POSIX `sh` (checked with dash). It refuses root, anything but macOS 14+ on arm64, and a Mac without the Command Line Tools; downloads over HTTPS only (or takes `--from` a local file); checks the archive's sha256 against `--sha256`, the `.sha256` file next to it, or `latest.json`, and refuses without one; unpacks into `~/.local/share/init/<version>/` (`INIT_APP_DIR` overrides the parent), checks `SHA256SUMS`, makes the tree read-only, and runs the bundle's `scripts/install.sh --yes` plus any arguments after `--`. The provider, key and model are for the first run of `init-agent` (lane UX-KEYMODEL); until that lands it prints the `init-root keys set deepseek` step. **`INIT_DIST_URL` is a placeholder** (`https://releases.invalid/init`): the repo is private, and where releases are published is the owner's decision (docs/ux-v1.md OW-UX1). Trust on first install rests on HTTPS plus the sha256; there is no signature yet (OW-UX2).
+POSIX `sh` (checked with dash). It refuses root, and any platform except macOS 14+ on arm64 or Linux on x86_64 or aarch64 with `/usr/bin/bwrap` (install.sh then checks it is 0.13.0 or newer) and `/usr/bin/python3`. On macOS it also refuses a machine without the Command Line Tools. It downloads over HTTPS only, or takes `--from` a local file. It checks the archive's sha256 against `--sha256`, the `.sha256` file next to it, or `latest.json`, and refuses without one. It unpacks into `~/.local/share/init/<version>/` (`INIT_APP_DIR` overrides the parent), checks `SHA256SUMS`, makes the tree read-only, and installs the Rust toolchain unless `--no-rust`. Then it runs the bundle's `scripts/install.sh --yes` plus any arguments after `--`.
+
+The provider, the key and the model are chosen on the first run of `init-agent`. `INIT_DIST_URL` overrides the release URL, and `--version V` picks a release. Trust on first install rests on HTTPS plus the sha256. There is no signature yet.
+
+**On an existing install** (`ROOT_HOME/install.json`), get.sh reads the installed release with `init-root --version` and prints the way forward instead of installing:
+
+| Installed | Without `--upgrade` | With `--upgrade` |
+|---|---|---|
+| 0.5.0 or later | prints `init-agent upgrade` | upgrades |
+| 0.4.1 | prints the `--upgrade` command | upgrades |
+| before 0.4.1 | prints the uninstall command | refuses, before any download, with the same command |
+| unreadable | prints all three | upgrades, and the upgrade's own checks apply |
+
+`install.sh` has the same rule (REL-050, "After the release").
+
+The release's `get.sh` asset is the file users run, so it is checked in its own right: `scripts/install-matrix.sh` runs it against every public release (release-protocol.md §5.5). It may be replaced on a published release, with a record; the bundles may not.
 
 ## 5. What the owner runs
 

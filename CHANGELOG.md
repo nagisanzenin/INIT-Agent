@@ -136,6 +136,14 @@ Workspaces are at version 0.5.0 (seed tag `seed-v0.5.0`). Release notes: docs/re
 - Verified in a test home: 0.3.1 installed and running, the release's get.sh reproduces the refusal, the fixed one
   names 0.3.1, the printed uninstall command refuses while the Root runs and then moves 0.3.1 to the Trash, a fresh
   0.5.0 install answers on the mock, and the owner's homes are unchanged.
+- The same rule in `install.sh` (the source install), whose "already installed" message had the same flaw: before
+  0.4.1 it refuses, also with `--upgrade`, and prints `bash <repo>/scripts/uninstall.sh`; 0.4.1 gets
+  `scripts/install.sh --upgrade`. Tests in tests/install/test_upgrade_guards.py; both fixes mutation-tested (reverted,
+  exactly the six new tests fail).
+- docs/release-protocol.md: the gates every release passes, in order, including the install matrix
+  (`scripts/install-matrix.sh`: a fresh home and every public release since 0.3.1), the agent-run user session and the
+  post-release review. docs/release.md §5b rewritten (it still described the get.sh of v0.2). README's autonomy ladder
+  marks v0.5.
 
 ### Release (lane REL-050, build/status/REL-050.md)
 - History: 46ec430 (TUI-PICKER's goal clock under a TUI-BRAND message, from a shared-index race) reworded as f385527;
