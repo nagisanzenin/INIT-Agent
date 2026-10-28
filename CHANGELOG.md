@@ -2,7 +2,7 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
-## v0.5.0-preview (candidate, 2026-10-27; not released)
+## v0.5.0-preview (2026-10-28)
 
 Workspaces are at version 0.5.0 (seed tag `seed-v0.5.0`). Release notes: docs/release-notes/v0.5.0-preview.md.
 
@@ -126,6 +126,16 @@ Workspaces are at version 0.5.0 (seed tag `seed-v0.5.0`). Release notes: docs/re
   tests read as a failure (run 8). They now wait until the command runs, as t09 already did; 50/50 under load.
 - `seed/self.json` is regenerated on the packaged seed tree (seedpack rewrites `.cargo/config.toml`'s vendor path), not
   in the repository; an in-repo `--write` is 3 bytes off and bundle.sh's G1 refuses it (docs/release.md §1).
+
+### After the release: get.sh names the installed release (build/status/REL-050.md)
+- On an install from before 0.4.1, get.sh told the user to run `init-agent upgrade` or `--upgrade`, which such an
+  install does not have and the upgrade does not support (seen on the owner's 0.3.1 Mac). get.sh now reads the
+  installed release (`init-root --version`): before 0.4.1 it refuses, also with `--upgrade`, and prints the uninstall
+  command; 0.4.1 gets the `--upgrade` command and 0.5.0 or later `init-agent upgrade`. README's install block no longer
+  chains `init-agent upgrade` after the install. The release's get.sh asset was replaced; the bundles are unchanged.
+- Verified in a test home: 0.3.1 installed and running, the release's get.sh reproduces the refusal, the fixed one
+  names 0.3.1, the printed uninstall command refuses while the Root runs and then moves 0.3.1 to the Trash, a fresh
+  0.5.0 install answers on the mock, and the owner's homes are unchanged.
 
 ### Release (lane REL-050, build/status/REL-050.md)
 - History: 46ec430 (TUI-PICKER's goal clock under a TUI-BRAND message, from a shared-index race) reworded as f385527;

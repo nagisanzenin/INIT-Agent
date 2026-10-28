@@ -45,7 +45,7 @@ init-agent upgrade --version 0.5.1       # a given release
 init-agent upgrade --bundle init-v0.5.1-macos-arm64.tar.gz   # a downloaded bundle (its .sha256 next to it, or --sha256 HEX)
 ```
 
-INIT 0.4.1 has no `init-agent upgrade`. Upgrade it once with `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh -s -- --upgrade`; after that, `init-agent upgrade` works.
+INIT 0.4.1 has no `init-agent upgrade`. Upgrade it once with `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh -s -- --upgrade`; after that, `init-agent upgrade` works. A release before 0.4.1 cannot be upgraded: uninstall it (`scripts/uninstall.sh` moves it, its lineage and your key to the Trash), then install. get.sh names the installed release and prints the uninstall command.
 
 The upgrade replaces the Root, the kernel and the `init-agent` and `init-tui` commands, and keeps what INIT has become: the body it evolved, its extensions, skills and sessions, the signed lineage, your keys and your charter. Run it from your own shell. In order:
 

@@ -6,11 +6,10 @@ INIT is a coding agent that can rewrite any part of itself (its prompts, its too
 ```sh
 curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh
 init-agent  # first run: pick a provider, paste a key, pick a model
-init-agent upgrade  # later: a new release; keeps the body INIT evolved, its lineage, your keys and charter
 ```
 
 macOS 14+ on Apple silicon · Linux x86_64, experimental ([bubblewrap ≥ 0.13](docs/platforms.md) built from source) · about 1–2 min; get.sh also installs the Rust toolchain INIT rebuilds itself with · Apache-2.0
-Upgrading from 0.4.1, which has no `init-agent upgrade`: `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh -s -- --upgrade` ([upgrade](docs/guide.md#upgrade)).
+Already installed? From 0.5.0: `init-agent upgrade`, which keeps the body INIT evolved, its lineage, your keys and charter. From 0.4.1: `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh -s -- --upgrade`. Before 0.4.1 there is no upgrade: uninstall first (get.sh prints the command), then install ([upgrade](docs/guide.md#upgrade)).
 **Spend is metered, not capped.** Set a limit at your provider. Details: [user guide](docs/guide.md).
 **Full access by default:** the agent reads and writes your files and uses the network, like your own shell; only the Root (`~/.init-root`, its service, INIT's launchers) is off-limits. **The Root protects INIT, not your files, in full mode:** its rollback undoes INIT's own changes, and `/undo` restores only the folder you started in. `init-agent --workspace` confines it to that folder ([ADR-012](docs/adr/012-full-access-by-default.md)).
 

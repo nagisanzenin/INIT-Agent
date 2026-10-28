@@ -16,10 +16,10 @@
  "reply": "hello from the mock",
  "rust": "installed by get.sh into the test home",
  "times_ms": {
-  "drive_wall": 587,
-  "get_sh_install": 46391,
-  "get_sh_to_first_reply": 48960,
-  "start_to_ready": 1823
+  "drive_wall": 569,
+  "get_sh_install": 54100,
+  "get_sh_to_first_reply": 56656,
+  "start_to_ready": 1826
  },
  "toolchain": "/Users/quanduong/Documents/INIT Agent/target/test-homes/ube/home/.rustup/toolchains/1.97.1-aarch64-apple-darwin",
  "v": 1

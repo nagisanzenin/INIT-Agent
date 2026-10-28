@@ -85,12 +85,34 @@ case "$RELEASE" in
   *[!0-9A-Za-z.-]*) die "--version takes a version such as 0.5.0 or 0.5.0-preview" ;;
   *) [ -n "${INIT_DIST_URL:-}" ] || DIST_URL="https://github.com/nagisanzenin/INIT-Agent/releases/download/v${RELEASE#v}" ;;
 esac
+# The installed release ("" when its Root cannot say): `init-root --version` prints "init-root X.Y.Z" in every release.
+installed() { "$RH/bin/init-root" --version 2>/dev/null | sed -n 's/^init-root \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1; }
+ver_lt() { /usr/bin/python3 -I -c 'import sys; v = lambda s: tuple(int(x) for x in s.split("."))
+sys.exit(0 if v(sys.argv[1]) < v(sys.argv[2]) else 1)' "$1" "$2"; }
+UNINSTALL='f="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && bash "$f"'
+too_old() { # <version>: the upgrade starts at 0.4.1, the oldest release it was tested from
+  die "INIT $1 is installed in $RH. An upgrade from a release before 0.4.1 is not supported: uninstall it first, then run this again. The uninstaller moves INIT, its record and your provider key to the Trash (nothing is deleted):
+  $UNINSTALL"
+}
 if [ $UPGRADE = 1 ]; then
   [ -f "$RH/install.json" ] || die "INIT is not installed in $RH (no install.json): run this without --upgrade to install it"
   [ -d "$RH/cache" ] && [ ! -L "$RH/cache" ] || die "$RH/cache is not a directory"
+  HAVE="$(installed)"
+  [ -z "$HAVE" ] || ! ver_lt "$HAVE" 0.4.1 || too_old "$HAVE"
   APP="$RH/cache/upgrade" # the download, its check and the unpacked release live where the zone cannot write
 elif [ -f "$RH/install.json" ] && [ $UNPACK_ONLY = 0 ]; then
-  die "INIT is already installed in $RH. Upgrade it instead, which keeps what INIT has become: init-agent upgrade (INIT 0.5.0 and later), or rerun this with --upgrade (curl -fsSL <get.sh URL> | sh -s -- --upgrade)"
+  HAVE="$(installed)"
+  if [ -z "$HAVE" ]; then
+    die "INIT is already installed in $RH, and its version could not be read. From 0.5.0: init-agent upgrade. From 0.4.1: curl -fsSL $DIST_URL/get.sh | sh -s -- --upgrade. Before 0.4.1, uninstall it first: $UNINSTALL"
+  elif ver_lt "$HAVE" 0.4.1; then
+    too_old "$HAVE"
+  elif ver_lt "$HAVE" 0.5.0; then
+    die "INIT $HAVE is already installed in $RH. Upgrade it instead, which keeps what INIT has become (0.4.1 has no init-agent upgrade):
+  curl -fsSL $DIST_URL/get.sh | sh -s -- --upgrade"
+  else
+    die "INIT $HAVE is already installed in $RH. Upgrade it instead, which keeps what INIT has become:
+  init-agent upgrade"
+  fi
 fi
 mkdir -p "$APP"
 say "INIT installer · $PLATFORM · $APP"
