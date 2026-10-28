@@ -4,7 +4,7 @@
 what it measures, and what it does not promise. README, the site, the ADRs and the release notes state guarantees in
 plain words. Each of those statements must reduce to one in this file, or it should not be made. The statements below are
 design guarantees with the checks named next to them. None is model-checked or proven yet. That work is planned, and it
-targets the trusted computing base in §9. The research behind this file is in `reports/Nền tảng toán học cho INIT.md`
+targets the trusted computing base in §10. The research behind this file is in `reports/Nền tảng toán học cho INIT.md`
 (private) and the papers in §11.
 
 ## 1. The idea
@@ -77,7 +77,7 @@ Root state ρ = ⟨Λ, B, π, 𝒢, ℓ, χ, μ, latch, phase⟩
 | `rollback(G′, cause)` | c, forced when a harm signal fires | G′ = the newest group (chronic) or every open group (acute) | current := the parent of the oldest group in G′; optionally restore the agent state from s_g; record it |
 | `close(g, o)` | c | the window ended with an allowed outcome; older groups closed | lkg := current; record `change_close` |
 | `ladder(±)` | c | criteria on Root records since the level was entered | ℓ := f(Λ\|root, now); record it |
-| `upgrade_commit(k)` | c | probation passed | each anchor in {audited, settled} gets kernel k, or ⊥ if unreadable |
+| `upgrade_commit(k)` | c | probation passed | lkg := current; each of {audited, settled, twin} gets kernel k with its own body and extensions, or ⊥ if unreadable |
 | `stop`, `panic` | u (owner) | none | kill every zone process (c); set the latch; `resume` restarts an approved tuple |
 
 ## 5. Invariants
@@ -107,7 +107,7 @@ tested by self-composition. The status column is 2026-10-28, v0.5.1.
   unmodifiable by the zone. It is assumed, not proven. The 2026-10-28 git-config escape was a hole in INIT's profile,
   not in Seatbelt.
 - **A_root.** The Root's implementation refines the transition system above. It is the only assumption INIT can
-  strengthen by its own work: tests, then model checking, then proofs, all on the trusted computing base (§9).
+  strengthen by its own work: tests, then model checking, then proofs, all on the trusted computing base (§10).
 - **A_res.** The machine keeps the resources the Root reserved: disk, copy-on-write clones, store quota. Where it
   cannot, admission refuses, so safety holds and liveness is lost.
 - **A_exch** (statistical statements only). Under no change, the units in a watch window are exchangeable with the
@@ -169,8 +169,8 @@ FG-1 and FG-2 depend only on these parts of the Root:
 
 The harm statistics, the twin, goals and the sealed evaluation affect only P-3, P-4 and measurements, provided their
 outputs reach the TCB only as rollback requests, refusals or records, that is, only in the more cautious direction. All
-formal effort (property tests, model checking, Kani proofs) goes on the TCB, and the release protocol reports its size
-separately from the whole Root (20,334 lines without tests in v0.5.0).
+formal effort (property tests, model checking, Kani proofs) goes on the TCB. The release protocol does not report the
+TCB's size yet; from v0.5.3 it will, separately from the whole Root (20,334 lines without tests in v0.5.0).
 
 ## 11. How this file is used
 

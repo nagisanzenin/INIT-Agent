@@ -372,7 +372,7 @@ release an hour later, is not a failure. A stranded user left standing is.
 | Gate | The failure it caught, or would have caught |
 |---|---|
 | §2 version sweep | the CHANGELOG said "not released" after the release; the site said v0.3.3 at v0.5.0; docs/release.md §5b described a get.sh from v0.2 |
-| §4 CI ×3, no flake | t20, t22 and t26 races refused G0 on the x86_64 runner (REL-050 runs 7 and 8) |
+| §4 CI once, the body suite ×5 under load, no flake | t20, t22 and t26 races refused G0 on the x86_64 runner (REL-050 runs 7 and 8) |
 | §4.2 Root safety | the R-SAFE test caught the upgrade's new signal caller (REL-050) |
 | §4.4 numbers audit | cache writes under-billed by about 20 %; the site's swap time labelled v0.3.2 while its receipt held v0.5.0 |
 | §5 targets | the x86_64 disk-floor bug (E_DISK, runs 6–7) and the Ubuntu 24.04 AppArmor refusal (runs 3–4) appeared only on Linux |

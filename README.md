@@ -4,10 +4,10 @@ INIT is a coding agent that rewrites its own harness while it works. The harness
 
 ```sh
 curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh
-init-agent
+~/.local/bin/init-agent
 ```
 
-The first run asks you to pick a provider, paste your key and pick a model.
+The first run asks you to pick a provider, paste your key and pick a model. The installer puts `init-agent` in `~/.local/bin`, which a default macOS shell does not have on its `PATH`, so the first run names the full path, as get.sh prints it. To type plain `init-agent` from then on, add the directory to your `PATH` and open a new terminal: `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc` (for bash, `~/.bashrc`).
 
 macOS 14+ on Apple silicon; Linux x86_64 is experimental. Upgrades, Linux setup and removal: [Install, upgrade, uninstall](docs/guide.md#install-upgrade-uninstall).
 
@@ -52,7 +52,7 @@ No step asks a change to prove it is better, because nobody can write the score 
 
 **The Root is the fixed part.** `init-root` is its own service (a LaunchAgent on macOS, a systemd user unit on Linux) with its own directory, `~/.init-root`, which holds your keys, your charter (the settings), its Ed25519 signing key, the signed lineage, the spend ledger and the snapshots. It starts every agent process in a sandbox it composes (Seatbelt on macOS, bubblewrap on Linux), adds your key to each model request and meters it, and signs a record of every promotion, rollback, grant and panic. That sandbox, in every access mode, denies the agent the Root's files, its service file, INIT's launchers and signals to the Root. The Root is 20,334 lines of Rust in v0.5.0, without tests ([REL-050](build/status/REL-050.md)).
 
-**Why a compiled core and not plugins?** A plugin API fixes in advance where the model may extend the agent. What a stronger model is likely to want to change sits elsewhere: how context is compacted, how the loop retries, how requests are laid out so the prompt cache keeps hitting. That code is the core, so the core is editable (T1 Wasm tools are the plugin path). The cost is time. A no-op core change on a fresh v0.5.0 install, built cold, took 838 s from G0 to the hot-swap (mock model, [release notes](docs/release-notes/v0.5.0-preview.md)); with a warm dependency cache, a small change's build and G0 took 126 s (mock model, measured before v0.5), and the later gates were not timed ([CHANGELOG](CHANGELOG.md), "Warm T2 builds").
+**Why a compiled core and not plugins?** A plugin API fixes in advance where the model may extend the agent. What a stronger model is likely to want to change sits elsewhere: how context is compacted, how the loop retries, how requests are laid out so the prompt cache keeps hitting. That code is the core, so the core is editable (T1 Wasm tools are the plugin path). The cost is time. A no-op core change on a fresh v0.5.0 install, built cold, took 788 s (13.1 min) from G0 to the hot-swap (M2, mock model, [receipt](build/status/bundle-e2e-t2.json)); with a warm dependency cache, a small change's build and G0 took 126 s (mock model, measured before v0.5), and the later gates were not timed ([CHANGELOG](CHANGELOG.md), "Warm T2 builds").
 
 ## What it has done
 
@@ -74,7 +74,7 @@ No step asks a change to prove it is better, because nobody can write the score 
 
 INIT 0.5 is a research preview.
 
-- **Tested:** DeepSeek (deepseek-flash, deepseek-v4-pro) on the live API. At $0 on a mock model, the v0.5.1 bundles on macOS and on Linux x86_64 (a hosted Ubuntu 24.04 VM): install, a core change through the gates and the hot-swap; on macOS, upgrades from every public release since 0.3.1 (or the uninstall they need) and an upgrade that kept an evolved body. 2,083 Rust tests in CI on macOS (v0.5.1; one timing-bound test failed under a load average of 76 and passed alone).
+- **Tested:** DeepSeek (deepseek-flash, deepseek-v4-pro) on the live API. At $0 on a mock model, the v0.5.1 bundles on macOS and on Linux x86_64 (a hosted Ubuntu 24.04 VM): install and a first reply. A core change through the gates and the hot-swap passed on Linux x86_64; on macOS the v0.5.1 attempt passed G0–G2 and failed at G3's inner G0 on a known flaky body test ([receipt](build/status/bundle-e2e-t2-v0.5.1-macos.json); the last macOS pass is v0.5.0's). On macOS, upgrades from every public release since 0.3.1 (or the uninstall they need) and an upgrade that kept an evolved body. In CI on macOS (v0.5.1), 2,082 Rust tests passed; one more, a timing-bound test, failed under a load average of 76 and passed alone.
 - **Not tested or not built:** Anthropic and OpenAI on a live API (offline tests only); a Linux aarch64 bundle for 0.5.x; signed releases (bundles are checked by SHA-256 only); autonomy above L0 (L0 already covers the whole body; the kernel opens at L1); Windows.
 
 ## Docs

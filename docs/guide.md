@@ -8,18 +8,18 @@ Which command to run, by what you have now. [Install](#install), [Upgrade](#upgr
 
 | You have | Run |
 |---|---|
-| no INIT | `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh \| sh`, then `init-agent` |
+| no INIT | `curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh \| sh`, then `~/.local/bin/init-agent` (the first time; see [Install](#install) for `PATH`) |
 | 0.5.1 or later | `init-agent upgrade` |
 | 0.5.0 | once, from your own shell: `/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh \| /bin/sh -s -- --upgrade`. 0.5.0's own `init-agent upgrade` runs 0.5.0's get.sh, with the problems 0.5.1 fixed ([Upgrade](#upgrade), limits). After that, `init-agent upgrade` |
 | 0.4.1 | once, from your own shell: `/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh \| /bin/sh -s -- --upgrade` (0.4.1 has no `init-agent upgrade`). After that, `init-agent upgrade` |
 | a release before 0.4.1 | no upgrade: uninstall it (get.sh prints the command), then install |
-| INIT, and you want it gone | the uninstaller the install left in `~/.local/share/init/<version>/scripts/uninstall.sh`, or [Uninstall](#uninstall); it moves everything to the Trash |
+| INIT, and you want it gone | `f="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && bash "$f"`, the line get.sh prints ([Uninstall](#uninstall)); it moves everything to the Trash |
 
 An upgrade keeps what INIT has become: the body it evolved, its extensions, skills and sessions, the signed lineage, your keys and your charter.
 
-If you installed with `INIT_ROOT_HOME` set to a directory other than `~/.init-root`, put the same `INIT_ROOT_HOME=<that directory>` before `/bin/sh` (or `sh`) in the upgrade lines above, and before `bash` when you uninstall; get.sh prints the line with it filled in.
+If you installed with `INIT_ROOT_HOME` set to a directory other than `~/.init-root`, put the same `INIT_ROOT_HOME=<that directory>` before `/bin/sh` (or `sh`) in the upgrade lines above, and before `bash` when you uninstall; get.sh prints the line with it filled in. From v0.5.2, get.sh and install.sh notice an install in another `ROOT_HOME` before they install a second one (its LaunchAgent or systemd unit, or the `init-agent` command, names it) and print that install's upgrade line instead. If you installed with `INIT_BIN_DIR` set, the uninstaller from v0.5.2 (the one the line above downloads) finds the commands there from the install's record; an older uninstaller looks only in `~/.local/bin`, so put `INIT_BIN_DIR=<that directory>` before `bash` for it.
 
-**Time.** `get.sh` takes about 1–2 minutes on a fast link, including the Rust toolchain it installs so that INIT can rebuild itself (`--no-rust` skips it; INIT then changes only its skills and prompts). The first change to the compiled core on a fresh install builds cold: 838 s from G0 to the hot-swap in the v0.5.0 release check on macOS, and G0 806 s plus G3 789 s on the Linux x86_64 VM, both on the mock model ([v0.5.0 notes](release-notes/v0.5.0-preview.md)). Later changes reuse the dependency cache: the build and G0 of a small change took 126 s in one measurement, with G1–G3 and the hot-swap not timed ([CHANGELOG](../CHANGELOG.md), "Warm T2 builds").
+**Time.** `get.sh` takes about 1–2 minutes on a fast link, including the Rust toolchain it installs so that INIT can rebuild itself (`--no-rust` skips it; INIT then changes only its skills and prompts). The first change to the compiled core on a fresh install builds cold: 788 s (13.1 min) from G0 to the hot-swap in the v0.5.0 release check on macOS (an M2; [receipt](../build/status/bundle-e2e-t2.json)), and G0 806 s plus G3 789 s on the Linux x86_64 VM ([REL-050](../build/status/REL-050.md)), both v0.5.0 on the mock model. While that first build runs, the self-change panel shows it as its own `deps` step with this estimate (`first build of dependencies (not cached yet): usually 10–20 min on an M2`). Later changes reuse the dependency cache: the build and G0 of a small change took 126 s in one measurement, with G1–G3 and the hot-swap not timed ([CHANGELOG](../CHANGELOG.md), "Warm T2 builds").
 
 **Linux x86_64 is experimental.** It was tested on a GitHub-hosted Ubuntu 24.04 VM on the mock model, not on physical hardware or another distribution. It needs glibc ≥ 2.36, working user namespaces, util-linux `unshare`, python3, git ≥ 2.39.4, and bubblewrap ≥ 0.13.0 at `/usr/bin/bwrap`, which no LTS distribution ships, so you build it from the upstream release ([platforms.md §3.4.0](platforms.md)). On Ubuntu 24.04, whose AppArmor restricts unprivileged user namespaces, the installer stops and prints a one-time sudo step: root-owned copies of `unshare` and `bwrap`, and a profile that lets only those two create user namespaces (`curl … | sh -s -- -- --apparmor` runs it after asking; [platforms.md §3.4.6](platforms.md)). The Root runs as a systemd user unit. Full access works as on macOS; workspace mode keeps the agent in its own home, so it cannot read or edit your files.
 
@@ -38,12 +38,20 @@ If you installed with `INIT_ROOT_HOME` set to a directory other than `~/.init-ro
 
 ```sh
 curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh
-init-agent
+~/.local/bin/init-agent
 ```
+
+The installer puts the `init-agent` command in `~/.local/bin`, which a default macOS shell does not have on its `PATH`: typed plainly the first time, `init-agent` is "command not found". So the first run names the full path, as get.sh prints it. To type plain `init-agent` from then on, add the directory to your `PATH` and open a new terminal:
+
+```sh
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc
+```
+
+(For bash, `~/.bashrc`. With `INIT_BIN_DIR` set, use that directory.)
 
 `get.sh` downloads the prebuilt bundle, checks its SHA-256, makes sure the Rust toolchain is present, and installs with the default settings (no sudo, no key). The first `init-agent` opens a short setup: choose a provider and a model with the arrow keys, and paste your key (shown only as `•`; it goes to the Root, never to the agent or a log). Later, `/model`, `/key` and `/setup` change them. `get.sh --from <bundle.tar.gz>` installs a downloaded bundle.
 
-To build from source instead (about 15 minutes on an M2, Rust required): `scripts/install.sh`, then `init-agent`.
+To build from source instead (about 15 minutes on an M2, Rust required): `scripts/install.sh`, then `~/.local/bin/init-agent`.
 
 The installer asks one question. It prints the settings it writes into your charter (`~/.init-root/charter.toml`) and asks `Install with these settings? [Y/n]`; `--yes` (which `get.sh` passes) skips it. Each setting has a flag, which `get.sh` passes on after `--` (for example `sh -s -- -- --access workspace`):
 
@@ -63,10 +71,10 @@ Up to v0.4.0 the command was `init`. It is `init-agent` from v0.4.1, because `~/
 ## Upgrade
 
 ```sh
-init-agent upgrade                       # the latest release
-init-agent upgrade --version 0.5.1       # a given release (0.5.1 finds the tag v0.5.1-preview; 0.5.1-preview works too)
-init-agent upgrade --bundle init-v0.5.1-preview-macos-arm64.tar.gz --sha256 HEX   # a downloaded bundle
+init-agent upgrade
 ```
+
+That upgrades to the latest release. `init-agent upgrade --version 0.5.1` upgrades to a given release (0.5.1 finds the tag v0.5.1-preview; 0.5.1-preview works too), and `init-agent upgrade --bundle init-v0.5.1-preview-macos-arm64.tar.gz --sha256 HEX` to a downloaded bundle.
 
 For `--bundle`, HEX is the SHA-256 the release page lists for that file (also in its `.sha256` asset there). A `.sha256` file next to your download is not used: with full access the agent can write that folder, so a checksum from there proves nothing. Without `--sha256` the upgrade stops before it changes anything and prints the command to type.
 
@@ -79,7 +87,8 @@ The upgrade replaces the Root, the kernel and the `init-agent` and `init-tui` co
 3. **Check.** Nothing changes if the release is older than the one installed, if it is the same release, or if its kernel cannot run your evolved body. For the body check the Root runs `--manifest` of your body and of the release's own body, each in a sealed sandbox, and compares the control protocol, the manifest format and the extension WIT majors. INIT never migrates or rewrites an evolved body: an incompatible release is refused with the reason.
 4. **Snapshot and replace.** The Root takes a snapshot of everything it will replace (APFS clones on macOS; reflinks or copies on Linux) into `~/.init-root/state/upgrade/`, then installs the new Root, kernel and kernel source, and forms a new system tuple with the new kernel and your current body and extensions.
 5. **Health probe.** The new Root starts, the kernel must be ready on the new tuple and your body must boot, within 120 s (`-- --probe-timeout S` changes it), and the whole lineage must verify.
-6. **Commit or roll back.** If the probe passes, the new tuple becomes last-known-good and the snapshot goes. If it fails, the old Root, kernel and commands come back from the snapshot, a `rollback` record returns the system to the tuple from before, and INIT runs its old version unchanged. The service is started again either way.
+6. **Commit or roll back.** If the probe passes, the new tuple becomes last-known-good and the snapshot goes. If it fails, the old Root, kernel and commands come back from the snapshot, a `rollback` record returns the system to the tuple from before, and INIT runs its old version unchanged. The service is started again either way. The commit also makes the release's `get.sh` the one `init-agent upgrade` runs next time, also when you finish a failed commit by hand.
+7. **Cut off part way.** If the upgrade stops between the replace and the commit (say, the terminal is closed during the probe) and the Root is started again, for example at your next login, it does not run the agent on the half-upgraded install. If the commit had begun, the Root finishes it and starts. Otherwise it rolls the upgrade back, so INIT runs its old version as before, and says so in `~/.init-root/logs/` and `~/.init-root/alerts.jsonl`. Run the upgrade again.
 
 `~/.init-root/bin/init-root upgrade --status` shows the last upgrade. Limits of this release, plainly:
 
@@ -97,9 +106,11 @@ The upgrade replaces the Root, the kernel and the `init-agent` and `init-tui` co
 | chat or give a task | `init-agent`, type a line, press Enter. Ctrl-C or Esc pauses the current turn (your next message continues the task, or says what to do instead); Ctrl-D detaches and INIT keeps running: the input box is cleared and one line says so, with how to come back. |
 | work on a project | `cd` into it and run `init-agent`. By default (v0.3.1, [ADR-012](adr/012-full-access-by-default.md)) the agent has **full access**: it reads and writes anything you can, `~/.ssh` included, and uses the network, like your own shell. Only the Root is off-limits: `~/.init-root`, its service (`~/Library/LaunchAgents`), the `init-agent` and `init-tui` launchers, `~/.config/init-agent` and your `read_deny` list. `FULL` shows in the status bar. The folder you started in is the workspace, the only place `/undo` covers. It must be a folder inside your home, not your home itself and not INIT's own folders; started anywhere else (`~`, `/tmp`, another volume) there is no workspace, and the screen says so: the agent then works in its own folder (`~/.init/work`), so files it creates by name land there, and `/undo` has nothing to restore. |
 | confine the agent to the project | `init-agent --workspace` for one session, or `/full off` in the chat (`/full on` lifts it). `WORKSPACE` shows in the status bar. The agent then reads your home except secrets (`~/.ssh`, cloud credentials, keychains, browser and mail data), edits only that folder and its own `~/.init`, and has no network except the model provider. Run from `~`, it can read but not edit. To make this the default, set `mode = "workspace"` under `[sandbox]` in `~/.init-root/charter.toml`, then `~/.init-root/bin/init-root charter check --apply`; `/full on` then asks you to type `/full on confirm`. |
-| undo the agent's edits | when the agent is idle, `/undo`, then `/undo confirm`: the folder goes back to the snapshot the Root took when you ran `init-agent` there. The state it replaces is saved first, so an undo can be undone. Folders over 2 GiB or not on APFS get no snapshot. |
+| undo the agent's edits | when the agent is idle, `/undo`, then type `confirm`: the folder goes back to the newest snapshot that differs from it now, which is the one from before the agent's edits even after you reopened INIT. The Root snapshots the folder each time you run `init-agent` there, and skips the snapshot when nothing changed since the last one. `/undo list` shows the snapshots, newest first: each one's id, time on your clock, what took it (launch, full access turned on, or an `/undo`) and folder, with the one `/undo` restores marked. `/undo <id>` restores one of them, and asks you to type `/undo <id> confirm`. A restore replaces everything changed in the folder since that snapshot, by you or the agent. The folder as it was is saved first as a new snapshot, so `/undo` again brings it back. The last 5 snapshots of a folder are kept. Folders over 2 GiB or not on APFS get none. |
 | keep the agent out of a folder | add it to `read_deny` under `[sandbox]` in `~/.init-root/charter.toml`, then `~/.init-root/bin/init-root charter check --apply`; it holds in full access too. `read_home = false` turns home reads off in workspace mode; `allow_full = false` forbids full access altogether. |
 | see what it has spent | `/usage` in the chat, or the status bar (estimated USD and tokens, to a tenth of a cent below $1). The `self-changes` row of `/usage` is what the Root metered while a self-change was being checked, as the TUI saw it; the Root does not split spend by purpose yet. `~/.init-root/bin/init-root egress stats` prints the Root's full money block; it says `"enforced": false`. Every request is logged in `~/.init-root/egress/usage/`. |
+| see the commands | `/help` in the chat lists them (or type `/` for the list as you type). A line that starts with an unknown `/word` is not sent: the TUI says so and keeps it in the box, so a typo is never a billed message to the agent. To send a message that starts with `/`, start it with `//`. |
+| see what a command printed | Ctrl-O, or `/details`: each call the agent made (a shell command's first lines), its result, and the last lines of its output. |
 | stop the current run | `/stop` in the chat, with no demotion. `/resume` starts it again. |
 | stop everything, now | `/panic` in the chat (it first says what it does; type `panic` and press Enter to go ahead, Esc cancels), or `~/.init-root/bin/init-root panic` from any terminal. Every agent process stops, the panic is latched, and the agent drops one autonomy level (when it is above L0). `/resume` (or `~/.init-root/bin/init-root resume`) when you are ready. |
 | stop for the day (no demotion) | `~/.init-root/bin/init-root stop`; later `~/.init-root/bin/init-root start` |
@@ -211,9 +222,10 @@ show that the binaries you run were built from the published source.
 ## Uninstall
 
 ```sh
-bash ~/.local/share/init/0.5.1-preview/scripts/uninstall.sh        # the uninstaller of the release you installed (install.sh prints its path)
-f="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && bash "$f"   # or the current one, from the repository
+f="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && bash "$f"
 ```
+
+This runs the current uninstaller from the repository, the line get.sh prints, and it works whichever release you have and however you got it. The release you run also has a copy of its own: `~/.local/share/init/<version>/scripts/uninstall.sh` when you installed that release, `~/.init-root/cache/upgrade/<version>/scripts/uninstall.sh` when you upgraded to it (install.sh prints the path at the end of an install). Run it with `bash`. With `INIT_ROOT_HOME` or `INIT_BIN_DIR` set at install, see the note under [Install, upgrade, uninstall](#install-upgrade-uninstall).
 
 It stops INIT through `~/.init-root/bin/init-root stop`, unloads the LaunchAgent, then, after you type `uninstall`, **moves** `~/.init-root`, `~/.init`, the `init-agent` and `init-tui` commands and INIT's old launcher or shim at `~/.local/bin/init` to the Trash (with a timestamp in the name). Nothing is deleted: empty the Trash yourself. Your key file goes to the Trash with `~/.init-root`.
 
