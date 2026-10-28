@@ -87,7 +87,7 @@ fn tui12_tty_session_through_a_pty() {
     let fx = Fixture::start("t12");
     fx.emit(json!({"boot_seq": 1, "kind": "text", "t": "display", "text": "earlier reply\n"}));
     let mut d = Drive::start(&fx.rh, &["--latency-report"]);
-    d.ok(json!(["wait", "running", 10]));
+    d.ok(json!(["wait", "root ok", 10]));
     d.ok(json!(["wait", "earlier reply", 5]));
     // type and send; the echo and the reply stream in
     d.ok(json!(["mark"]));
@@ -152,7 +152,7 @@ fn steer_tray_seen_tab_retract_and_esc_through_a_pty() {
     let fx = Fixture::start("steer");
     fx.state().auto_echo = false;
     let mut d = Drive::start(&fx.rh, &[]);
-    d.ok(json!(["wait", "running", 10]));
+    d.ok(json!(["wait", "root ok", 10]));
     fx.emit(steer_state(false, &[], &[], &[]));
 
     // the run starts with a long bash call
@@ -283,7 +283,7 @@ fn wire9_tty_undo_and_full_with_confirmations() {
     let proj = fx.dir.join("proj");
     std::fs::create_dir_all(&proj).unwrap();
     let mut d = Drive::start_in(&fx.rh, &[], Some(&proj));
-    d.ok(json!(["wait", "running", 10]));
+    d.ok(json!(["wait", "root ok", 10]));
     fx.wait_for(10, "workspace.set", |s| s.access.as_ref().is_some_and(|a| a["workspace"].is_string()));
     d.ok(json!(["wait", "/proj", 10])); // the workspace in the status bar
     d.ok(json!(["mark"]));
@@ -363,7 +363,7 @@ fn session(name: &str, prefill: usize, body: impl FnOnce(&Fixture, &mut Drive)) 
         }
     }
     let mut d = Drive::start(&fx.rh, &["--latency-report"]);
-    d.ok(json!(["wait", "running", 10]));
+    d.ok(json!(["wait", "root ok", 10]));
     body(&fx, &mut d);
     d.ok(json!(["sleep", 0.5]));
     d.ok(json!(["type", "\u{3}"]));

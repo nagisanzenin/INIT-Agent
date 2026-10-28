@@ -2,90 +2,95 @@
 //! of styled spans. The terminal writer (`crate::app`) turns rows into crossterm commands; styles are
 //! only ever produced here, never taken from frame bytes (§3.13).
 
+pub mod gates; // TUI-OBSERVE: the gate track
+pub mod lineage; // TUI-OBSERVE: the lineage panel in the transcript view
 pub mod live;
 pub mod md;
+pub mod palette;
+pub mod picker; // TUI-PICKER: the inline picker (setup, /model, /key, the agent's questions)
 pub mod sanitize;
 pub mod status;
+pub mod table; // TUI-BRAND: the Root's JSON answers as tables
 pub mod transcript;
 pub mod wrap;
 
 #[cfg(test)]
 mod golden_tests;
+#[cfg(test)]
+mod vt_tests; // TUI-BRAND: the renderer's bytes through a terminal emulator (vt100)
+#[cfg(test)]
+mod observe_tests; // TUI-OBSERVE
 
-/// The colours the TUI uses. Mapped to crossterm colours by the writer; dropped under `NO_COLOR`.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Color {
-    Red,
-    Green,
-    Yellow,
-    Cyan,
-    Grey,
-}
+pub use palette::Role;
 
+/// A span's style: a semantic role for the foreground (and rarely the background), plus attributes.
+/// The writer (`crate::term`) asks the palette what a role is on this terminal (§3.9a).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub struct Style {
-    pub fg: Option<Color>,
-    pub bg: Option<Color>,
+    /// None is the terminal's own foreground, the same as `Role::Ink`.
+    pub fg: Option<Role>,
+    pub bg: Option<Role>,
     pub bold: bool,
-    pub dim: bool,
     pub reverse: bool,
     pub italic: bool,
 }
 
 impl Style {
-    pub const PLAIN: Style = Style { fg: None, bg: None, bold: false, dim: false, reverse: false, italic: false };
-    pub fn fg(c: Color) -> Style {
-        Style { fg: Some(c), ..Style::PLAIN }
+    pub const PLAIN: Style = Style { fg: None, bg: None, bold: false, reverse: false, italic: false };
+    /// The style of a role (`Role::Ink` is `PLAIN`).
+    pub const fn fg(r: Role) -> Style {
+        Style { fg: if matches!(r, Role::Ink) { None } else { Some(r) }, bg: None, bold: false, reverse: false, italic: false }
     }
-    pub fn dim() -> Style {
-        Style { dim: true, ..Style::PLAIN }
+    /// Secondary text (`Role::Dim`).
+    pub const fn dim() -> Style {
+        Style::fg(Role::Dim)
     }
-    pub fn bold() -> Style {
+    /// Tertiary text (`Role::Mute`).
+    pub const fn mute() -> Style {
+        Style::fg(Role::Mute)
+    }
+    pub const fn bold() -> Style {
         Style { bold: true, ..Style::PLAIN }
     }
-    pub fn with_dim(mut self) -> Style {
-        self.dim = true;
+    /// The same style in the secondary role (an inert placeholder inside a span, for example).
+    pub const fn with_dim(mut self) -> Style {
+        self.fg = Some(Role::Dim);
         self
     }
-    pub fn with_bold(mut self) -> Style {
+    pub const fn with_bold(mut self) -> Style {
         self.bold = true;
         self
     }
-    pub fn with_reverse(mut self) -> Style {
+    pub const fn with_reverse(mut self) -> Style {
         self.reverse = true;
         self
     }
-    /// One character per style for the golden style masks (TUI-1).
+    pub const fn with_italic(mut self) -> Style {
+        self.italic = true;
+        self
+    }
+    /// One character per style for the golden style masks (TUI-1): the role's letter
+    /// ([`Role::mask`]), uppercase when bold (`b` for bold ink); reverse video `R` harm, `O` root,
+    /// `G` pass, `V` other; `k` a background.
     #[cfg(test)]
     pub fn mask(&self) -> char {
-        let c = |c: Color| match c {
-            Color::Red => 'r',
-            Color::Green => 'g',
-            Color::Yellow => 'y',
-            Color::Cyan => 'c',
-            Color::Grey => 'e',
-        };
         if self.reverse {
             return match self.fg {
-                Some(Color::Red) => 'R',
-                Some(Color::Yellow) => 'Y',
+                Some(Role::Harm) => 'R',
+                Some(Role::Root) => 'O',
+                Some(Role::Pass) => 'G',
                 _ => 'V',
             };
-        }
-        if let Some(f) = self.fg {
-            let ch = c(f);
-            return if self.bold { ch.to_ascii_uppercase() } else { ch };
         }
         if self.bg.is_some() {
             return 'k';
         }
-        if self.bold {
-            return 'b';
+        match self.fg {
+            Some(r) if self.bold => r.mask().to_ascii_uppercase(),
+            Some(r) => r.mask(),
+            None if self.bold => 'b',
+            None => '.',
         }
-        if self.dim || self.italic {
-            return 'd';
-        }
-        '.'
     }
 }
 

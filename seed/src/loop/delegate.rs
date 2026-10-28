@@ -218,6 +218,7 @@ impl Session {
                 name: Some(p.name().to_string()),
                 ok: None,
                 parent: None,
+                detail: None,
             });
             let Prepared::Ready {
                 call_id,
@@ -600,6 +601,7 @@ fn inner_call(env: &SubEnv, parent: &str, access: Access, c: &ToolCall, abort: &
             name: Some(c.name.clone()),
             ok: None,
             parent: Some(parent.to_string()),
+            detail: None,
         });
     }
     let ran = match &prep {
@@ -608,6 +610,12 @@ fn inner_call(env: &SubEnv, parent: &str, access: Access, c: &ToolCall, abort: &
             ..
         } => Ran {
             result: error_result(&c.id, IN_SUB),
+            summary: "error: not_available".into(),
+        },
+        Prepared::Ready {
+            job: Job::Ask(_), ..
+        } => Ran {
+            result: error_result(&c.id, crate::tools::ask::IN_SUB),
             summary: "error: not_available".into(),
         },
         Prepared::Ready {
@@ -649,6 +657,7 @@ fn inner_call(env: &SubEnv, parent: &str, access: Access, c: &ToolCall, abort: &
         name: Some(c.name.clone()),
         ok: Some(!ran.result.is_error),
         parent: Some(parent.to_string()),
+        detail: crate::tools::fail_detail(&ran.result),
     });
     ran
 }

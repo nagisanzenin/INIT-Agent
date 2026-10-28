@@ -1064,6 +1064,8 @@ When it runs:
 
 The agent can verify its own copy with the published public key (§3.10.6). Exit codes: 0 valid; 1 invalid, printing the first bad `seq` and the rule it broke.
 
+**Offline check of a published file (v0.5.0).** `init-root audit verify --file RECORDS --pub KEY [--head HASH]` checks rules 1–6 over every record of a records file someone published, with signatures from genesis on. It reads only its arguments: no install, `head.json`, mirror or network, so anyone with the `init-root` binary can run it. `KEY` is the genesis public key, as 64 hex characters or a file holding them (`keys/lineage.pub`); a `key_rotate` record signed by the old key switches the key for the records after it. `HASH` is the published head hash. Without it, a file cut at a record boundary still verifies as a shorter chain; a cut inside a record, a changed, reordered or missing record and a wrong key each fail. Exit codes: 0 valid; 1 invalid or unreadable; 64 usage. Limits, printed with every `ok`: a valid chain shows that no record was changed after it was signed with this key. It does not show that the binaries match the source. It is only as good as the key, so the key (and the head) must be published apart from the records file, for example in the release notes.
+
 #### 3.10.5 Kinds
 
 **Written by the Root** (`by:"root"`). The Root refuses to append a Root kind that is not in this table. `key_rotate` is reserved: verification supports it, and nothing writes it yet.
@@ -1254,7 +1256,7 @@ text = "REPLACE ME: what INIT is for, in your words."
 [autonomy]
 max_level = 4          # the cap. The agent starts at L0 and climbs only on its measured record (R7).
 
-[money]                # hard ceilings (root/egress.md); soft budgets stay in kernel/config.toml
+[money]                # spending references: tracked and shown, not caps (owner decision 2026-10-23); a goal's usd= is enforced
 day_usd = "5.00"
 total_usd = "25.00"
 day_starts_at_utc_offset = "+00:00"
@@ -1753,6 +1755,13 @@ From v0.1.1 the boot block also carries `"access": {"access", "full", "workspace
 
   `workspace.set` is sent once per `init-agent` launch, after the first attach and before any owner line. **Typed confirmation:** `full.set{on:true}` the first time in an owner session while the charter's `sandbox.mode` is `"workspace"` (ADR-012: never with the default `"full"`), and every `undo`, answer `root.confirm` with `message` (what will happen) and `data.phrase` (today `"confirm"`) unless `args.confirm` equals `data.phrase` exactly. The client shows `message`, reads one line from the owner, and resends the same request with `"confirm": <that line>`. Clients take the phrase from `data.phrase` and never hard-code it.
 - **v0.1.1 notices** (Root → every attached client, `src:"root"`): `code:"access"` on every workspace or full-mode change, and `code:"snapshot"` when a snapshot is taken, skipped or restored (§3.17.3, §3.17.4).
+- **v0.5.0 (TUI-OBSERVE).** A kernel `notice` may carry `data` (kernel/supervise.md §4.6); the Root relays it unchanged, like every field of a kernel frame, stamped `src:"kernel"`. One read-only request on the owner socket only (the control link has none, and the zone cannot connect here):
+
+  | `cmd` | `args` | `result` | Errors |
+  |---|---|---|---|
+  | `lineage.tail` | `{"n"?: 1–20, default 10}` | `{"records", "rows": [{"seq", "at", "by", "kind", "hash" (12 hex), "data": {scalars of verdict, reason, sha, from_sha, to_sha, from, to, lkg, tuple, gate_kind, scope, stage; strings cut to 80 bytes}}], "verify": {"ok", "records", "head_seq", "head_hash", "sigs_checked", "verified_full_at", "key" (16 hex), "ms", "error": null \| {"seq", "rule"}}}` | `root.mode` (the lineage is unavailable), `root.io` |
+
+  `verify` is `init-root audit verify` without `--full` and without the mirror: rules 1–6 over the whole chain with signatures over the last `root.lineage_verify_tail` records, and rule 7, under the key the Root signs with; the file and `head.json` are read under the lineage lock (`lineage/owner_view.rs`).
 
 **Lines the Root handles** (exact match after trimming; everything else goes to the kernel):
 
@@ -1770,7 +1779,8 @@ From v0.1.1 the boot block also carries `"access": {"access", "full", "workspace
 | Command | Does | Exit |
 |---|---|---|
 | `install --release <dir> [--home <INIT_HOME>] [--root-home <ROOT_HOME>] --seed-source <repo\|bundle> [--seed-tag <tag>] [--charter <file>] [--with-testkit] [--no-service] [--bin-dir <DIR>]` | first install; see below. `--bin-dir` (v0.1.1) records where the `init-agent` launcher and `init-tui` are installed (`install.json` `bin_dir`), so tail Z3a write-denies it in every mode; `scripts/install.sh` passes it when `INIT_BIN_DIR` is not `~/.local/bin`, which Z3a already covers. `--no-service` skips the service file (step 9), so a harness that runs `install` with the owner's real HOME (`HOME_REAL` must equal the kernel's passwd home) writes nothing under `~/Library`. `--with-testkit` adds `init-fakebody`; `init-mockllm` is installed either way. | 0; 1 error (including a release without `init-mockllm`); 2 invalid charter |
-| `install --upgrade --release <dir>` | new `init-root`: replaces `ROOT_HOME/bin/init-root` (new inode) and asks launchd/systemd to restart it, appending `root_start` on the next start. New kernel: imports `src/<version>.bundle` into `lineage/kernel.git` (§3.8.1), refreshes `kernel/docs/` and `kernel/kupgrade-smoke/`, then `system.swap{source:"maintainer"}` through `owner.sock` (§3.8). New seed: a new bundle in `kernel/seed/`. | 0/1 |
+| `upgrade --release <dir> [--bin-dir DIR]` · `upgrade --probe` · `upgrade --commit` · `upgrade --rollback` · `upgrade --status` (v0.5.0, as built) | the owner's stop-then-replace upgrade, run by the release's own `init-root` with the Root stopped (root/crates/init-root/src/upgrade.rs; docs/guide.md "Upgrade"): version and body-protocol checks, a snapshot under `ROOT_HOME/state/upgrade/`, the new Root binary, `kernel/bin`, `docs`, `wit`, `src` and launchers, the kernel source import, and a `tuple` {new kernel, current body and ext} that moves `current`; then a health probe, and `lkg` at the commit or a `rollback` to the tuple from before. It replaces the `install --upgrade` design of the next row, which is not built (no `system.swap{source:"maintainer"}`, no new seed offered) | 0; 1 error (nothing changed, or restored); 3 refused; 4 already this release |
+| `install --upgrade --release <dir>` (design, not built) | new `init-root`: replaces `ROOT_HOME/bin/init-root` (new inode) and asks launchd/systemd to restart it, appending `root_start` on the next start. New kernel: imports `src/<version>.bundle` into `lineage/kernel.git` (§3.8.1), refreshes `kernel/docs/` and `kernel/kupgrade-smoke/`, then `system.swap{source:"maintainer"}` through `owner.sock` (§3.8). New seed: a new bundle in `kernel/seed/`. | 0/1 |
 | `start [--foreground]` | the daemon (what launchd/systemd run). It always runs in the calling process; `--foreground` only echoes the boot status to stderr. If one is already running: start the zone if it is `Stopped`, and exit 0 | 0/1 |
 | `attach [--no-replay] [--raw]` | the owner terminal (§3.15); rendering as kernel/supervise.md §4.6 | 0 detached; 69 Root unreachable; 76 protocol |
 | `panic` | §3.9; falls back to writing the latch (§3.9.6, as built) | 0 once confirmed or latched |

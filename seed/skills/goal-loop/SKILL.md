@@ -49,6 +49,9 @@ Pick exactly one and tell the owner (for a goal the owner set with `/goal`, also
 - `owner_stop`: the owner said stop;
 - `harm`: a change broke something the owner relies on.
 
+To ask for a decision only the owner can make, use `ask_owner` (options, recommended first). The goal
+waits until the owner answers; there is no default and no timeout, so ask only for decisions you cannot make.
+
 Before you claim `met`, re-check every factual claim on the artifact against a source: a claim with
 no source is removed, never invented. Inventing evidence is the fastest way to satisfy a judge.
 

@@ -136,6 +136,7 @@ impl Record {
     pub fn notice(&self, env: &Env, stage: &str, pass: Option<bool>, reason: Option<&str>, score: Option<i64>) {
         let st = &self.v["stages"][stage];
         let data = rec::stage_notice(&self.gate_id(), &self.sha(), stage, pass, reason, score, st["spent_musd"].as_u64().unwrap_or(0), st["wall_ms"].as_u64().unwrap_or(0), st["cache_permille"].as_u64());
-        env.sup.notice("gate", data);
+        // TUI-OBSERVE: the owner's copy also says which gate and scope (the body's stays as it was).
+        env.sup.notice_owner("gate", data, json!({"gate_kind": self.v["gate_kind"], "scope": self.v["scope"]}));
     }
 }

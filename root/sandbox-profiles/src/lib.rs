@@ -19,6 +19,9 @@
 pub mod access;
 pub mod params;
 
+#[cfg(unix)]
+pub mod entry;
+
 #[cfg(target_os = "linux")]
 pub mod linux;
 

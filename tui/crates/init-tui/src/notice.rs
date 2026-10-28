@@ -12,6 +12,9 @@ pub enum Class {
     Panic,
     SafeMode,
     Halt,
+    /// TUI-OBSERVE: a gate stage failed (`[kernel] gate G2 fail …`): the change was refused, or rolled
+    /// back after G4. Shown when the gate track did not take the notice (an older kernel sends no data).
+    GateFail,
     /// Anything else, styled by its level.
     Plain,
 }
@@ -29,8 +32,11 @@ pub fn classify(text: &str, src: Option<&str>, code: Option<&str>) -> Class {
         if k.starts_with("promoted") || k.starts_with("lkg") || k.starts_with("provisional") {
             return Class::Promotion;
         }
-        if k.starts_with("update_failed") {
+        if k.starts_with("update_failed") || k.starts_with("rolled back") {
             return Class::Rollback;
+        }
+        if k.starts_with("gate ") && k.split_whitespace().nth(2).map(|w| w.trim_end_matches(':')) == Some("fail") {
+            return Class::GateFail;
         }
         return Class::Plain;
     }
@@ -100,6 +106,11 @@ mod tests {
         assert_eq!(classify("[root] Halted{lineage}: x", None, None), Class::Halt);
         assert_eq!(classify("anything", None, None), Class::Plain);
         assert_eq!(classify("[root] x", Some("root"), Some("ceiling_hit")), Class::Ceiling);
+        // TUI-OBSERVE: a failed gate stage is never the quietest line on screen
+        assert_eq!(classify("[kernel] gate G4 fail for 06be87a12345: score_inferior (worse than LKG…)", Some("kernel"), None), Class::GateFail);
+        assert_eq!(classify("[kernel] gate G2 fail: probe_exit", None, None), Class::GateFail);
+        assert_eq!(classify("[kernel] gate G2 pass", Some("kernel"), None), Class::Plain);
+        assert_eq!(classify("[kernel] rolled back 06be87a12345 → 3f9c0a1b2c4d (LKG): gate.g4.score_inferior", Some("kernel"), None), Class::Rollback);
     }
 
     #[test]

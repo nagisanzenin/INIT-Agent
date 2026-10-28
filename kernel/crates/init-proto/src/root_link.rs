@@ -933,7 +933,17 @@ impl OwnerDisplay {
 pub enum OwnerOutFrame {
     Display(OwnerDisplay),
     Echo { seq: u64, text: String },
-    Notice { level: AlertLevel, text: String, ts: String },
+    /// `data` (TUI-OBSERVE, tui.md §3.10): the notice's structured payload for the owner's client,
+    /// `{"kind": <notice kind>, …}` (gate stages: `stage`, `pass`, `reason`, `score`, `spent_musd`,
+    /// `wall_ms`, `cache_permille`). Integers only (ICJ). Omitted when absent; an older kernel sends
+    /// none and an older client ignores it.
+    Notice {
+        level: AlertLevel,
+        text: String,
+        ts: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        data: Option<Value>,
+    },
     State {
         busy: bool,
         level: u8,
@@ -1154,6 +1164,27 @@ mod tests {
         // A state frame without them (an older kernel) still decodes.
         let old = json!({"busy": true, "level": 0, "members": 0, "mode": "normal", "queued": 1, "sha12": "x", "slot": "running", "t": "state"});
         assert!(matches!(serde_json::from_value::<OwnerOutFrame>(old).unwrap(), OwnerOutFrame::State { model: None, task_musd: None, steer_pending: None, .. }));
+    }
+
+    /// TUI-OBSERVE: `notice.data` round-trips, is omitted when absent, and both directions stay
+    /// compatible (an older kernel's notice decodes with `data: None`; an unknown field inside
+    /// `data` survives).
+    #[test]
+    fn owner_notice_data_is_optional_and_round_trips() {
+        let data = json!({"kind": "gate", "stage": "G2", "pass": false, "reason": "probe_exit", "score": null,
+            "spent_musd": 0, "wall_ms": 3100, "cache_permille": null, "gate_id": "j-1", "sha": "06be87a1", "future": {"x": 1}});
+        let f = OwnerOutFrame::Notice { level: AlertLevel::Warn, text: "[kernel] gate G2 fail".into(), ts: "2026-10-27T00:00:00Z".into(), data: Some(data.clone()) };
+        let v = icj::to_value(&OwnerOutData { frame: f.clone() }).unwrap();
+        assert_eq!(v["frame"]["data"], data);
+        assert_eq!(v["frame"]["level"], "warn");
+        assert!(icj::to_line(&v).is_ok(), "ICJ: integers only");
+        assert_eq!(serde_json::from_value::<OwnerOutData>(v).unwrap().frame, f);
+        // Without data: no `data` key at all (an older client sees exactly the old frame).
+        let plain = OwnerOutFrame::Notice { level: AlertLevel::Info, text: "[kernel] promoted".into(), ts: "t".into(), data: None };
+        assert_eq!(icj::to_value(&plain).unwrap(), json!({"level": "info", "t": "notice", "text": "[kernel] promoted", "ts": "t"}));
+        // An older kernel's notice decodes.
+        let old = json!({"level": "info", "t": "notice", "text": "[kernel] gate G0 pass", "ts": "t"});
+        assert!(matches!(serde_json::from_value::<OwnerOutFrame>(old).unwrap(), OwnerOutFrame::Notice { data: None, .. }));
     }
 
     #[test]

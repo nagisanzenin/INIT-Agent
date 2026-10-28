@@ -768,6 +768,26 @@ fn cause_kind(boot: &Value) -> Option<&str> {
     c.as_str().or_else(|| get_s(c, &["kind"]))
 }
 
+/// What a harm signal of ADR-011 §3 means, as ` (…)`; empty for an unknown one.
+fn harm_signal_text(signal: &str) -> &'static str {
+    match signal {
+        "H1" => " (crash or boot loop)",
+        "H2" => " (deafness to the owner)",
+        "H3" => " (the owner's /reject, /rollback or /panic)",
+        "H4" => " (scope)",
+        "H5a" => " (money burst)",
+        "H5b" => " (cost per turn)",
+        "H6" => " (resources)",
+        "H7" => " (owner corrections)",
+        "H8" => " (wall time per turn)",
+        "H9" => " (provider errors)",
+        "H10" => " (runaway turns)",
+        "H11" => " (egress volume)",
+        "H12" => " (a veto from your kernel or yourself)",
+        _ => "",
+    }
+}
+
 /// A trigger as text: a string, or an object's `kind`.
 fn trigger_text(v: Option<&Value>) -> String {
     match v {
@@ -830,6 +850,15 @@ fn reason_line(b: &BlockIn) -> String {
                 trigger_text(get(c, &["trigger"])),
                 q(scalar(get(c, &["evidence"]))),
                 q(get_u(c, &["seq"]))
+            )
+        }
+        // The Root rolled a change group back (ADR-011 R1); the kernel names the harm signal in
+        // `cause.kind` as `extend_<signal>`.
+        "rollback" if cause_kind(j).is_some_and(|k| k.starts_with("extend_")) => {
+            let signal = cause_kind(j).unwrap_or_default().trim_start_matches("extend_");
+            format!(
+                "The Root rolled back your change after harm signal {signal}{}: you are on {sha} from {from}. Your rolled-back commits are kept at refs/init/rolled-back/{from}{stash}. The conversation continues.",
+                harm_signal_text(signal)
             )
         }
         "rollback" => {

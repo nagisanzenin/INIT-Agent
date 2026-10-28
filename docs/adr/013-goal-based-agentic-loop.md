@@ -38,7 +38,11 @@ over-claiming describe weak models and must not be hard-coded. Goodhart is a pro
       record, so the goal's meter reconciles with the ledger to the µUSD over the goal's active time (v0.4: it used to
       add each closed turn's cost and missed the turn in which the agent stopped the goal, and requests that settled
       after their turn closed; GBAL rerun: 51,290 against the ledger's 59,718 µUSD). Also active wall time, and rounds
-      (= predictions, less re-files: 2.4). At a spent money or wall budget the Root stops the goal itself
+      (= predictions, less re-files: 2.4). The wall clock waits on the owner (v0.5.0, TUI-PICKER): when the Root relays
+      an agent question (a kernel `display` frame with `ask`, from the body's `ask_owner`), the active goal records
+      `waiting_since` and its wall time stops; the next owner line, or the next zone request the egress admits, starts it
+      again, so a question that is not really waiting buys no time. Money and rounds are metered as always;
+      `goal.status` shows `waiting_owner`. At a spent money or wall budget the Root stops the goal itself
       (`goal{op:stop, reason:budget, by:root}`); a spent rounds budget refuses the next prediction. It stops the goal, never
       egress: the product has no Root money cap (owner decision 2026-10-23).
    4. **The prediction record** (`goal.predict{sha, mode, card?, expect, p_permille}`), filed by the agent through initctl

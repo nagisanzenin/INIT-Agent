@@ -45,7 +45,9 @@ pub enum Frame {
     Display(Display),
     /// `qid` (Root: queued while no kernel runs) or `seq` (kernel: durable in its inbox).
     Echo { text: String, qid: Option<String>, seq: Option<u64> },
-    Notice { level: String, text: String, ts: Option<String>, code: Option<String> },
+    /// `data` (TUI-OBSERVE, §3.10): a kernel notice's structured payload (`{"kind": …}`), an
+    /// object or nothing; the gate track reads it (`crate::render::gates`).
+    Notice { level: String, text: String, ts: Option<String>, code: Option<String>, data: Option<Value> },
     State(Value),
     ReplayEnd { epoch: Option<String>, gap: bool },
     /// A request answer that arrived on the attach connection (only in a broken exchange).
@@ -97,6 +99,7 @@ pub fn classify(v: &Value) -> Frame {
             text: s(v, "text").unwrap_or_default(),
             ts: s(v, "ts"),
             code: s(v, "code"),
+            data: v.get("data").filter(|d| d.is_object()).cloned(),
         },
         Some("state") => Frame::State(v.clone()),
         Some("replay_end") => Frame::ReplayEnd { epoch: s(v, "epoch"), gap: v.get("gap").and_then(Value::as_bool).unwrap_or(false) },
@@ -298,5 +301,16 @@ mod tests {
         assert_eq!(classify(&json!({"t":"zzz"})), Frame::Unknown);
         assert!(matches!(classify(&json!({"t":"echo","text":"x","seq":3})), Frame::Echo { seq: Some(3), .. }));
         assert!(matches!(classify(&json!({"ok":false,"id":null})), Frame::Answer(_)));
+    }
+
+    /// TUI-OBSERVE: a notice's `data` is read when it is an object; an older kernel sends none.
+    #[test]
+    fn notice_data() {
+        let n = classify(&json!({"t":"notice","level":"warn","text":"[kernel] gate G2 fail","ts":"t","src":"kernel",
+            "data":{"kind":"gate","stage":"G2","pass":false}}));
+        assert!(matches!(n, Frame::Notice { data: Some(ref d), ref level, .. } if d["stage"] == "G2" && level == "warn"));
+        let old = classify(&json!({"t":"notice","level":"info","text":"[kernel] promoted","ts":"t"}));
+        assert!(matches!(old, Frame::Notice { data: None, .. }));
+        assert!(matches!(classify(&json!({"t":"notice","text":"x","data":"not an object"})), Frame::Notice { data: None, .. }));
     }
 }

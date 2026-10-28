@@ -571,6 +571,39 @@ fn a1_advisory_clippy_and_tests_then_a3_vetoes() {
     w.stop();
 }
 
+/// F7 and F4 of the 2026-10-25 demo, on the free path: a T2 change goes live and A3 starts its G3;
+/// the owner's `/rollback` reaches the kernel as the Root's `extend.rollback{groups:[1], reason:"H3"}`
+/// while G3 runs. A3 stops (`gate.g3.stopped`, no veto), its probe and job cache are gone, and the
+/// body rolled back to X boots with `cause.kind = "extend_H3"`, not an older cause.
+#[test]
+fn f7_rollback_stops_a3_and_f4_names_the_rollback() {
+    let _wd = init_testkit::watchdog::arm("f7_rollback_stops_a3_and_f4_names_the_rollback", Duration::from_secs(600));
+    let w = World::new("f7", Opts::default());
+    w.say("hello", "hello owner");
+    let y = w.candidate("t2f7", &w.x, |b| std::fs::write(b.join("src/main.rs"), main_rs("// t2f7: rolled back while A3 runs\n")).unwrap(), "feat(loop): rolled back while A3 runs", "Cap: loop/f7\n", true);
+    let (_, j) = w.promote("t2f7");
+    assert_eq!(job_ok(&j)["group"], 1);
+    assert_eq!(w.h.snapshot().unwrap().current.sha, y, "the change went live");
+    // G3's probe root appears under probe/ (G2's probes are gone by the handoff): roll back now.
+    let probe_root = w.wait("A3's G3 probe", T, || {
+        std::fs::read_dir(w.home.join("probe")).ok()?.flatten().map(|e| e.path()).find(|p| p.is_dir())
+    });
+    let t0 = Instant::now();
+    w.fr.event(&RootEvent::ExtendRollback(ExtendRollbackData { to: "t-x".into(), groups: vec![1], reason: "H3".into() }));
+    let a3 = w.wait("A3", T, || common::jsonl(&w.home.join("vault/lineage.jsonl")).into_iter().find(|l| l["kind"] == "a3"));
+    assert_eq!((a3["data"]["pass"].as_bool(), a3["data"]["reason"].as_str()), (Some(false), Some("gate.g3.stopped")), "{a3}");
+    assert!(a3["data"]["veto"].is_null(), "a stopped A3 vetoes nothing: {a3}");
+    assert!(t0.elapsed() < Duration::from_secs(60), "A3 stopped promptly: {:?}", t0.elapsed());
+    assert!(w.fr.seen.0.lock().unwrap().vetoes.is_empty());
+    w.wait("the probe root removed", T, || (!probe_root.exists()).then_some(()));
+    assert!(!w.home.join("cache/gate/j-000001-a3").exists(), "A3's job cache removed");
+    // F4: the body rolled back to X names the Root's rollback.
+    w.wait("rolled back to X", T, || (w.h.snapshot().unwrap().current.sha == w.x).then_some(()));
+    let boot: Value = serde_json::from_slice(&std::fs::read(w.home.join("state/kernel/boot.json")).unwrap()).unwrap();
+    assert_eq!((boot["reason"].as_str(), boot["cause"]["kind"].as_str()), (Some("rollback"), Some("extend_H3")), "{boot}");
+    w.stop();
+}
+
 /// RF-09 (mock end to end): a T2 change self-admits (A1 = G0, G1; A2 = G2; A0, A4, A5 at the
 /// Root), hands off on the same session at the step boundary with no G3 and no G4 before it, A3 (G3)
 /// runs after it went live, and its group closes clean → LKG.

@@ -397,7 +397,14 @@ fn main() {
             let f = fk.clone();
             thread::spawn(move || {
                 for line in BufReader::new(File::from(o)).split(b'\n').map_while(Result::ok) {
-                    f.display(format!("body: {}\n", String::from_utf8_lossy(&line)));
+                    let line = String::from_utf8_lossy(&line).into_owned();
+                    // TUI-PICKER: `!ask <question>` comes back as the display frame the body's `ask_owner` sends
+                    if let Some(q) = line.strip_prefix("!ask ") {
+                        let ask = json!({"multi": false, "options": [{"label": "yes"}, {"label": "no"}], "question": q});
+                        let _ = f.event("owner.out", json!({"frame": {"ask": ask, "boot_seq": 1, "kind": "info", "t": "display", "text": format!("The agent asks: {q}")}}));
+                        continue;
+                    }
+                    f.display(format!("body: {line}\n"));
                 }
             });
             thread::spawn(move || drop(io::copy(&mut File::from(e), &mut io::sink())));

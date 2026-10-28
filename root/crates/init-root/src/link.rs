@@ -426,6 +426,7 @@ impl Root {
                 "model.use" => crate::providers::use_req(self, &v["args"]),
                 "keys.reload" => Ok(self.egress.get().map_or_else(|| json!({"reloaded": false}), |e| e.reload_keys())),
                 "egress.stats" => self.egress.get().map(|e| e.ceilings()).ok_or(("root.mode", "the egress is not running".into())),
+                "lineage.tail" => crate::lineage::owner_view::tail(self, &v["args"]), // TUI-OBSERVE (read-only)
                 "audit.run" | "sealed.gog" | "sealed.draw" | "sealed.calibrate" | "sealed.probe" | "sealed.milestone" | "sealed.slice" => {
                     crate::sealed::request(self, v["cmd"].as_str().unwrap_or(""), &v["args"])
                 }
@@ -466,6 +467,7 @@ impl Root {
 
     /// Owner lines (§4.2): `/panic` first, then the Root's own lines; everything else is queued for the kernel.
     fn line(self: &Arc<Self>, text: &str) {
+        crate::goal::resumed(self); // TUI-PICKER: the owner wrote: a goal waiting on them runs again
         let t = text.trim();
         let rootish = matches!(lock(&self.st).slot, Slot::Panicked { .. } | Slot::Halted { .. } | Slot::Stopped);
         match t {
@@ -687,6 +689,16 @@ mod tests {
         assert_eq!(line, "{\"level\":\"alert\",\"rseq\":42,\"src\":\"kernel\",\"t\":\"notice\",\"text\":\"[root] level L0→L4\"}\n");
         assert!(super::stamp(&json!("not an object"), "kernel", 1).is_none());
         assert!(super::stamp(&json!({"t": "display", "x": 1.5}), "kernel", 1).is_none(), "not ICJ");
+        // TUI-OBSERVE: a kernel notice's structured `data` reaches the clients unchanged.
+        let gate = json!({"data": {"kind": "gate", "pass": false, "reason": "probe_exit", "stage": "G2", "wall_ms": 3100},
+            "level": "warn", "t": "notice", "text": "[kernel] gate G2 fail", "ts": "t"});
+        let line = super::stamp(&gate, "kernel", 7).unwrap();
+        let mut back: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!((back["rseq"].take(), back["src"].take()), (json!(7), json!("kernel")));
+        let mut want = gate.clone();
+        want["rseq"] = serde_json::Value::Null;
+        want["src"] = serde_json::Value::Null;
+        assert_eq!(back, want);
     }
 
     /// STEER: `then` survives only as `"continue"`; `retract` needs an integer `seq`; other frames are not control frames.

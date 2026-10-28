@@ -529,7 +529,7 @@ One JSON object per line, `"v":1`, key `t`. Unknown `t` values and unknown field
 |---|---|
 | `display{kind:"text"\|"thinking", text}` | stream deltas (dropped if `out` is full) |
 | `display{kind:"tool_start", call_id, name, text}` | before the batch; `text` is a one-line summary: the bash command (≤ 200 chars), `read <path>`, `edit <path> (n edits)`, `ext <name>` |
-| `display{kind:"tool_end", call_id, name, ok, text}` | as each call finishes; `text` like `exit 0, 96 lines`, `112 lines`, `2 replacements`, `error: no_match` |
+| `display{kind:"tool_end", call_id, name, ok, text, detail?}` | as each call finishes; `text` like `exit 0, 96 lines`, `112 lines`, `2 replacements`, `error: no_match`; v0.5.0 (TUI-OBSERVE): a failed call adds `detail`, the last 10 lines of its output (each ≤ 200 characters, ≤ 2,000 bytes, no bash trailer; `tools::fail_detail`), for the owner's screen only (docs/tui.md §3.6) |
 | `display{kind:"turn_end", text}` | after each model reply; `text` = usage summary + dropped-delta count |
 | `display{kind:"info"\|"error", text}` | retries, abort, run-ending errors, safe-mode refusals |
 | `ack{seq}` · `notice_ack{id}` | after the appending boundary's sync |

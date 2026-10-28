@@ -4,6 +4,7 @@
 Status: v0.1, built (WP26, build/status/WP26.md; as-built differences in §10) · 2026-10-20 · Area: tui (owner client; owner decision CONVENTIONS §6 OW-TUI)
         + v0.1.1 ADR-009 (workspace = `init-agent`'s cwd, `--full`, `/full`, `/undo`, the `FULL` badge; lane WIRE-009)
         + 2026-10-24 TUI-UX: tool activity blocks, the token/cache/cost segment, the heartbeat, `/details` (§3.6, §3.9, §3.12)
+        + 2026-10-27 v0.5.0 TUI-BRAND: the semantic palette and tiers, the liveness row, the agent/Root status bar, tables, glyphs, identity (§3.4, §3.9, §3.9a, §3.10)
 Depends on: CONVENTIONS.md (§1 live-system safety, §2, §5), root/root.md (§3.1, §3.9, §3.15, §4.2, §4.3),
             kernel/supervise.md (§3.10, §4.5, §4.6), body/loop.md (§3.5, §4.1), body/log-context.md (§4.5),
             root/egress.md (§3.3, §4.2), awareness.md, testing.md (§3.1a, §3.5b), roadmap.md (WP26)
@@ -48,7 +49,7 @@ It is a **client of the existing owner channel and nothing more**. It connects t
 
 **The `init-agent` command** is the launcher `scripts/init-agent` (lane REL, installed by `scripts/install.sh` into `INIT_BIN_DIR`, default `~/.local/bin`). It execs `init-tui` with its arguments when one is installed (looked up as `$INIT_TUI`, then `init-tui` next to the launcher, then `ROOT_HOME/bin/init-tui`), and otherwise falls back to `init-root attach`. So `init-agent` always opens an owner terminal, even before the TUI is installed or if it breaks. In this doc, `init-agent` means the TUI reached through the launcher.
 
-Until v0.4.1 the launcher was named `init`. It was renamed because `~/.local/bin/init` shadows Linux's `/sbin/init` in user shells, where `~/.local/bin` often comes first in `PATH` (issue nagisanzenin/INIT-Agent#1). On macOS, v0.4.1 also installs `~/.local/bin/init` as a shim (`scripts/init-shim`) that prints a rename notice on stderr and runs `init-agent` with the same arguments; the next release drops it. On Linux no file named `init` is installed: `install.sh` removes INIT's old launcher at `init` (checked by path, regular file and its content markers) and leaves a foreign `init` alone with a note. `install.sh` refuses a relative `INIT_BIN_DIR` and one that is, or resolves through symlinks to, `/sbin`, `/usr/sbin`, `/bin` or `/usr/bin`.
+Until v0.4.1 the launcher was named `init`. It was renamed because `~/.local/bin/init` shadows Linux's `/sbin/init` in user shells, where `~/.local/bin` often comes first in `PATH` (issue nagisanzenin/INIT-Agent#1). On macOS, v0.4.1 also installed `~/.local/bin/init` as a shim that printed a rename notice on stderr and ran `init-agent` with the same arguments; v0.5.0 drops it. No file named `init` is installed on either platform: `install.sh` removes INIT's own old `init` (the pre-v0.4.1 launcher or the v0.4.1 shim, checked by path, regular file and its content markers) and leaves a foreign `init` alone with a note. `install.sh` refuses a relative `INIT_BIN_DIR` and one that is, or resolves through symlinks to, `/sbin`, `/usr/sbin`, `/bin` or `/usr/bin`.
 
 | Option | Trust | Cost | Verdict |
 |---|---|---|---|
@@ -88,7 +89,7 @@ Two rules come from how the Root is built:
 |---|---|---|---|
 | `display` | `kind` ∈ `text` `thinking` `tool_start` `tool_end` `turn_end` `info` `error`; `text`; optional `call_id`, `name`, `ok`; `boot_seq` | the primary body, relayed by the kernel | the transcript (§3.5) |
 | `echo` | `text`, plus `qid` (Root: queued while no kernel runs) or `seq` (kernel: durable in its inbox) | Root or kernel | confirms the owner's lines (§3.11) |
-| `notice` | `level` ∈ `info` `warn` `alert`, `text`, `ts` | Root (alerts, replies to Root lines) or kernel (`[kernel] <kind>`, `/status`) | notices (§3.10) |
+| `notice` | `level` ∈ `info` `warn` `alert`, `text`, `ts`; `code` (Root alerts); v0.5.0: `data` (kernel notices, kernel/supervise.md §4.6) | Root (alerts, replies to Root lines) or kernel (`[kernel] <kind>`, `/status`) | notices (§3.10); kernel `data` feeds the gate track (§3.10a) |
 | `state` | `slot`, `mode` (`normal` `provisional` `safe`), `busy`, `sha12`, `queued`, `level`, `members` | kernel, on every busy↔idle change of the primary | spinner, body field, kernel mode |
 | `replay_end` | — | Root, after the replay | switches from replay to live |
 
@@ -98,6 +99,7 @@ Two rules come from how the Root is built:
 |---|---|
 | `status` | `slot`, `mode`, `halted`, `panic{at, channel}`, `level`, `cap`, `max_level`, `tuples{current, lkg, audited}`, `kernel` (null when none runs, else `ready`, `boot_seq`), `queued`, `root{started_at, pid, version, test_mode}` |
 | `egress.stats` | `money{day_spent_musd, day_reserved_musd, day_limit_musd, day_resets_at, total_spent_musd, total_limit_musd}`, `models[{model, routable}]` (root/egress.md §4.2) |
+| `lineage.tail{n:8}` (v0.5.0, TUI-OBSERVE) | `rows[{seq, by, kind, hash, data}]`, `verify{ok, records, sigs_checked, head_seq, head_hash, key, error}` (root/root.md §4.2), asked on its own connection each time the transcript view opens; an older Root answers `root.unknown_cmd` and the panel says so |
 | `panic` | the answer's `message` |
 
 **Client → Root:** `{"client":"init-tui/<version>","replay":true,"t":"attach"}` first, then `{"t":"line","text"}`, `{"t":"interrupt"}`, `{"t":"panic"}`, `{"t":"detach"}`. The TUI writes ICJ (sorted keys, through `serde_json::Value`).
@@ -118,21 +120,25 @@ Two rules come from how the Root is built:
 The conversation is written to the terminal's **main screen**, so it goes into the terminal's own scrollback and can be scrolled, searched and copied with the terminal's tools. Only the bottom **live region** is redrawn. The Ctrl-O transcript view is the only alternate-screen view.
 
 ```
+■■■□ INIT 0.5.0 · L0 · root ok                                    ← identity, once at the first attach (v0.5.0)
 › add a pty tool                                                  ← owner line (confirmed by its echo)
-I'll check SELF.md first, then write the tool.                    ← assistant text
-▸ ran 2 tools in 1.8 s · bash · edit                  ✗ 1 failed  ← a frozen tool activity (§3.6)
-  ▸ edit   src/tools/pty.rs (2 edits)                 ✗ error: no_match · 0.0 s   ← failures stay visible
-▲ [kernel] promoted                                               ← notice, styled by class
+I'll check `SELF.md` first, then write the tool.                  ← assistant text (inline code: ink, muted backticks)
+◇ ran 2 tools in 1.8 s · bash · edit                  ✕ 1 failed  ← a frozen tool activity (§3.6)
+  ◇ edit   src/tools/pty.rs (2 edits)                 ✕ error: no_match · 0.0 s   ← failures stay visible
+✓ [kernel] promoted                                               ← notice: state glyph, tag, text (§3.10)
 ──────────────────────────────────────────────────────────────── live region starts here
 The anchor moved, so I'll read the file again and retry…           ← streaming text
-⠹ bash cargo test -p init-body pty            1 tool call · 1 running · 0 failed · 12 s   ← running activity
+◇ bash cargo test -p init-body pty            1 tool call · 1 running · 0 failed · 12 s   ← running activity
     running 12 s · still working… no output yet
-╭──────────────────────────────────────────────────────────────────────────────╮
-│ > also add a timeout flag▏                                                   │
-╰──────────────────────────────────────────────────────────────────────────────╯
- L0 · turn in 238k out 1.0k · cache 99.6% · $0.004 · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg
+⠹ running bash · 12 s                                                       run 17 s   ← liveness row (v0.5.0)
+┌──────────────────────────────────────────────────────────────────────────────┐
+│ › also add a timeout flag▏                                                   │
+└──────────────────────────────────────────────────────────────────────────────┘
+ busy 17 s · turn in 238k out 1.0k · cache 99.6% · $0.004 · $1.23/$5.00 today     ~/proj · ● FULL · L0 · root ok
  Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys
 ```
+
+- **The liveness row (v0.5.0, TUI-BRAND).** While the agent works (`state{busy:true}`), one row directly above the input box says what it is doing and for how long: `waiting for the model · 12 s` (after the run started or a request ended, until the next frame), `thinking · 4 s`, `writing`, `writing · no new text for 9 s` (a stream quiet for 3 s or more), or `running <tool> · 41 s`; on the right, `run 1 min 4 s`. It is never dropped for width and it carries the only spinner on screen; rows of calls in flight show a still `◇` in the rewrite colour instead. The words carry the state, so it reads the same under `NO_COLOR`. It shares the live region's height budget with the gate track (§3.10a), the tray and the popup.
 
 - **Committing.** A finished block (an owner line, a frozen tool activity, a notice, a completed paragraph of text) is printed once above the live region and never redrawn. While a reply streams, complete lines are committed as soon as the live region would exceed `rows − input − 3`, so the live region always fits the screen.
 - **Retry.** When the body reports a retry (`display{kind:"info", text:"retrying …"}`), the partial text still in the live region is discarded (body/loop.md §3.6). If part of it was already committed, a dim line `↺ retry: the partial reply above was discarded` is printed.
@@ -151,6 +157,7 @@ The anchor moved, so I'll read the file again and retry…           ← streami
 | `tool_progress` (proposed, §9 Q4) | the call's newest non-empty output line, dim, under the activity header; it also resets the heartbeat | not printed; it resets the heartbeat |
 | `turn_end` | **not shown** in the main screen: its token counts go to the status bar's turn segment (§3.9) and the line is kept in the activity (or as a hidden block) for the transcript view and `/details`; a `; n display deltas dropped` tail stays visible as a `· n display deltas dropped` line | newline; the text with `--verbose`; when the run ends (`state{busy:false}`), `[turn] 3 requests: in 8.0k out 35 · cache 95.0% · $0.004 (session cache 97.1%)` |
 | `info`, `error` | `· <text>` dim, or `✗ <text>` red | `[info] <text>`, `[error] <text>` |
+| `info` with `ask` (TUI-PICKER) | the agent's question as a picker (§3.7.2); the `text` fallback is not shown | a numbered prompt under `[agent asks]` |
 | a `boot_seq` different from the previous display frame's | a divider `── body restarted (boot <n>) ──` before the frame | the same divider as text |
 
 **Markdown subset** (applied to `text` only, line by line, so streaming stays O(new bytes)): fenced code blocks (indented, dim background), inline code, `**bold**`, `#` headings, and `-`/`*`/`1.` lists. Links and URLs print as plain text, and there are no images, tables or HTML. This subset is the fixed vocabulary the agent can rely on (§3.15).
@@ -183,6 +190,7 @@ Scrollback cannot be redrawn, so expanding happens in the **transcript view** (C
 - `j`/`k` or the arrow keys move the selection; PgUp/PgDn and `g`/`G` scroll; Enter or Space toggles the selected block; `e` expands all and `c` collapses all; `q`, Esc or Ctrl-O returns.
 - An expanded tool call shows `name`, `call_id`, the full `tool_start` text wrapped, `ok`, the `tool_end` summary, the start time (UTC) and the duration. Thinking blocks expand to their full text.
 - **What "result" means in v0.1.** The body sends only a one-line summary in `tool_end`, never the tool output (body/loop.md §4.1), and the kernel relay drops fields it does not know (§10, D7). Expanding therefore shows the full command and the summary, not the output. A larger result needs a body change plus §9 Q2's pass-through; the TUI already renders an optional `detail` string under the summary if one ever arrives.
+- **The failed-call tail (v0.5.0, TUI-OBSERVE).** On a failed call the body's `tool_end` carries `detail`: the last 10 lines of the call's output, each cut to 200 characters, 2,000 bytes in all, without the bash trailer (`seed/src/tools/mod.rs` `fail_detail`); calls that succeed carry none, and the model's result is unchanged. The kernel relays it (§9 Q2(b)). The TUI shows it under the failed call, dim behind a `│` rule: the last 3 lines while the activity runs, all of them once it is frozen and in a single call's row, and in the transcript view as `detail:`. So "the output above says why" is true on screen.
 - The transcript view keeps at most 50,000 blocks or 32 MiB of text; beyond that the oldest tenth is dropped from the view (the terminal's scrollback is unaffected).
 
 ### 3.7 Input box and keys
@@ -229,6 +237,34 @@ Steering is meant to feel like Claude Code and Codex: the owner keeps typing, an
 - **Older kernels** send no steer lists: a tray line then leaves at its kernel echo as delivered, as before v0.2.1, and the rest of the tray is flushed when the run ends.
 - While lines wait, the hint line reads `Esc interrupt and send it now · ↑ take back the newest · Tab queue the next task`. The kernel's `[kernel] taken back: …` / `[kernel] not taken back: …` notices become hints, not transcript lines.
 
+#### 3.7.2 The picker (TUI-PICKER, v0.5.0)
+
+The owner chooses from a list with the arrow keys and Enter, never by typing a number back. An open picker takes the input box's place in the live region (`render/picker.rs`, wired in `app/pick.rs`):
+
+```
+── agent asks · Database ───────────────────────────────────────────────────────── waiting on you ──
+ Which database should the orders service use? It stores about 2 GB and needs concurrent writers.
+ › 1. Postgres  recommended
+      a server; concurrent writers, the usual choice at this size
+   2. SQLite
+   3. Type your own answer…
+────────────────────────────────────────────────────────────────────────────────────────────────────
+ turn in 14.0k out 60 · cache 98.5% · $0.000 · $0.04/$5.00 today                       L0 · root ok
+ ↑↓ move · Enter choose · 1–3 pick · or just type your answer · Esc dismiss
+```
+
+- **Keys.** ↑/↓ (also Tab, Shift-Tab, Ctrl-N, Ctrl-P) move and wrap; Home, End, PgUp, PgDn jump; Enter chooses; Esc cancels (a typed filter first); 1–9 choose by number while every row has one digit; with `multi`, Space or a number toggles and Enter confirms the checked options (none checked: the focused one). In the TUI's own pickers, typing filters the list (case-insensitive, label and description), and `/` on an empty filter leaves the picker for an owner command. Ctrl-C closes the picker and interrupts as usual; Ctrl-D closes it and quits; Ctrl-O and Ctrl-L work. No mouse capture: the inline layout, the terminal's selection and its scrollback stay.
+- **Look.** A hairline rule with the TUI's own label (`setup · provider`, `agent asks · <header>`), the question, at most 8 option rows (the list scrolls inside the widget, with `↑ n more` and `↓ n more`), one description line under the focused option, a closing rule; the key hint goes on the hint line. The recommended option (or the current model) comes first and is marked `recommended` (`current`). Focus is ink weight: the focused row bold ink with `›`, the others dim; tags and numbers mute; rules `Line`. No picker is the Root's own, so the Root's amber never appears in one.
+- **Closed.** A setup choice leaves one committed line, `› provider · DeepSeek`. An agent question leaves `· agent asked · <header>: <question>` (with `· dismissed` after Esc), followed by the owner's answer as an ordinary owner line.
+- **Where.** First-run setup and `/setup` (provider, model), `/model` (the configured models, the current one first), `/key` without a provider when more than one configured provider takes a key. Free-text fields stay text inputs: the server URL, the model id, the price and the hidden key. The Root's typed confirmations (`root.confirm`: `/full on` under a workspace charter, `/undo`) stay typed: the phrase is the Root's deliberate friction, and a picker would make it one keystroke.
+- **Line mode** (and so non-TTY and `TERM=dumb`) keeps the numbered prompts of v0.2.0, so scripts and pipes work unchanged.
+
+**The agent's questions.** The body tool `ask_owner` (body/tools.md §3.8; 2–4 options, single or multi-select) makes the body send one extra display frame and end its turn without another model request: `display{kind:"info", text:<numbered fallback>, ask:{question, header?, multi, options:[{label, description?, recommended?}]}}`. `kind` stays `info`, so the kernel's closed `DisplayKind` accepts it and `ask` passes the relay as an unknown field (§10, Q2(b)); `init-root attach` and older TUIs print the fallback text. No Root or kernel change and no new privileged path exist: the owner's choice is sent as an ordinary `line` frame, the chosen labels as text (`, `-joined for multi), exactly as if typed, and reaches the body as the owner's next message.
+
+- **Anti-spoofing (binding).** The body is agent-writable, so every safety property is here, keyed only on the frame being a `display` frame (which the Root always relays as `src:"kernel"`): whatever the frame carries, including `src:"root"`, `[root]` text or escape sequences, it renders under the TUI's own `agent asks` label in ink, dim, mute and hairlines only, never amber, harm or reverse video. Strings are cleaned (escape sequences dropped whole; control, bidi and zero-width characters dropped; whitespace collapsed) and capped: question 500 characters, header 24, label 80, description 200, at most 4 options (duplicates dropped). A label that starts with `/` is shown and sent quoted (`"/full on confirm"`), so no choice can be read as a Root, kernel or body command. A frame with no usable question or option renders as the plain `info` it also is. Tests: `render::picker::tests::agent_question_cannot_look_like_the_root`, `app::pick::tests::a_body_frame_never_renders_as_the_root`.
+- **The owner decides, in their own time.** "Type your own answer", typing any other key, a paste, or Esc closes the picker; the owner's next message is the answer. Nothing has a timer: no default, no auto-pick. Until the owner sends a line, the hint line reads `waiting on you · the agent asked a question (above) · …`. A newer question replaces an open one (the older stays in the transcript); a question that arrives while a setup picker or the hidden key field is open waits for it. In a `/goal` run the agent stays idle until the answer (the body asks the model nothing more; a restart while the question waits does not resume the run, body `has_pending_work`), and the Root stops the goal's wall clock until the owner's next line or the zone's next egress request (ADR-013, `goal.rs` `asked`/`resumed`).
+- **Line mode** prints the question as a numbered prompt under the TUI's own `[agent asks]` label (not the body's fallback text); a reply of option numbers (`2`, or `1,3` for multi) is sent as the labels, any other line as typed.
+
 ### 3.8 Owner commands
 
 The TUI sends every line unchanged; the Root and the kernel parse them as for `init-root attach` (exact match after trim). The one exception is `/panic`.
@@ -241,7 +277,7 @@ The TUI sends every line unchanged; the Root and the kernel parse them as for `i
 | `/stop` · `/status` · `/kernel` · `/accept <task>` · `/bless <job>` · `/reject <job>` · `/later <text>` | kernel (kernel/supervise.md §4.6) | line |
 | `/new` · `/compact [focus]` · `/branch <id> [note]` · `/label <id> <text>` | body (body/log-context.md §4.5) | line; when the echo of `/new` arrives, a divider `── new session ──` |
 | `/clear` (v0.2.0, UX-KEYMODEL) | body, as `/new` | the TUI sends `/new` (TTY and line mode); the kernel never sees `/clear` |
-| `/key [provider]` · `/model [n\|provider/model]` · `/setup` (v0.2.0, UX-KEYMODEL) | Root requests `providers.list`, `keys.set`, `providers.add`, `model.use` on their own connection | `/key`: a hidden field (the box shows `•`; never in the history, the transcript, a `line` frame or a log), sent once to the Root, which stores it 0600; the TUI zeroes its buffers. `/model`: the configured models, then a number picks; the Root rewrites `kernel/config.toml` and restarts the kernel. `/setup`: the first-run flow again. First run: when `providers.list` says the selected model has no usable key, `init-agent` asks provider → key → model before the first chat. In line mode on a terminal the key cannot be hidden, so the TUI points to `init-root keys set <provider>` instead |
+| `/key [provider]` · `/model [n\|provider/model]` · `/setup` (v0.2.0, UX-KEYMODEL) | Root requests `providers.list`, `keys.set`, `providers.add`, `model.use` on their own connection | `/key`: a hidden field (the box shows `•`; never in the history, the transcript, a `line` frame or a log), sent once to the Root, which stores it 0600; the TUI zeroes its buffers. `/model`: the configured models in a picker (§3.7.2; line mode: a numbered list, then a number picks); the Root rewrites `kernel/config.toml` and restarts the kernel. `/setup`: the first-run flow again. First run: when `providers.list` says the selected model has no usable key, `init-agent` asks provider → key → model before the first chat. In line mode on a terminal the key cannot be hidden, so the TUI points to `init-root keys set <provider>` instead |
 | `/usage` · `/details` (TUI-UX) | the TUI itself | not sent. `/usage`: the Root's ledger and token totals plus what this TUI saw (requests, cache rate, the last turn). `/details`: the last tool activity in full (§3.6); in line mode, this turn's per-request token lines |
 | anything else | body, as an input (a steer while busy) | line |
 
@@ -269,30 +305,68 @@ The TUI still opens no file and holds no secret (T-1, T-2): reading its own cwd 
 ### 3.9 Status bar
 
 ```
- L0 · deepseek-flash · $0.04 run · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg · busy 41 s · queued 1
+ busy 41 s · deepseek-flash · $0.04 run · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg · queued 1     ~/code/app · WORKSPACE · L0 · root ok
 ```
+
+**v0.5.0 (TUI-BRAND): the agent on the left, the Root on the right.** The left side is the agent: busy time, model, the turn's tokens, cache and cost, money, the body. The right side is the Root, flush right: the workspace, the access mode, the level, and last the Root's own state, `root ok` in the Root's colour (§3.9a) while the Root answers and nothing is wrong. The Root's alarms replace `root ok` in the harm colour: `PANICKED 3 min ago via <channel> · /resume` (reverse video), `HALTED (<reason>)`, `Root unreachable · retry in 1.6 s`. A slot that is not plainly running adds a word before it (`stopped`, `starting`, `backoff`; `safe mode` in the warn style). `FULL` is ink with a harm dot (`● FULL`), `WORKSPACE` ink; a provisional body's `provisional` is in the rewrite colour (a change in flight), `lkg` muted. Separators and labels are muted, receipts dim.
 
 | Field | Source | Refresh | Notes |
 |---|---|---|---|
 | level | Root `status.level`, `cap` | 2 s poll, and at once after any Root notice | `L0`; `L0 (cap L1)` when wide |
 | model | kernel `state.model` (§9 Q2; absent as built) | each `state` frame | as built: the only routable model from `egress.stats.models` if exactly one is routable, shown dim; otherwise `model ?` |
 | run cost | kernel `state.task_musd` (§9 Q2; absent as built) | each `state` frame | as built: `+$0.12 since attach`, the change in the Root's day spend since this TUI attached (it includes gate and probe spend) |
-| today against the ceiling | Root `egress.stats.money`: `day_spent_musd` of `day_limit_musd` | 5 s poll, and after each `turn_end` | the figure the hard ceiling governs (root/egress.md §3.3); yellow at ≥ 80%; red with `ceiling` once `day_spent_musd + day_reserved_musd ≥ day_limit_musd`, the Root's admission test with nothing more requested |
-| Root state | Root `status.slot`, `mode`, `panic`, `halted`; the connection | 2 s poll, and at once after any Root notice | `running`, `starting`, `backoff`, `stopping`, `stopped` (dim), `safe mode` (yellow), `PANICKED 3 min ago via <channel> · /resume` (red, reverse video), `HALTED (<reason>)` (red), `Root unreachable · retry in 1.6 s` (red) |
+| today against the ceiling | Root `egress.stats.money`: `day_spent_musd` of `day_limit_musd` | 5 s poll, and after each `turn_end` | the figure the hard ceiling governs (root/egress.md §3.3); yellow at ≥ 80%; red with `ceiling` once `day_spent_musd + day_reserved_musd ≥ day_limit_musd`, the Root's admission test with nothing more requested (v0.5.0: warn at ≥ 80 %, harm with `ceiling`) |
+| Root state | Root `status.slot`, `mode`, `panic`, `halted`; the connection | 2 s poll, and at once after any Root notice | v0.5.0: `root ok` (root colour), preceded by the slot word when not running (`starting`, `backoff`, `stopping`, `stopped` dim; `safe mode` warn); `PANICKED 3 min ago via <channel> · /resume` (harm, reverse video), `HALTED (<reason>)` (harm), `Root unreachable · retry in 1.6 s` (harm) replace it. Before v0.5.0: `running`, … in yellow and red |
 | body | kernel `state.sha12` and `mode`; Root `status.tuples` | each `state` frame; 2 s poll | `body <sha12>` plus `lkg` when `tuples.current == tuples.lkg`, `provisional` or `safe` from the kernel's mode |
-| busy | kernel `state.busy` | each `state` frame | `busy 41 s` (elapsed by the TUI's clock), spinner at 10 Hz |
+| busy | kernel `state.busy` | each `state` frame | `busy 41 s` (elapsed by the TUI's clock); v0.5.0: no spinner here (the liveness row has it, §3.4), and it drops late |
 | queued | Root `status.queued` and kernel `state.queued` | as above | only when > 0 |
 | turn tokens (TUI-UX) | the body's `turn_end` lines (`tokens: in N (cached C), out M`; `in` counts every prompt token, cached ones included) and Root `egress.stats.money.total_spent_musd` | each `turn_end`; egress after each `turn_end` | `turn in 238k out 1.0k · cache 99.6% · $0.004`, then `session cache 97.1%`. Shown once a token line has been seen. A turn starts when the run starts (`state{busy:true}`) or an owner line is delivered while idle (a steer is the same turn). The **cache rate is token-weighted**: Σ cached / Σ input over the turn's (or the session's) requests, not a mean of per-request rates; one request's `119424/119586` is 99.86%, shown as `99.8%` (rounded down, never overstated). A request whose line has no cache field makes the rate `~` (computed over the requests that reported one); with none it is `cache ?`, never `0%`. The cost is the change in the Root's ledger total since the turn began (an estimate from usage and tariffs; it includes any other spend in that time, e.g. gate checks), shown to a tenth of a cent; `$?` without the ledger. Observe-only: no cap or ceiling is implied. "Session" means every token line this TUI process saw, the attach replay included |
-| access (v0.1.1, ADR-009) | Root `status.access` | 2 s poll, and at once after a notice with `code:"access"` | the workspace with the home shown as `~` (`~/code/app`), or `no workspace` (dim) when there is none; before it the access mode: `FULL` in red bold while `access.full` is true, else `WORKSPACE` in yellow (v0.3.1, ADR-012; reverse video under `NO_COLOR`); a trailing `↻` while `restart_pending` (the agent picks up the change at its next idle boundary). Placed right after the level. |
+| access (v0.1.1, ADR-009) | Root `status.access` | 2 s poll, and at once after a notice with `code:"access"` | the workspace with the home shown as `~` (`~/code/app`), or `no workspace` (dim) when there is none; after it the access mode: `● FULL` (ink, the dot in harm; v0.5.0, was red bold) while `access.full` is true, else `WORKSPACE` (ink; was yellow) (v0.3.1, ADR-012; `FULL` in reverse video under `NO_COLOR`); a trailing `↻` while `restart_pending` (the agent picks up the change at its next idle boundary). v0.5.0: on the Root's side, before the level. |
 
 ```
- L0 · FULL ~/code/app · deepseek-flash · $0.04 run · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg
+ busy 41 s · deepseek-flash · $0.04 run · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg       ~/code/app · ● FULL · L0 · root ok
 ```
 
-- When the terminal is narrow, fields are dropped from the right in this order: queued, busy, model, run cost, body, the session cache rate, the turn tokens, today, the workspace path, level. The Root state and the access mode (`FULL` or `WORKSPACE`) are never dropped.
+- When the terminal is narrow, fields are dropped in this order (v0.5.0): `/usage · /stop`, the observe-mode token and evolution receipts, the session cache rate, model and queued, run cost, the body, the workspace path and the turn tokens, busy, today (or the live total), and last the level (its short form first). The Root's state and the access mode (`FULL` or `WORKSPACE`) are never dropped.
 - **Authority.** The level, money, access and Root state come from Root requests, which no zone process can forge. The body, mode, busy and model fields come from the kernel, which is maintainer code at L0–L2 and agent code from L3; they are informative, not authoritative.
-- `NO_COLOR` set: no colours; states are shown with reverse video and words.
+- `NO_COLOR` set: no colours; states are shown with words, and the Root's alarms and `FULL` with reverse video.
 - **Times.** std has no local time zone, and the TUI adds no crate for one, so it shows relative times (`3 min ago`, `resets in 5 h 12 min`) and, where an absolute time is needed, UTC with a `Z` (`21:04:05Z`).
+
+### 3.9a The palette: colour means state (v0.5.0, TUI-BRAND)
+
+The INIT brand's rule, "if a colour doesn't mean something, it isn't there", is the renderer's rule. The renderer never names a colour; it names a **role** (`render/palette.rs`), and the one place where styles become escape codes (`term.rs`) asks the palette what that role is on this terminal.
+
+| Role | Meaning | Where |
+|---|---|---|
+| ink | primary text | the terminal's own foreground, in every tier |
+| dim | secondary text | receipts, routine `✓`, finished rows, labels |
+| mute | tertiary text | separators `·`, hints, times, the prompt `›`, tags other than the Root's |
+| line | hairlines | the input frame, the output gutter `│`, the code-block background |
+| root | **the Root, and only the Root**; never an accent, never animated | `root ok` on the status bar, the `[root]` tag (only on a frame the Root stamped `src:"root"`; a kernel's `[root]` look-alike stays muted), the Root's records |
+| rewrite | a change in flight; outline glyphs | `◇` on a call or gate still running, `□` in the gate track, `provisional` |
+| pass | kept | a gate passed, a change promoted or kept, level up; not every `✓` |
+| harm | harm | `✕` failures, rollbacks, demotions, ceilings, HALTED, PANIC, the `●` before `FULL` |
+| warn | attention that is not harm (ceiling ≥ 80 %, `? no result`, `queued`, a `warn` notice, an unconfirmed line) | no hue in any tier: ink in bold, the words carry it. Added beside the brand's eight because yellow is the Root's and red is harm. |
+
+**Tiers.** One table per tier and background (`Palette::paint`):
+
+| Role | truecolor dark | truecolor light | xterm-256 dark | xterm-256 light | 16 colours (dark / light) | `NO_COLOR` |
+|---|---|---|---|---|---|---|
+| ink | default fg | default fg | default | default | default | default |
+| dim | `#8A96A3` | `#5A6470` | 246 | 241 | faint | faint |
+| mute | `#6F7D8B` | `#75757D` | 244 | 243 | faint | faint |
+| line | `#3A3F47` | `#C8CCD2` | 238 | 251 | 8 / 7 | faint |
+| root | `#E6B450` | `#A16A0A` | 179 | 130 | 11 / 3 (yellow: the Root's alone) | default |
+| rewrite | `#56D4DD` | `#0B8191` | 80 | 30 | 14 / 6 | default |
+| pass | `#3FB950` | `#178646` | 71 | 29 | 10 / 2 | default |
+| harm | `#F85149` | `#DD353A` | 203 | 160 | 9 / 1 | bold |
+| warn | bold | bold | bold | bold | bold | bold |
+
+- Contrast (WCAG, computed): every signal is ≥ 5.7:1 on the brand night `#0D0E11` in the dark variants and ≥ 4.5:1 on white in the light variants (xterm 30 is 4.36:1); dim ≥ 6:1, mute ≥ 4.5:1 on both. The hairline is lifted from the brand's `#24272D` so it shows on common terminal backgrounds, not only on `#0D0E11`; the brand's `n-mute` is lifted to `#6F7D8B` (4.58:1).
+- **Tier choice:** `NO_COLOR` (non-empty) → `NO_COLOR`; `COLORTERM=truecolor|24bit` → truecolor; `TERM` containing `256color` or `direct` → xterm-256 (Terminal.app before macOS 26 has no truecolor); otherwise 16 colours.
+- **Background:** `COLORFGBG` when set (background 7, 9–15 light; 0–6, 8 dark); else, in TTY mode, an OSC 11 query written right after raw mode is on and before anything reads the input, followed by a DA1 query that every terminal answers: the DA1 reply ends the wait (up to 1 s for a terminal that answers neither), and a reply's relative luminance above 0.179 means light. Hand-written (≈ 40 lines on `rustix` poll and read, already in the closure, §3.14). Otherwise dark. Nothing is read from a file (T-5); the TUI never paints the terminal's background.
+- **Glyphs** are the brand's set: `›` owner, `◇` a call or change (rewrite while in flight, muted when done), `✓` / `✕` results, `↳` nesting and repeats, `●` a state dot, `■ □` cells (the gate track, the identity's Cell mark). `▲ ▼ ■ ✻ ▸ ✗` are retired. Bold is reserved for warn and the Root's alarms.
+- **Identity.** At the first attach, one line above the Root's greeting: `■■■□ INIT <version> · L<n> · root ok`, the last cell outlined in the rewrite colour and `root ok` the only amber. No wordmark, no banner, no animation.
 
 ### 3.10 Notices
 
@@ -300,19 +374,44 @@ As built, notices carry only `level`, `text` and `ts`. The TUI classifies them b
 
 | Class | As-built text (source) | Rendered |
 |---|---|---|
-| promotion | `[kernel] promoted`, `[kernel] lkg`, `[kernel] provisional` (kernel `notice`) | `▲` green |
-| level up | `[root] level L<a>→L<b>: …` (Root alert `level_up`) | `▲` green, and the status bar's level flashes |
-| rollback | `[root] … falling back to LKG`, `[root] kernel crash loop: rolling back to the LKG tuple` (Root alerts `rollback`, `kernel_crash_loop`); `[kernel] update_failed` | `▼` yellow |
-| demotion | `[root] demoted L<a>→L<b> (…)` (Root alert `demoted`) | `▼` red, and the level flashes |
-| ceiling hit | none as built: the Root writes a `ceiling_hit` lineage record and no notice. The TUI raises its own notice when the polled spend meets the limit (§3.9): `■ daily ceiling reached: $5.00 of $5.00; requests are refused until the day resets (in 5 h 12 min)`, once per owner day, and the same for the total | `■` red |
+| promotion | `[kernel] promoted`, `[kernel] lkg`, `[kernel] provisional` (kernel `notice`) | `✓` pass (v0.5.0; was `▲` green) |
+| level up | `[root] level L<a>→L<b>: …` (Root alert `level_up`) | `✓` pass, and the status bar's level flashes |
+| rollback | `[root] … falling back to LKG`, `[root] kernel crash loop: rolling back to the LKG tuple` (Root alerts `rollback`, `kernel_crash_loop`); `[kernel] update_failed` | `✕` harm (v0.5.0; was `▼` yellow) |
+| demotion | `[root] demoted L<a>→L<b> (…)` (Root alert `demoted`) | `✕` harm, and the level flashes |
+| ceiling hit | none as built: the Root writes a `ceiling_hit` lineage record and no notice. The TUI raises its own notice when the polled spend meets the limit (§3.9): `■ daily ceiling reached: $5.00 of $5.00; requests are refused until the day resets (in 5 h 12 min)`, once per owner day, and the same for the total | `✕` harm |
 | panic | `PANIC at …` (Root alert `panic`) | a full-width red line; the status bar turns red at once |
-| safe mode, halt | `[root] system safe mode…`, `[root] Halted{…}` | yellow, red |
+| safe mode, halt | `[root] system safe mode…`, `[root] Halted{…}` | warn; `✕` harm |
 | access (v0.1.1) | `[root] workspace: <path>`, `[root] no workspace: cd into a project and run init-agent to let me edit it`, `[root] full mode on: …`, `[root] full mode off …` (Root notice `code:"access"`) | info; `full mode on` in red; triggers an immediate status poll |
 | snapshot (v0.1.1) | a snapshot taken, skipped (over 2 GiB, not APFS, another volume) or restored by `/undo` (Root notice `code:"snapshot"`) | info; a skip in yellow |
-| anything else | — | by `level`: info dim, warn yellow, alert red |
+| gate fail (v0.5.0) | `[kernel] gate G<n> fail …` when the gate track did not take the notice (an older kernel sends no `data`) | `✕` harm |
+| kernel rollback (v0.5.0) | `[kernel] rolled back <from> → <to>…` without `data` | as rollback |
+| anything else | — | by `level`: info dim, warn in the warn style, alert with `✕` harm |
+
+- **v0.5.0 (TUI-BRAND):** a notice is drawn as its state glyph in its signal colour, then the source tag, then the text in ink (dim for routine information). The `[root]` tag is in the Root's colour only on a frame the Root stamped `src:"root"`; any other tag (`[kernel]`, `[tui]`, a kernel's `[root]` look-alike) is muted. Identical notices in a row (same level, text and source) print once, followed by a live `↳ ×n in all` that is printed when something else follows; line mode prints `  ×n in all` the same way.
+- **The Root's JSON answers** (`/root status`, `/root ledger`: `[root] {…}` from the Root) are drawn as aligned key/value tables (`render/table.rs`): the known fields in a fixed order (state, level, tuples, kernel, instances, ceilings, lineage, mirror, last audit, charter, root; level, path, last change, next, incident, record), then every other field the Root sent, so nothing is hidden. `/usage` is a table the same way. Line mode keeps the raw `[root] {json}` line for scripts.
 
 - The Root's greeting at each attach (`[root] attached: …`) is shown once at the first attach; after a reconnect the status bar shows `reconnected` instead.
 - **Forgery.** A kernel can send a notice whose text starts with `[root]`, and as built a client cannot tell the two apart. From L3 that matters. §9 Q1 asks the Root to stamp `src` on every frame it relays; with it, the Root classes (level up, demotion, rollback of tuples, panic, ceiling) require `src:"root"`, and kernel-sourced look-alikes render as plain kernel notices.
+
+### 3.10a The gate track (v0.5.0, TUI-OBSERVE)
+
+A self-change is shown as what it is, not as a run of dim `[kernel] gate G2 pass` lines. The kernel's notices about a promote carry `data` (kernel/supervise.md §4.6): `gate_start` (the planned `steps`), one `gate` per stage (`stage`, `pass`, `reason`, `score`, `spent_musd`, `wall_ms`, `cache_permille`), `promoted` (`handoff_ms`), `lkg` and `rolled_back`. `render/gates.rs` folds them, keyed by the candidate's sha, into one block in the live region, above the popup and the tray:
+
+```
+◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ G2 □ G3 · live · G4 ·            12 s
+    G0  build + tests    ■ pass · 9.1 s
+    G1  self-map         ■ pass · 0.4 s
+    G2  boot probe       □ 2.9 s
+    G3  self-edit probe  ·
+    hand-off             ·
+    G4  scored vs LKG    ·
+```
+
+- **At most 7 rows** (a header and one row per step; T2 and `dep` plan six steps), and at most a third of a small terminal, as a window around the step in flight, so the block never pushes the input box off. The running step's time ticks; times come from the notices' `ts`, so a replay after a reconnect shows true durations.
+- **Collapse.** When the change ends, the block becomes one committed line: `✓ kept 06be87a12345 · 5/5 gates · 44 s · hand-off 4.6 s` (`· no restart` for a data-only change), `✕ refused at G2 06be87a12345 · probe_exit · 12 s · still on 3f9c0a1b2c4d` (a stage failed before it went live: nothing changed), or `✕ rolled back at G4 06be87a12345 · score_inferior · ↺ back on LKG 3f9c0a1b2c4d` (it went live, then the kernel rolled it back; until the rollback commits, the block says `↺ rolling back at the next idle point`). In the transcript view the line expands to every step with its time, spend, cache rate and score, and the full shas and gate id.
+- **Colour** (§3.9a roles): `Rewrite` only for what is in flight (`◇`, `□`, the ticking time), `Pass` for a passed step and a kept change, `Harm` for a refusal or a rollback, `Mute` for steps to come. These rollbacks are the kernel's, so nothing here is in the Root's colour; the Root's own rollback is a Root notice (§3.10).
+- **Trust.** Data from a frame the Root stamped `src:"root"` is never read; a `gate --quick` check (`gate_kind` other than `promote` or `g4`) is not a self-change and stays a plain notice, as do kinds the track does not know. A notice the track takes is not printed as a plain line. Zone text in a reason is sanitized like every frame string (§3.13).
+- **Lineage panel.** The transcript view's foot (at most a third of the screen, from 12 rows) shows the Root's `lineage.tail`: `verify ✓ 412 records · every signature · head 411 #0a1b2c3d4e5f · key 3f9c0a1b2c4d5e6f`, or `verify ✕ at seq 407: 4: hash does not recompute`, then the newest records (`seq`, kind, what it says: `accept g0_g3 06be87a12345` in pass, `reject probe_exit …` in harm, a Root rollback in the Root's colour; signer and short hash). It is asked when the view opens; the TUI reads no file (T-2).
 
 ### 3.11 Reconnect, redelivery, no duplicates
 
@@ -390,9 +489,13 @@ unicode-width = "=0.2.2"
 unicode-segmentation = "=1.13.3"
 serde_json = "=1.0.154"   # Value only, no derive; never `preserve_order` (CONVENTIONS §5)
 signal-hook = "=0.3.18"   # already in crossterm's tree: SIGINT in line mode, SIGTERM/SIGHUP restore
+rustix = { version = "=1.1.5", default-features = false, features = ["std", "event"] }   # v0.5.0: in the closure already; `event` = a safe poll for the OSC 11 query (§3.9a)
+
+[dev-dependencies]
+vt100 = "=0.18.1"         # v0.5.0: the renderer's bytes through a terminal emulator in tests only (TUI-B2)
 ```
 
-- No dev-dependencies: golden files are compared by a 30-line helper (`UPDATE_GOLDEN=1` rewrites them), and the fixture server is std only.
+- Golden files are compared by a 30-line helper (`UPDATE_GOLDEN=1` rewrites them), and the fixture server is std only. **v0.5.0:** one dev-dependency, `vt100` (with `vte` and `arrayvec`, new to `vendor/`), used only by the property tests; the binary's closure is still the 25 crates below (`rustix` was already in it).
 - The closure: `bitflags`, `cfg-if`, `crossterm`, `document-features`, `errno`, `itoa`, `libc`, `litrs`, `lock_api`, `log`, `memchr`, `mio`, `parking_lot`, `parking_lot_core`, `rustix`, `scopeguard`, `serde_core`, `serde_json`, `signal-hook`, `signal-hook-mio`, `signal-hook-registry`, `smallvec`, `unicode-segmentation`, `unicode-width`, `zmij`. New to `vendor/`: `crossterm`, `document-features`, `litrs`, `lock_api`, `parking_lot`, `parking_lot_core`, `signal-hook`, `signal-hook-mio`, `signal-hook-registry`, `unicode-segmentation`, `unicode-width`. The other 14 are already vendored for the other workspaces. These counts come from the crates.io sparse index with the newest compatible versions (2026-10-20); the committed `tui/Cargo.lock` is the final word.
 - **Vendoring.** WP26 adds `--sync tui/Cargo.toml` to `ci/vendor.sh` (all workspaces are synced together, because `cargo vendor` deletes what the given manifests do not need), and `tui/.cargo/config.toml` points at `../vendor` like the others (CONVENTIONS §2).
 - RustSec advisory-db has no entry for `crossterm`, `signal-hook`, `signal-hook-mio`, `parking_lot`, `unicode-width` or `unicode-segmentation`; `mio`'s two advisories concern versions before 0.8.11 (checked 2026-10-20).
@@ -413,7 +516,7 @@ tui/
     src/notice.rs         notice classes (§3.10)
     src/input.rs          editor, history, completion
     src/keys.rs           key map (§3.7)
-    src/render/{live.rs, status.rs, transcript.rs, wrap.rs, md.rs, sanitize.rs}
+    src/render/{live.rs, status.rs, transcript.rs, wrap.rs, md.rs, sanitize.rs, palette.rs (v0.5.0: roles and tiers), table.rs (v0.5.0: Root answers as tables), vt_tests.rs (v0.5.0: vt100 property tests)}
     src/line.rs           line mode (§3.12)
     src/term.rs           raw mode, keyboard flags, paste, restore on every exit path, panic hook
     tests/                fixture server (std), golden/, sessions/, pty_drive.py
@@ -433,7 +536,7 @@ The agent may later improve the UI, and none of the routes gives the TUI trust o
 
 ```
 init-tui [--root-home DIR] [--plain | --raw] [--no-replay] [--verbose] [--wait] [--wait-idle]
-         [--timeout S] [--latency-report] [--full | --workspace] [--version] [--help]
+         [--timeout S] [--latency-report] [--full | --workspace] [--theme dark|light] [--version] [--help]
 ```
 
 From v0.1.1 the TUI's cwd is the agent's workspace (§3.8.1, ADR-009): run `init-agent` in the project you want the agent to edit.
@@ -453,9 +556,10 @@ The launcher passes its arguments through unchanged (`init-agent --plain` runs `
 | `--latency-report` | at exit, print the latency histograms of §6 to stderr |
 | `--full` | v0.1.1: ask the Root for full mode at launch (`full.set{on:true}`). v0.3.1 (ADR-012): full access is the charter default, so this matters only under `sandbox.mode = "workspace"`, where the Root asks for a typed confirmation (§3.8.1). The charter can forbid it (`sandbox.allow_full`). Excludes `--workspace`. |
 | `--workspace` | v0.3.1 (ADR-012): confine this session to workspace mode (ADR-009: home reads minus secrets, writes only in the workspace and `INIT_HOME`, no network but the provider). Sent as `workspace.set{cwd, mode:"workspace"}`; without a cwd, as `full.set{on:false}`. Excludes `--full`. |
+| `--theme dark\|light` | v0.5.0 (TUI-BRAND): the palette's variant for a dark or a light background (§3.9a), instead of the terminal's answer to the OSC 11 query or `COLORFGBG`; for a terminal that answers neither |
 | `--version` | `init-tui (INIT Agent TUI) <version>`, plus `built from tui/ at <sha12>` when the build set `INIT_TUI_GIT_SHA` |
 
-Environment read: `INIT_ROOT_HOME`, `HOME`, `TERM`, `NO_COLOR`. Nothing else, in particular no `INIT_TEST*` and no `INIT_HOME`. From v0.1.1 the TUI also reads its cwd (`std::env::current_dir()`, not `$PWD`) and sends it as the workspace.
+Environment read: `INIT_ROOT_HOME`, `HOME`, `TERM`, `NO_COLOR`, and from v0.5.0 `COLORTERM` and `COLORFGBG` (the palette tier and background, §3.9a; in TTY mode the background may also come from the terminal's answer to an OSC 11 query). Nothing else, in particular no `INIT_TEST*` and no `INIT_HOME`. From v0.1.1 the TUI also reads its cwd (`std::env::current_dir()`, not `$PWD`) and sends it as the workspace.
 
 ### 4.2 Exit codes
 
@@ -556,6 +660,13 @@ New ids, proposed to testing.md. Every test runs at $0 with the mock LLM. Live-e
 | TUI-UX1 | activity goldens (`tuiux_activity`, `tuiux_failed`): running with the heartbeat (no output 52 s), with a fresh and a stale output line, narrow (40 cols); frozen summary with the failure row; expanded in the transcript view; `/details` with the first request's token line; failures never folded; thinking between calls (plain and verbose); an interrupted call as `no result`; a single call | golden text grids and style masks match | live, unit |
 | TUI-UX2 | token math (`model.rs` tests, `tuiux_status`): parsing with and without the cache field and with the dropped tail; token-weighted turn and session rates (not the mean of rates); a missing cache field gives `?` or `~`, never `0%`; the turn boundary (busy, idle delivery, steer); the turn cost from the ledger and `$?` without it; the segment at 140/100/80/40 cols | as stated | live, unit |
 | TUI-UX3 | line mode (`tests/proto.rs`): an activity of 3 calls with a failure and a `tool_progress`, three requests (one without a cache field), the run's end | `[tools] ran 3 calls (2 bash, 1 read), 1 failed` before the reply; one `[turn] 3 requests: … cache ~95.0% …` line; no `tokens:` line without `--verbose`, which prints them; no progress text | live |
+| TUI-OB1 | gate track goldens (`gates_track`, `observe_gate_region`; `render/gates.rs`, `render/observe_tests.rs`): a T2 change live at 80 and 50 columns and on a 12-row terminal, G4 running after the hand-off, kept, refused at G2, G4 failed then rolled back, expanded; the block in the live region above the input box | golden grids and masks; ≤ 7 rows; one committed line per change; no plain notice for a taken one; a quick check, a promote the track never saw and an unknown kind stay plain; ESC in a reason is inert | live, unit |
+| TUI-OB2 | failed-call tail (`observe_failed_tail`): live (3 lines), frozen (10), a single call, the transcript view | as stated; a call that succeeded shows no detail | live, unit |
+| TUI-OB3 | lineage panel (`lineage_panel`): asking, verify ✓ with records, verify ✕ at a seq, an older Root (`root.unknown_cmd`), 60 columns | golden; ≤ 10 rows; zone text inert | live, unit |
+| TUI-OB4 | protocol (`init-proto` `owner_notice_data_is_optional_and_round_trips`, kernel-supervise `notice_tests`, init-root `stamp_overwrites_src_and_rseq` and `lineage::owner_view` (test-fixtures), seed `failed_call_sends_its_output_tail_as_detail`, TUI `proto::notice_data`) | `data` round-trips and is omitted when absent; an older kernel's notice decodes; each gate outcome has its data and level; the Root relays `data` unchanged; `lineage.tail` rows and verify, ✕ after a record is altered | unit |
+| TUI-OB5 | the recording kit (`scripts/demo/record-mock.sh` on an integration bundle): the real Root, kernel and body on `init-mockllm`, a kept T1 change and a change G0 refuses, recorded through `scripts/demo/rec.py` | the cast shows the caption `mock model` on every frame, `◇ self-change`, `✓ kept`, `✕ refused at G`, the failed promote's output and `verify ✓`; the owner's state is unchanged | owner-machine, temp home |
+| TUI-B1 | v0.5.0 brand goldens (`brand_liveness`, `brand_root_answers`, `brand_identity`; palette and table unit tests): the liveness row waiting for the first token, thinking, writing, a quiet stream, a tool running, between requests, at 100 and 60 columns and gone when idle; `/root status`, `/root ledger`, `/usage` as tables at 100 and 60 columns with every field and a kernel's look-alike left plain; the identity line at 100/60/30; seven identical notices as one line and `↳ ×7 in all`; the palette per tier and background (yellow only for the Root, warn without a hue), OSC 11 replies, `COLORFGBG`, DA1 | golden grids and masks (`a` root, `w` rewrite, `p` pass, `h` harm, `n` warn, `m` mute, `l` line, `d` dim); every changed mask regenerated deliberately and reviewed | live, unit |
+| TUI-B2 | renderer property test against a terminal emulator (`render/vt_tests.rs`, `vt100` dev-dependency): 24 random sessions of 120 events at random sizes from 20×6 to 140×40, the real renderer and writer with the TTY loop's cursor moves | no escape the emulator does not know (synchronized-update brackets aside); the live region on screen equals the renderer's rows, cell by cell, text and colour; amber only on `Role::Root` spans; the scrollback plus the screen hold every committed row once, in order | live, unit |
 | TUI-R1 | the real Root in test mode with the mock: a session, `/panic`, `/resume`, a scripted demotion and a level change (test ledgers, root/root.md §3.16) | the status bar shows PANICKED within 1 s of `/panic`; the demotion notice and the new level appear | disposable, or owner-machine for v0.1 |
 | TUI-R2 | Root restart: the runner kills its own test Root by held PID with three lines queued, then restarts it | the TUI re-attaches; each line appears exactly once in the session log; no `line` frame is resent | disposable, or owner-machine for v0.1 |
 | TUI-R3 | ceiling: a test charter with `day_usd = "0.01"` and mock prices | the status bar turns red; the ceiling notice appears once | disposable, or owner-machine for v0.1 |
@@ -586,6 +697,7 @@ New ids, proposed to testing.md. Every test runs at $0 with the mock LLM. Live-e
 | kernel/supervise.md v0.2 §4.6 rendering rules, kept by root/root.md §3.15 | line mode keeps them, except echoes print as `> ` (v0.2's `»` marks tool starts); TTY mode renders collapsible blocks | a richer owner view; scripts keep the old format |
 | (new) | the owner's client sanitizes all zone text | zone text is untrusted from L0, and the kernel's from L3 |
 | (v0.1.1) | `init-agent`'s cwd is the agent's workspace (`workspace.set`); `--full`, `/full`, `/undo` with the Root's typed confirmations; `FULL` and the workspace in the status bar | owner decision OW-PERM, ADR-009 (lane WIRE-009 builds it) |
+| (v0.5.0, TUI-BRAND) | the INIT brand's grammar of colour as semantic roles in four tiers with dark and light variants (§3.9a); a liveness row (§3.4); the status bar split into the agent and the Root, ending in `root ok`; the Root's JSON answers and `/usage` as tables; the brand's glyphs; a one-line identity; `COLORTERM`, `COLORFGBG` and an OSC 11 query read; a `vt100` dev-dependency | the TUI showed none of the brand's meaning (cyan and green as decoration, no amber, yellow warnings that read as the Root, light-theme contrast near 1:1) and nothing while waiting for the model (research_notes `tui_audit.md`) |
 
 **Docs and code disagree** (the code is what exists; noted here, raised where they matter):
 

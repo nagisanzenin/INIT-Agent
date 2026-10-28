@@ -9,8 +9,15 @@
 //!
 //! A pure state machine like `access.rs`: lines, secrets and answers in, [`Out`]s for the front end. The secret is
 //! handed back in [`Out::SendKey`] for the front end to frame, send and zero; it is never in an `Info` text.
+//!
+//! TUI-PICKER (docs/tui.md §3.7.2): in TTY mode ([`Flow::with_pickers`]) every list choice (the provider, the
+//! model, `/model`, `/key`'s provider) is an [`Out::Pick`]: the owner moves with the arrow keys and presses Enter,
+//! and the front end hands the choice back with [`Flow::on_pick`]. Line mode keeps the numbered prompts, so
+//! scripts and pipes work as before. Free-text fields (the URL, the model id, the price, the hidden key) stay
+//! text inputs.
 
 use crate::conn::ReqErr;
+use crate::render::picker::{Opt, Picker, Who};
 use serde_json::{Value, json};
 use std::time::Duration;
 
@@ -52,6 +59,8 @@ pub enum Out {
     Error(String),
     /// Secret input on (the box shows only a mask) or off.
     Secret(bool),
+    /// TUI-PICKER: open this picker; its choice comes back through [`Flow::on_pick`], Esc through [`Flow::cancel`].
+    Pick(Picker),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -73,6 +82,8 @@ enum Step {
     Price,
     /// `/model` showed its numbered list; the next line picks.
     Pick(Vec<(String, String)>),
+    /// TUI-PICKER: `/key` with no provider and several configured: the picker chooses whose key.
+    KeyWho(Vec<String>),
 }
 
 #[derive(Clone, Debug, Default)]
@@ -85,6 +96,8 @@ struct Choice {
     default_url: Option<String>,
     needs_key: bool,
     models: Vec<String>,
+    /// The catalog's prices of `models`, for the model picker's descriptions.
+    model_desc: Vec<String>,
     model: Option<String>,
     price: Option<String>,
 }
@@ -103,6 +116,8 @@ pub struct Flow {
     /// `/key`'s provider (standalone, not in the first-run flow).
     key_only: Option<String>,
     catalog: Vec<Value>,
+    /// TUI-PICKER: list choices are pickers (TTY mode), not numbered prompts (line mode).
+    pickers: bool,
 }
 
 fn err_text(e: &ReqErr) -> String {
@@ -119,7 +134,31 @@ fn exp(tested: &str) -> &'static str {
 
 impl Flow {
     pub fn new(can_hide: bool) -> Flow {
-        Flow { can_hide, checked: false, step: Step::Idle, inflight: None, why: Why::FirstRun, arg: None, ch: Choice::default(), key_only: None, catalog: vec![] }
+        Flow { can_hide, checked: false, step: Step::Idle, inflight: None, why: Why::FirstRun, arg: None, ch: Choice::default(), key_only: None, catalog: vec![], pickers: false }
+    }
+
+    /// TTY mode: list choices are pickers ([`Out::Pick`]).
+    pub fn with_pickers(mut self) -> Flow {
+        self.pickers = true;
+        self
+    }
+
+    /// TUI-PICKER: the owner chose the option `id` in the picker this flow opened (the same as typing its
+    /// number in line mode).
+    pub fn on_pick(&mut self, id: usize) -> Vec<Out> {
+        if self.inflight.is_some() {
+            return vec![];
+        }
+        match self.step.clone() {
+            Step::KeyWho(list) => {
+                let Some(p) = list.get(id).cloned() else { return vec![] };
+                self.step = Step::Idle;
+                self.key_only = Some(p);
+                self.ask_key()
+            }
+            Step::Provider | Step::Model | Step::Pick(_) => self.answer(&(id + 1).to_string()),
+            _ => vec![],
+        }
     }
 
     /// The next owner line belongs to this flow (or waits for its answer).
@@ -175,13 +214,17 @@ impl Flow {
     /// Esc or `/cancel`: leave the flow; nothing more is sent.
     pub fn cancel(&mut self) -> Vec<Out> {
         let was_key = self.step == Step::Key;
-        self.step = Step::Idle;
+        let was = std::mem::replace(&mut self.step, Step::Idle);
         self.key_only = None;
         let mut o = vec![];
         if was_key {
             o.push(Out::Secret(false));
         }
-        o.push(Out::Info("setup left; /setup starts it again, /key sets a key, /model picks a model".into()));
+        o.push(Out::Info(match was {
+            Step::Pick(_) => "model unchanged".into(),
+            Step::KeyWho(_) => "no key changed".into(),
+            _ => "setup left; /setup starts it again, /key sets a key, /model picks a model".into(),
+        }));
         o
     }
 
@@ -204,6 +247,22 @@ impl Flow {
 
     fn menu(&mut self, list: &Value) -> Vec<Out> {
         self.catalog = list["catalog"].as_array().cloned().unwrap_or_default();
+        self.step = Step::Provider;
+        if self.pickers {
+            // the first live-tested provider is the recommended one, listed first
+            let rec = self.catalog.iter().position(|c| c["tested"] == "live");
+            let mut opts: Vec<Opt> = self.catalog.iter().enumerate().map(|(i, c)| {
+                let ms: Vec<&str> = c["models"].as_array().into_iter().flatten().filter_map(|m| m["id"].as_str()).collect();
+                let ms = if ms.is_empty() { String::new() } else { format!("{} · ", ms.join(", ")) };
+                let o = Opt::new(i, c["display"].as_str().unwrap_or("")).desc(format!("{ms}{}", exp(c["tested"].as_str().unwrap_or(""))));
+                if Some(i) == rec { o.tag("recommended") } else { o }
+            }).collect();
+            if let Some(r) = rec {
+                let o = opts.remove(r);
+                opts.insert(0, o);
+            }
+            return vec![Out::Pick(Picker::new(Who::Tui, "provider", "Choose a model provider", opts).esc("leave setup"))];
+        }
         let mut o = vec![Out::Info("Choose a model provider (type a number and press Enter; Enter = 1):".into())];
         for (i, c) in self.catalog.iter().enumerate() {
             let ms: Vec<&str> = c["models"].as_array().into_iter().flatten().filter_map(|m| m["id"].as_str()).collect();
@@ -211,7 +270,6 @@ impl Flow {
             o.push(Out::Info(format!("  {}  {}{ms} · {}", i + 1, c["display"].as_str().unwrap_or(""), exp(c["tested"].as_str().unwrap_or("")))));
         }
         o.push(Out::Info("  /skip leaves setup (/setup starts it again)".into()));
-        self.step = Step::Provider;
         o
     }
 
@@ -236,6 +294,13 @@ impl Flow {
             return vec![Out::Info("Model id, exactly as the server names it (for example qwen3-coder or vendor/model):".into())];
         }
         self.step = Step::Model;
+        if self.pickers {
+            let opts = self.ch.models.iter().enumerate().map(|(i, m)| {
+                let o = Opt::new(i, m.as_str()).desc(self.ch.model_desc.get(i).cloned().unwrap_or_default());
+                if i == 0 && self.ch.tested { o.tag("recommended") } else { o }
+            }).collect();
+            return vec![Out::Pick(Picker::new(Who::Tui, "model", format!("Choose a {} model", self.ch.display), opts).esc("leave setup"))];
+        }
         let mut o = vec![Out::Info("Choose a model (Enter = 1):".into())];
         for (i, m) in self.ch.models.iter().enumerate() {
             o.push(Out::Info(format!("  {}  {m}", i + 1)));
@@ -259,7 +324,8 @@ impl Flow {
                 let s = |k: &str| c[k].as_str().unwrap_or("").to_string();
                 self.ch = Choice { preset: s("preset"), display: s("display"), alias: s("preset"), tested: c["tested"] == "live",
                     default_url: c["default_url"].as_str().map(String::from), needs_key: c["needs_key"] != false,
-                    models: c["models"].as_array().into_iter().flatten().filter_map(|m| m["id"].as_str().map(String::from)).collect(), ..Choice::default() };
+                    models: c["models"].as_array().into_iter().flatten().filter_map(|m| m["id"].as_str().map(String::from)).collect(),
+                    model_desc: c["models"].as_array().into_iter().flatten().filter(|m| m["id"].is_string()).map(price).collect(), ..Choice::default() };
                 let mut o = vec![];
                 if !self.ch.tested {
                     o.push(Out::Warn(format!("{} is experimental: it is not live-tested with INIT yet", self.ch.display)));
@@ -323,6 +389,19 @@ impl Flow {
                 match pick(&choices, t) {
                     Some((p, m)) => vec![self.send(Op::Use, Why::Model, json!({"provider": p, "model": m}))],
                     None => vec![Out::Warn(format!("{t:?} is not in the list; /model shows it again"))],
+                }
+            }
+            Step::KeyWho(list) => {
+                // line mode never opens this step; a typed provider id or number still works
+                let p = t.parse::<usize>().ok().and_then(|n| n.checked_sub(1)).and_then(|i| list.get(i).cloned())
+                    .or_else(|| list.iter().find(|p| p.as_str() == t).cloned());
+                match p {
+                    Some(p) => {
+                        self.step = Step::Idle;
+                        self.key_only = Some(p);
+                        self.ask_key()
+                    }
+                    None => vec![Out::Warn(format!("choose one of: {}", list.join(", ")))],
                 }
             }
             Step::Key | Step::Idle => vec![],
@@ -399,6 +478,23 @@ impl Flow {
                 o
             }
             Why::Key => {
+                // TUI-PICKER: no provider named and several configured that take a key: the picker asks whose
+                let keyed: Vec<&Value> = v["providers"].as_array().into_iter().flatten().filter(|x| x["key"] != "not_required" && x["id"].is_string()).collect();
+                if self.pickers && self.arg.is_none() && keyed.len() > 1 {
+                    let sel = v["selected"]["provider"].as_str().unwrap_or("");
+                    let ids: Vec<String> = keyed.iter().map(|x| x["id"].as_str().unwrap_or("").to_string()).collect();
+                    let mut opts: Vec<Opt> = keyed.iter().enumerate().map(|(i, x)| {
+                        let st = match x["key"].as_str() { Some("present") => "a key is stored", _ => "no key yet" };
+                        let o = Opt::new(i, x["id"].as_str().unwrap_or("")).desc(st);
+                        if x["id"] == sel { o.tag("current") } else { o }
+                    }).collect();
+                    if let Some(c) = opts.iter().position(|o| o.tag.is_some()) {
+                        let o = opts.remove(c);
+                        opts.insert(0, o);
+                    }
+                    self.step = Step::KeyWho(ids);
+                    return vec![Out::Pick(Picker::new(Who::Tui, "key", "Set the API key of", opts).esc("cancel"))];
+                }
                 let p = self.arg.take().unwrap_or_else(|| v["selected"]["provider"].as_str().unwrap_or("").to_string());
                 let known = v["providers"].as_array().into_iter().flatten().find(|x| x["id"] == p.as_str()).cloned();
                 match known {
@@ -425,6 +521,21 @@ impl Flow {
                         None => vec![Out::Warn(format!("{a:?} is not configured; /model lists the models, /setup adds a provider"))],
                     };
                 }
+                if self.pickers {
+                    let mut opts: Vec<Opt> = choices.iter().enumerate().map(|(i, (p, m, x))| {
+                        let key = match x["key"].as_str() { Some("present" | "not_required") => "", _ => " · no key (/key)" };
+                        let t = if x["tested"] == "live" { "" } else { " · experimental (not live-tested)" };
+                        let o = Opt::new(i, format!("{p}/{m}")).desc(format!("${} in · ${} out per 1M tokens{key}{t}",
+                            x["input_usd"].as_str().unwrap_or("?"), x["output_usd"].as_str().unwrap_or("?")));
+                        if x["selected"] == true { o.tag("current") } else { o }
+                    }).collect();
+                    if let Some(c) = opts.iter().position(|o| o.tag.is_some()) {
+                        let o = opts.remove(c);
+                        opts.insert(0, o);
+                    }
+                    self.step = Step::Pick(pairs);
+                    return vec![Out::Pick(Picker::new(Who::Tui, "model", "Switch model (/setup adds a provider)", opts).esc("keep the current model"))];
+                }
                 let mut o = vec![Out::Info("Models (USD per 1M tokens in/out; * = selected):".into())];
                 for (i, (p, m, x)) in choices.iter().enumerate() {
                     let star = if x["selected"] == true { "*" } else { " " };
@@ -437,6 +548,14 @@ impl Flow {
                 o
             }
         }
+    }
+}
+
+/// A catalog model's price, for the model picker: `$0.30 in · $1.20 out per 1M tokens`.
+fn price(m: &Value) -> String {
+    match (m["input_usd"].as_str(), m["output_usd"].as_str()) {
+        (Some(i), Some(o)) => format!("${i} in · ${o} out per 1M tokens"),
+        _ => String::new(),
     }
 }
 

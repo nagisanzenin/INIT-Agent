@@ -8,7 +8,7 @@ text = "REPLACE ME: what INIT is for, in your words."
 [autonomy]
 max_level = 4          # the cap. The agent starts at L0 and climbs only on its measured record (R7).
 
-[money]                # hard ceilings (root/egress.md); soft budgets stay in kernel/config.toml
+[money]                # spending references: tracked and shown, not caps (owner decision 2026-10-23); a goal's usd= is enforced
 day_usd = "5.00"
 total_usd = "25.00"
 day_starts_at_utc_offset = "+00:00"

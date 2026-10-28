@@ -63,7 +63,10 @@ pub enum Cmd {
     /// per gate, gate.md §3.13).
     G4Reject { sha: String, job: String, reason: String },
     /// A kernel notice to the body (gate stage events, gate.md §3.13 "Events to the body").
-    Notice { kind: String, data: Value },
+    /// `owner`: extra fields for the owner's copy only (TUI-OBSERVE; null for none).
+    Notice { kind: String, data: Value, owner: Value },
+    /// TUI-OBSERVE: an event for the owner channel only (`gate_start`); nothing goes to the body.
+    OwnerEvent { kind: String, data: Value },
     /// `initctl reload` (initctl.md §4.1): send the primary `reload{job, kind}`; the reply carries
     /// its `reload_done` (`Err` when no body takes the frame).
     Reload { job: String, kind: ReloadKind, components: Option<Vec<String>>, reply: Sender<Result<ReloadOutcome, String>> },
@@ -367,6 +370,8 @@ pub struct Supervisor {
     /// Root request ID and upgrade job associated with a pending state handoff.
     kstate_swap: Option<(String, String)>,
     staged_sha256: Option<String>,
+    /// TUI-OBSERVE: when the current promote handoff began, for `promoted.handoff_ms`.
+    handoff_started: Option<Instant>,
     last_tail: Option<String>,
     proxy: Arc<dyn crate::proxyctl::ProxyCtl>,
     /// An LKG commit the Root refused (`lkg_store_failed`), retried every minute.
@@ -409,8 +414,20 @@ fn short(sha: &str) -> &str {
 /// never learned that G4 had rolled the change back, or why. It now names the stage, the verdict and the reason,
 /// with what happens next for the common reasons.
 pub fn notice_text(kind: &str, d: &Value) -> String {
-    if kind != "gate" {
-        return format!("[kernel] {kind}");
+    let sha12 = |k: &str| d[k].as_str().unwrap_or("").chars().take(12).collect::<String>();
+    match kind {
+        "gate" => {}
+        // TUI-OBSERVE: the owner-only events.
+        "gate_start" => {
+            let steps: Vec<&str> = d["steps"].as_array().map(|a| a.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
+            let scope = d["scope"].as_str().map(|s| format!(" ({s})")).unwrap_or_default();
+            return format!("[kernel] gate started for {}: {}{scope}", sha12("sha"), steps.join(" "));
+        }
+        "rolled_back" => {
+            let to = if d["to_lkg"] == true { " (LKG)" } else { "" };
+            return format!("[kernel] rolled back {} → {}{to}: {}", sha12("from_sha"), sha12("to_sha"), d["reason"].as_str().unwrap_or("?"));
+        }
+        _ => return format!("[kernel] {kind}"),
     }
     let stage = d["stage"].as_str().unwrap_or("?");
     let verdict = match d["pass"].as_bool() {
@@ -437,6 +454,50 @@ pub fn notice_text(kind: &str, d: &Value) -> String {
     }
 }
 
+/// TUI-OBSERVE: the steps of a gated promote in order, for `gate_start.steps`: the scope's stages,
+/// then `handoff` (a new body binary) or `live` (a data-only move), then `G4` when it runs after the
+/// version goes live (a synchronous G4 is already among the stages, before the handoff).
+pub fn gate_steps(s: &kernel_gate::scope::ScopeDecision) -> Vec<&'static str> {
+    let mut steps = s.stages.to_vec();
+    steps.push(if s.needs_handoff { "handoff" } else { "live" });
+    if s.needs_g4 == kernel_gate::scope::G4Need::Async {
+        steps.push("G4");
+    }
+    steps
+}
+
+/// TUI-OBSERVE (tui.md §3.10): the owner's copy of a kernel notice: its level, its text and its
+/// structured `data`. `d` is what the body gets; `extra` adds owner-only fields (`gate_kind`,
+/// `scope`, `handoff_ms`, …). A gate stage's data uses the record's names (`spent_musd`, `wall_ms`,
+/// `cache_permille`). Levels: a failed stage and a rollback are `warn`, everything else `info`.
+pub fn owner_notice_view(kind: &str, d: &Value, extra: &Value) -> (AlertLevel, String, Value) {
+    let mut data = serde_json::Map::new();
+    data.insert("kind".into(), json!(kind));
+    if kind == "gate" {
+        for k in ["gate_id", "sha", "stage", "pass", "reason", "score"] {
+            data.insert(k.into(), d[k].clone());
+        }
+        data.insert("spent_musd".into(), d["cost"].clone());
+        data.insert("wall_ms".into(), d["wall"].clone());
+        data.insert("cache_permille".into(), d["cache_hit"].clone());
+    } else if let Some(o) = d.as_object() {
+        for (k, v) in o {
+            data.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
+    if let Some(o) = extra.as_object() {
+        for (k, v) in o {
+            data.entry(k.clone()).or_insert_with(|| v.clone());
+        }
+    }
+    let level = match kind {
+        "gate" if d["pass"] == false => AlertLevel::Warn,
+        "rolled_back" => AlertLevel::Warn,
+        _ => AlertLevel::Info,
+    };
+    (level, notice_text(kind, d), Value::Object(data))
+}
+
 #[cfg(test)]
 #[allow(clippy::items_after_test_module)] // F4's notice tests sit next to `notice_text`
 mod notice_tests {
@@ -458,6 +519,66 @@ mod notice_tests {
         );
         assert_eq!(notice_text("gate", &json!({"stage": "G2", "pass": true})), "[kernel] gate G2 pass");
         assert_eq!(notice_text("promoted", &json!({})), "[kernel] promoted");
+    }
+
+    /// The body's stage notice as `kernel_gate::record::stage_notice` builds it.
+    fn stage(stage: &str, pass: Option<bool>, reason: Option<&str>, score: Option<i64>) -> Value {
+        kernel_gate::record::stage_notice("j-7", "06be87a1234567890abc", stage, pass, reason, score, 1200, 9100, Some(950))
+    }
+
+    /// TUI-OBSERVE: every gate outcome reaches the owner with its data and a level that matches it.
+    #[test]
+    fn owner_view_carries_gate_data_for_each_outcome() {
+        let extra = json!({"gate_kind": "promote", "scope": "t2"});
+        let (level, text, d) = owner_notice_view("gate", &stage("G0", Some(true), None, None), &extra);
+        assert_eq!((level, text.as_str()), (AlertLevel::Info, "[kernel] gate G0 pass"));
+        assert_eq!(d, json!({"kind": "gate", "gate_id": "j-7", "sha": "06be87a1234567890abc", "stage": "G0", "pass": true,
+            "reason": null, "score": null, "spent_musd": 1200, "wall_ms": 9100, "cache_permille": 950, "gate_kind": "promote", "scope": "t2"}));
+        assert!(init_proto::icj::to_line(&d).is_ok());
+        // Refused before going live (G2), and G4's rollback: warn.
+        let (level, text, d) = owner_notice_view("gate", &stage("G2", Some(false), Some("probe_exit"), None), &extra);
+        assert_eq!((level, d["pass"].clone(), d["reason"].clone()), (AlertLevel::Warn, json!(false), json!("probe_exit")));
+        assert!(text.starts_with("[kernel] gate G2 fail for 06be87a12345: probe_exit"), "{text}");
+        let (level, _, d) = owner_notice_view("gate", &stage("G4", Some(false), Some("score_inferior"), Some(412)), &json!({"gate_kind": "g4"}));
+        assert_eq!((level, d["score"].clone(), d["gate_kind"].clone()), (AlertLevel::Warn, json!(412), json!("g4")));
+        // Inconclusive (a re-run follows) and pass: info.
+        let (level, _, d) = owner_notice_view("gate", &stage("G4", None, Some("insufficient"), None), &Value::Null);
+        assert_eq!((level, d["pass"].clone()), (AlertLevel::Info, Value::Null));
+        assert!(d.get("gate_kind").is_none());
+        let (level, _, _) = owner_notice_view("gate", &stage("G4", Some(true), None, Some(600)), &Value::Null);
+        assert_eq!(level, AlertLevel::Info);
+        // An extra field never overrides the body's own.
+        let (_, _, d) = owner_notice_view("gate", &stage("G1", Some(true), None, None), &json!({"stage": "G9"}));
+        assert_eq!(d["stage"], "G1");
+    }
+
+    #[test]
+    fn gate_steps_per_scope() {
+        use kernel_gate::scope::Scope;
+        assert_eq!(gate_steps(&Scope::T2.decision()), ["G0", "G1", "G2", "G3", "handoff", "G4"]);
+        assert_eq!(gate_steps(&Scope::T1.decision()), ["G0", "G1", "G2", "G3", "live", "G4"]);
+        assert_eq!(gate_steps(&Scope::Dep.decision()), ["G0", "G1", "G2", "G3", "G4", "handoff"]);
+        assert_eq!(gate_steps(&Scope::T0.decision()), ["G0", "G1", "live"]);
+        assert_eq!(gate_steps(&Scope::T0Escalated.decision()), ["G0", "G1", "G4", "live"]);
+    }
+
+    #[test]
+    fn owner_view_of_lifecycle_events() {
+        let (level, text, d) = owner_notice_view("gate_start", &json!({"gate_id": "j-7", "sha": "06be87a1234567890abc",
+            "scope": "t2", "steps": ["G0", "G1", "G2", "G3", "handoff", "G4"]}), &Value::Null);
+        assert_eq!((level, text.as_str()), (AlertLevel::Info, "[kernel] gate started for 06be87a12345: G0 G1 G2 G3 handoff G4 (t2)"));
+        assert_eq!(d["kind"], "gate_start");
+        assert_eq!(d["steps"].as_array().map(Vec::len), Some(6));
+        let (level, text, d) = owner_notice_view("promoted", &json!({"sha": "abc", "handoff": true}), &json!({"handoff_ms": 4600, "from_sha": "f"}));
+        assert_eq!((level, text.as_str()), (AlertLevel::Info, "[kernel] promoted"));
+        assert_eq!(d, json!({"kind": "promoted", "sha": "abc", "handoff": true, "handoff_ms": 4600, "from_sha": "f"}));
+        let (level, text, d) = owner_notice_view("rolled_back", &json!({"from_sha": "06be87a1234567890abc", "to_sha": "3f9c0a1b2c4d5e6f",
+            "reason": "gate.g4.score_inferior", "data_only": false, "to_lkg": true}), &Value::Null);
+        assert_eq!(level, AlertLevel::Warn);
+        assert_eq!(text, "[kernel] rolled back 06be87a12345 → 3f9c0a1b2c4d (LKG): gate.g4.score_inferior");
+        assert_eq!(d["to_lkg"], true);
+        let (level, text, d) = owner_notice_view("lkg", &json!({"sha": "abc"}), &Value::Null);
+        assert_eq!((level, text.as_str(), d), (AlertLevel::Info, "[kernel] lkg", json!({"kind": "lkg", "sha": "abc"})));
     }
 }
 
@@ -732,6 +853,7 @@ impl Supervisor {
             exit_code: None,
             kstate_swap: None,
             staged_sha256: None,
+            handoff_started: None,
             last_tail: None,
             pending_lkg: None,
             last_lkg_retry: Instant::now(),
@@ -941,7 +1063,8 @@ impl Supervisor {
     }
 
     fn free_bytes(&self) -> u64 {
-        crate::sys::free_bytes(&self.home).unwrap_or(u64::MAX)
+        let (first, then) = disk_probe_paths(&self.home);
+        crate::sys::free_bytes(&first).or_else(|_| crate::sys::free_bytes(&then)).unwrap_or(u64::MAX)
     }
 
     fn refresh_ledger(&mut self) {
@@ -1073,6 +1196,11 @@ impl Supervisor {
     /// the same way. Any other target is left to the Root's whole-system rollback, which follows 120 s
     /// without a confirmation.
     fn on_extend_rollback(&mut self, d: init_proto::root_link::ExtendRollbackData, now: Now) {
+        // F7: an A3 still running G3 for a group being rolled back stops (no veto, no more building).
+        let stopped = crate::promote::admit::stop_a3(&self.home, &d.groups);
+        if stopped > 0 {
+            crate::klog::log("supervise", &format!("extend.rollback (groups {:?}): stopped {stopped} A3 run(s)", d.groups));
+        }
         let target = crate::promote::admit::Groups::load(&self.home).parent_of(&d.groups);
         let reason = format!("extend_{}", d.reason.chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').take(40).collect::<String>());
         match target {
@@ -1310,7 +1438,20 @@ impl Supervisor {
     }
 
     fn owner_notice(&self, level: AlertLevel, text: &str) {
-        self.owner_out(OwnerOutFrame::Notice { level, text: text.to_string(), ts: crate::clock::now_rfc3339() });
+        self.owner_notice_data(level, text, None);
+    }
+
+    /// A notice with its structured payload (TUI-OBSERVE, tui.md §3.10). `data` must be ICJ
+    /// (integers only); one that is not is dropped and the text still goes out.
+    fn owner_notice_data(&self, level: AlertLevel, text: &str, data: Option<Value>) {
+        let data = data.filter(|d| init_proto::icj::to_line(d).is_ok());
+        self.owner_out(OwnerOutFrame::Notice { level, text: text.to_string(), ts: crate::clock::now_rfc3339(), data });
+    }
+
+    /// TUI-OBSERVE: an owner-only event (`gate_start`, `rolled_back`): not in the inbox, not to the body.
+    fn owner_event(&self, kind: &str, data: &Value) {
+        let (level, text, owner) = owner_notice_view(kind, data, &Value::Null);
+        self.owner_notice_data(level, &text, Some(owner));
     }
 
     fn status_line(&self) -> String {
@@ -1444,6 +1585,7 @@ impl Supervisor {
             Cmd::Handoff { kind, reply } => {
                 if let crate::machine::HandoffKind::Promote { staged_sha256, .. } = &kind {
                     self.staged_sha256 = Some(staged_sha256.clone());
+                    self.handoff_started = Some(Instant::now());
                 }
                 self.handoff_reply = reply;
                 let acts = self.m.on(Ev::StartHandoff(kind), now);
@@ -1494,7 +1636,8 @@ impl Supervisor {
                     extend_free: self.extend_free.clone(),
                 });
             }
-            Cmd::Notice { kind, data } => self.notice(&kind, data),
+            Cmd::Notice { kind, data, owner } => self.notice_with(&kind, data, &owner),
+            Cmd::OwnerEvent { kind, data } => self.owner_event(&kind, &data),
             Cmd::Snapshot { reply } => {
                 let _ = reply.send(self.snapshot());
             }
@@ -1705,6 +1848,8 @@ impl Supervisor {
                     self.alert("rollback_failed", &format!("lineage rollback: {e}"));
                 }
                 self.outbox_post("body_rollback", json!({"from_sha": from_sha, "to_sha": to_sha, "reason": reason}));
+                let to_lkg = to_sha == self.m.lkg_sha;
+                self.owner_event("rolled_back", &json!({"from_sha": from_sha, "to_sha": to_sha, "reason": reason, "data_only": data_only, "to_lkg": to_lkg}));
             }
             Act::Respond { req, result } => {
                 self.persist();
@@ -1741,14 +1886,20 @@ impl Supervisor {
     }
 
     fn notice(&mut self, kind: &str, data: Value) {
+        self.notice_with(kind, data, &Value::Null);
+    }
+
+    /// The body gets `data` unchanged; the owner gets the text, a level that matches the outcome
+    /// and the structured payload with `owner`'s extra fields (TUI-OBSERVE, [`owner_notice_view`]).
+    fn notice_with(&mut self, kind: &str, data: Value, owner: &Value) {
         let shown = data.clone();
         match self.inbox.notice(kind, data) {
             Ok(n) => {
                 if let Some(t) = self.m.relay_target().map(str::to_string) {
                     self.send_to(&t, &n.frame());
                 }
-                let text = notice_text(kind, &shown);
-                self.owner_notice(AlertLevel::Info, &text);
+                let (level, text, d) = owner_notice_view(kind, &shown, owner);
+                self.owner_notice_data(level, &text, Some(d));
             }
             Err(e) => crate::klog::log("inbox", &format!("notice: {e}")),
         }
@@ -1810,7 +1961,8 @@ impl Supervisor {
             "promotion",
             json!({"sha": to_sha, "from_sha": from_sha, "gate_job": job, "scope": Value::Null, "lkg": false, "body_binary": staged_sha256, "ext_set": Value::Null, "components": []}),
         );
-        self.notice("promoted", json!({"sha": to_sha, "handoff": true}));
+        let handoff_ms = self.handoff_started.take().map(|t| t.elapsed().as_millis() as u64);
+        self.notice_with("promoted", json!({"sha": to_sha, "handoff": true}), &json!({"from_sha": from_sha, "handoff_ms": handoff_ms}));
     }
 
     /// §3.6.6 LKG commit: `store.put` the running binary, report `promotion{lkg:true}` and wait
@@ -2006,16 +2158,7 @@ impl Supervisor {
             _ => None,
         };
         let zone_reason = self.boot.boot.reason.as_str().to_string();
-        let cause = match self.boot.boot.reason {
-            _ if plan.cause.is_some() => Some(pf::BootCause { kind: plan.cause.clone().unwrap_or_default(), trigger: None, seq: None, evidence: None }),
-            ZoneBootReason::Demotion | ZoneBootReason::RollbackSystem => Some(pf::BootCause {
-                kind: zone_reason.clone(),
-                trigger: self.boot.boot.cause.as_ref().and_then(|c| c.get("trigger")).cloned(),
-                seq: self.boot.boot.cause.as_ref().and_then(|c| c.get("seq")).and_then(Value::as_u64),
-                evidence: None,
-            }),
-            _ => None,
-        };
+        let cause = boot_cause(plan, &self.boot.boot.reason, self.boot.boot.cause.as_ref());
         BootFile {
             v: V1,
             body_id: "b0".into(),
@@ -2213,5 +2356,75 @@ fn push_ring(r: &mut std::collections::VecDeque<u64>, seq: u64, max: usize) {
     r.push_back(seq);
     while r.len() > max {
         r.pop_front();
+    }
+}
+
+/// `boot.json.cause` of a spawn: the plan's own cause (a restart, or the Root's extend.rollback as
+/// `extend_<signal>`); else the zone's demotion or whole-system rollback, but only on a spawn that
+/// replaces no running body (the zone's first body, or a crash restart). A later handoff (a G4 or
+/// `initctl` rollback, a promote) used to repeat that zone cause, which by then was stale (demo
+/// 2026-10-25, F4: "Cause: ceiling_hit: ?. Lineage record 21" after the owner's `/rollback`).
+fn boot_cause(plan: &SpawnPlan, zone: &ZoneBootReason, zone_cause: Option<&Value>) -> Option<pf::BootCause> {
+    if let Some(kind) = &plan.cause {
+        return Some(pf::BootCause { kind: kind.clone(), trigger: None, seq: None, evidence: None });
+    }
+    match zone {
+        ZoneBootReason::Demotion | ZoneBootReason::RollbackSystem if plan.replaces.is_none() => Some(pf::BootCause {
+            kind: zone.as_str().to_string(),
+            trigger: zone_cause.and_then(|c| c.get("trigger")).cloned(),
+            seq: zone_cause.and_then(|c| c.get("seq")).and_then(Value::as_u64),
+            evidence: None,
+        }),
+        _ => None,
+    }
+}
+
+
+/// Where the kernel measures free space for `disk.min_free_build_gib` and `min_free_run_gib`: `INIT_HOME/cache`, where
+/// its builds write, then INIT_HOME. On Linux the kernel's zone binds INIT_HOME's subtrees (cache among them), not
+/// INIT_HOME itself, which sits on the zone's own tmpfs, so a statvfs of INIT_HOME measured that tmpfs (REL-050: with
+/// INIT_HOME under /tmp, a 64 MiB tmpfs, every promote was refused `E_DISK` with 32 GB free on the disk).
+pub(crate) fn disk_probe_paths(home: &Path) -> (PathBuf, PathBuf) {
+    (home.join("cache"), home.to_path_buf())
+}
+
+#[cfg(test)]
+mod boot_cause_tests {
+    use super::*;
+    use crate::machine::BinSel;
+
+    fn plan(replaces: Option<&str>, cause: Option<&str>) -> SpawnPlan {
+        SpawnPlan { tag: 2, bin: BinSel::Lkg, sha: "a".repeat(40), reason: BootReason::Rollback, mode: InitMode::Normal, replaces: replaces.map(str::to_string),
+                    crash: None, branch: None, from_sha: Some("b".repeat(40)), cause: cause.map(str::to_string) }
+    }
+
+    /// F4: the zone booted after a demotion (ceiling_hit, lineage record 21); later the owner's
+    /// `/rollback` (H3) rolls a change group back. The rollback's boot names H3, not the demotion.
+    #[test]
+    fn f4_a_later_rollback_never_repeats_the_zone_cause() {
+        let zone = json!({"trigger": "ceiling_hit", "seq": 21});
+        let first = boot_cause(&plan(None, None), &ZoneBootReason::Demotion, Some(&zone)).unwrap();
+        assert_eq!((first.kind.as_str(), first.trigger, first.seq), ("demotion", Some(json!("ceiling_hit")), Some(21)));
+        let h3 = boot_cause(&plan(Some("b0-1"), Some("extend_H3")), &ZoneBootReason::Demotion, Some(&zone)).unwrap();
+        assert_eq!((h3.kind.as_str(), h3.trigger, h3.seq), ("extend_H3", None, None));
+        assert_eq!(boot_cause(&plan(Some("b0-1"), None), &ZoneBootReason::Demotion, Some(&zone)), None, "a G4 or initctl rollback after it");
+        assert_eq!(boot_cause(&plan(Some("b0-1"), None), &ZoneBootReason::RollbackSystem, Some(&zone)), None);
+        assert_eq!(boot_cause(&plan(None, None), &ZoneBootReason::Cold, None), None);
+        let restart = boot_cause(&plan(None, Some("workspace_change")), &ZoneBootReason::Cold, None).unwrap();
+        assert_eq!(restart.kind, "workspace_change");
+    }
+}
+
+#[cfg(test)]
+mod disk_probe_tests {
+    use super::*;
+
+    /// REL-050: free space is read where the builds write (INIT_HOME/cache, a bound subtree of the Linux kernel zone),
+    /// with INIT_HOME only as the fallback.
+    #[test]
+    fn free_space_is_measured_where_builds_write() {
+        let (first, then) = disk_probe_paths(Path::new("/home/o/.init"));
+        assert_eq!(first, Path::new("/home/o/.init/cache"));
+        assert_eq!(then, Path::new("/home/o/.init"));
     }
 }

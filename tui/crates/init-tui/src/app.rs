@@ -26,6 +26,8 @@ use std::sync::mpsc::{self, Receiver, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+mod pick; // TUI-PICKER: the picker's wiring (app/pick.rs)
+
 pub struct Opts {
     pub root_home: PathBuf,
     pub replay: bool,
@@ -120,6 +122,8 @@ pub struct App {
     pub setup: setup::Flow,
     /// The hidden key field: preallocated, never in the editor, the history or the transcript; zeroed.
     secret: Option<Vec<u8>>,
+    /// TUI-OBSERVE: the transcript view's lineage panel (the Root's `lineage.tail`).
+    lineage: crate::render::lineage::Panel,
 }
 
 impl App {
@@ -166,8 +170,9 @@ impl App {
             ever_attached: false,
             need_first_paint: false,
             acc,
-            setup: setup::Flow::new(true),
+            setup: setup::Flow::new(true).with_pickers(),
             secret: None,
+            lineage: Default::default(),
         }
     }
 
@@ -303,7 +308,7 @@ impl App {
             Ev::Egress(v) => {
                 self.info.on_egress(v);
                 for s in self.info.ceiling_notices(Self::now_ms()) {
-                    self.t.push(Kind::Notice { class: Class::Ceiling, level: "alert".into(), text: s }, Self::now_ms());
+                    self.t.push(Kind::Notice { class: Class::Ceiling, level: "alert".into(), text: s, src: Some("tui".into()) }, Self::now_ms());
                 }
                 self.dirty = true;
             }
@@ -324,6 +329,10 @@ impl App {
                     self.dirty = true;
                 }
             }
+            Ev::Lineage(r) => {
+                self.lineage.on_answer(r);
+                self.dirty = true;
+            }
             Ev::PanicDone(r) => {
                 match r {
                     Ok(m) => self.info_block(format!("/panic: {m}")),
@@ -342,6 +351,8 @@ impl App {
                 self.pending_keys.push(at);
                 if self.secret.is_some() {
                     self.secret_input(s.trim());
+                } else if self.ed.picker.is_some() {
+                    self.picker_paste(&s); // TUI-PICKER
                 } else if self.view.is_none() {
                     self.ed.paste(&s);
                 }
@@ -365,12 +376,18 @@ impl App {
             }
             FeedOut::Greeting(v) => {
                 let text = v["text"].as_str().unwrap_or("");
+                // TUI-BRAND: who is here, once: INIT, its version, the level, the Root's state
+                let level = self.info.status.as_ref().and_then(|s| s["level"].as_i64()).or_else(|| crate::render::live::greeting_level(text));
+                self.t.push(Kind::Identity { level }, now_ms);
                 self.t.notice("info", text, proto::src(&v), None, now_ms);
             }
             FeedOut::Reconnected => self.info.reconnected_at = Some(now),
             FeedOut::Frame(v) => match proto::classify(&v) {
                 Frame::Display(d) => {
                     self.pending_frames.push(at);
+                    if self.on_ask(&v, now) {
+                        return; // TUI-PICKER: the agent's question opens a picker
+                    }
                     let turn_end = d.kind == proto::DisplayKind::TurnEnd;
                     self.t.display(&d, now, now_ms);
                     if turn_end {
@@ -405,8 +422,22 @@ impl App {
                         EchoOut::Absorbed(_) => {}
                     }
                 }
-                Frame::Notice { level, text, code, .. } => {
+                Frame::Notice { level, text, code, ts, data } => {
                     let src = proto::src(&v);
+                    // TUI-OBSERVE: a kernel notice with data about a self-change goes to the gate track
+                    // (§3.10a); a change that ended becomes one line. Never data the Root stamped.
+                    if src != Some("root")
+                        && let Some(d) = &data
+                    {
+                        let at = ts.as_deref().and_then(time::parse_rfc3339).unwrap_or(now_ms);
+                        if let Some(done) = self.t.gates.on_notice(d, at) {
+                            for r in done {
+                                self.t.push(Kind::Gate(Box::new(r)), now_ms);
+                            }
+                            self.t.dirty = true;
+                            return;
+                        }
+                    }
                     if notice::is_queue_full(&text, src)
                         && let Some(id) = self.echoes.queue_full()
                     {
@@ -425,6 +456,9 @@ impl App {
                             self.set_hint("not taken back: the agent already read it", 4);
                         }
                         return;
+                    }
+                    if src == Some("root") {
+                        self.acc.on_root_notice(&text); // TUI-BRAND: no second "no workspace"
                     }
                     self.t.notice(&level, &text, src, code.as_deref(), now_ms);
                     if src != Some("kernel") && (text.starts_with("[root]") || text.starts_with("PANIC")) {
@@ -555,6 +589,9 @@ impl App {
                 View::None => {}
             }
             return;
+        }
+        if self.ed.picker.is_some() && self.secret.is_none() {
+            return self.picker_key(k); // TUI-PICKER
         }
         let cx = keys::Ctx { empty: self.ed.is_empty(), busy: self.info.busy(), popup: self.ed.popup_open(), overlay: self.overlay };
         let a = keys::map(&k, &cx);
@@ -697,12 +734,14 @@ impl App {
                     }
                     self.ed.clear();
                 }
+                setup::Out::Pick(p) => self.open_picker(p), // TUI-PICKER
             }
         }
         if self.setup.secret_mode() && self.secret.is_none() {
             self.secret = Some(Vec::with_capacity(1024)); // asked again (an empty or refused key)
             self.ed.clear();
         }
+        self.next_picker(); // TUI-PICKER: an agent question that waited for setup
         self.dirty = true;
     }
 
@@ -717,7 +756,8 @@ impl App {
         if text.trim() == "/usage" {
             self.ed.push_history(&text);
             self.ed.clear();
-            self.info_block(crate::render::status::usage_summary(&self.info));
+            let (title, rows) = crate::render::status::usage_rows(&self.info);
+            self.t.push(Kind::Table { title, rows }, Self::now_ms());
             return;
         }
         if text.trim() == "/details" {
@@ -784,6 +824,9 @@ impl App {
             return;
         }
         let (id, st) = self.echoes.sent(&text, kind, now);
+        if kind == LineKind::Input {
+            self.ed.waiting = None; // TUI-PICKER: any message answers the agent's question
+        }
         if kind == LineKind::Input && self.info.busy() {
             // STEER: a line typed while the agent works waits in the tray until the body reads it
             match text.trim().strip_prefix("/later ") {
@@ -867,6 +910,9 @@ impl App {
             None => self.t.len().saturating_sub(1),
         };
         self.view = Some(ViewState { sel, top: sel });
+        // TUI-OBSERVE: the lineage panel asks the Root afresh each time the view opens
+        self.lineage.pending = true;
+        crate::conn::spawn_lineage(conn::sock(&self.o.root_home), crate::render::lineage::ASK, self.tx.clone());
     }
 
     fn leave_view(&mut self) {
@@ -915,7 +961,7 @@ impl App {
     // ---------------------------------------------------------------------------------------
 
     fn animating(&self) -> bool {
-        self.info.busy() || self.t.activity_live() || self.t.live().any(|(_, b)| matches!(&b.kind, Kind::Thinking { done: false, .. }))
+        self.info.busy() || self.t.activity_live() || self.t.gates.in_flight() || self.t.live().any(|(_, b)| matches!(&b.kind, Kind::Thinking { done: false, .. }))
     }
 
     pub fn render<W: Write>(&mut self, out: &mut W) -> io::Result<()> {
@@ -927,7 +973,12 @@ impl App {
             self.hint = None;
         }
         if let Some(mut vs) = self.view {
-            let rows = transcript::render(&self.t, &mut vs, w, h, self.verbose, now);
+            // TUI-OBSERVE: the lineage panel takes the foot of the view (at most a third of it)
+            let panel = crate::render::lineage::rows(&self.lineage, w);
+            let panel = if h >= 12 { panel.into_iter().take(h / 3).collect() } else { Vec::new() };
+            let mut rows = transcript::render(&self.t, &mut vs, w, h - panel.len(), self.verbose, now);
+            rows.resize(h - panel.len(), crate::render::Line::new());
+            rows.extend(panel);
             self.view = Some(vs);
             out.queue(BeginSynchronizedUpdate)?;
             out.queue(MoveTo(0, 0))?;
@@ -968,7 +1019,9 @@ impl App {
         }
         let n = region.rows.len();
         for (i, l) in region.rows.iter().enumerate() {
-            if full || self.prev.get(i) != Some(l) {
+            // the last row is always rewritten: the cursor ends at its column 0 otherwise, and the
+            // Clear(FromCursorDown) below would erase it (found by the vt100 property test, TUI-B2)
+            if full || i + 1 == n || self.prev.get(i) != Some(l) {
                 term::write_line(out, l, self.o.no_color)?;
                 out.queue(Clear(ClearType::UntilNewLine))?;
             }

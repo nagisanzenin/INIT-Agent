@@ -1,0 +1,58 @@
+== 60 cols, caret (1, 3)
+── agent asks · Database ───────────────── waiting on you ──|lllddddddddddmmmbbbbbbbblllllllllllllllllllddddddddddddddlll
+ Which database should the new service use? It stores about |........................................................... 
+ 2 GB of orders and needs concurrent writers.               |.............................................               
+ › 1. Postgres  recommended                                 |bbbdddbbbbbbbb..mmmmmmmmmmm                                 
+      a server; concurrent writers, the usual choice at thi…|......dddddddddddddddddddddddddddddddddddddddddddddddddddddd
+   2. SQLite                                                |...mmmdddddd                                                
+   3. Type your own answer…                                 |...mmmddddddddddddddddddddd                                 
+────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ Enter · 1–3 · type to answer · Esc dismiss              |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm              
+== 100 cols, caret (1, 3)
+── agent asks · Database ───────────────────────────────────────────────────────── waiting on you ──|lllddddddddddmmmbbbbbbbblllllllllllllllllllllllllllllllllllllllllllllllllllllllllllddddddddddddddlll
+ Which database should the new service use? It stores about 2 GB of orders and needs concurrent     |...............................................................................................     
+ writers.                                                                                           |.........                                                                                           
+ › 1. Postgres  recommended                                                                         |bbbdddbbbbbbbb..mmmmmmmmmmm                                                                         
+      a server; concurrent writers, the usual choice at this size                                   |......ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                                   
+   2. SQLite                                                                                        |...mmmdddddd                                                                                        
+   3. Type your own answer…                                                                         |...mmmddddddddddddddddddddd                                                                         
+────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Enter choose · 1–3 pick · or just type your answer · Esc dismiss                         |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                         
+== 140 cols, caret (1, 2)
+── agent asks · Database ───────────────────────────────────────────────────────────────────────────────────────────────── waiting on you ──|lllddddddddddmmmbbbbbbbblllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllddddddddddddddlll
+ Which database should the new service use? It stores about 2 GB of orders and needs concurrent writers.                                    |........................................................................................................                                    
+ › 1. Postgres  recommended                                                                                                                 |bbbdddbbbbbbbb..mmmmmmmmmmm                                                                                                                 
+      a server; concurrent writers, the usual choice at this size                                                                           |......ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                                                                           
+   2. SQLite                                                                                                                                |...mmmdddddd                                                                                                                                
+   3. Type your own answer…                                                                                                                 |...mmmddddddddddddddddddddd                                                                                                                 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Enter choose · 1–3 pick · or just type your answer · Esc dismiss                                                                 |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                                                                 
+== 60 cols, caret (1, 4)
+── agent asks · Database ───────────────── waiting on you ──|lllddddddddddmmmbbbbbbbblllllllllllllllllllddddddddddddddlll
+ Which database should the new service use? It stores about |........................................................... 
+ 2 GB of orders and needs concurrent writers.               |.............................................               
+   1. Postgres  recommended                                 |...mmmdddddddd..mmmmmmmmmmm                                 
+ › 2. SQLite                                                |bbbdddbbbbbb                                                
+      one file, no server; writers wait for each other      |......dddddddddddddddddddddddddddddddddddddddddddddddd      
+   3. Type your own answer…                                 |...mmmddddddddddddddddddddd                                 
+────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ Enter · 1–3 · type to answer · Esc dismiss              |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm              
+== 100 cols, caret (1, 4)
+── agent asks · Database ───────────────────────────────────────────────────────── waiting on you ──|lllddddddddddmmmbbbbbbbblllllllllllllllllllllllllllllllllllllllllllllllllllllllllllddddddddddddddlll
+ Which database should the new service use? It stores about 2 GB of orders and needs concurrent     |...............................................................................................     
+ writers.                                                                                           |.........                                                                                           
+   1. Postgres  recommended                                                                         |...mmmdddddddd..mmmmmmmmmmm                                                                         
+ › 2. SQLite                                                                                        |bbbdddbbbbbb                                                                                        
+      one file, no server; writers wait for each other                                              |......dddddddddddddddddddddddddddddddddddddddddddddddd                                              
+   3. Type your own answer…                                                                         |...mmmddddddddddddddddddddd                                                                         
+────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Enter choose · 1–3 pick · or just type your answer · Esc dismiss                         |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                         
+== 140 cols, caret (1, 3)
+── agent asks · Database ───────────────────────────────────────────────────────────────────────────────────────────────── waiting on you ──|lllddddddddddmmmbbbbbbbblllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllddddddddddddddlll
+ Which database should the new service use? It stores about 2 GB of orders and needs concurrent writers.                                    |........................................................................................................                                    
+   1. Postgres  recommended                                                                                                                 |...mmmdddddddd..mmmmmmmmmmm                                                                                                                 
+ › 2. SQLite                                                                                                                                |bbbdddbbbbbb                                                                                                                                
+      one file, no server; writers wait for each other                                                                                      |......dddddddddddddddddddddddddddddddddddddddddddddddd                                                                                      
+   3. Type your own answer…                                                                                                                 |...mmmddddddddddddddddddddd                                                                                                                 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Enter choose · 1–3 pick · or just type your answer · Esc dismiss                                                                 |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                                                                 

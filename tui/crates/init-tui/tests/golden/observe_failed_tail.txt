@@ -1,0 +1,57 @@
+-- live: 3 lines under the failed call
+== 80x20 ==
+◇ read read SELF.md                                   3 calls · 1 failed · 3.0 s|ww....................................................ddddddddddhhhhhhhhdddddddd
+    running 0.9 s                                                               |....ddddddddddddd                                                               
+  ◇ bash   initctl promote evo/timeout-flag --wait     ✕ exit 1, 7 lines · 0.6 s|..mm...................................................hhhhhhhhhhhhhhhhhdddddddd
+    │ line 5                                                                    |lllllldddddd                                                                    
+    │ line 6                                                                    |lllllldddddd                                                                    
+    │ exit status 1                                                             |llllllddddddddddddd                                                             
+  ◇ bash   cargo test -p init-body                    ✓ exit 0, 40 lines · 1.3 s|..mm..................................................dddddddddddddddddddddddddd
+⠸ running read · 0 s                                                   run 3.0 s|..............dddddd...................................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 2 s · model ? · $?/$? today · body 3f9c0a1b2c4d            L? · attaching |.........mmmdddddddmmmdddddddddddmmmmmmmmdddddddddddd..............mmmddddddddd 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  
+-- frozen: every line under the failed call
+== 80x24 ==
+◇ ran 3 tools in 3.5 s · bash ×2 · read                               ✕ 1 failed|mm....................ddddddddddddddddd...............................hhhhhhhhhh
+  ◇ bash   initctl promote evo/timeout-flag --wait     ✕ exit 1, 7 lines · 0.6 s|..mm...................................................hhhhhhhhhhhhhhhhhdddddddd
+    │ error: the candidate is not on a branch under evo/                        |lllllldddddddddddddddddddddddddddddddddddddddddddddddddd                        
+    │   hint: commit on evo/<name> and promote that ref                         |llllllddddddddddddddddddddddddddddddddddddddddddddddddd                         
+    │ usage: initctl promote <ref> [--wait]                                     |llllllddddddddddddddddddddddddddddddddddddd                                     
+    │ see `initctl help promote`                                                |lllllldddddddddddddddddddddddddd                                                
+    │ line 5                                                                    |lllllldddddd                                                                    
+    │ line 6                                                                    |lllllldddddd                                                                    
+    │ exit status 1                                                             |llllllddddddddddddd                                                             
+The promote did not start; the output above says why.                           |.....................................................                           
+── end ──                                                                       |ddddddddd                                                                       
+⠸ writing                                                              run 4.0 s|.......................................................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 3 s · model ? · $?/$? today · body 3f9c0a1b2c4d            L? · attaching |.........mmmdddddddmmmdddddddddddmmmmmmmmdddddddddddd..............mmmddddddddd 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  
+-- frozen single call
+◇ bash   initctl promote evo/x --wait                  ✕ exit 1, 7 lines · 0.6 s|mm.....................................................hhhhhhhhhhhhhhhhhdddddddd
+  │ error: the candidate is not on a branch under evo/                          |lllldddddddddddddddddddddddddddddddddddddddddddddddddd                          
+  │   hint: commit on evo/<name> and promote that ref                           |llllddddddddddddddddddddddddddddddddddddddddddddddddd                           
+  │ usage: initctl promote <ref> [--wait]                                       |llllddddddddddddddddddddddddddddddddddddd                                       
+  │ see `initctl help promote`                                                  |lllldddddddddddddddddddddddddd                                                  
+  │ line 5                                                                      |lllldddddd                                                                      
+  │ line 6                                                                      |lllldddddd                                                                      
+  │ exit status 1                                                               |llllddddddddddddd                                                               
+-- transcript view (expanded)
+◇ 1 tool call · 1 failed · 0.7 s · started 21:04:05Z                            |mm..................................................                            
+  ◇ bash   initctl promote evo/x --wait                ✕ exit 1, 7 lines · 0.6 s|..mm...................................................hhhhhhhhhhhhhhhhhdddddddd
+      call_id: c1                                                               |..ddddddddddddd..                                                               
+      call: initctl promote evo/x --wait                                        |..dddddddddd............................                                        
+      result: error · exit 1, 7 lines                                           |..dddddddddddd.......................                                           
+      time: started 21:04:05Z · 0.6 s                                           |..dddddddddd.........................                                           
+      detail: error: the candidate is not on a branch under evo/                |..dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                
+                hint: commit on evo/<name> and promote that ref                 |..ddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                 
+              usage: initctl promote <ref> [--wait]                             |..ddddddddddddddddddddddddddddddddddddddddddddddddd                             
+              see `initctl help promote`                                        |..dddddddddddddddddddddddddddddddddddddd                                        
+              line 5                                                            |..dddddddddddddddddd                                                            
+              line 6                                                            |..dddddddddddddddddd                                                            
+              exit status 1                                                     |..ddddddddddddddddddddddddd                                                     

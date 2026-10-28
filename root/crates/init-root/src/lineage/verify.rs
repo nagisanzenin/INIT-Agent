@@ -1,5 +1,6 @@
 //! R4 verification (root/root.md §3.10.4): rules 1–6 over the chain, rule 7 (`head.json`), rule 8 (the
-//! mirror is a prefix), and `init-root audit verify [--full] [--view]`.
+//! mirror is a prefix), `init-root audit verify [--full] [--view]`, and the offline check of a published
+//! records file, `init-root audit verify --file RECORDS --pub KEY [--head HASH]`.
 
 use super::{DOMAIN, Head, TAIL, hash_of, mirror, read_pub, zero_hash};
 use crate::charter;
@@ -9,6 +10,7 @@ use ed25519_dalek::{Signature, VerifyingKey};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
 use std::fs;
+use std::path::Path;
 
 pub struct Chain {
     pub head: Option<Head>,
@@ -145,4 +147,185 @@ pub fn audit_verify(p: &Paths, full: bool, view: bool) -> u8 {
     let scope = if from == 0 { "full".to_string() } else { format!("signatures over the last {tail}") };
     println!("lineage ok: {n} records, head {head} ({scope}, {} ms)", t0.elapsed().as_millis());
     0
+}
+
+/// What a valid offline check shows, and what it does not (printed after `lineage ok`).
+pub const FILE_LIMITS: &str = "This shows that no record was changed, reordered or removed after it was signed with this key \
+(removal at the end is caught only with --head). It does not show that the binaries you run match the source. It is only \
+as good as the key: take the key from a place other than the records file, for example the release notes.";
+
+/// A public key given as 64 hex characters (optionally `ed25519:`-prefixed) or as a file holding them
+/// (`keys/lineage.pub`, `INIT_HOME/root/lineage.pub`).
+fn parse_pub(arg: &str) -> Option<VerifyingKey> {
+    let lit = |s: &str| {
+        let s = s.trim();
+        unhex::<32>(s.strip_prefix("ed25519:").unwrap_or(s)).and_then(|b| VerifyingKey::from_bytes(&b).ok())
+    };
+    lit(arg).or_else(|| fs::read_to_string(arg).ok().and_then(|t| lit(&t)))
+}
+
+/// `init-root audit verify --file RECORDS --pub KEY [--head HASH]`: rules 1–6 over every record of a
+/// published lineage file, offline. Nothing else is read: no install, no `head.json`, no mirror, no
+/// network. `KEY` is the genesis public key; a `key_rotate` record signed by the old key switches the
+/// key for the records after it (rule 5). `HASH` is the published head: without it a file cut at a
+/// record boundary verifies as a shorter chain. Ok: the report; Err: (exit code, message).
+pub fn file_verify(file: &Path, key: &str, want_head: Option<&str>) -> Result<String, (u8, String)> {
+    let vk = parse_pub(key).ok_or_else(|| (64, format!("--pub {key}: neither 64 hex characters nor a readable file that holds them")))?;
+    let text = fs::read_to_string(file).map_err(|e| (1, format!("{}: {e}", file.display())))?;
+    let invalid = |s: u64, r: &str| (1, format!("lineage INVALID at seq {s}: {r}"));
+    let c = chain(&text, Some(&vk), 0, &HashSet::new()).map_err(|(s, r)| {
+        if r.starts_with("torn tail") {
+            invalid(s, "the last line has no newline: the file was cut inside a record")
+        } else {
+            invalid(s, r)
+        }
+    })?;
+    let head = c.head.ok_or((1, "lineage INVALID: the file has no records".to_string()))?;
+    if let Some(w) = want_head.map(str::trim)
+        && w != head.hash
+    {
+        return Err((1, format!("lineage INVALID: the last record is seq {} with hash {}, not the published head {w}. \
+            Records are missing at the end (a cut file), or this is another chain.", head.seq, head.hash)));
+    }
+    let rotations = text.lines().filter(|l| serde_json::from_str::<Value>(l).is_ok_and(|r| r["kind"] == "key_rotate")).count();
+    let checked = if want_head.is_some() { "the published head" } else { "no --head given: compare this hash with the published head" };
+    Ok(format!("lineage ok: {} records, every signature checked from genesis, {rotations} key rotation(s); head seq {} {} ({checked})",
+        head.seq + 1, head.seq, head.hash))
+}
+
+/// The CLI of [`file_verify`]: exit 0 valid, 1 invalid or unreadable, 64 usage.
+pub fn file_cli(file: Option<String>, key: Option<String>, head: Option<String>, view: bool) -> u8 {
+    let usage = |m: &str| {
+        eprintln!("init-root: {m}\nusage: init-root audit verify --file RECORDS --pub KEY [--head HASH]");
+        64
+    };
+    if view {
+        return usage("--view checks an install's published copy; --file checks a records file you name");
+    }
+    let (Some(file), Some(key)) = (file, key) else { return usage("--file and --pub go together") };
+    match file_verify(Path::new(&file), &key, head.as_deref()) {
+        Ok(report) => {
+            println!("{report}\n{FILE_LIMITS}");
+            0
+        }
+        Err((64, m)) => usage(&m),
+        Err((code, m)) => {
+            println!("{m}");
+            code
+        }
+    }
+}
+
+#[cfg(test)]
+mod file_tests {
+    use super::*;
+    use crate::util::{hex, icj, rfc3339};
+    use ed25519_dalek::{Signer, SigningKey};
+    use serde_json::json;
+
+    /// A chain written the way `Lineage::seal` writes it, with a key rotation at `rotate_at`. `switch`:
+    /// the records after the rotation are signed with the new key (false: still the old one).
+    fn chain_text(n: u64, rotate_at: Option<u64>, switch: bool) -> (String, SigningKey, Vec<String>) {
+        let (k1, k2) = (SigningKey::from_bytes(&[3u8; 32]), SigningKey::from_bytes(&[4u8; 32]));
+        let (mut sk, mut prev, mut out, mut hashes) = (k1.clone(), zero_hash(), String::new(), Vec::new());
+        for seq in 0..n {
+            let (kind, data) = match seq {
+                0 => ("genesis", json!({"install_id": "00", "pubkey": hex(&k1.verifying_key().to_bytes()), "root_version": "0.5.0"})),
+                s if Some(s) == rotate_at => ("key_rotate", json!({"new_pubkey": hex(&k2.verifying_key().to_bytes())})),
+                _ => ("note", json!({"n": seq})),
+            };
+            let mut rec = json!({"at": rfc3339(1_793_000_000_000 + seq as i64 * 1000), "by": "root", "data": data, "kind": kind, "prev": prev, "seq": seq, "v": 1});
+            let h = hash_of(icj(&rec).unwrap().as_bytes());
+            let sig = sk.sign(&[DOMAIN, &h[..]].concat());
+            let hash = format!("sha256:{}", hex(&h));
+            rec["hash"] = json!(hash);
+            rec["sig"] = json!(format!("ed25519:{}", hex(&sig.to_bytes())));
+            out.push_str(&format!("{}\n", icj(&rec).unwrap()));
+            if Some(seq) == rotate_at && switch {
+                sk = k2.clone(); // the rotation record itself is signed by the old key
+            }
+            prev = hash.clone();
+            hashes.push(hash);
+        }
+        (out, k1, hashes)
+    }
+
+    fn dir(name: &str) -> std::path::PathBuf {
+        let d = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target/test-homes/hygiene").join(name);
+        if d.exists() {
+            fs::remove_dir_all(&d).unwrap(); // exact path, from an earlier run of this test
+        }
+        fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn check(d: &Path, text: &str, key: &str, head: Option<&str>) -> Result<String, (u8, String)> {
+        let f = d.join("lineage.jsonl");
+        fs::write(&f, text).unwrap();
+        file_verify(&f, key, head)
+    }
+
+    #[test]
+    fn a_valid_chain_with_a_key_rotation_passes() {
+        let d = dir("ok");
+        let (text, k1, hashes) = chain_text(12, Some(5), true);
+        let pub_hex = hex(&k1.verifying_key().to_bytes());
+        let r = check(&d, &text, &pub_hex, Some(&hashes[11])).unwrap();
+        assert!(r.starts_with("lineage ok: 12 records, every signature checked from genesis, 1 key rotation(s); head seq 11 sha256:"), "{r}");
+        assert!(r.ends_with("(the published head)"), "{r}");
+        // The key as a file (keys/lineage.pub's form) and with the ed25519: prefix; no --head.
+        fs::write(d.join("lineage.pub"), format!("{pub_hex}\n")).unwrap();
+        let r = check(&d, &text, d.join("lineage.pub").to_str().unwrap(), None).unwrap();
+        assert!(r.contains("no --head given"), "{r}");
+        assert!(check(&d, &text, &format!("ed25519:{pub_hex}"), None).is_ok());
+        // After the rotation, a record still signed with the old key is invalid.
+        let (stale, _, _) = chain_text(12, Some(5), false);
+        assert_eq!(check(&d, &stale, &pub_hex, None).unwrap_err(), (1, "lineage INVALID at seq 6: 5: signature does not verify".into()));
+        fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn tampered_reordered_cut_and_wrong_key_each_fail_clearly() {
+        let d = dir("bad");
+        let (text, k1, hashes) = chain_text(10, None, true);
+        let key = hex(&k1.verifying_key().to_bytes());
+        let lines: Vec<String> = text.lines().map(str::to_string).collect();
+        let join = |v: &[String]| v.iter().map(|l| format!("{l}\n")).collect::<String>();
+        // Tampered: a data value changed, hash left alone.
+        let mut v = lines.clone();
+        v[4] = v[4].replace("{\"n\":4}", "{\"n\":5}");
+        assert_eq!(check(&d, &join(&v), &key, None).unwrap_err(), (1, "lineage INVALID at seq 4: 4: hash does not recompute".into()));
+        // Tampered and re-hashed without the key: the signature fails.
+        let mut rec: Value = serde_json::from_str(&lines[4]).unwrap();
+        rec["data"]["n"] = json!(40);
+        let o = rec.as_object_mut().unwrap();
+        o.remove("hash");
+        let sig = o.remove("sig").unwrap();
+        let h = hash_of(icj(&rec).unwrap().as_bytes());
+        rec["hash"] = json!(format!("sha256:{}", hex(&h)));
+        rec["sig"] = sig;
+        v = lines.clone();
+        v[4] = icj(&rec).unwrap();
+        let e = check(&d, &join(&v), &key, None).unwrap_err();
+        assert!(e.1.starts_with("lineage INVALID at seq 4:"), "{e:?}");
+        // Reordered.
+        v = lines.clone();
+        v.swap(6, 7);
+        assert_eq!(check(&d, &join(&v), &key, None).unwrap_err(), (1, "lineage INVALID at seq 6: 2: seq gap".into()));
+        // Cut inside a record; cut at a record boundary (caught by --head); cut at the front.
+        let cut = &text[..text.len() - 20];
+        assert_eq!(check(&d, cut, &key, None).unwrap_err(), (1, "lineage INVALID at seq 9: the last line has no newline: the file was cut inside a record".into()));
+        let short = join(&lines[..8]);
+        assert!(check(&d, &short, &key, None).is_ok(), "without --head a shorter chain is still a chain");
+        let e = check(&d, &short, &key, Some(&hashes[9])).unwrap_err();
+        assert!(e.1.starts_with("lineage INVALID: the last record is seq 7 with hash ") && e.1.contains("Records are missing at the end"), "{e:?}");
+        assert_eq!(check(&d, &join(&lines[1..]), &key, None).unwrap_err().1, "lineage INVALID at seq 0: 2: seq gap");
+        // A wrong key, a malformed key, an empty and a missing file.
+        let other = hex(&SigningKey::from_bytes(&[9u8; 32]).verifying_key().to_bytes());
+        assert_eq!(check(&d, &text, &other, None).unwrap_err(), (1, "lineage INVALID at seq 0: 5: the genesis key differs from the expected public key".into()));
+        assert_eq!(check(&d, &text, "not-a-key", None).unwrap_err().0, 64);
+        assert_eq!(check(&d, "", &key, None).unwrap_err(), (1, "lineage INVALID: the file has no records".into()));
+        assert_eq!(file_verify(&d.join("missing.jsonl"), &key, None).unwrap_err().0, 1);
+        fs::remove_dir_all(&d).unwrap();
+    }
 }

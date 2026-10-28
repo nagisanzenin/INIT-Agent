@@ -1,0 +1,38 @@
+-- G2 running, the promote call running
+== 80x18 ==
+◇ bash initctl promote evo/compaction --wait                       1 call · 12 s|ww.................................................................ddddddddddddd
+    running 12 s · still working… no output yet                                 |....ddddddddddddddddddddddddddddddddddddddddddd                                 
+◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ G2 □ G3 · live · G4 ·            12 s|ww............ddddddddddddddddd..mmmp.mmmp.mmmw.mmmm.mmmmmm.mmmm............wwww
+    G0  build + tests    ■ pass · 2.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G1  self-map         ■ pass · 2.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G2  boot probe       □ 2.5 s                                                |....ddddmmmmmmmmmmmmmmmmwwwwwwww                                                
+    G3  self-edit probe  ·                                                      |....ddddmmmmmmmmmmmmmmmmmmm                                                     
+    hand-off             ·                                                      |....dddddddddmmmmmmmmmmmmmm                                                     
+⠸ running bash · 12 s                                                   run 11 s|..............ddddddd...................................................mmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 11 s · model ? · $?/$? today · body 3f9c0a1b2c4d           L? · attaching |..........mmmdddddddmmmdddddddddddmmmmmmmmdddddddddddd.............mmmddddddddd 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  
+== 80x12 ==
+◇ bash initctl promote evo/compaction --wait                       1 call · 12 s|ww.................................................................ddddddddddddd
+    running 12 s · still working… no output yet                                 |....ddddddddddddddddddddddddddddddddddddddddddd                                 
+◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ G2 □ G3 · live · G4 ·            12 s|ww............ddddddddddddddddd..mmmp.mmmp.mmmw.mmmm.mmmmmm.mmmm............wwww
+    G1  self-map         ■ pass · 2.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G2  boot probe       □ 2.5 s                                                |....ddddmmmmmmmmmmmmmmmmwwwwwwww                                                
+    G3  self-edit probe  ·                                                      |....ddddmmmmmmmmmmmmmmmmmmm                                                     
+⠸ waiting for the model · 11 s                                          run 11 s|.......................ddddddd..........................................mmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 11 s · model ? · $?/$? today · body 3f9c0a1b2c4d           L? · attaching |..........mmmdddddddmmmdddddddddddmmmmmmmmdddddddddddd.............mmmddddddddd 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  
+-- kept: one line
+== 80x12 ==
+✓ kept 06be87a12345 · 5/5 gates · 35 s · hand-off 4.6 s                         |pppppppdddddddddddddddddddddddddddddddddddddddddddddddd                         
+⠸ waiting for the model · 1 s                                           run 36 s|.......................dddddd...........................................mmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 36 s · model ? · $?/$? today · body 3f9c0a1b2c4d           L? · attaching |..........mmmdddddddmmmdddddddddddmmmmmmmmdddddddddddd.............mmmddddddddd 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  

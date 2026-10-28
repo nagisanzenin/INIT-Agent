@@ -1,0 +1,146 @@
+-- waiting for the first token, 3 s
+== 100x12 ==
+› what is this project?                                                                             |dd.....................                                                                             
+⠸ waiting for the model · 3 s                                                              run 3.0 s|.......................dddddd..............................................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 3 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg            L0 · root ok |.........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm..............mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
+cursor 4,3
+-- thinking
+== 100x12 ==
+› what is this project?                                                                             |dd.....................                                                                             
+· thinking… 1.5 s                                                                                   |ddddddddddddddddd                                                                                   
+⠸ thinking · 1 s                                                                           run 5.0 s|..........dddddd...........................................................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 5 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg            L0 · root ok |.........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm..............mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
+cursor 4,4
+-- writing
+== 100x12 ==
+› what is this project?                                                                             |dd.....................                                                                             
+· thought for 2.5 s                                                                                 |ddddddddddddddddddd                                                                                 
+A small Rust CLI that prints the time in s                                                          |..........................................                                                          
+⠸ writing                                                                                  run 7.0 s|...........................................................................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 7 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg            L0 · root ok |.........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm..............mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
+cursor 4,5
+-- the stream went quiet for 9 s
+== 100x12 ==
+› what is this project?                                                                             |dd.....................                                                                             
+· thought for 2.5 s                                                                                 |ddddddddddddddddddd                                                                                 
+A small Rust CLI that prints the time in s                                                          |..........................................                                                          
+⠸ writing · no new text for 9 s                                                             run 15 s|.........dddddddddddddddddddddd.............................................................mmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 15 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg           L0 · root ok |..........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.............mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
+cursor 4,5
+-- a tool running
+== 100x14 ==
+› what is this project?                                                                             |dd.....................                                                                             
+· thought for 2.5 s                                                                                 |ddddddddddddddddddd                                                                                 
+A small Rust CLI that prints the time in s                                                          |..........................................                                                          
+◇ bash cargo test                                          1 tool call · 1 running · 0 failed · 41 s|ww.........................................................ddddddddddddddddddddddddddddddddddddddddd
+    running 41 s · still working… no output yet                                                     |....ddddddddddddddddddddddddddddddddddddddddddd                                                     
+⠸ running bash · 41 s                                                                       run 57 s|..............ddddddd.......................................................................mmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 57 s · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg           L0 · root ok |..........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.............mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
+cursor 4,7
+-- between requests: waiting for the model again
+== 100x14 ==
+› what is this project?                                                                             |dd.....................                                                                             
+· thought for 2.5 s                                                                                 |ddddddddddddddddddd                                                                                 
+A small Rust CLI that prints the time in s                                                          |..........................................                                                          
+◇ waiting for the model…                                   1 tool call · 0 running · 0 failed · 44 s|wwdddddddddddddddddddddd...................................ddddddddddddddddddddddddddddddddddddddddd
+  ◇ bash   cargo test                                                       ✓ exit 0, 3 lines · 42 s|..mm........................................................................dddddddddddddddddddddddd
+⠸ waiting for the model · 2 s                                                          run 1 min 0 s|.......................dddddd..........................................................mmmmmmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 min · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg          L0 · root ok |...........mmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm............mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
+cursor 4,7
+-- waiting for the first token, 3 s
+== 60x12 ==
+› what is this project?                                     |dd.....................                                     
+⠸ waiting for the model · 3 s                      run 3.0 s|.......................dddddd......................mmmmmmmmm
+┌──────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interru… │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmdll
+└──────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 3 s · $1.23/$5.00 today                  L0 · root ok |.........mmm.....................................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,3
+-- thinking
+== 60x12 ==
+› what is this project?                                     |dd.....................                                     
+· thinking… 1.5 s                                           |ddddddddddddddddd                                           
+⠸ thinking · 1 s                                   run 5.0 s|..........dddddd...................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interru… │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmdll
+└──────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 5 s · $1.23/$5.00 today                  L0 · root ok |.........mmm.....................................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,4
+-- writing
+== 60x12 ==
+› what is this project?                                     |dd.....................                                     
+· thought for 2.5 s                                         |ddddddddddddddddddd                                         
+A small Rust CLI that prints the time in s                  |..........................................                  
+⠸ writing                                          run 7.0 s|...................................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interru… │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmdll
+└──────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 7 s · $1.23/$5.00 today                  L0 · root ok |.........mmm.....................................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,5
+-- the stream went quiet for 9 s
+== 60x12 ==
+› what is this project?                                     |dd.....................                                     
+· thought for 2.5 s                                         |ddddddddddddddddddd                                         
+A small Rust CLI that prints the time in s                  |..........................................                  
+⠸ writing · no new text for 9 s                     run 15 s|.........dddddddddddddddddddddd.....................mmmmmmmm
+┌──────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interru… │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmdll
+└──────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 15 s · $1.23/$5.00 today                 L0 · root ok |..........mmm....................................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,5
+-- a tool running
+== 60x14 ==
+› what is this project?                                     |dd.....................                                     
+· thought for 2.5 s                                         |ddddddddddddddddddd                                         
+A small Rust CLI that prints the time in s                  |..........................................                  
+◇ bash cargo test                              1 call · 41 s|ww.............................................ddddddddddddd
+    running 41 s · still working… no output yet             |....ddddddddddddddddddddddddddddddddddddddddddd             
+⠸ running bash · 41 s                               run 57 s|..............ddddddd...............................mmmmmmmm
+┌──────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interru… │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmdll
+└──────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 57 s · $1.23/$5.00 today                 L0 · root ok |..........mmm....................................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,7
+-- between requests: waiting for the model again
+== 60x14 ==
+› what is this project?                                     |dd.....................                                     
+· thought for 2.5 s                                         |ddddddddddddddddddd                                         
+A small Rust CLI that prints the time in s                  |..........................................                  
+◇ waiting for the model…                       1 call · 44 s|wwdddddddddddddddddddddd.......................ddddddddddddd
+  ◇ bash   cargo test               ✓ exit 0, 3 lines · 42 s|..mm................................dddddddddddddddddddddddd
+⠸ waiting for the model · 2 s                  run 1 min 0 s|.......................dddddd..................mmmmmmmmmmmmm
+┌──────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interru… │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmdll
+└──────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 min · $1.23/$5.00 today                L0 · root ok |...........mmm...................................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,7

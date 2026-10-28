@@ -20,11 +20,13 @@ const USAGE: &str = "usage: init-root [--root-home DIR] <command>
           [--toolchain DIR|none] [--bin-dir DIR] [--with-testkit] [--no-service]
           [--prebuilt-body FILE --prebuilt-sha256 HEX [--prebuilt-commit SHA]]
   toolchain [--set [DIR]]   (show, or record the Rust toolchain self-evolution T1/T2 builds with; Root stopped)
+  upgrade --release DIR [--bin-dir DIR] | --probe [--timeout S] | --commit | --rollback | --status [--json]   (Root stopped)
   start [--foreground] · attach [--no-replay] [--raw] · panic · resume · stop
   providers list · providers add <preset> [--base-url URL] [--model ID] [--name ALIAS] [--price IN,CACHED,OUT] [--json]
   models [--provider P] [--json] · model use <provider>/<model>
   keys set [--action] <id> · keys check · egress stats · status [--json] [--proposals] · ledger [--json] [--verify]
   charter check [<path>] [--apply [--yes]] · audit verify [--full] [--view] · audit run [--reason R]
+  audit verify --file RECORDS --pub KEY [--head HASH]   (a published lineage file, offline; no install needed)
   sealed import <dir> · sealed list · sealed gog --gate EXE [--source maintainer|agent] [-- gate args…]
   sealed draw [--pack s1] [--pack-dir DIR] · sealed show [--g4 GATE_ID|--partition|--templates]
   sealed calibrate [--repeats 6] [--usd X] [--real] · sealed probe [--per-family 2] [--usd X] [--real] (= calibrate --probe N)
@@ -76,6 +78,7 @@ pub fn run(mut a: Vec<String>) -> u8 {
             let bo = install::BundleOpts { no_toolchain: tc.as_deref() == Some("none"), prebuilt };
             install::install_with(&p, &o, &bo).map_or_else(|(c, m)| fail(c, &m), |()| 0)
         }
+        ["upgrade", ..] => crate::upgrade::cli(&p, a), // lane UPGRADE: the owner's stop-then-replace upgrade (upgrade.rs)
         ["toolchain", ..] => {
             let set = flag(&mut a, "--set");
             let dir = a.iter().skip(1).find(|x| !x.starts_with("--")).map(Into::into);
@@ -97,6 +100,10 @@ pub fn run(mut a: Vec<String>) -> u8 {
             Ok(v) => out(&v, 0),
             Err(f) => unreachable_or(f),
         },
+        ["audit", "verify"] if a.iter().any(|x| x == "--file" || x == "--pub") => {
+            let (file, key, head) = (opt(&mut a, "--file"), opt(&mut a, "--pub"), opt(&mut a, "--head"));
+            crate::lineage::verify::file_cli(file, key, head, flag(&mut a, "--view"))
+        }
         ["audit", "verify"] => crate::lineage::verify::audit_verify(&p, flag(&mut a, "--full"), flag(&mut a, "--view")),
         ["audit", "run"] | ["sealed", "gog" | "draw" | "calibrate" | "probe" | "milestone" | "slice"] => {
             let w = if words[0] == "audit" { "audit" } else { words[1] }.to_string();

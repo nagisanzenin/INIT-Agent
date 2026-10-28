@@ -1,12 +1,14 @@
-//! The six tools (body/tools.md): `read`, `write`, `edit` run in-process, `bash` spawns one process
-//! group per call, `ext` routes to the Wasm extension host (ext/host.md), and `delegate` runs one
-//! sub-task in a fresh context (loop/delegate.rs; this file only parses and frames it).
+//! The seven tools (body/tools.md): `read`, `write`, `edit` run in-process, `bash` spawns one process
+//! group per call, `ext` routes to the Wasm extension host (ext/host.md), `delegate` runs one
+//! sub-task in a fresh context (loop/delegate.rs; this file only parses and frames it), and
+//! `ask_owner` asks the owner a question with options and ends the turn (tools/ask.rs).
 //!
 //! The common pipeline (§3.1): typed argument parsing that rejects unknown fields, lexical path
 //! resolution with no filesystem access and no policy (the OS sandbox enforces), and output
 //! finalization (the 51,200-byte inline cap with a spill file).
 
 pub mod args;
+pub mod ask;
 pub mod bash;
 pub mod delegate;
 pub mod edit;
@@ -39,12 +41,12 @@ pub use ext::{
     CallCtx, ExtHostApi, ExtOutcome, OutcomeKind, ReloadKind, ReloadReport, Snapshot, StubHost,
 };
 
-/// tools.md §4.1, minified with sorted keys (4,986 bytes). The single source of the tool bytes in
+/// tools.md §4.1, minified with sorted keys (6,582 bytes). The single source of the tool bytes in
 /// every request, the head and `--manifest`. Changing it is a `Prefix-change: yes` commit.
 pub const REGISTRY_JSON: &str = include_str!("registry.json");
 
 /// Tool names, sorted byte-wise (the registry order).
-pub const NAMES: [&str; 6] = ["bash", "delegate", "edit", "ext", "read", "write"];
+pub const NAMES: [&str; 7] = ["ask_owner", "bash", "delegate", "edit", "ext", "read", "write"];
 
 /// Body mode (boot.md §3.14). Safe mode disables `ext`. `Check` (ADR-011 §2.1, the Root's A4 rollback probe):
 /// boot, rehydrate `INIT_SESSION`, write `ready`, exit 0; no model call, no kernel socket, no serving.
@@ -367,6 +369,8 @@ pub enum Job {
     /// Parsed here, executed by the loop (it owns the model call): `Prepared::Ready` with this job
     /// never reaches `Tools::run`.
     Delegate(delegate::Args),
+    /// `ask_owner`: the loop sends its `ask` frame and ends the turn (tools/ask.rs).
+    Ask(ask::Args),
 }
 
 /// A finished call: the result plus the one-line `tool_end` text (loop.md §4.1).
@@ -477,6 +481,7 @@ impl Tools {
             "edit" => edit::parse(&c.input, cx, &self.limits).map(Job::Edit),
             "bash" => bash::parse(&c.input, &self.limits).map(Job::Bash),
             "delegate" => delegate::parse(&c.input).map(Job::Delegate),
+            "ask_owner" => ask::parse(&c.input).map(Job::Ask),
             _ => ext::parse(&c.input).map(Job::Ext),
         };
         match job {
@@ -517,6 +522,7 @@ impl Tools {
                     if e.edits.len() == 1 { "" } else { "s" }
                 ),
                 Job::Ext(x) => format!("ext {}", x.name),
+                Job::Ask(a) => ask::start_text(a),
                 // The row already shows the name `delegate`: the text is the task.
                 Job::Delegate(a) => match a.mode {
                     delegate::Access::Read => delegate::summary_line(&a.task),
@@ -546,6 +552,7 @@ impl Tools {
             Job::Edit(a) => edit::run(a, cx, &self.limits),
             Job::Bash(a) => return bash::run(self, a, cx),
             Job::Ext(a) => ext::run(self.ext.as_deref(), a, cx),
+            Job::Ask(_) => Ok(ask::run(call_id)),
             // The loop runs this one (it owns the model call); reaching here is a bug.
             Job::Delegate(_) => Err(ToolError::new(
                 "not_available",
@@ -592,6 +599,56 @@ pub fn truncate_chars(s: &str, n: usize) -> String {
         out.push('…');
     }
     out
+}
+
+/// Lines and bytes of a failed call's `detail` (TUI-OBSERVE, tui.md §3.6).
+pub const DETAIL_LINES: usize = 10;
+const DETAIL_LINE_CHARS: usize = 200;
+const DETAIL_MAX: usize = 2_000;
+
+/// TUI-OBSERVE: the owner's view of why a call failed: the last [`DETAIL_LINES`] lines of its
+/// first text block (each cut to 200 characters, at most 2,000 bytes in all), without the bash
+/// trailer (`[exit_code=… wall_time=…]`, `[timeout …]`, `[aborted …]`). None for a call that
+/// succeeded or printed nothing. The model's result is unchanged; this goes only to `display`.
+pub fn fail_detail(r: &ToolResult) -> Option<String> {
+    if !r.is_error {
+        return None;
+    }
+    let text = r.content.iter().find_map(|b| match b {
+        ContentBlock::Text { text } => Some(text.as_str()),
+        _ => None,
+    })?;
+    let mut lines: Vec<&str> = text.lines().collect();
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    let trailer = |l: &str| {
+        l.ends_with(']') && ["[exit_code=", "[timeout after ", "[aborted after "].iter().any(|p| l.starts_with(p))
+    };
+    if lines.last().is_some_and(|l| trailer(l)) {
+        lines.pop();
+    }
+    while lines.last().is_some_and(|l| l.trim().is_empty()) {
+        lines.pop();
+    }
+    let mut out: Vec<String> = Vec::new();
+    let mut bytes = 0;
+    for l in lines.iter().rev().take(DETAIL_LINES) {
+        let mut s: String = l.chars().take(DETAIL_LINE_CHARS).collect();
+        if l.chars().count() > DETAIL_LINE_CHARS {
+            s.push('…');
+        }
+        if bytes + s.len() + 1 > DETAIL_MAX {
+            break;
+        }
+        bytes += s.len() + 1;
+        out.push(s);
+    }
+    if out.is_empty() {
+        return None;
+    }
+    out.reverse();
+    Some(out.join("\n"))
 }
 
 /// `error: <code>` from an error result's first line (loop.md §4.1 `tool_end` text).

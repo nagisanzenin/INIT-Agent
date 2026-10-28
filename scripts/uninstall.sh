@@ -2,7 +2,7 @@
 # Uninstall INIT: stop it, unload the service, and MOVE its homes to the Trash. Nothing is deleted: you empty
 # the Trash yourself (or put things back from it).
 #
-#   scripts/uninstall.sh
+#   scripts/uninstall.sh [--apparmor]
 #
 # Paths (environment, as for install.sh): INIT_ROOT_HOME (default ~/.init-root), INIT_HOME (default: the one
 # ROOT_HOME/install.json names, else ~/.init), INIT_BIN_DIR (default ~/.local/bin). The Trash is ~/.Trash on macOS and
@@ -18,11 +18,22 @@
 #   4. After you type `uninstall`, ROOT_HOME, INIT_HOME and the `init-agent` command (with init-tui, and INIT's `init`:
 #      the launcher's name before v0.4.1, or the macOS shim of v0.4.1) move to the Trash, each with a timestamp in its
 #      name. A file named init that is not INIT's stays. Never `rm`.
+#   5. Linux, when install.sh's AppArmor step was run (Ubuntu 24.04 and later; docs/platforms.md §3.4.6): the root-owned
+#      copies in /usr/local/lib/init-agent/ and the profile /etc/apparmor.d/init-agent need root to remove, so this
+#      prints the commands. With --apparmor it asks, then runs them with sudo. It never runs sudo otherwise.
 set -euo pipefail
 umask 077
 
 say() { printf '%s\n' "$*"; }
 die() { printf 'uninstall.sh: %s\n' "$*" >&2; exit 1; }
+APPARMOR=0
+for a in "$@"; do
+  case "$a" in
+    --apparmor) APPARMOR=1 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    *) die "unknown argument $a (scripts/uninstall.sh [--apparmor])" ;;
+  esac
+done
 
 PW_HOME="$(/usr/bin/python3 -I -c 'import os,pwd;print(pwd.getpwuid(os.getuid()).pw_dir)')"
 HOME="${HOME:-$PW_HOME}"
@@ -124,3 +135,28 @@ for p in "${MOVE[@]}"; do
 done
 if [ $REAL = 1 ] && [ "$OS" != Darwin ]; then systemctl --user daemon-reload 2>/dev/null || true; fi
 say "INIT is uninstalled. To undo: move the items back from the Trash. To free the space: empty the Trash."
+
+# ---------------------------------------------------------------- 5. the AppArmor step's files (Linux, root-owned)
+HELPERS=/usr/local/lib/init-agent; AA_PROFILE=/etc/apparmor.d/init-agent
+if [ "$OS" != Darwin ] && { [ -e "$AA_PROFILE" ] || [ -e "$HELPERS" ]; }; then
+  aa_remove() {
+    [ -e "$AA_PROFILE" ] && printf 'sudo apparmor_parser -R %s\nsudo rm -f %s\n' "$AA_PROFILE" "$AA_PROFILE"
+    [ -e "$HELPERS" ] && printf 'sudo rm -f %s/unshare %s/bwrap\nsudo rmdir %s\n' "$HELPERS" "$HELPERS" "$HELPERS"
+    return 0
+  }
+  say ""
+  say "The AppArmor step left root-owned files that only root can remove (copies of unshare and bwrap, and the profile"
+  say "that lets only them create user namespaces). Other INIT installs of this account would use them too. To remove:"
+  say ""
+  aa_remove
+  say ""
+  if [ $APPARMOR = 1 ]; then
+    if [ -r /dev/tty ] && [ -w /dev/tty ]; then
+      printf 'Run these commands now with sudo? [Y/n] ' >/dev/tty
+      IFS= read -r aa </dev/tty || aa=n
+      case "$aa" in ""|y|Y|yes|Yes|YES) aa_remove | /bin/bash -e && say "removed" || say "the commands failed; run them yourself" ;; *) say "left in place" ;; esac
+    else
+      say "(--apparmor asks before it runs sudo, and there is no terminal to ask on: run the commands above yourself)"
+    fi
+  fi
+fi

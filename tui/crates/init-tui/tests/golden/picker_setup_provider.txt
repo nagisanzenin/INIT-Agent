@@ -1,0 +1,33 @@
+== 60 cols, caret (1, 2)
+── setup · provider ────────────────────────────────────────|llldddddmmmbbbbbbbblllllllllllllllllllllllllllllllllllllllll
+ Choose a model provider                                    |........................                                    
+ › 1. DeepSeek  recommended                                 |bbbdddbbbbbbbb..mmmmmmmmmmm                                 
+      deepseek-flash, deepseek-v4-pro · live-tested         |......ddddddddddddddddddddddddddddddddddddddddddddd         
+   2. OpenAI-compatible gateway (Chat Completions)          |...mmmdddddddddddddddddddddddddddddddddddddddddddd          
+   3. Anthropic (Messages API)                              |...mmmdddddddddddddddddddddddd                              
+   4. OpenAI (Responses API)                                |...mmmdddddddddddddddddddddd                                
+   5. Local server, no key (Ollama, LM Studio, llama.cpp; C…|...mmmdddddddddddddddddddddddddddddddddddddddddddddddddddddd
+────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ Enter · 1–5 · type to filter · Esc leave setup          |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm          
+== 100 cols, caret (1, 2)
+── setup · provider ────────────────────────────────────────────────────────────────────────────────|llldddddmmmbbbbbbbblllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ Choose a model provider                                                                            |........................                                                                            
+ › 1. DeepSeek  recommended                                                                         |bbbdddbbbbbbbb..mmmmmmmmmmm                                                                         
+      deepseek-flash, deepseek-v4-pro · live-tested                                                 |......ddddddddddddddddddddddddddddddddddddddddddddd                                                 
+   2. OpenAI-compatible gateway (Chat Completions)                                                  |...mmmdddddddddddddddddddddddddddddddddddddddddddd                                                  
+   3. Anthropic (Messages API)                                                                      |...mmmdddddddddddddddddddddddd                                                                      
+   4. OpenAI (Responses API)                                                                        |...mmmdddddddddddddddddddddd                                                                        
+   5. Local server, no key (Ollama, LM Studio, llama.cpp; Chat Completions)                         |...mmmddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                         
+────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Enter choose · 1–5 pick · type to filter · Esc leave setup                               |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                               
+== 140 cols, caret (1, 2)
+── setup · provider ────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|llldddddmmmbbbbbbbblllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ Choose a model provider                                                                                                                    |........................                                                                                                                    
+ › 1. DeepSeek  recommended                                                                                                                 |bbbdddbbbbbbbb..mmmmmmmmmmm                                                                                                                 
+      deepseek-flash, deepseek-v4-pro · live-tested                                                                                         |......ddddddddddddddddddddddddddddddddddddddddddddd                                                                                         
+   2. OpenAI-compatible gateway (Chat Completions)                                                                                          |...mmmdddddddddddddddddddddddddddddddddddddddddddd                                                                                          
+   3. Anthropic (Messages API)                                                                                                              |...mmmdddddddddddddddddddddddd                                                                                                              
+   4. OpenAI (Responses API)                                                                                                                |...mmmdddddddddddddddddddddd                                                                                                                
+   5. Local server, no key (Ollama, LM Studio, llama.cpp; Chat Completions)                                                                 |...mmmddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                                                                 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Enter choose · 1–5 pick · type to filter · Esc leave setup                                                                       |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                                                                       

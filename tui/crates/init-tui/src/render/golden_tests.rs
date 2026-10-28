@@ -621,3 +621,120 @@ fn delegate_nested_activity_collapsed_and_expanded() {
     out.push_str(&s.screen(80, 10, 2.5, false));
     check("delegate_nested", &out);
 }
+
+/// TUI-BRAND: the same notice seven times in a row is one line and a live `↳ ×7 in all`, printed
+/// once something else follows; a different notice in between starts over.
+#[test]
+fn repeated_notices_collapse() {
+    let mut w = World::new();
+    for _ in 0..7 {
+        w.t.notice("alert", "root.args: root.args V3: HOME_REAL: outside INIT_HOME", Some("root"), None, NOW_MS);
+    }
+    let s = w.screen(80, 12, 1.0, false);
+    assert_eq!(s.matches("root.args V3").count(), 1, "{s}");
+    assert!(s.contains("↳ ×7 in all"), "{s}");
+    w.t.notice("info", "[root] attached: slot running", Some("root"), None, NOW_MS);
+    w.t.notice("alert", "root.args: root.args V3: HOME_REAL: outside INIT_HOME", Some("root"), None, NOW_MS);
+    let s = w.screen(80, 12, 2.0, false);
+    assert_eq!(s.matches("root.args V3").count(), 2, "{s}");
+    assert_eq!(s.matches("×7").count(), 1, "printed once: {s}");
+    // a kernel's look-alike is not merged with the Root's
+    w.t.notice("alert", "root.args: root.args V3: HOME_REAL: outside INIT_HOME", Some("kernel"), None, NOW_MS);
+    assert!(!w.screen(80, 12, 3.0, false).contains("×2"));
+}
+
+/// TUI-BRAND: the liveness row while the agent works (§3.4): waiting for the first token, thinking,
+/// writing, a stream gone quiet, a tool running; at 100 and 60 columns; gone when the run ends.
+#[test]
+fn brand_liveness_row() {
+    let mut out = String::new();
+    for width in [100, 60] {
+        let mut w = World::new();
+        w.t.push(Kind::Owner { id: 1, text: "what is this project?".into(), st: OwnerSt::Delivered }, NOW_MS);
+        out.push_str("-- waiting for the first token, 3 s\n");
+        out.push_str(&w.screen(width, 12, 3.0, false));
+        w.show(d(DisplayKind::Thinking, "Look at Cargo.toml."), 3.5);
+        out.push_str("-- thinking\n");
+        out.push_str(&w.screen(width, 12, 5.0, false));
+        w.show(d(DisplayKind::Text, "A small Rust CLI that prints the time in s"), 6.0);
+        out.push_str("-- writing\n");
+        out.push_str(&w.screen(width, 12, 7.0, false));
+        out.push_str("-- the stream went quiet for 9 s\n");
+        out.push_str(&w.screen(width, 12, 15.0, false));
+        w.show(tool(DisplayKind::ToolStart, "c1", "bash", "cargo test", None), 16.0);
+        out.push_str("-- a tool running\n");
+        out.push_str(&w.screen(width, 14, 57.0, false));
+        w.show(tool(DisplayKind::ToolEnd, "c1", "bash", "exit 0, 3 lines", Some(true)), 58.0);
+        out.push_str("-- between requests: waiting for the model again\n");
+        out.push_str(&w.screen(width, 14, 60.0, false));
+        w.info.on_state(json!({"busy": false}), w.at(61.0));
+        w.t.end_activity(w.at(61.0));
+        let idle = w.screen(width, 14, 62.0, false);
+        assert!(!idle.contains("waiting for the model ·") && !idle.contains("run 1 min"), "{idle}");
+    }
+    check("brand_liveness", &out);
+}
+
+/// TUI-BRAND: `/root status`, `/root ledger` and `/usage` as aligned tables, not raw JSON.
+#[test]
+fn brand_root_answers_as_tables() {
+    let status = r#"[root] {"cap":0,"ceilings":{"day_musd":5000000,"total_musd":25000000},"charter_pending":false,"charter_sha256":"02690f3c2064ac92a4823429d001cb9315279b161584bde890f70b82b1be2bd3","halted":null,"instances":[{"instance":"62eedcb71882","kind":"body","lane":"b0","pid":20070,"started_at":"2026-10-27T10:52:13.588Z"},{"instance":"888eb55e6751","kind":"kernel","lane":null,"pid":19998,"started_at":"2026-10-27T10:52:07.628Z"}],"kernel":{"boot_seq":1,"instance":"888eb55e6751","pid":19998,"ready":true,"reason":"cold"},"last_audit":null,"level":0,"lineage":{"hash":"sha256:5e0efc71bf37a0bbee06db6ddb7979de5af0a5af08bc5ea0f66a4051ac0fc367","seq":13},"max_level":4,"mirror":{"last_error":null,"last_push_at":null,"pushed_seq":null,"state":"off"},"mode":"normal","panic":null,"queued":0,"root":{"epoch":"2026-10-27T10:52:07.410Z/19993","now":"2026-10-27T10:54:59.345Z","pid":19993,"started_at":"2026-10-27T10:52:07.410Z","test_mode":true,"version":"0.4.1"},"slot":"running","supported_max_level":0,"sweep":"held_only","tuples":{"audited":"t72995ada3f8d","current":"t72995ada3f8d","lkg":"t72995ada3f8d","settled":null,"twin":null},"v":1}"#;
+    let ledger = r#"[root] {"cap":0,"entered_at":"2026-10-27T10:49:45.957Z","entered_seq":0,"evolution_share_max_permille":null,"incident":null,"last_change":null,"level":0,"max_level":4,"next":null,"path":"gated","seq":13,"supported_max_level":0,"v":1}"#;
+    let mut out = String::new();
+    for width in [100, 60] {
+        let mut w = World::new();
+        w.info.on_state(json!({"busy": false}), w.base);
+        w.t.push(Kind::Owner { id: 1, text: "/root status".into(), st: OwnerSt::Command }, NOW_MS);
+        w.t.notice("info", status, Some("root"), None, NOW_MS);
+        w.t.push(Kind::Owner { id: 2, text: "/root ledger".into(), st: OwnerSt::Command }, NOW_MS);
+        w.t.notice("info", ledger, Some("root"), None, NOW_MS);
+        // a kernel's look-alike stays a plain, muted line
+        w.t.notice("info", "[root] {\"slot\":\"running\",\"tuples\":{}}", Some("kernel"), None, NOW_MS);
+        w.t.push(Kind::Owner { id: 3, text: "/usage".into(), st: OwnerSt::Command }, NOW_MS);
+        let (title, rows) = super::status::usage_rows(&w.info);
+        w.t.push(Kind::Table { title, rows }, NOW_MS);
+        out.push_str(&w.screen(width, 48, 1.0, false));
+    }
+    check("brand_root_answers", &out);
+}
+
+/// TUI-BRAND: the identity line at the first attach, above the Root's greeting (amber `[root]`
+/// tag, routine text dim); `root ok` is the only amber on the identity line.
+#[test]
+fn brand_identity_line() {
+    assert_eq!(super::live::greeting_level("[root] attached: slot running, level L2, 0 queued."), Some(2));
+    assert_eq!(super::live::greeting_level("[root] attached"), None);
+    let mut out = String::new();
+    for width in [100, 60, 30] {
+        let mut w = World::new();
+        w.info.on_state(json!({"busy": false}), w.base);
+        w.t.push(Kind::Identity { level: Some(0) }, NOW_MS);
+        w.t.notice("info", "[root] attached: slot running, level L0, 0 queued. Type /panic to stop everything, /root help for more.", Some("root"), None, NOW_MS);
+        out.push_str(&w.screen(width, 10, 1.0, false));
+    }
+    check("brand_identity", &out);
+    let l = super::live::identity(Some(0), 100);
+    assert!(l.text().starts_with("■■■□ INIT ") && l.text().ends_with(" · L0 · root ok"), "{}", l.text());
+}
+
+/// TUI-BRAND × TUI-PICKER: while the agent waits for the owner's answer (`ask_owner`), the liveness
+/// row says `waiting on you` in ink, still (no spinner), with the question once its picker is gone.
+#[test]
+fn brand_waiting_on_you() {
+    use super::picker::{Opt, Picker, Who};
+    let mut w = World::new();
+    w.info.on_state(json!({"busy": false}), w.base);
+    w.ed.picker = Some(Picker::new(Who::Agent, "zone", "Which zone should be the default?", vec![Opt::new(0, "UTC"), Opt::new(1, "local")]));
+    let s = w.screen(100, 20, 1.0, false);
+    assert!(s.contains("· waiting on you"), "{s}");
+    w.ed.picker = None;
+    w.ed.waiting = Some("Which zone should be the default?".into());
+    let s = w.screen(100, 20, 2.0, false);
+    assert!(s.contains("· waiting on you · the agent asked: Which zone should be the default?"), "{s}");
+    let row = s.lines().find(|l| l.starts_with("· waiting on you")).unwrap();
+    assert!(!row.split('|').nth(1).unwrap().contains(['a', 'w', 'p', 'h']), "no signal colour: {row}");
+    // the TUI's own picker (setup) is not the agent waiting
+    w.ed.waiting = None;
+    w.ed.picker = Some(Picker::new(Who::Tui, "provider", "Choose a model provider", vec![Opt::new(0, "DeepSeek")]));
+    assert!(!w.screen(100, 20, 3.0, false).contains("waiting on you ·"));
+}

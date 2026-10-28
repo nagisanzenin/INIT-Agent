@@ -3,22 +3,24 @@
   /root ledger   the autonomy ledger                                            |................dddddddddddddddddddd                                            
   /root stop     stop the zone                                                  |................dddddddddddddd                                                  
   /root help     the Root's lines                                               |................ddddddddddddddddd                                               
-╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > /ro                                                                        │|eecc..........................................................................ee
-╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
-cursor 7,5
+⠸ waiting for the model · 1 s                                          run 1.0 s|.......................dddddd..........................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › /ro                                                                        │|llmm..........................................................................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg              L0 · root ok |.........mmm.................mmmmmmmmddddddddddddmmmm................mmmaaaaaaa 
+cursor 7,6
 == 60x24 ==
-╭──────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > line one                                               │|eecc......................................................ee
-│   line two is longer than the box is wide so that it wra │|eecc......................................................ee
-│   ps around once or twice, really                        │|eecc......................................................ee
-│   日本語 👍 ok                                           │|eecc......................................................ee
-╰──────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg   |.bbddd.................ddd.......ddd.................dddd   
-cursor 16,4
+⠸ waiting for the model · 1 s                      run 1.0 s|.......................dddddd......................mmmmmmmmm
+┌──────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › line one                                               │|llmm......................................................ll
+│   line two is longer than the box is wide so that it wra │|llmm......................................................ll
+│   ps around once or twice, really                        │|llmm......................................................ll
+│   日本語 👍 ok                                           │|llmm......................................................ll
+└──────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 s · $1.23/$5.00 today                  L0 · root ok |.........mmm.....................................mmmaaaaaaa 
+cursor 16,5
 == 18x4 ==
 terminal too small|dddddddddddddddddd
-> hello           |cc.....           
- L0 · running     |.bbddd.......     
+› hello           |mm.....           
+     L0 · root ok |.......mmmaaaaaaa 
 cursor 7,1

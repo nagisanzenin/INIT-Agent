@@ -501,8 +501,8 @@ fn wire9_home_has_no_workspace_and_full_flag_confirms() {
 }
 
 /// WIRE-009: the launcher `scripts/init-agent` passes every flag (`--full` included) through to the TUI
-/// and keeps the cwd, which the TUI sends as the workspace. So does `scripts/init-shim` (macOS `init`, v0.4.1 only;
-/// nagisanzenin/INIT-Agent#1), which execs the launcher next to it and prints the new name on stderr.
+/// and keeps the cwd, which the TUI sends as the workspace. (v0.4.1's macOS `init` shim, `scripts/init-shim`, is gone
+/// since v0.5.0; nagisanzenin/INIT-Agent#1.)
 #[test]
 fn wire9_launcher_passes_flags_and_cwd_through() {
     let dir = home("w9-launcher");
@@ -544,23 +544,6 @@ fn wire9_launcher_passes_flags_and_cwd_through() {
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
     let got = fs::read_to_string(&out).unwrap();
     assert_eq!(got.trim(), format!("{}|--workspace", fs::canonicalize(&proj).unwrap().display()), "ADR-012's --workspace too");
-    let shim = launcher.with_file_name("init-shim");
-    let o = std::process::Command::new("/bin/bash")
-        .arg(&shim)
-        .args(["--workspace", "--plain"])
-        .current_dir(&proj)
-        .env_clear()
-        .env("HOME", &dir)
-        .env("PATH", "/usr/bin:/bin")
-        .env("INIT_ROOT_HOME", dir.join("rh"))
-        .env("INIT_HOME", dir.join("ih"))
-        .env("INIT_TUI", &stub)
-        .output()
-        .unwrap();
-    assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
-    assert!(String::from_utf8_lossy(&o.stderr).contains("this command is now init-agent"), "the shim names the new command");
-    let got = fs::read_to_string(&out).unwrap();
-    assert_eq!(got.trim(), format!("{}|--workspace --plain", fs::canonicalize(&proj).unwrap().display()), "the shim passes through");
     cleanup(&dir);
 }
 
@@ -571,7 +554,7 @@ fn usage_command_is_local_and_keeps_stop_guidance() {
     let o = run(&fx.rh, &["--plain", "--wait-idle", "--timeout", "10"], "/usage\n", 15);
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
     let out = text(&o);
-    assert!(out.contains("[usage] Root live ledger:"), "{out}");
+    assert!(out.contains("[usage] (USD estimated") && out.contains("  Root ledger  "), "{out}");
     assert!(out.contains("/stop stops the current run"), "{out}");
     assert!(!fx.received().iter().any(|r| r.frame["t"] == "line" && r.frame["text"] == "/usage"));
     cleanup(&fx.dir);
@@ -615,5 +598,25 @@ fn tuiux_line_mode_activity_and_turn_summaries() {
     assert!(!out.contains("Compiling"), "line mode prints no progress: {out}");
     let o = run(&fx.rh, &["--plain", "--verbose", "--wait-idle", "--timeout", "20"], "", 30);
     assert!(text(&o).contains("tokens: in 3000 (cached 2900), out 20"), "{}", text(&o));
+    cleanup(&fx.dir);
+}
+
+/// TUI-PICKER line mode (docs/tui.md §3.7.2): an agent question prints as a numbered prompt under the
+/// TUI's own `[agent asks]` label (the body's fallback text is not printed), a reply of a number goes
+/// out as that option's label, and any other line is the owner's own words, sent as typed.
+#[test]
+fn picker_line_mode_numbered_prompt() {
+    let fx = Fixture::start("pick");
+    fx.emit(json!({"boot_seq": 1, "kind": "info", "t": "display",
+        "text": "The agent asks: Which database?\n  1. Postgres\n  2. SQLite — one file\nReply with a number, the option, or your own words.",
+        "ask": {"header": "Database", "multi": false, "question": "Which database?",
+            "options": [{"label": "Postgres", "recommended": true}, {"description": "one file", "label": "SQLite"}]}}));
+    let o = run(&fx.rh, &["--plain", "--wait-idle", "--timeout", "10"], "2\nand 2 more things\n", 15);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let out = text(&o);
+    assert!(out.contains("[agent asks] Database: Which database?\n  1. Postgres (recommended)\n  2. SQLite — one file\n[agent asks] reply with a number from 1 to 2, or type your own answer\n"), "{out}");
+    assert!(!out.contains("The agent asks:"), "{out}");
+    let lines: Vec<String> = fx.received().iter().filter(|r| r.frame["t"] == "line").map(|r| r.frame["text"].as_str().unwrap_or("").to_string()).collect();
+    assert_eq!(lines, ["SQLite", "and 2 more things"]);
     cleanup(&fx.dir);
 }

@@ -2,7 +2,7 @@
 # Install INIT from a prebuilt release bundle; it installs the Rust toolchain itself (docs/ux-v1.md §3.2.3; lane UX-BUNDLE).
 #
 #   curl -fsSL "$INIT_DIST_URL/get.sh" | sh                       download the current bundle and install it
-#   sh scripts/get.sh --from init-v0.4.1-preview-macos-arm64.tar.gz [--sha256 HEX] [-- <install.sh args>]
+#   sh scripts/get.sh --from init-v0.5.0-preview-macos-arm64.tar.gz [--sha256 HEX] [-- <install.sh args>]
 #   (Linux: init-v<version>-linux-arm64.tar.gz on aarch64, init-v<version>-linux-x86_64.tar.gz on x86_64)
 #
 #   --from PATH|URL   a local bundle (.tar.gz) or a URL; default "$INIT_DIST_URL/init-v<version>-<target>.tar.gz", the
@@ -10,6 +10,11 @@
 #   --sha256 HEX      the bundle's expected sha256; default: the <bundle>.sha256 file next to it (or latest.json's)
 #   --unpack-only     verify and unpack, do not install
 #   --no-rust         skip the Rust toolchain (INIT then rewrites only its skills and prompts, tier T0)
+#   --upgrade         INIT is installed: upgrade it to this bundle (docs/guide.md "Upgrade"). The download, its check and
+#                     the unpacked copy go under ROOT_HOME/cache/upgrade/ (the agent cannot write ROOT_HOME in any access
+#                     mode), then that copy's scripts/install.sh --upgrade runs. No Rust step. `init-agent upgrade` runs
+#                     this; INIT 0.4.1 has no such command: curl -fsSL <get.sh URL> | sh -s -- --upgrade
+#   --version V       that release (tag v<V>) instead of the latest
 #   -- ARGS           passed to the bundle's scripts/install.sh, after --yes (for example --no-service, --disk-floor 10)
 #
 # Steps: macOS 14+ on Apple silicon or Linux on aarch64/x86_64, not root → download (curl) → sha256 → unpack into
@@ -27,15 +32,17 @@ set -eu
 umask 022
 
 DIST_URL="${INIT_DIST_URL:-https://github.com/nagisanzenin/INIT-Agent/releases/latest/download}"
-FROM=""; WANT=""; UNPACK_ONLY=0; NO_RUST=0
+FROM=""; WANT=""; UNPACK_ONLY=0; NO_RUST=0; UPGRADE=0; RELEASE=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) FROM="$2"; shift 2 ;;
     --sha256) WANT="$2"; shift 2 ;;
     --unpack-only) UNPACK_ONLY=1; shift ;;
     --no-rust) NO_RUST=1; shift ;;
+    --upgrade) UPGRADE=1; shift ;;
+    --version) RELEASE="$2"; shift 2 ;;
     --) shift; break ;;
-    -h|--help) sed -n '2,26p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,32p' "$0"; exit 0 ;;
     *) echo "get.sh: unknown argument $1 (see --help)" >&2; exit 64 ;;
   esac
 done
@@ -72,6 +79,19 @@ case "$(uname -s)" in
   *) die "INIT bundles exist for macOS and Linux only (this is $(uname -s); on Windows use WSL2, docs/platforms.md)" ;;
 esac
 APP="${INIT_APP_DIR:-$HOME/.local/share/init}"
+RH="${INIT_ROOT_HOME:-$HOME/.init-root}"
+case "$RELEASE" in
+  "") ;;
+  *[!0-9A-Za-z.-]*) die "--version takes a version such as 0.5.0 or 0.5.0-preview" ;;
+  *) [ -n "${INIT_DIST_URL:-}" ] || DIST_URL="https://github.com/nagisanzenin/INIT-Agent/releases/download/v${RELEASE#v}" ;;
+esac
+if [ $UPGRADE = 1 ]; then
+  [ -f "$RH/install.json" ] || die "INIT is not installed in $RH (no install.json): run this without --upgrade to install it"
+  [ -d "$RH/cache" ] && [ ! -L "$RH/cache" ] || die "$RH/cache is not a directory"
+  APP="$RH/cache/upgrade" # the download, its check and the unpacked release live where the zone cannot write
+elif [ -f "$RH/install.json" ] && [ $UNPACK_ONLY = 0 ]; then
+  die "INIT is already installed in $RH. Upgrade it instead, which keeps what INIT has become: init-agent upgrade (INIT 0.5.0 and later), or rerun this with --upgrade (curl -fsSL <get.sh URL> | sh -s -- --upgrade)"
+fi
 mkdir -p "$APP"
 say "INIT installer · $PLATFORM · $APP"
 
@@ -79,6 +99,35 @@ say "INIT installer · $PLATFORM · $APP"
 TMP="$(mktemp -d "$APP/.get.XXXXXX")"
 trap 'rm -rf -- "$TMP"' EXIT INT TERM
 fetch() { curl -fsSL --proto '=https' --tlsv1.2 --retry 2 "$1" -o "$2"; }
+tname() { # a bundle target as a platform name
+  case "$1" in
+    macos-arm64) echo "macOS 14+ on Apple silicon ($1)" ;; linux-arm64) echo "Linux aarch64 ($1)" ;;
+    linux-x86_64) echo "Linux x86_64 ($1)" ;; *) echo "$1" ;;
+  esac
+}
+no_bundle() { # <url> <http code>: the release has no bundle for this machine (until v0.5.0: every Linux x86_64 host)
+  HAVE=""
+  [ ! -f "$TMP/latest.json" ] || HAVE="$(sed -n 's/^ *"sha256_\([a-z0-9_-]*\)": .*/\1/p; s/^ *"target": "\([a-z0-9_-]*\)".*/\1/p' \
+    "$TMP/latest.json" | sort -u)"
+  case " $(echo $HAVE) " in *" $TARGET "*) # listed but missing: an upload in progress, or a broken release
+    die "$1 answered HTTP $2, although latest.json lists a $TARGET bundle; the release may still be uploading. Try again in a few minutes, or use --from <bundle.tar.gz>" ;;
+  esac
+  {
+    printf 'get.sh: there is no INIT bundle for this machine (%s, target %s) in this release:\n' "$PLATFORM" "$TARGET"
+    printf '  %s answered HTTP %s.\n' "$1" "$2"
+    if [ -n "$HAVE" ]; then
+      printf '  This release%s has bundles for:\n' "${LVER:+ (INIT $LVER)}"
+      for t in $HAVE; do printf '    %s\n' "$(tname "$t")"; done
+    fi
+    printf '  What you can do:\n'
+    printf '    - install on %s, or\n' "$([ -n "$HAVE" ] && echo 'one of the platforms above' || echo 'a platform the release page lists')"
+    printf '    - build from source here: clone the repository and run scripts/install.sh (Rust 1.97.1; on Linux also\n'
+    printf '      bubblewrap >= 0.13, docs/platforms.md section 3.4.0)%s, or\n' \
+      "$([ "$TARGET" = linux-x86_64 ] && echo '; on Linux x86_64 this compiles but is not tested yet')"
+    printf '    - run this installer again when a %s bundle is released: %s\n' "$TARGET" "${DIST_URL%/latest/download}"
+  } >&2
+  exit 1
+}
 case "$FROM" in
   http://*) die "refusing a plain-http URL: $FROM" ;;
   https://*|"")
@@ -97,7 +146,13 @@ case "$FROM" in
     fi
     FILE="$(basename "$FROM")"
     say "  downloading $FILE"
-    curl -fL --progress-bar --proto '=https' --tlsv1.2 --retry 2 "$FROM" -o "$TMP/$FILE" || die "download failed: $FROM"
+    CODE=0
+    HTTP="$(curl -fL --progress-bar --proto '=https' --tlsv1.2 --retry 2 -w '%{http_code}' "$FROM" -o "$TMP/$FILE")" || CODE=$?
+    case "$CODE/$HTTP" in
+      0/*) ;;
+      22/404|22/410) no_bundle "$FROM" "$HTTP" ;;
+      *) die "download failed: $FROM (curl exit $CODE, HTTP ${HTTP:-none}); check the connection, or use --from <bundle.tar.gz>" ;;
+    esac
     [ -n "$WANT" ] || { fetch "$FROM.sha256" "$TMP/$FILE.sha256" && WANT="$(cut -d' ' -f1 "$TMP/$FILE.sha256")"; } || true
     TGZ="$TMP/$FILE" ;;
   *)
@@ -129,6 +184,9 @@ DEST="$APP/$VERSION"
 if [ -e "$DEST" ]; then
   if cmp -s "$DEST/SHA256SUMS" "$TMP/x/$TOP/SHA256SUMS" && (cd "$DEST" && sha_check SHA256SUMS); then
     ok "INIT $VERSION is already unpacked in $DEST (verified)"
+  elif [ $UPGRADE = 1 ]; then # our own staging copy under ROOT_HOME/cache/upgrade/: replaced (exact path)
+    chmod -R u+w "$DEST" && rm -rf -- "$DEST" && mv "$TMP/x/$TOP" "$DEST" && chmod -R a-w "$DEST"
+    ok "unpacked INIT $VERSION in $DEST (replacing an older copy of it)"
   else
     die "$DEST exists and differs from this bundle; move it away (for example to the Trash), then run this again"
   fi
@@ -139,6 +197,11 @@ else
 fi
 say "  $(( $(date +%s) - T0 )) s so far"
 [ $UNPACK_ONLY = 0 ] || { say "Unpacked only. Install: $DEST/scripts/install.sh --yes"; exit 0; }
+if [ $UPGRADE = 1 ]; then
+  say ""
+  "$DEST/scripts/install.sh" --upgrade --yes "$@" || exit $?
+  exit 0
+fi
 
 # ---------------------------------------------------------------- the Rust toolchain INIT rebuilds itself with
 RUST_TC=1.97.1

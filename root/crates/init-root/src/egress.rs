@@ -13,6 +13,8 @@ mod money;
 mod tap;
 
 pub use classes::effective_actions;
+#[cfg(test)] // providers/tests.rs prices the seed's cache fixtures through the tap (v0.5.0 L3)
+pub(crate) use {classes::compile as tap_compile, tap::{Family as TapFamily, Tap as TapReader, Usage as TapUsage, musd as tap_musd}};
 pub use lane::{Caps, sealed_lane, twin_lane};
 pub use money::owner_day;
 
@@ -451,7 +453,12 @@ impl Egress {
             })
         };
         match admitted {
-            Ok(a) => self.forward(a, h, body, w, now),
+            Ok(a) => {
+                if let Some(root) = self.root.upgrade() {
+                    crate::goal::resumed(&root); // TUI-PICKER: the zone works again: a goal waiting on the owner runs again
+                }
+                self.forward(a, h, body, w, now)
+            }
             Err((family, r)) => self.refused(w, family, r, now),
         }
     }

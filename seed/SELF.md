@@ -28,6 +28,9 @@ main → boot → loop → provider | context | tools | ext_host → log
   runs delegate sub-tasks: same head, fresh message list, parallel (writers one at a time), bounded
   by INIT_DELEGATE_*, summary only, record in state/spill/ (skills/delegate). `src/ext_host/`: the
   Wasmtime host behind the `ext` tool.
+- `src/tools/ask.rs`: ask_owner. When I need the owner's decision, I offer choices as a picker
+  (ask_owner), recommended option first, instead of asking the owner to type an option back. My
+  turn ends there; the answer is the owner's next message.
 
 ## Absences (true by construction; keep them true)
 - I never link kernel code and never read vault/. I re-declare the few kernel JSON shapes I use.

@@ -205,6 +205,7 @@ impl K {
             level,
             text: text.to_string(),
             ts: ts(),
+            data: None,
         });
     }
 

@@ -22,7 +22,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 
 const USAGE: &str = "usage: init-tui [--root-home DIR] [--plain | --raw] [--no-replay] [--verbose] [--wait] [--wait-idle]
-                [--timeout S] [--full | --workspace] [--latency-report] [--version] [--help]
+                [--timeout S] [--full | --workspace] [--theme dark|light] [--latency-report] [--version] [--help]
 
   Access is full by default (ADR-012): the agent may read and write anywhere you can and use the
   network, except INIT's Root (~/.init-root, its service, INIT's launchers). The current directory
@@ -41,6 +41,8 @@ const USAGE: &str = "usage: init-tui [--root-home DIR] [--plain | --raw] [--no-r
                      when the charter sets sandbox.mode = \"workspace\"); /full off ends it
   --workspace        confine this session: write only the workspace and ~/.init, read your home
                      except secrets, no network but the model provider (/full on lifts it)
+  --theme dark|light colours for a dark or a light background (default: the terminal's answer to an
+                     OSC 11 query, else COLORFGBG, else dark)
   --latency-report   at exit, print latency histograms to stderr
 ";
 
@@ -57,6 +59,8 @@ struct Args {
     latency: bool,
     full: bool,
     workspace: bool,
+    /// TUI-BRAND: `--theme dark|light` overrides the background detection (§3.9a).
+    theme: Option<render::palette::Bg>,
     version: bool,
     help: bool,
 }
@@ -89,6 +93,13 @@ fn parse(argv: &[String]) -> Result<Args, String> {
             "--latency-report" => a.latency = true,
             "--full" => a.full = true,
             "--workspace" => a.workspace = true,
+            "--theme" => {
+                a.theme = Some(match val("--theme")?.as_str() {
+                    "dark" => render::palette::Bg::Dark,
+                    "light" => render::palette::Bg::Light,
+                    other => return Err(format!("--theme: dark or light, not {other}")),
+                })
+            }
             "--version" | "-V" => a.version = true,
             "--help" | "-h" => a.help = true,
             other => return Err(format!("unknown argument {other:?}")),
@@ -147,6 +158,13 @@ fn main() {
     let dumb = std::env::var("TERM").is_ok_and(|t| t == "dumb");
     let tty = std::io::stdin().is_terminal() && std::io::stdout().is_terminal();
     let line_mode = a.plain || a.raw || dumb || !tty;
+    // TUI-BRAND (§3.9a): the palette from the environment; `--theme` decides the background, else TTY
+    // mode asks the terminal (OSC 11) when it enters raw mode
+    if let Some(bg) = a.theme {
+        term::set_palette(render::palette::Palette { bg, ..term::detect_palette(false) });
+    } else if line_mode {
+        term::set_palette(term::detect_palette(false));
+    }
     // ADR-009: the cwd as the OS gives it; the Root canonicalizes and validates it.
     let cwd = std::env::current_dir().ok().map(|p| p.to_string_lossy().into_owned());
     let code = if line_mode {
@@ -191,6 +209,8 @@ mod tests {
         assert!(p(&["--timeout", "0"]).is_err());
         assert!(p(&["--root-home"]).is_err());
         assert!(p(&["--full"]).unwrap().full);
+        assert_eq!(p(&["--theme", "light"]).unwrap().theme, Some(crate::render::palette::Bg::Light));
+        assert!(p(&["--theme", "blue"]).is_err());
         assert!(!p(&[]).unwrap().full);
     }
 }

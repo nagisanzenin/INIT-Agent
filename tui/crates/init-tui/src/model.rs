@@ -678,7 +678,19 @@ pub enum Kind {
     TurnEnd(String),
     Info(String),
     Error(String),
-    Notice { class: Class, level: String, text: String },
+    /// `src` is the frame's stamp (`root`, `kernel`; `tui` for the TUI's own): the `[root]` tag is
+    /// drawn in the Root's colour only on a frame the Root stamped (TUI-BRAND).
+    Notice { class: Class, level: String, text: String, src: Option<String> },
+    /// TUI-BRAND: the notice before it arrived `n` times in a row (`↳ ×n in all`); open, and so in the
+    /// live region, while it is the newest block.
+    Repeat { n: u32, open: bool },
+    /// TUI-BRAND: the TUI's own key/value answer (`/usage`), drawn as an aligned table.
+    Table { title: String, rows: Vec<(String, String)> },
+    /// TUI-BRAND: the one-line identity at the first attach (`■■■□ INIT 0.5.0 · L0 · root ok`); the
+    /// level as the Root's greeting or status gave it.
+    Identity { level: Option<i64> },
+    /// TUI-OBSERVE: a self-change that ended (kept, refused, rolled back), one line (§3.10a).
+    Gate(Box<crate::render::gates::Run>),
     Divider(String),
     Retry,
 }
@@ -698,6 +710,7 @@ impl Block {
             Kind::Text { done, .. } => *done,
             Kind::Thinking { done, .. } => *done,
             Kind::Activity(a) => a.frozen.is_some(),
+            Kind::Repeat { open, .. } => !*open,
             _ => true,
         }
     }
@@ -705,10 +718,12 @@ impl Block {
         match &self.kind {
             Kind::Owner { text, .. } | Kind::TurnEnd(text) | Kind::Info(text) | Kind::Error(text) | Kind::Divider(text) => text.len(),
             Kind::Notice { text, .. } => text.len(),
+            Kind::Gate(r) => 256 + r.steps.len() * 64,
             Kind::Text { lines, .. } => lines.iter().map(|l| l.len() + 1).sum(),
             Kind::Thinking { text, .. } => text.len(),
             Kind::Activity(a) => a.bytes(),
-            Kind::Retry => 0,
+            Kind::Retry | Kind::Repeat { .. } | Kind::Identity { .. } => 0,
+            Kind::Table { title, rows } => title.len() + rows.iter().map(|(k, v)| k.len() + v.len()).sum::<usize>(),
         }
     }
 }
@@ -736,6 +751,10 @@ pub struct Transcript {
     bytes: usize,
     /// Set when a new block was added or one changed (for the renderer).
     pub dirty: bool,
+    /// TUI-OBSERVE: the self-changes in flight, drawn in the live region (§3.10a).
+    pub gates: crate::render::gates::Track,
+    /// TUI-BRAND (the liveness row): when the body's last display frame arrived.
+    pub last_display: Option<Instant>,
 }
 
 impl Transcript {
@@ -754,6 +773,10 @@ impl Transcript {
     }
 
     pub fn push(&mut self, kind: Kind, at_ms: i64) -> usize {
+        // a repeat counter closes (and can be printed) once anything follows it
+        if let Some(Block { kind: Kind::Repeat { open, .. }, .. }) = self.blocks.back_mut() {
+            *open = false;
+        }
         // the owner's next line, an error, a divider or the reply's text end the tool activity (§3.6)
         if matches!(kind, Kind::Error(_) | Kind::Divider(_)) {
             self.end_activity(Instant::now());
@@ -859,6 +882,22 @@ impl Transcript {
         }
     }
 
+    /// TUI-BRAND (the liveness row): when the thinking in progress began, in a block or between calls.
+    pub fn thinking_since(&self) -> Option<Instant> {
+        if let Some(Kind::Thinking { done: false, started, .. }) = self.open_thinking.and_then(|i| self.get(i)).map(|b| &b.kind) {
+            return Some(*started);
+        }
+        match self.open_act.and_then(|i| self.get(i)).map(|b| &b.kind) {
+            Some(Kind::Activity(a)) if a.frozen.is_none() => a.thinking,
+            _ => None,
+        }
+    }
+
+    /// TUI-BRAND (the liveness row): is a reply's text still streaming (its block open)?
+    pub fn writing(&self) -> bool {
+        self.open_text.and_then(|i| self.get(i)).is_some_and(|b| matches!(b.kind, Kind::Text { done: false, .. }))
+    }
+
     /// Is a tool activity running (for the spinner)?
     pub fn activity_live(&self) -> bool {
         self.open_act.and_then(|i| self.get(i)).is_some_and(|b| matches!(&b.kind, Kind::Activity(a) if a.frozen.is_none()))
@@ -900,6 +939,7 @@ impl Transcript {
     }
 
     pub fn display(&mut self, d: &Display, now: Instant, now_ms: i64) {
+        self.last_display = Some(now);
         if let Some(b) = d.boot_seq {
             if self.last_boot.is_some_and(|p| p != b) {
                 self.close_open(now);
@@ -1075,7 +1115,22 @@ impl Transcript {
 
     pub fn notice(&mut self, level: &str, text: &str, src: Option<&str>, code: Option<&str>, now_ms: i64) {
         let class = notice::classify(text, src, code);
-        self.push(Kind::Notice { class, level: level.to_string(), text: text.to_string() }, now_ms);
+        // TUI-BRAND: the same notice again and again (a Root alert retried every few seconds, a replay)
+        // is one line plus a live `↳ ×n in all`
+        let same = |k: &Kind| matches!(k, Kind::Notice { level: l, text: t, src: s, .. } if l == level && t == text && s.as_deref() == src);
+        let n = self.blocks.len();
+        if n >= 2 && same(&self.blocks[n - 2].kind)
+            && let Kind::Repeat { n: count, open: true } = &mut self.blocks[n - 1].kind
+        {
+            *count += 1;
+            self.dirty = true;
+            return;
+        }
+        if self.blocks.back().is_some_and(|b| same(&b.kind)) {
+            self.push(Kind::Repeat { n: 2, open: true }, now_ms);
+            return;
+        }
+        self.push(Kind::Notice { class, level: level.to_string(), text: text.to_string(), src: src.map(str::to_string) }, now_ms);
     }
 
     /// Blocks after the printed ones: the live region's content.

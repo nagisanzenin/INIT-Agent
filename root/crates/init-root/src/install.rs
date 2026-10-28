@@ -126,11 +126,16 @@ pub fn check_tools(git: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         if !Path::new("/usr/bin/unshare").exists() { return Err("/usr/bin/unshare is required for the Linux network namespace".into()); }
-        let out = Command::new(launcher).arg("--version").env_clear().output().map_err(|e| format!("{launcher}: {e}"))?;
-        let version = String::from_utf8_lossy(&out.stdout);
-        let parts: Vec<u32> = version.split_whitespace().last().unwrap_or("").split('.').take(3).map(|s| s.parse().unwrap_or(0)).collect();
-        if !out.status.success() || parts < vec![0, 13, 0] {
-            return Err(format!("bubblewrap >= 0.13.0 with verified fd-bind mounts is required ({})", version.trim()));
+        // The binaries the zone will run: the owner's root-owned copies under /usr/local/lib/init-agent when present
+        // (AppArmor-restricted Ubuntu; init_sandbox_profiles::entry), else /usr/bin's. Both must pass the same checks.
+        init_sandbox_profiles::entry::zone_entry("unshare")?;
+        for bwrap in [Path::new(launcher).to_path_buf(), init_sandbox_profiles::entry::zone_entry("bwrap")?] {
+            let out = Command::new(&bwrap).arg("--version").env_clear().output().map_err(|e| format!("{}: {e}", bwrap.display()))?;
+            let version = String::from_utf8_lossy(&out.stdout);
+            let parts: Vec<u32> = version.split_whitespace().last().unwrap_or("").split('.').take(3).map(|s| s.parse().unwrap_or(0)).collect();
+            if !out.status.success() || parts < vec![0, 13, 0] {
+                return Err(format!("bubblewrap >= 0.13.0 with verified fd-bind mounts is required ({}: {})", bwrap.display(), version.trim()));
+            }
         }
     }
     let out = Command::new(git).arg("--version").env_clear().output().map_err(|e| format!("{git}: {e}"))?;
@@ -368,8 +373,8 @@ pub fn install(p: &Paths, o: &Opts) -> Result<(), (u8, String)> {
 pub fn install_with(p: &Paths, o: &Opts, bo: &BundleOpts) -> Result<(), (u8, String)> {
     let e1 = |e: io::Error| (1u8, e.to_string());
     if p.r("install.json").exists() {
-        return Err((1, "already installed (install.json exists): uninstall first (scripts/uninstall.sh moves both homes to the Trash); \
-            an in-place upgrade is not supported yet".into()));
+        return Err((1, "already installed (install.json exists): upgrade it instead, which keeps the evolved body, the lineage, \
+            the keys and the charter (init-agent upgrade, or scripts/install.sh --upgrade from the new release)".into()));
     }
     check_paths(p, &[]).map_err(|m| (1, m))?;
     check_tools(&o.git).map_err(|m| (1, m))?;
@@ -448,6 +453,9 @@ pub fn install_with(p: &Paths, o: &Opts, bo: &BundleOpts) -> Result<(), (u8, Str
     let mut info = info;
     if let Some(b) = o.bin_dir.as_ref().filter(|b| b.is_absolute()) {
         info["bin_dir"] = json!(init_sandbox_profiles::access::resolve(b));
+    }
+    if let Some(rel) = &o.release {
+        info["release"] = crate::upgrade::release_id(rel); // what `upgrade` compares a new release with (no downgrade)
     }
     // 5 (end). the kernel config template: `[sandbox]` equal to install.json (the class rules compare them)
     if !p.i("kernel/config.toml").exists() {
@@ -622,7 +630,7 @@ fn copy_release(rel: &Path, p: &Paths, testkit: bool, test_mode: bool) -> io::Re
     Ok(())
 }
 
-fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
+pub(crate) fn copy_tree(from: &Path, to: &Path) -> io::Result<()> {
     if !from.is_dir() {
         return Ok(());
     }

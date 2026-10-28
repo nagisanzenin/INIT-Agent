@@ -1,24 +1,24 @@
 -- turn with cache @140
- L0 · turn in 238k out 1.0k · cache 99.6% · $0.004 · session cache 99.6% · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg              |.bbdddddddd................ddddddddd.....ddd......ddddddddddddddddddddddddd.................ddd.......ddd.................dddd              
+ busy 41 s · turn in 238k out 1.0k · cache 99.6% · $0.004 · +<$0.01 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg   L0 · root ok |..........mmmmmmmm................mmmmmmmmm.....mmm......mmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm.....mmmaaaaaaa 
 -- turn with cache @100
- L0 · turn in 238k out 1.0k · cache 99.6% · $0.004 · $1.23/$5.00 today · running                    |.bbdddddddd................ddddddddd.....ddd......ddd.................ddd.......                    
+ busy 41 s · turn in 238k out 1.0k · cache 99.6% · $0.004 · $1.23/$5.00 today          L0 · root ok |..........mmmmmmmm................mmmmmmmmm.....mmm......mmm.............................mmmaaaaaaa 
 -- turn with cache @80
- L0 · turn in 238k out 1.0k · cache 99.6% · $0.004 · $1.23/$5.00 today · running|.bbdddddddd................ddddddddd.....ddd......ddd.................ddd.......
+ busy 41 s · $1.23/$5.00 today                                     L0 · root ok |..........mmm........................................................mmmaaaaaaa 
 -- turn with cache @40
- L0 · $1.23/$5.00 today · running       |.bbddd.................ddd.......       
+ $1.23/$5.00 today         L0 · root ok |.............................mmmaaaaaaa 
 -- no cache field @140
- L0 · turn in 5 out 6 · cache ? · $0.000 · session cache ? · $1.23 live total est · live tokens ? · evo checks today $? est · running       |.bbdddddddd..........ddddddddd.ddd......ddddddddddddddddddddd....................ddddddddddddddddddddddddddddddddddddddddddddd.......       
+ busy 41 s · deepseek-flash · turn in 5 out 6 · cache ? · $0.000 · $1.23 live total est · body 3f9c0a1b2c4d lkg                L0 · root ok |..........mmmddddddddddddddmmmmmmmm..........mmmmmmmmm.mmm......mmm....................mmmmmmmmddddddddddddmmmm..................mmmaaaaaaa 
 -- no cache field @100
- L0 · turn in 5 out 6 · cache ? · $0.000 · $1.23 live total est · live tokens ? · running           |.bbdddddddd..........ddddddddd.ddd......ddd....................ddddddddddddddddddd.......           
+ busy 41 s · turn in 5 out 6 · cache ? · $0.000 · $1.23 live total est                 L0 · root ok |..........mmmmmmmm..........mmmmmmmmm.mmm......mmm.......................................mmmaaaaaaa 
 -- no cache field @80
- L0 · turn in 5 out 6 · cache ? · $0.000 · $1.23 live total est · running       |.bbdddddddd..........ddddddddd.ddd......ddd....................ddd.......       
+ busy 41 s · $1.23 live total est                                  L0 · root ok |..........mmm........................................................mmmaaaaaaa 
 -- no cache field @40
- L0 · $1.23 live total est · running    |.bbddd....................ddd.......    
+ $1.23 live total est      L0 · root ok |.............................mmmaaaaaaa 
 -- no token lines yet @140
- L0 · deepseek-flash · $1.23 live total est · live tokens ? · evo checks today $? est · /usage · /stop · running · body 3f9c0a1b2c4d lkg    |.bbdddddddddddddddddddd....................dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.......ddd.................dddd    
+ busy 41 s · deepseek-flash · $1.23 live total est · live tokens ? · evo checks today $? est · body 3f9c0a1b2c4d lkg           L0 · root ok |..........mmmddddddddddddddmmm....................mmmdddddddddddddmmmdddddddddddddddddddddddmmmmmmmmddddddddddddmmmm.............mmmaaaaaaa 
 -- no token lines yet @100
- L0 · $1.23 live total est · live tokens ? · evo checks today $? est · /usage · /stop · running     |.bbddd....................dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd.......     
+ busy 41 s · deepseek-flash · $1.23 live total est · body 3f9c0a1b2c4d lkg             L0 · root ok |..........mmmddddddddddddddmmm....................mmmmmmmmddddddddddddmmmm...............mmmaaaaaaa 
 -- no token lines yet @80
- L0 · $1.23 live total est · live tokens ? · evo checks today $? est · running  |.bbddd....................ddddddddddddddddddddddddddddddddddddddddddddd.......  
+ busy 41 s · $1.23 live total est · body 3f9c0a1b2c4d lkg          L0 · root ok |..........mmm....................mmmmmmmmddddddddddddmmmm............mmmaaaaaaa 
 -- no token lines yet @40
- L0 · $1.23 live total est · running    |.bbddd....................ddd.......    
+ $1.23 live total est      L0 · root ok |.............................mmmaaaaaaa 

@@ -142,10 +142,21 @@ What the code does today. Where it differs from the design below, this subsectio
     and moves it to the Trash.
   - **Live cgroup leaf:** on the same product path (a `Delegate=memory` user scope, the real kernel and body), the body
     instance ran in `w-<id>` with `memory.max = 4294967296` and `swap.max = 0`. The kernel ran in no leaf.
-- **Not verified:** x86_64 (all four workspaces pass `cargo check --all-targets --target x86_64-unknown-linux-gnu`,
-  but nothing ran on x86_64); real hardware or a VM
-  rather than Docker; Ubuntu with `kernel.apparmor_restrict_unprivileged_userns=1` (§3.4.6; Docker has no AppArmor
-  here); Fedora with SELinux; kernels older than 6.1; WSL2; a live provider on Linux.
+- **x86_64 (v0.5.0 L2, 2026-10-27; build/status/LINUX-X64.md):** `get.sh` on a machine whose bundle a release lacks
+  (every x86_64 host until one ships) prints the platforms the release has and what to do, instead of a bare
+  "download failed". `scripts/bundle.sh` builds `linux-x86_64` natively: the toolchain's host, the release's
+  `MANIFEST.json` host and every binary's header must be `x86_64-unknown-linux-gnu`, and the build host passes the
+  same install preflight (bubblewrap ≥ 0.13). The seccomp filter has an x86_64-only prelude: it kills a foreign
+  architecture and refuses x32 calls (`sys.rs` `linux_seccomp`). The M2's Docker has no amd64 emulation, so x86_64 runs on a
+  hosted ubuntu-24.04 runner (`ci/github/linux-x86_64.yml`, a private-repository trial). Measured 2026-10-27
+  (build/status/REL-050.md, run 40531517195 at the v0.5.0 candidate): the build, the Linux zone qualification (bwrap,
+  seccomp with the x32 guard, pidfd, memwatch) in a Debian 12 container, and `bundle.sh` with the prebuilt body built
+  in the Build zone and G1 all pass. On the runner itself (Ubuntu 24.04, AppArmor's userns restriction on), after
+  INIT's AppArmor step (§3.4.6): bundle-e2e hello and `--pause` pass (runs 40555482944, 40564579252). `--t2` found two
+  bugs, both fixed: the kernel's build disk floor read the zone's tmpfs (every promote `E_DISK`), and a race in the
+  body test `t22_task_id` refused G0; G0-G3 on x86_64 is not re-run after the second fix.
+- **Not verified:** T2 (G0-G3) on x86_64 (above); real hardware or a VM
+  rather than Docker; Ubuntu 25.04 and later with INIT's AppArmor step (§3.4.6); Fedora with SELinux; kernels older than 6.1; WSL2; a live provider on Linux.
 - **bubblewrap floor: 0.13.0** at `/usr/bin/bwrap` (`install.rs` `check_tools`; fd-pinned `--bind-fd`/`--ro-bind-fd`
   binds). This is above the 0.8.0 of §3.4.1. No distro LTS ships 0.13 yet, so install it from the upstream release:
   `curl -LO https://github.com/containers/bubblewrap/releases/download/v0.13.0/bubblewrap-0.13.0.tar.xz`, verify its
@@ -204,7 +215,7 @@ What the code does today. Where it differs from the design below, this subsectio
 
 | Distro | Kernel → Landlock ABI | bwrap | v1.0 |
 |---|---|---|---|
-| Ubuntu 24.04 LTS | 6.8 → 4 | 0.9.0 | supported, after the AppArmor step (§3.4.6) |
+| Ubuntu 24.04 LTS | 6.8 → 4 | 0.9.0 | supported, after INIT's AppArmor step (§3.4.6) |
 | Ubuntu 26.04 LTS | 7.0 → 8 | newer; the `bwrap-userns-restrict` profile ships with apparmor | supported |
 | Ubuntu 22.04 LTS | 5.15 → 1 | 0.6.1 | **refused in v1.0** (bwrap < 0.8.0). v1.0.x may accept 0.6.x once PL-L12 shows that the zone seccomp namespace denies of §3.4.3 alone stop nested user namespaces |
 | Debian 12 | 6.1 → 2 | 0.8.0 | supported |
@@ -317,24 +328,42 @@ Proposed additions to COMMON for every OS (cross-doc to ADR-009, §9.1 X3), foun
 | Secret Service | `secret-tool` exists and a lookup of a sentinel attribute returns within 2 s | keystore `secret-service`, else `file` |
 | reflink | a `FICLONE` of a 1-byte scratch file under `ROOT_HOME` | snapshot objects `reflink`, else `copy` |
 
-When the namespace probe fails and the sysctl reads 1, `doctor` prints exactly this (copy id `ux.sandbox`, Linux variant):
+**The AppArmor step (v0.5.0, REL-050).** The zone creates user namespaces twice: util-linux `unshare` (the outer stage,
+which keeps the network namespace without configuring `lo`), then bubblewrap inside it (root/sandbox-profiles/src/linux.rs
+`foundation`). When the probes fail and `kernel.apparmor_restrict_unprivileged_userns` reads 1, `install.sh` prints
+these commands (also `scripts/install.sh --print-apparmor`; `<gid>` is your group id) and stops; with `--apparmor` it
+asks `Run these commands now with sudo? [Y/n]` and runs them. INIT never runs sudo otherwise.
 
 ```
-INIT can't start its sandbox: Ubuntu's AppArmor blocks user namespaces for bubblewrap
-(kernel.apparmor_restrict_unprivileged_userns = 1). INIT never runs without its sandbox.
-
-Fix it once (needs your password; INIT never runs sudo itself):
-  Ubuntu 25.04 and later:  sudo systemctl reload apparmor
-  Ubuntu 24.04:            sudo apt install apparmor-profiles
-                           sudo cp /usr/share/apparmor/extra-profiles/bwrap-userns-restrict /etc/apparmor.d/
-                           sudo apparmor_parser -r /etc/apparmor.d/bwrap-userns-restrict
-Weaker alternative (affects every program on this computer):
-  sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
-Then run: init doctor
+sudo install -d -o root -g root -m 0755 /usr/local/lib/init-agent
+sudo install -o root -g <gid> -m 0750 /usr/bin/unshare /usr/local/lib/init-agent/unshare
+sudo install -o root -g <gid> -m 0750 /usr/bin/bwrap /usr/local/lib/init-agent/bwrap
+printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile init-agent-unshare /usr/local/lib/init-agent/unshare flags=(unconfined) {' '  userns,' '}' 'profile init-agent-bwrap /usr/local/lib/init-agent/bwrap flags=(unconfined) {' '  userns,' '}' | sudo tee /etc/apparmor.d/init-agent >/dev/null
+sudo apparmor_parser -r /etc/apparmor.d/init-agent
 ```
 
-- The purpose-built `bwrap-userns-restrict` profile is preferred over a broad `userns,` profile, which Canonical calls "a trivial bypass", and over the sysctl. It is tied to `/usr/bin/bwrap`, which is why INIT uses the distro's bwrap and never bundles one.
-- UNVERIFIED: the profile's path inside `apparmor-profiles` on 24.04, and that the profile's limits on bwrap's children leave INIT's inner stage working. INIT needs no capability inside the namespace (`--cap-drop ALL`; Landlock and seccomp are unprivileged under `no_new_privs`), so it should. PL-L9 runs all three options on a hosted ubuntu-24.04 runner, which is a disposable VM where changing the sysctl is allowed.
+- **What it grants.** The profile `/etc/apparmor.d/init-agent` attaches to the two root-owned copies only and grants
+  them `userns`, nothing else: Ubuntu's documented way for an application that needs user namespaces (an
+  unconfined-mode profile with a `userns` rule). `/usr/bin/unshare`, `/usr/bin/bwrap` and every other program stay
+  restricted. The copies are mode 0750 with your group, so other users of the computer cannot run them. Inside the zone
+  nothing changes: bwrap's `--disable-userns` and the zone's seccomp filter still refuse every new namespace.
+- **Why root-owned, and how the Root checks it.** AppArmor attaches by path, so whoever can replace a file at that path
+  inherits the grant. The Root uses a copy only when its canonical file is a regular file owned by root and writable by
+  root alone, and so is every directory above it (`init-sandbox-profiles` `entry.rs`); a copy that fails the check
+  refuses the zone, it is never skipped for `/usr/bin`'s. With no copies the zone uses `/usr/bin/unshare` and
+  `/usr/bin/bwrap`, as before. `install.sh` runs the same check first.
+- **Why not Ubuntu's own profiles.** Measured on a GitHub-hosted ubuntu-24.04 runner (2026-10-27, kernel
+  7.0.0-1017-azure, x86_64; build/status/REL-050.md, run 40539083132): as shipped, both probes fail
+  (`bwrap: setting up uid map: Permission denied`; `unshare: write failed /proc/self/uid_map`). With
+  `apparmor-profiles`' `bwrap-userns-restrict` loaded, bwrap passes and `unshare` still fails. With
+  `unshare-userns-restrict` added (it ships in the same package), both pass on their own, but bwrap started inside
+  `unshare` is refused (`No permissions to create a new namespace`): that profile confines `unshare`'s children, and
+  INIT's zone is exactly such a child. So no combination of Ubuntu's profiles runs the zone.
+- **What INIT does not ask for.** Setting `kernel.apparmor_restrict_unprivileged_userns=0` would lift the restriction
+  for every program on the computer. INIT never asks for it, in its messages or its docs.
+- **After updating bubblewrap or util-linux**, run the commands again (the copies are taken at that moment).
+  `uninstall.sh` prints the commands that remove the copies and the profile (`--apparmor` runs them after asking).
+- **Ubuntu 25.04 and later** (UNVERIFIED): the same step is expected to apply.
 - Inside unprivileged containers (Docker without `--privileged`) bwrap cannot mount `/proc`. INIT treats that as a failed probe; it never falls back to sharing the host's `/proc` (Claude Code's `enableWeakerNestedSandbox`).
 - **No degraded mode.** Without user namespaces there is no mount or network namespace. A Landlock-plus-seccomp mode could block IP sockets, but it cannot stop `connect` to pathname sockets such as `docker.sock` before Landlock ABI 9 (Linux 7.1), which no LTS kernel has. INIT refuses instead of offering it, and never fails open.
 

@@ -469,15 +469,47 @@ pub struct A3Job {
 /// the promote job's cache (`cache/gate/<job>/`, which holds the built binary) is removed after it.
 pub fn a3_after_live(env: &Arc<Env>, j: A3Job) {
     let env = env.clone();
+    let stop = a3_register(&env.home, j.group);
     let _ = std::thread::Builder::new().name(format!("a3-{}", j.job)).spawn(move || {
         let binary = j.built.as_ref().map(|b| b.binary.clone()).unwrap_or_else(|| PathBuf::from("/nonexistent/a3-no-binary"));
         let (group, scope) = (j.group, j.scope.change_scope());
-        let out = super::stages::a3(&env, &format!("{}-a3", j.job), scope, &j.sha, &binary, &j.g0, |r| veto(&env, group, r));
+        let out = super::stages::a3(&env, &format!("{}-a3", j.job), scope, &j.sha, &binary, &j.g0, &stop, |r| veto(&env, group, r));
+        a3_unregister(&stop);
         let line = json!({"job": j.job, "group": group, "sha": j.sha, "scope": scope, "pass": out.pass, "reason": out.reason,
                           "veto": out.veto.as_ref().map(|v| v.as_ref().map(|_| "sent").unwrap_or_else(|e| e.as_str())), "record": out.record});
         env.lineage.local("a3", line);
         super::pipeline::cleanup_job(&env, &j.job);
     });
+}
+
+/// The stop flags of the A3 runs in flight, by home and change group.
+type A3Stops = Vec<(PathBuf, u64, Arc<AtomicBool>)>;
+static A3_STOPS: Mutex<A3Stops> = Mutex::new(Vec::new());
+
+/// A new A3 run of `group`: its stop flag.
+pub fn a3_register(home: &Path, group: u64) -> Arc<AtomicBool> {
+    let stop = Arc::new(AtomicBool::new(false));
+    A3_STOPS.lock().unwrap_or_else(|e| e.into_inner()).push((home.to_path_buf(), group, stop.clone()));
+    stop
+}
+
+fn a3_unregister(stop: &Arc<AtomicBool>) {
+    A3_STOPS.lock().unwrap_or_else(|e| e.into_inner()).retain(|(_, _, s)| !Arc::ptr_eq(s, stop));
+}
+
+/// The Root rolls `groups` back (`extend.rollback`): stop their A3 runs in `home`, whose G3 would
+/// otherwise keep building for a change that is gone (demo 2026-10-25, F7). Returns how many.
+pub fn stop_a3(home: &Path, groups: &[u64]) -> usize {
+    let g = A3_STOPS.lock().unwrap_or_else(|e| e.into_inner());
+    let same = |h: &Path| h == home || (h.canonicalize().ok().is_some() && h.canonicalize().ok() == home.canonicalize().ok());
+    let mut n = 0;
+    for (h, group, stop) in g.iter() {
+        if groups.contains(group) && same(h) {
+            stop.store(true, Ordering::SeqCst);
+            n += 1;
+        }
+    }
+    n
 }
 
 /// `change.veto{group, reason}` (H12): the zone asks the Root to roll the group back.
@@ -577,5 +609,20 @@ mod tests {
         assert_eq!(t.groups.iter().filter(|g| g.state != "open").count(), KEEP_CLOSED);
         assert!(t.get(4).is_some(), "open groups are never pruned");
         crate::testutil::remove_test_dir(&dir);
+    }
+
+    /// F7: the Root's rollback of a group stops that group's A3 in that home, and only it.
+    #[test]
+    fn f7_stop_a3_hits_only_the_rolled_back_groups() {
+        let (h1, h2) = (Path::new("/nonexistent/f7-a"), Path::new("/nonexistent/f7-b"));
+        let (a, b, c) = (a3_register(h1, 7), a3_register(h1, 8), a3_register(h2, 7));
+        assert_eq!(stop_a3(h1, &[7, 9]), 1);
+        assert!(a.load(Ordering::SeqCst) && !b.load(Ordering::SeqCst) && !c.load(Ordering::SeqCst));
+        a3_unregister(&a);
+        assert_eq!(stop_a3(h1, &[7]), 0, "a finished run is no longer stopped");
+        assert_eq!(stop_a3(h2, &[7, 8]), 1);
+        assert!(c.load(Ordering::SeqCst) && !b.load(Ordering::SeqCst));
+        a3_unregister(&b);
+        a3_unregister(&c);
     }
 }

@@ -96,11 +96,32 @@ pub struct Goal {
     pub since: i64,
     pub used_rounds: u64,
     pub since_checkin: u64,
+    /// TUI-PICKER: when the agent asked the owner a question (`ask_owner`) that is not answered yet. The wall clock
+    /// stops here, and runs again at the next owner line or zone egress request ([`resumed`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waiting_since: Option<i64>,
 }
 
 impl Goal {
     fn wall_ms(&self, now: i64) -> i64 {
-        self.active_ms + if self.state == "active" { now - self.since } else { 0 }
+        self.active_ms + if self.state == "active" { self.waiting_since.unwrap_or(now) - self.since } else { 0 }
+    }
+    /// Banks the active time before a pause or a stop (a wait in progress is not counted).
+    fn bank(&mut self, now: i64) {
+        self.active_ms = self.wall_ms(now);
+        self.waiting_since = None;
+    }
+    /// TUI-PICKER: the agent asked the owner: an active goal's wall clock stops.
+    fn wait(&mut self, now: i64) {
+        if self.state == "active" && self.waiting_since.is_none() {
+            self.waiting_since = Some(now);
+        }
+    }
+    /// The owner wrote, or the zone made a request: the clock runs again; the wait is not the goal's time.
+    fn unwait(&mut self, now: i64) {
+        if let Some(w) = self.waiting_since.take() {
+            self.since += now.max(w) - w;
+        }
     }
     /// The first budget spent; `rounds` too when a new round is asked for (a turn never ends a goal on rounds: the
     /// last round's readings still complete).
@@ -375,7 +396,7 @@ fn goal_rec(g: &Goal, op: &str, by: &str) -> Value {
 pub fn set(root: &Root, intent: &str, mut g: Goal) -> Result<Value, Err3> {
     let (r, _) = with(root, |st, out, now| {
         if let Some(a) = active(st) {
-            a.active_ms += now - a.since;
+            a.bank(now);
             a.state = "paused".into();
             let rec = goal_rec(a, "pause", "owner");
             out.push(Out::Append("goal", rec));
@@ -401,12 +422,15 @@ fn owner_op(root: &Root, op: &str) -> Result<Value, Err3> {
     Ok(with(root, |st, out, now| {
         let g = st.goals.iter_mut().rev().find(|g| g.state != "stopped").ok_or_else(|| no("root.not_found", "no goal (set one: /goal \"<intent>\")"))?;
         match op {
-            "pause" if g.state == "active" => (g.active_ms, g.state) = (g.active_ms + now - g.since, "paused".into()),
+            "pause" if g.state == "active" => {
+                g.bank(now);
+                g.state = "paused".into();
+            }
             "resume" | "continue" if g.state == "paused" => (g.since, g.state) = (now, "active".into()),
             "continue" => {}
             "stop" => {
                 if g.state == "active" {
-                    g.active_ms += now - g.since;
+                    g.bank(now);
                 }
                 g.state = "stopped".into();
             }
@@ -509,7 +533,8 @@ fn status(root: &Root) -> Result<Value, Err3> {
             let every = checkin_rounds(cal.get(&g.kind).copied());
             json!({"budget": {"rounds": g.rounds, "usd_musd": g.usd_musd, "wall_s": g.wall_s}, "checkin_every": every,
                 "rounds_before_checkin": every.saturating_sub(g.since_checkin), "done": g.done, "guard": g.guard, "id": g.id, "intent": intent,
-                "kind": g.kind, "spent": {"musd": g.spent_musd, "rounds": g.used_rounds, "wall_s": g.wall_ms(now) / 1000}, "state": g.state})
+                "kind": g.kind, "spent": {"musd": g.spent_musd, "rounds": g.used_rounds, "wall_s": g.wall_ms(now) / 1000}, "state": g.state,
+                "waiting_owner": g.waiting_since.is_some()})
         });
         Ok(json!({"calibration": cal.iter().map(|(k, (n, b))| (k.clone(), json!({"brier_ppm": b, "n": n}))).collect::<serde_json::Map<_, _>>(),
             "cards": CARDS.iter().map(|c| json!({"id": c.id, "lower_better": c.lower_better, "unit": c.unit})).collect::<Vec<_>>(),
@@ -664,7 +689,7 @@ fn stop(root: &Root, a: &Value) -> Result<Value, Err3> {
         // `met_unattributed`: the threshold is reached, but no registered change moved the card beyond noise as predicted
         let reason = if matches!(attributed, Some(Value::Null)) { "met_unattributed" } else { reason };
         if g.state == "active" {
-            g.active_ms += now - g.since;
+            g.bank(now);
         }
         g.state = "stopped".into();
         let mut rec = goal_rec(g, "stop", "agent");
@@ -726,11 +751,51 @@ fn budget_stop(st: &mut State, out: &mut Vec<Out>, now: i64) {
     if let Some(g) = active(st)
         && let Some(hit) = g.budget_hit(now, false)
     {
-        (g.active_ms, g.state) = (g.active_ms + now - g.since, "stopped".into());
+        g.bank(now);
+        g.state = "stopped".into();
         let mut rec = goal_rec(g, "stop", "root");
         (rec["reason"], rec["budget"]["hit"]) = (json!("budget"), json!(hit));
         out.push(Out::Append("goal", rec));
         out.push(Out::Alert("goal_budget", format!("[root] goal {} stopped: its {hit} budget is spent", g.id)));
+    }
+}
+
+/// Reads `state.json` (no write) and asks `f` of its goals: the cheap check before a change.
+fn any_goal(root: &Root, f: impl Fn(&Goal) -> bool) -> bool {
+    let _g = lock(guard_lock());
+    std::fs::read_to_string(root.p.r("state/goals/state.json")).ok().and_then(|s| serde_json::from_str::<State>(&s).ok())
+        .is_some_and(|st| st.goals.iter().any(f))
+}
+
+/// TUI-PICKER: the Root relayed an agent question (a kernel `display` frame with `ask`, sent by the body's `ask_owner`).
+/// The active goal's wall clock stops until [`resumed`]: the goal waits on the owner and must not spend its time budget
+/// meanwhile. Money, tokens and rounds are untouched.
+pub fn asked(root: &Root) {
+    if !any_goal(root, |g| g.state == "active" && g.waiting_since.is_none()) {
+        return;
+    }
+    if let Err((_, m, _)) = with(root, |st, _, now| {
+        if let Some(g) = active(st) {
+            g.wait(now);
+        }
+        Ok(())
+    }) {
+        util::log(&root.p.rh, "error", &format!("goal: asked: {m}"));
+    }
+}
+
+/// TUI-PICKER: an owner line arrived, or the egress admitted a zone request: a waiting goal's clock runs again. The
+/// request case makes the pause unforgeable: a question that is not really waiting (the agent keeps calling models)
+/// buys no wall time.
+pub fn resumed(root: &Root) {
+    if !any_goal(root, |g| g.waiting_since.is_some()) {
+        return;
+    }
+    if let Err((_, m, _)) = with(root, |st, _, now| {
+        st.goals.iter_mut().for_each(|g| g.unwait(now));
+        Ok(())
+    }) {
+        util::log(&root.p.rh, "error", &format!("goal: resumed: {m}"));
     }
 }
 
@@ -752,6 +817,7 @@ pub fn egress_spent(root: &Root, cost_musd: u64) {
     }
     let r = with(root, |st, out, now| {
         if let Some(g) = active(st) {
+            g.unwait(now); // a model request ran: the agent is not waiting (also resumed at admission)
             g.spent_musd += cost_musd;
         }
         budget_stop(st, out, now);

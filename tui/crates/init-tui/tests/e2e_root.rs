@@ -285,7 +285,7 @@ fn tui_r_real_root_session() {
     // ---- TTY mode through a pty: TUI-R1, TUI-R3 ----
     let mut t = Drive::start(&h.rh);
     t.raw_log = Some(raw_log.clone());
-    t.ok(json!(["wait", "running", 15]));
+    t.ok(json!(["wait", "root ok", 15]));
     t.ok(json!(["wait", "L1", 5]));
     t.ok(json!(["mark"]));
     t.ok(json!(["typing", "hello root", 0.02]));
@@ -306,7 +306,7 @@ fn tui_r_real_root_session() {
         h.owner("test.append", json!({"records": [hit.clone(), hit.clone(), hit]}));
     }
     wait(15, "the demotion", || h.status()["level"] == 0);
-    t.ok(json!(["wait", "▼ [root] demoted L1→L0", 10]));
+    t.ok(json!(["wait", "demoted L1→L0", 10]));
     t.ok(json!(["wait", "L0\u{1b}[", 10])); // the status bar's level (the notice text has no escape after it)
     // /panic: PANICKED in the status bar within 1 s
     t.ok(json!(["mark"]));
@@ -318,7 +318,7 @@ fn tui_r_real_root_session() {
     t.ok(json!(["mark"]));
     t.ok(json!(["type", "/resume\r"]));
     h.slot_is(30, "running");
-    t.ok(json!(["wait", "running", 10]));
+    t.ok(json!(["wait", "root ok", 10]));
     t.ok(json!(["type", "\u{3}"]));
     t.ok(json!(["type", "\u{3}"]));
     let s = t.exit(10);
@@ -595,18 +595,18 @@ fn uxk_first_run_setup_key_model_then_chat() {
     const KEY: &str = "test-uxk-first-run-7f7f7f7f";
     let mut t = Drive::start(&h.rh);
     t.ok(json!(["wait", "Choose a model provider", 15]));
-    t.ok(json!(["wait", "experimental (not live-tested)", 5]));
+    t.ok(json!(["wait", "recommended", 5])); // TUI-PICKER: a picker, DeepSeek first and focused
     t.ok(json!(["mark"]));
-    t.ok(json!(["type", "1\r"]));
+    t.ok(json!(["type", "\r"]));
     t.ok(json!(["wait", "Paste the DeepSeek API key", 10]));
     t.ok(json!(["typing", KEY, 0.005]));
     t.ok(json!(["wait", "••••", 5])); // the box shows a mask
     t.ok(json!(["mark"]));
     t.ok(json!(["type", "\r"]));
     t.ok(json!(["wait", "key stored for deepseek", 10]));
-    t.ok(json!(["wait", "Choose a model (Enter", 5]));
+    t.ok(json!(["wait", "Choose a DeepSeek model", 5]));
     t.ok(json!(["mark"]));
-    t.ok(json!(["type", "2\r"]));
+    t.ok(json!(["type", "\u{1b}[B\r"])); // Down, Enter: deepseek-v4-pro
     t.ok(json!(["wait", "model deepseek/deepseek-v4-pro", 20]));
     let kp = h.rh.join("keys/providers/deepseek");
     assert_eq!(fs::read_to_string(&kp).unwrap(), KEY);
@@ -623,12 +623,12 @@ fn uxk_first_run_setup_key_model_then_chat() {
     t.ok(json!(["typing", "hello after setup", 0.01]));
     t.ok(json!(["type", "\r"]));
     t.ok(json!(["wait", "body: hello after setup", 20]));
-    // /model: the list, then a pick by number
+    // /model: the picker (the current model first), then a pick by number
     t.ok(json!(["mark"]));
     t.ok(json!(["type", "/model\r"]));
     t.ok(json!(["wait", "deepseek/deepseek-flash", 10]));
     t.ok(json!(["mark"]));
-    t.ok(json!(["type", "1\r"]));
+    t.ok(json!(["type", "2"]));
     t.ok(json!(["wait", "model deepseek/deepseek-flash", 10]));
     h.slot_is(30, "running");
     // /clear is /new: the kernel receives "/new"

@@ -85,6 +85,16 @@ pub trait Supervise: Send + Sync {
     }
     /// A kernel notice to the body (`gate` stage events).
     fn notice(&self, kind: &str, data: Value);
+    /// TUI-OBSERVE: the same notice with `owner`'s fields added to the owner's copy only (the body
+    /// gets `data` unchanged). Default: the plain notice.
+    fn notice_owner(&self, kind: &str, data: Value, owner: Value) {
+        let _ = owner;
+        self.notice(kind, data);
+    }
+    /// TUI-OBSERVE: an event for the owner channel only (`gate_start`), never to the body. Default: none.
+    fn owner_event(&self, kind: &str, data: Value) {
+        let _ = (kind, data);
+    }
     /// A promotion without a handoff (supervise.md §3.6.8, T0/T1 data): `main` moves, the version
     /// becomes LKG at once (`p.lkg`) or provisional. Blocks until the supervisor has done it.
     fn data_only(&self, p: crate::supervisor::DataOnly) -> Result<(), String> {
@@ -158,7 +168,13 @@ impl Supervise for crate::supervisor::Handle {
         })
     }
     fn notice(&self, kind: &str, data: Value) {
-        self.send(crate::supervisor::Cmd::Notice { kind: kind.into(), data });
+        self.send(crate::supervisor::Cmd::Notice { kind: kind.into(), data, owner: Value::Null });
+    }
+    fn notice_owner(&self, kind: &str, data: Value, owner: Value) {
+        self.send(crate::supervisor::Cmd::Notice { kind: kind.into(), data, owner });
+    }
+    fn owner_event(&self, kind: &str, data: Value) {
+        self.send(crate::supervisor::Cmd::OwnerEvent { kind: kind.into(), data });
     }
     fn data_only(&self, p: crate::supervisor::DataOnly) -> Result<(), String> {
         let (tx, rx) = std::sync::mpsc::channel();

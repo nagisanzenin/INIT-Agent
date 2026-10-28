@@ -33,6 +33,7 @@ mod sys; // FFI
 mod testfix; // fake clock and test ledgers (root/root.md §3.16), test builds only
 mod tuple; // R1: tuples, the blob store, pointers, rollback targets (WP21)
 mod twin; // ADR-011 Evaluation plan (X9): the frozen twin, the nightly shadow replay, twin_report, twin.json
+mod upgrade; // lane UPGRADE (v0.5.0): `init-root upgrade`, the owner's stop-then-replace upgrade to a new release
 mod util;
 mod zone; // R1 spawn broker (WP21)
 

@@ -1,0 +1,32 @@
+== 100x10 ==
+■■■□ INIT 0.5.0 · L0 · root ok                                                                      |...w.....ddddddmmm..mmmaaaaaaa                                                                      
+[root] attached: slot running, level L0, 0 queued. Type /panic to stop everything, /root help for   |aaaaaa.dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd   
+more.                                                                                               |ddddd                                                                                               
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Type a message · / for commands · ? for keys                                                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ deepseek-flash · +$0.00 since attach · $1.23/$5.00 today                     L0 (cap L1) · root ok |.ddddddddddddddmmmdddddddddddddddddddmmm.................................................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
+cursor 4,4
+== 60x10 ==
+■■■□ INIT 0.5.0 · L0 · root ok                              |...w.....ddddddmmm..mmmaaaaaaa                              
+[root] attached: slot running, level L0, 0 queued. Type     |aaaaaa.dddddddddddddddddddddddddddddddddddddddddddddddd     
+/panic to stop everything, /root help for more.             |ddddddddddddddddddddddddddddddddddddddddddddddd             
+┌──────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Type a message · / for commands · ? for keys           │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..........ll
+└──────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ +$0.00 since attach · $1.23/$5.00 today       L0 · root ok |.dddddddddddddddddddmmm..........................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,4
+== 30x10 ==
+■■■□ INIT 0.5.0 · L0 · root ok|...w.....ddddddmmm..mmmaaaaaaa
+[root] attached: slot running,|aaaaaa.ddddddddddddddddddddddd
+level L0, 0 queued. Type      |dddddddddddddddddddddddd      
+/panic to stop everything,    |dddddddddddddddddddddddddd    
+/root help for more.          |dddddddddddddddddddd          
+┌────────────────────────────┐|llllllllllllllllllllllllllllll
+│ › Type a message · / for … │|llmmmmmmmmmmmmmmmmmmmmmmmmmdll
+└────────────────────────────┘|llllllllllllllllllllllllllllll
+                 L0 · root ok |...................mmmaaaaaaa 
+ Enter send · Shift-Enter new…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,6

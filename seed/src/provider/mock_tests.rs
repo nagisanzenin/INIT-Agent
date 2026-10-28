@@ -291,7 +291,7 @@ const META: &str = r#"{"v":1,"kind":"meta","provider":"deepseek","model":"deepse
 fn mock_full_turn_strict_reasoning_round_trip() {
     let script = [
         META,
-        r#"{"v":1,"kind":"turn","expect":{"last_role":"user","last_text_contains":"Fix","tools":["bash","delegate","edit","ext","read","write"]},"reply":{"think":"Run the tests first, then read the file.","text":"","calls":[{"name":"bash","input":{"command":"cargo test"}},{"name":"read","input":{"path":"src/lib.rs"}}],"stop":"tool_use","usage":{"input":12034,"cache_read":11776,"output":31}}}"#,
+        r#"{"v":1,"kind":"turn","expect":{"last_role":"user","last_text_contains":"Fix","tools":["ask_owner","bash","delegate","edit","ext","read","write"]},"reply":{"think":"Run the tests first, then read the file.","text":"","calls":[{"name":"bash","input":{"command":"cargo test"}},{"name":"read","input":{"path":"src/lib.rs"}}],"stop":"tool_use","usage":{"input":12034,"cache_read":11776,"output":31}}}"#,
         r#"{"v":1,"kind":"turn","expect":{"last_role":"tool","prefix":"same"},"reply":{"think":"The sign is wrong.","text":"Fixed the sign in add().","stop":"end_turn"}}"#,
         r#"{"v":1,"kind":"turn","expect":{"last_role":"user","last_text_contains":"Commit","prefix":"same"},"reply":{"think":"Commit.","text":"Committed.","stop":"end_turn"}}"#,
     ]
@@ -1076,7 +1076,7 @@ fn mock_full_turn_anthropic_and_openai() {
     for (provider, model) in [("anthropic", "claude-opus-5-5"), ("openai", "gpt-6-astra")] {
         let script = [
             format!(r#"{{"v":1,"kind":"meta","provider":"{provider}","model":"{model}","name":"wp10-{provider}","chunk":5}}"#),
-            r#"{"v":1,"kind":"turn","expect":{"last_role":"user","tools":["bash","delegate","edit","ext","read","write"]},"reply":{"think":"plan","text":"Listing.","calls":[{"name":"bash","input":{"command":"ls -la"}}],"stop":"tool_use","usage":{"input":900,"cache_read":800,"cache_write":50,"output":12}}}"#.to_string(),
+            r#"{"v":1,"kind":"turn","expect":{"last_role":"user","tools":["ask_owner","bash","delegate","edit","ext","read","write"]},"reply":{"think":"plan","text":"Listing.","calls":[{"name":"bash","input":{"command":"ls -la"}}],"stop":"tool_use","usage":{"input":900,"cache_read":800,"cache_write":50,"output":12}}}"#.to_string(),
             r#"{"v":1,"kind":"turn","expect":{"last_role":"tool","prefix":"same"},"reply":{"think":"done","text":"Two files.","stop":"end_turn"}}"#.to_string(),
         ]
         .join("\n");

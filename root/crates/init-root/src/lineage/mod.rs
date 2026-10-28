@@ -10,6 +10,7 @@ mod fault;
 pub mod kgit;
 mod kinds;
 pub mod mirror;
+pub mod owner_view; // TUI-OBSERVE: `lineage.tail` on owner.sock (read-only, bounded)
 #[cfg(test)]
 mod tests;
 pub mod verify;

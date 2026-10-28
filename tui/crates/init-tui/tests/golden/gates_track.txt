@@ -1,0 +1,54 @@
+-- kept: G2 running (80)
+◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ G2 □ G3 · live · G4 ·            12 s|ww............ddddddddddddddddd..mmmp.mmmp.mmmw.mmmm.mmmmmm.mmmm............wwww
+    G0  build + tests    ■ pass · 9.1 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G1  self-map         ■ pass · 0.4 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G2  boot probe       □ 2.9 s                                                |....ddddmmmmmmmmmmmmmmmmwwwwwwww                                                
+    G3  self-edit probe  ·                                                      |....ddddmmmmmmmmmmmmmmmmmmm                                                     
+    hand-off             ·                                                      |....dddddddddmmmmmmmmmmmmmm                                                     
+    G4  scored vs LKG    ·                                                      |....ddddmmmmmmmmmmmmmmmmmmm                                                     
+-- kept: G2 running (50)
+◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ …  12 s|ww............ddddddddddddddddd..mmmp.mmmp.d..wwww
+    G0  build + tests    ■ pass · 9.1 s           |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd           
+    G1  self-map         ■ pass · 0.4 s           |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd           
+    G2  boot probe       □ 2.9 s                  |....ddddmmmmmmmmmmmmmmmmwwwwwwww                  
+    G3  self-edit probe  ·                        |....ddddmmmmmmmmmmmmmmmmmmm                       
+    hand-off             ·                        |....dddddddddmmmmmmmmmmmmmm                       
+    G4  scored vs LKG    ·                        |....ddddmmmmmmmmmmmmmmmmmmm                       
+-- kept: G2 running, a 12-row terminal (4 rows)
+◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ G2 □ G3 · live · G4 ·            12 s|ww............ddddddddddddddddd..mmmp.mmmp.mmmw.mmmm.mmmmmm.mmmm............wwww
+    G1  self-map         ■ pass · 0.4 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G2  boot probe       □ 2.9 s                                                |....ddddmmmmmmmmmmmmmmmmwwwwwwww                                                
+    G3  self-edit probe  ·                                                      |....ddddmmmmmmmmmmmmmmmmmmm                                                     
+-- kept: G4 running after the hand-off
+◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ G2 ■ G3 ■ live ■ G4 □            43 s|ww............ddddddddddddddddd..mmmp.mmmp.mmmp.mmmp.mmmmmp.mmmw............wwww
+    G0  build + tests    ■ pass · 9.1 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G1  self-map         ■ pass · 0.4 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G2  boot probe       ■ pass · 3.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G3  self-edit probe  ■ pass · 24 s                                          |....ddddmmmmmmmmmmmmmmmmpppppppddddddd                                          
+    hand-off             ■ pass · 4.6 s                                         |....dddddddddmmmmmmmmmmmpppppppdddddddd                                         
+    G4  scored vs LKG    □ 1.8 s                                                |....ddddmmmmmmmmmmmmmmmmwwwwwwww                                                
+-- kept: collapsed
+✓ kept 06be87a12345 · 5/5 gates · 44 s · hand-off 4.6 s                         |pppppppdddddddddddddddddddddddddddddddddddddddddddddddd                         
+-- kept: expanded (Ctrl-O)
+✓ kept 06be87a12345 · 5/5 gates · 44 s · hand-off 4.6 s                         |pppppppdddddddddddddddddddddddddddddddddddddddddddddddd                         
+    G0  build + tests    ■ pass · 9.1 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G1  self-map         ■ pass · 0.4 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G2  boot probe       ■ pass · 3.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G3  self-edit probe  ■ pass · 24 s                                          |....ddddmmmmmmmmmmmmmmmmpppppppddddddd                                          
+    hand-off             ■ pass · 4.6 s                                         |....dddddddddmmmmmmmmmmmpppppppdddddddd                                         
+    G4  scored vs LKG    ■ pass · 1.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    sha 06be87a1234567890abcdef · from 3f9c0a1b2c4d5e6f7a8b · gate j-7 · starte…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+-- refused at G2: collapsed
+✕ refused at G2 06be87a12345 · probe_exit · 12 s · still on 3f9c0a1b2c4d        |hhhhhhhhhhhhhhhhddddddddddddddd..........ddddddddddddddddddddddddddddddd        
+-- refused at G2: collapsed (50)
+✕ refused at G2 06be87a12345 · probe_exit · 12 s …|hhhhhhhhhhhhhhhhddddddddddddddd..........ddddddddd
+-- rolled back: G4 failed, waiting for idle
+◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ G2 ■ G3 ■ live ■ G4 ✕      1 min 42 s|ww............ddddddddddddddddd..mmmp.mmmp.mmmp.mmmp.mmmmmp.mmmh......wwwwwwwwww
+    G1  self-map         ■ pass · 1.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G2  boot probe       ■ pass · 1.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    G3  self-edit probe  ■ pass · 1.0 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         
+    hand-off             ■ pass · 4.6 s                                         |....dddddddddmmmmmmmmmmmpppppppdddddddd                                         
+    G4  scored vs LKG    ✕ score_inferior · 1 min 0 s                           |....ddddmmmmmmmmmmmmmmmmhhhhhhhhhhhhhhhhhdddddddddddd                           
+    ↺ rolling back at the next idle point                                       |hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh                                       
+-- rolled back: collapsed
+✕ rolled back at G4 06be87a12345 · score_inferior · ↺ back on LKG 3f9c0a1b2c4d  |hhhhhhhhhhhhhhhhhhhhddddddddddddddd..............ddddddddddddddddddddddddddddd  

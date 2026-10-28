@@ -6,6 +6,13 @@
 #   init-agent --full        full access (ADR-012: the default; ADR-009's flag): passed through to the TUI like every other flag
 #   init-agent --workspace   confine this session to the workspace (ADR-012): passed through the same way
 #   init-agent --which       print what would run, and run nothing (the launcher's own flag)
+#   init-agent upgrade [--bundle FILE.tar.gz [--sha256 HEX]] [--version V] [-- <install.sh args>]
+#                            upgrade INIT to the latest release (or V, or a local bundle), keeping what it has become:
+#                            its body, extensions, sessions, lineage, keys and charter (docs/guide.md "Upgrade"). It runs
+#                            the get.sh that install.sh kept in ROOT_HOME/cache/ (the agent cannot write there), which
+#                            checks the bundle's sha256, unpacks it under ROOT_HOME/cache/upgrade/ and runs its
+#                            install.sh --upgrade: stop, replace, health probe, then commit or roll back. Run it from your
+#                            own shell; inside an INIT session it fails, because the agent can reach none of those paths.
 #
 # The directory `init-agent` is launched in becomes the agent's workspace (ADR-009): `exec` keeps the cwd, and the TUI
 # sends it to the Root, which validates it (launched in ~ or outside the home: no workspace).
@@ -43,6 +50,26 @@ for c in "${INIT_TUI:-}" "$HERE/init-tui" "$RH/bin/init-tui"; do
   TUI="$c"; break
 done
 
+if [ "${1:-}" = upgrade ]; then
+  shift
+  GET="$RH/cache/get.sh"
+  if [ ! -f "$GET" ]; then
+    echo "init-agent: $GET is missing (installs of INIT 0.4.1 and earlier keep no copy). Upgrade this once with:" >&2
+    echo "  curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh -s -- --upgrade" >&2
+    exit 69
+  fi
+  args=(--upgrade)
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --bundle) [ $# -ge 2 ] || { echo "init-agent upgrade: --bundle needs a file" >&2; exit 64; }; args+=(--from "$2"); shift 2 ;;
+      --sha256|--version) [ $# -ge 2 ] || { echo "init-agent upgrade: $1 needs a value" >&2; exit 64; }; args+=("$1" "$2"); shift 2 ;;
+      --) shift; args+=(-- "$@"); break ;;
+      -h|--help) sed -n '9,15p' "$0"; exit 0 ;;
+      *) echo "init-agent upgrade: unknown argument $1 (see init-agent upgrade --help)" >&2; exit 64 ;;
+    esac
+  done
+  exec /bin/sh "$GET" "${args[@]}"
+fi
 if [ "${1:-}" = --which ]; then
   if [ -n "$TUI" ]; then echo "$TUI"; else echo "$ROOT_BIN attach"; fi
   exit 0

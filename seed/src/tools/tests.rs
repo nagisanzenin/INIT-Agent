@@ -34,7 +34,7 @@ fn first_line(r: &Ran) -> String {
 
 #[test]
 fn registry_bytes_are_the_doc_block() {
-    assert_eq!(REGISTRY_JSON.len(), 4_986);
+    assert_eq!(REGISTRY_JSON.len(), 6_582);
     // specs() re-serialized with sorted keys gives the same bytes.
     let v: Vec<Value> = specs().iter().map(|s| s.to_value()).collect();
     let bytes = crate::log::icj::to_vec(&Value::Array(v)).unwrap();
@@ -80,7 +80,7 @@ fn validation_errors_teach() {
     let r = b.run("grep", json!({"pattern": "x"}));
     assert_eq!(
         text(&r),
-        "error: unknown_tool: no tool named \"grep\". Available tools: bash, delegate, edit, ext, read, write."
+        "error: unknown_tool: no tool named \"grep\". Available tools: ask_owner, bash, delegate, edit, ext, read, write."
     );
     let mut c = b.call("edit", json!({}));
     c.raw_arguments = Some("{\"path\": \"a".into());
@@ -164,6 +164,8 @@ fn read_pages_through_a_long_file() {
     assert!(!t.contains("l2001"));
     assert!(t.ends_with("\n[Showing lines 1-2000 of 5000. Use offset=2001 to continue.]"));
     assert_eq!(r.summary, "2000 lines");
+    write(&b, "one.txt", b"x\n");
+    assert_eq!(b.run("read", json!({"path": "one.txt"})).summary, "1 line");
     let t = text(&b.run("read", json!({"path": "f.txt", "offset": 2001})));
     assert!(t.starts_with("  2001\tl2001\n"));
     assert!(t.ends_with("[Showing lines 2001-4000 of 5000. Use offset=4001 to continue.]"));
@@ -713,7 +715,9 @@ fn bash_basics() {
     assert!(t.starts_with("hi\n[exit_code=0 wall_time="), "{t}");
     assert!(!r.result.is_error);
     assert_eq!(r.result.meta.exit_code, Some(0));
-    assert!(r.summary.starts_with("exit 0, 1 lines"));
+    assert!(r.summary.starts_with("exit 0, 1 line"), "{}", r.summary);
+    assert!(!r.summary.contains("1 lines"), "{}", r.summary);
+    assert!(bash(&b, "printf 'a\\nb\\n'").summary.starts_with("exit 0, 2 lines"));
     let r = bash(&b, "exit 3");
     assert!(r.result.is_error);
     assert_eq!(r.result.meta.exit_code, Some(3));
@@ -1241,4 +1245,53 @@ fn panic_hook_for_tests_exists() {
     let c = b.call("read", json!({"path": "x/__init_test_panic__"}));
     let res = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| b.run_call(&c)));
     assert!(res.is_err());
+}
+
+/// TUI-OBSERVE: `fail_detail` keeps the last 10 lines, drops the bash trailer and blank tail, cuts
+/// long lines, and is None for a success or an empty output.
+#[test]
+fn fail_detail_is_the_output_tail() {
+    let err = |t: &str| ToolResult { call_id: "c".into(), content: vec![ContentBlock::Text { text: t.into() }], is_error: true, meta: Default::default() };
+    let body: String = (1..=14).map(|i| format!("l{i}\n")).collect();
+    let d = fail_detail(&err(&format!("{body}\n[exit_code=1 wall_time=0.1s]"))).unwrap();
+    assert_eq!(d.lines().count(), DETAIL_LINES);
+    assert_eq!((d.lines().next(), d.lines().last()), (Some("l5"), Some("l14")));
+    assert_eq!(fail_detail(&err("error: no_match: the anchor was not found")).as_deref(), Some("error: no_match: the anchor was not found"));
+    assert_eq!(fail_detail(&err("[timeout after 5s: process group killed (TERM) wall_time=5.0s]")), None);
+    let long = fail_detail(&err(&"é".repeat(500))).unwrap();
+    assert_eq!(long.chars().count(), 201);
+    assert!(long.ends_with('…'));
+    let mut ok = err("fine");
+    ok.is_error = false;
+    assert_eq!(fail_detail(&ok), None);
+    let wide: String = (0..10).map(|_| format!("{}\n", "x".repeat(400))).collect();
+    assert!(fail_detail(&err(&wide)).unwrap().len() <= 2_000);
+}
+
+// ---------------------------------------------------------------------------------------------
+// TUI-PICKER: ask_owner (tools/ask.rs; the loop sends the frame and ends the turn)
+// ---------------------------------------------------------------------------------------------
+
+#[test]
+fn ask_owner_prepares_runs_and_teaches() {
+    let b = Bench::new("ask");
+    let c = b.call(
+        "ask_owner",
+        json!({"question": "Which database?", "options": [{"label": "SQLite"}, {"label": "Postgres", "recommended": true}]}),
+    );
+    let w = b.work();
+    let pcx = PathCx { cwd: &w, home: None, init_home: None };
+    let p = b.tools.prepare(0, &c, &pcx);
+    let Prepared::Ready { job: Job::Ask(a), .. } = &p else { panic!("{p:?}") };
+    assert_eq!(a.options[0].label, "Postgres", "the recommended option first");
+    assert_eq!(b.tools.start_text(&p), "ask: Which database?");
+    let r = b.run_call(&c);
+    assert!(!r.result.is_error);
+    assert_eq!(text(&r), ask::RESULT_TEXT);
+    assert_eq!(r.summary, "asked the owner");
+    let r = b.run("ask_owner", json!({"question": "q", "options": [{"label": "/undo confirm"}, {"label": "no"}]}));
+    assert_eq!(
+        text(&r),
+        "error: invalid_input: options[0].label: must not start with '/'\nhint: a label must not look like a command: the owner's answer is sent as a message"
+    );
 }

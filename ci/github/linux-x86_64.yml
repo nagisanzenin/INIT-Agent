@@ -1,0 +1,281 @@
+# linux-x86_64: build the Linux x86_64 bundle and run the bundle e2e matrix on it (v0.5.0 L2; lane LINUX-PROV).
+#
+# DRAFT FOR THE OWNER'S REVIEW. It is not in .github/workflows/ and was never pushed: adding a workflow to the public
+# repository is the owner's decision. To enable it: pin each `uses:` to a commit SHA, copy this file to
+# .github/workflows/linux-x86_64.yml, commit, push. Hosted standard runners are free for a public repository; in a
+# private one each run bills about 120-180 minutes (docs/platforms.md §3.7.4).
+#
+# Why hosted: the owner's M2 cannot run x86_64 Linux. Its Docker Desktop has no amd64 emulation (`exec format error`;
+# build/status/LINUX-X64.md), and under emulation the zone's x86_64 seccomp filter would see the host's syscall
+# architecture anyway. A hosted ubuntu-24.04 runner is a real x86_64 kernel in a disposable VM.
+#
+# It runs at $0 on the mock model (init-mockllm) only: no secret, no key, no live provider. Two jobs:
+#   bundle  The same recipe as the linux-arm64 bundle of v0.4.1 (build/status/REL-041.md): a debian:bookworm-slim
+#           container (glibc 2.36, so the bundle runs on Debian 12+, Ubuntu 23.04+), bubblewrap 0.13.0 built from the
+#           sha256-checked upstream tarball, rustup 1.97.1 + wasm32-wasip2 + clippy, a normal user (the runner's uid).
+#           First the Linux zone qualification on x86_64 (the real seccomp filter with its x32 guard, bwrap, pidfd,
+#           memwatch: the step ci/local.sh runs on Linux), then scripts/bundle.sh: release.sh --from-head, the
+#           install-mode kernel builds the prebuilt body inside the Linux Build zone, G1, and the target-triple checks.
+#           The build container needs user namespaces, so this job turns off Ubuntu's AppArmor userns restriction on
+#           this disposable VM; the e2e job tests the documented fix instead.
+#   e2e     On the runner itself, as a user would: Ubuntu 24.04's own kernel, AppArmor with
+#           kernel.apparmor_restrict_unprivileged_userns=1, no Rust on PATH. bubblewrap 0.13.0 at /usr/bin/bwrap, then
+#           the AppArmor step docs/platforms.md §3.4.6 prints for Ubuntu 24.04 (its profile path is UNVERIFIED there:
+#           this records whether it works, and falls back to the sysctl, the documented weaker option, only to keep
+#           testing). Then scripts/bundle-e2e.sh on the bundle: hello (get.sh installs Rust into the test home), --pause,
+#           and --t2 (a no-op T2 promote through G0-G3 in the x86_64 Build zone). The same matrix as linux-arm64, plus T2.
+# Not covered: the systemd user service (every run uses --no-service), cgroup v2 delegation, a live provider.
+# Outputs (workflow artifacts): the bundle with its .sha256 and latest.json; the verdict JSON files; the logs.
+# Release: the owner downloads the bundle artifact, checks it against its .sha256 and MANIFEST.json, merges
+# `sha256_linux-x86_64`, `bytes_linux-x86_64` and `body_sha256_linux-x86_64` into the release's latest.json, and uploads
+# it with the other bundles (the REL lane's step). No credential ever enters this workflow.
+name: linux-x86_64
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: linux-x86_64-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash  # -eo pipefail: a step piped into tee fails when its command fails
+
+env:
+  RUST_VERSION: "1.97.1"
+  BWRAP_VERSION: "0.13.0"
+  BWRAP_SHA256: "4734237473c0e5d695e4e9034a34e43b2dbf5164655bd13fa59ae376b2b7a765"
+
+jobs:
+  bundle:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4  # pin to a commit SHA before enabling
+        with:
+          persist-credentials: false
+
+      - name: Host facts and disk (the preinstalled SDKs go; about 20 GB)
+        run: |
+          uname -a; nproc; free -g; df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: User namespaces for the build container (this disposable build VM only, for Docker; never an owner instruction; the e2e job runs INIT's own AppArmor step)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Cache vendor/ (keyed on the lock files)
+        id: vendor-cache
+        uses: actions/cache@v4  # pin to a commit SHA before enabling
+        with:
+          path: vendor
+          key: vendor-${{ hashFiles('kernel/Cargo.lock', 'root/Cargo.lock', 'seed/Cargo.lock', 'seed/ext/Cargo.lock', 'tui/Cargo.lock') }}
+
+      - name: Vendor the crates exactly as locked (crates.io only)
+        if: steps.vendor-cache.outputs.cache-hit != 'true'
+        run: |
+          rustup toolchain install "$RUST_VERSION" --profile minimal
+          RUSTUP_TOOLCHAIN="$RUST_VERSION" ci/vendor.sh --locked
+
+      - name: Build container (debian:bookworm-slim, glibc 2.36; the build user has the runner's uid)
+        run: |
+          docker run -d --name i5-x64-build --privileged --init -v "$GITHUB_WORKSPACE":/w/repo debian:bookworm-slim sleep infinity
+          docker exec i5-x64-build sh -ec '
+            apt-get update -qq
+            DEBIAN_FRONTEND=noninteractive apt-get install -y -qq --no-install-recommends \
+              ca-certificates curl git python3 gcc libc6-dev make meson ninja-build pkg-config libcap-dev xz-utils \
+              util-linux procps >/dev/null
+            ldd --version | head -1
+            useradd -m -u '"$(id -u)"' -s /bin/bash dev'
+
+      - name: bubblewrap ${{ env.BWRAP_VERSION }} from the upstream release (sha256 checked) at /usr/bin/bwrap
+        run: |
+          docker exec -e V="$BWRAP_VERSION" -e S="$BWRAP_SHA256" i5-x64-build sh -ec '
+            cd /tmp
+            curl -fsSLO "https://github.com/containers/bubblewrap/releases/download/v$V/bubblewrap-$V.tar.xz"
+            echo "$S  bubblewrap-$V.tar.xz" | sha256sum -c
+            tar -xf "bubblewrap-$V.tar.xz"
+            meson setup build "bubblewrap-$V" --prefix=/usr -Dman=disabled -Dtests=false >/dev/null
+            ninja -C build >/dev/null && ninja -C build install >/dev/null
+            /usr/bin/bwrap --version'
+
+      - name: Rust ${{ env.RUST_VERSION }} + wasm32-wasip2 + clippy for the build user
+        run: |
+          docker exec -u dev -e T="$RUST_VERSION" i5-x64-build sh -ec '
+            curl --proto "=https" --tlsv1.2 -sSf https://sh.rustup.rs \
+              | sh -s -- -y --quiet --profile minimal --default-toolchain "$T" --component clippy --target wasm32-wasip2
+            ~/.cargo/bin/rustc -vV'
+
+      - name: Linux zone qualification on x86_64 (bwrap, seccomp with the x32 guard, pidfd, memwatch)
+        run: |
+          docker exec -u dev -w /w/repo/root i5-x64-build bash -ec '
+            export PATH="$HOME/.cargo/bin:$PATH"; source ../ci/env.sh; export CARGO_BUILD_JOBS=4
+            cargo build --offline --locked -p init-root --bin init-root --features test-fixtures
+            cargo test --offline --locked -p init-root --bin init-root --features test-fixtures -- linux_seccomp
+            INIT_TEST_ROOT_BIN="$PWD/target/debug/init-root" cargo test --offline --locked -p init-root --bin init-root \
+              --features test-fixtures -- --ignored --test-threads=1 linux_' 2>&1 | tee zone-qualification.log
+
+      - name: The bundle (scripts/bundle.sh; the body is built inside the Linux Build zone)
+        run: |
+          docker exec -u dev -w /w/repo i5-x64-build bash -ec '
+            export PATH="$HOME/.cargo/bin:$PATH"; source ci/env.sh; export CARGO_BUILD_JOBS=4
+            git config --global --add safe.directory /w/repo
+            scripts/bundle.sh --label preview -- --jobs 4' 2>&1 | tee bundle.log
+          ls -l target/dist/
+
+      - name: The bundle's facts
+        run: |
+          V="$(sed -n 's/^version = "\(.*\)"$/\1/p' root/Cargo.toml | head -1)"
+          D="target/dist/v$V-preview"
+          cat "$D/latest.json"
+          (cd "$D" && sha256sum -c "init-v$V-preview-linux-x86_64.tar.gz.sha256")
+          tar -xzf "$D/init-v$V-preview-linux-x86_64.tar.gz" -O "init-v$V-preview-linux-x86_64/MANIFEST.json" | grep -E '"(host|commit|rustc)"'
+          echo "BUNDLE_DIR=$D" >>"$GITHUB_ENV"
+
+      - uses: actions/upload-artifact@v4  # pin to a commit SHA before enabling
+        with:
+          name: linux-x86_64-bundle
+          path: ${{ env.BUNDLE_DIR }}/
+          if-no-files-found: error
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: linux-x86_64-build-logs
+          path: |
+            zone-qualification.log
+            bundle.log
+          if-no-files-found: ignore
+
+      - name: Remove the build container and its image (exact names)
+        if: always()
+        run: |
+          docker rm -f i5-x64-build || true
+          docker image rm debian:bookworm-slim || true
+
+  e2e:
+    needs: bundle
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4  # the harness scripts and root/Cargo.toml only; nothing is built from source here
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@v4  # pin to a commit SHA before enabling
+        with:
+          name: linux-x86_64-bundle
+          path: dist
+
+      - name: Host facts; no Rust on the harness PATH
+        run: |
+          uname -a; cat /etc/os-release | head -2; ldd --version | head -1
+          cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns || true
+          if env -i PATH=/usr/bin:/bin:/usr/sbin:/sbin sh -c 'command -v cargo || command -v rustc || command -v rustup'; then
+            echo "Rust on /usr/bin: the no-Rust install cannot be simulated" >&2; exit 1
+          fi
+
+      - name: bubblewrap ${{ env.BWRAP_VERSION }} at /usr/bin/bwrap (Ubuntu 24.04 ships 0.9.0; INIT needs 0.13)
+        run: |
+          sudo apt-get update -qq
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y -qq meson ninja-build libcap-dev pkg-config >/dev/null
+          cd /tmp
+          curl -fsSLO "https://github.com/containers/bubblewrap/releases/download/v$BWRAP_VERSION/bubblewrap-$BWRAP_VERSION.tar.xz"
+          echo "$BWRAP_SHA256  bubblewrap-$BWRAP_VERSION.tar.xz" | sha256sum -c
+          tar -xf "bubblewrap-$BWRAP_VERSION.tar.xz"
+          meson setup build "bubblewrap-$BWRAP_VERSION" --prefix=/usr -Dman=disabled -Dtests=false >/dev/null
+          ninja -C build >/dev/null && sudo ninja -C build install >/dev/null
+          /usr/bin/bwrap --version
+
+      # Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor. The e2e runs INIT's own one-time step
+      # (docs/platforms.md 3.4.6) exactly as install.sh prints it, and nothing else: no Ubuntu profile, no sysctl.
+      # REL-050 run 40539083132 measured the alternatives: Ubuntu's bwrap-userns-restrict and unshare-userns-restrict
+      # pass the single probes but not bwrap inside unshare (the zone's nesting). install.sh itself is unchanged here.
+      - name: "Disk for the T2 gate (the preinstalled SDKs go)"
+        run: |
+          df -h /
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+
+      - name: "Ubuntu 24.04 as shipped: the zone's namespaces fail"
+        run: |
+          cat > /tmp/nsprobe.sh <<'EOF'
+          #!/bin/sh
+          # <unshare> <bwrap>: install.sh's three namespace probes with these binaries
+          U="$1"; B="$2"; r=0
+          ok() { echo "  ok   $1"; }; no() { echo "  FAIL $1"; r=1; }
+          echo "kernel.apparmor_restrict_unprivileged_userns=$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null); $U, $B"
+          "$B" --unshare-user --unshare-pid --die-with-parent --ro-bind / / --proc /proc --dev /dev /bin/true && ok "bwrap" || no "bwrap"
+          "$U" --user --map-root-user --net /bin/true && ok "unshare" || no "unshare"
+          "$U" --user --map-root-user --net -- "$B" --die-with-parent --new-session --unshare-user --unshare-pid --unshare-ipc \
+            --unshare-uts --disable-userns --cap-drop ALL --ro-bind / / --proc /proc --dev /dev /bin/true && ok "bwrap inside unshare" || no "bwrap inside unshare"
+          exit $r
+          EOF
+          chmod +x /tmp/nsprobe.sh
+          if /tmp/nsprobe.sh /usr/bin/unshare /usr/bin/bwrap; then echo "as-shipped=pass" | tee -a apparmor.txt; else echo "as-shipped=FAIL" | tee -a apparmor.txt; fi
+
+      - name: "The installer, as an owner meets it: refuses and prints INIT's one-time commands"
+        run: |
+          t="$(ls "$PWD"/dist/init-v*-linux-x86_64.tar.gz)"
+          export HOME=/tmp/o INIT_ROOT_HOME=/tmp/o/r INIT_HOME=/tmp/o/i INIT_APP_DIR=/tmp/o/app INIT_BIN_DIR=/tmp/o/bin
+          mkdir -p /tmp/o
+          sh scripts/get.sh --from "$t" --unpack-only
+          set +e
+          bash /tmp/o/app/*/scripts/install.sh --yes --no-service >/tmp/o/install.log 2>&1; rc=$?
+          set -e
+          cat /tmp/o/install.log
+          test "$rc" = 1
+          grep -qx 'sudo apparmor_parser -r /etc/apparmor.d/init-agent' /tmp/o/install.log
+          bash /tmp/o/app/*/scripts/install.sh --print-apparmor > /tmp/apparmor-commands.sh
+          diff <(grep '^sudo \|^printf ' /tmp/o/install.log) /tmp/apparmor-commands.sh
+          echo "installer-refusal=prints-the-commands" | tee -a apparmor.txt
+          chmod -R u+w /tmp/o && rm -rf /tmp/o  # get.sh leaves the unpacked release read-only
+
+      - name: "INIT's one-time AppArmor step, exactly as install.sh prints it"
+        run: |
+          cat /tmp/apparmor-commands.sh
+          bash -e /tmp/apparmor-commands.sh
+          ls -la /usr/local/lib/init-agent /etc/apparmor.d/init-agent; cat /etc/apparmor.d/init-agent
+          /tmp/nsprobe.sh /usr/local/lib/init-agent/unshare /usr/local/lib/init-agent/bwrap
+          echo "init-step=pass" | tee -a apparmor.txt
+          # the grant is narrow: the system binaries stay restricted
+          if /tmp/nsprobe.sh /usr/bin/unshare /usr/bin/bwrap; then echo "system-binaries=NOT-restricted" | tee -a apparmor.txt; exit 1; fi
+          echo "system-binaries=still-restricted" | tee -a apparmor.txt
+
+      # The harness keeps ROOT_HOME and INIT_HOME at most 64 bytes; under the runner's workspace
+      # (/home/runner/work/<repo>/<repo>/target/test-homes/ube/r, 71 bytes) it refuses to start. It runs from a short-path
+      # copy of what it needs (the scripts and root/Cargo.toml, as REL-041's Linux container did).
+      - name: A short-path copy of the harness (test homes of at most 64 bytes)
+        run: |
+          rm -rf /tmp/e && mkdir -p /tmp/e/build/status /tmp/e/dist
+          git archive HEAD scripts root/Cargo.toml | tar -x -C /tmp/e
+          cp dist/* /tmp/e/dist/
+
+      - name: bundle-e2e (hello; get.sh installs Rust 1.97.1 into the test home)
+        working-directory: /tmp/e
+        run: scripts/bundle-e2e.sh "$(ls dist/init-v*-linux-x86_64.tar.gz)"
+
+      - name: bundle-e2e --pause
+        working-directory: /tmp/e
+        run: scripts/bundle-e2e.sh --pause "$(ls dist/init-v*-linux-x86_64.tar.gz)"
+
+      - name: bundle-e2e --t2 (a no-op T2 promote through G0-G3 in the x86_64 Build zone)
+        working-directory: /tmp/e
+        run: scripts/bundle-e2e.sh --t2 "$(ls dist/init-v*-linux-x86_64.tar.gz)"
+
+      - uses: actions/upload-artifact@v4  # pin to a commit SHA before enabling
+        if: always()
+        with:
+          name: linux-x86_64-verdicts
+          path: |
+            apparmor.txt
+            /tmp/e/build/status/bundle-e2e.json
+            /tmp/e/build/status/bundle-pause.json
+            /tmp/e/build/status/bundle-e2e-t2.json
+          if-no-files-found: ignore

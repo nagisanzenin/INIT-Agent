@@ -197,10 +197,12 @@ Costs are tariff-based estimates, not invoices. Root tariffs are shared by model
 within an action class, so two gateways charging differently for the same model ID
 cannot have different Root tariffs in one class. Separate model classes can isolate
 live tariffs, but sealed lanes currently accept only the `providers` class, so this is
-not a complete solution for provider-specific sealed pricing. Root currently prices
-Messages cache creation at the ordinary input tariff;
-it has no separate cache-write tariff. Kernel proxy schedules/tiers can therefore give
-a different estimate. Root settled-live totals exclude sealed/twin totals, which stay
+not a complete solution for provider-specific sealed pricing. Root prices cache writes
+at the model's `cache_write_musd_per_mtok` (5-minute or single-class writes) and
+`cache_write_1h_musd_per_mtok`; `providers add` writes the catalog's write prices, and a
+model without them bills writes at twice its input price, so the Root never under-counts
+(v0.5.0). Kernel proxy schedules/tiers can still give a different estimate. Root
+settled-live totals exclude sealed/twin totals, which stay
 in their own ledgers. Product USD fields are observe-only; manual stop remains available.
 External benchmark spending caps are enforced by the benchmark harness separately.
 

@@ -59,6 +59,11 @@ fn catalog_only_deepseek_is_live_and_prices_are_exact() {
         vec![("deepseek", "live"), ("gateway", "experimental"), ("anthropic", "experimental"), ("openai", "experimental"), ("local", "experimental")]);
     let ds = preset("deepseek").unwrap();
     assert_eq!(ds.models.iter().map(|m| m.id).collect::<Vec<_>>(), ["deepseek-flash", "deepseek-v4-pro"]);
+    // v0.5.0 L3: the live label per model; only DeepSeek's models until a qualify run passes for another
+    assert!(CATALOG.iter().all(|p| p.models.iter().all(|m| m.live == (p.id == "deepseek"))));
+    let label = |p: &str, m: &str| spec(&req(p, None, Some(m), None, None)).unwrap().tested;
+    assert_eq!((label("deepseek", "deepseek-flash"), label("anthropic", "claude-sonnet-5-5"), label("openai", "gpt-6.1-sol")),
+        ("live", "experimental", "experimental"));
     // the charter template's built-in deepseek-flash tariff (µUSD/MTok) is the catalog's
     let t: Table = toml::from_str(&charter::template()).unwrap();
     let f = at(&t, &["actions", "providers", "models", "deepseek-flash"]).as_table().unwrap();
@@ -314,5 +319,133 @@ fn requests_end_to_end_on_a_test_home() {
     let holders: Vec<_> = files.iter().filter(|f| file_holds(f, key.as_bytes()) || file_holds(f, real.as_bytes())).collect();
     assert_eq!(holders, vec![&kp], "only the 0600 key file holds the key");
     drop(root);
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// v0.5.0 L3: the catalog rows for the models a live qualification uses, against reports/INIT v1 providers UX
+/// vision.md Table A (standard tier, read 2026-10-20), in µUSD per 1M tokens: (input, cache read, output,
+/// cache write 5 min, cache write 1 h). Table A gives no write price for claude-sonnet-5-5; its row keeps the
+/// 1.25× / 2× input ratio of the Opus row (5.00 / 8.00 on 4.00). Prices change only with that cited table.
+#[test]
+fn qualification_rows_match_the_providers_report_table_a() {
+    let row = |p: &str, m: &str| {
+        let c = cat_model(p, m).unwrap_or_else(|| panic!("no catalog row {p}/{m}"));
+        (c.input, c.cache_read, c.output, c.cache_write)
+    };
+    assert_eq!(row("anthropic", "claude-opus-5-5"), (4_000_000, 200_000, 20_000_000, Some((5_000_000, 8_000_000))));
+    assert_eq!(row("anthropic", "claude-sonnet-5-5"), (2_000_000, 100_000, 10_000_000, Some((2_500_000, 4_000_000))));
+    assert_eq!(row("openai", "gpt-6.1-sol"), (2_000_000, 100_000, 10_000_000, Some((2_500_000, 2_500_000))));
+    assert_eq!(row("openai", "gpt-6-astra"), (10_000_000, 1_000_000, 50_000_000, Some((12_500_000, 12_500_000))));
+    // the kernel config gets the write price too (its proxy's estimate); the charter's is the Root's (next test)
+    let s = spec(&req("openai", None, Some("gpt-6.1-sol"), None, None)).unwrap();
+    assert!(kernel_model_lines(&s, false).contains("cache_write = \"2.50\""), "{}", kernel_model_lines(&s, false));
+}
+
+/// v0.5.0 L3: the Root bills cache writes at the catalog's write prices. Each model reaches the Root the way an install
+/// gets it: the catalog row, `providers add`'s charter fragment, the charter's parse (C11) and the egress compile. The
+/// seed's cache fixtures (seed/src/provider/testdata/{anthropic,openai}/cache-{write,read}.sse, the documented stream
+/// shapes) go through the Root's own tap: its token counts are the body's (the seed tests
+/// `cache_write_then_read_usage_reaches_the_log`), and its bill is the provider's at list price.
+#[test]
+fn cache_writes_bill_at_the_charter_write_price() {
+    use crate::egress::{TapFamily, TapReader, TapUsage, tap_compile, tap_musd};
+    let (dir, p) = home("cw");
+    let mut src = template();
+    for (pv, m) in [("anthropic", "claude-sonnet-5-5"), ("anthropic", "claude-opus-5-5"), ("openai", "gpt-6.1-sol")] {
+        let (c, ..) = charter::parse(&src, &p.ctx()).unwrap();
+        src = charter_add(&src, c.actions["providers"].as_table().unwrap(), &spec(&req(pv, None, Some(m), None, None)).unwrap()).unwrap();
+    }
+    let (ch, ..) = charter::parse(&src, &p.ctx()).unwrap_or_else(|f| panic!("{f:?}\n{src}"));
+    let classes = tap_compile(&ch.actions);
+    let md = |m: &str| classes["providers"].models[m].clone();
+    let sonnet = md("claude-sonnet-5-5");
+    assert_eq!((sonnet.input, sonnet.cache_read, sonnet.cache_write, sonnet.cache_write_1h), (2_000_000, 100_000, 2_500_000, 4_000_000));
+    assert_eq!((md("gpt-6.1-sol").cache_write, md("claude-opus-5-5").cache_write_1h), (2_500_000, 8_000_000));
+    // the provider's bill at its list price: uncached at input, reads, 5-minute (or single-class) and 1-hour writes, output
+    let list = |u: &TapUsage, c: &CatModel| {
+        let (w5, w1) = c.cache_write.unwrap();
+        tap_musd(&[(u.input - u.cache_read - u.cache_write - u.cache_write_1h, c.input), (u.cache_read, c.cache_read),
+            (u.cache_write, w5), (u.cache_write_1h, w1), (u.output, c.output)])
+    };
+    let within_1pct = |root: u64, list: u64| root.abs_diff(list) * 100 <= list;
+    let cases = [
+        (include_str!("../../../../../seed/src/provider/testdata/anthropic/cache-write.sse"), TapFamily::Messages, "anthropic",
+            "claude-sonnet-5-5", (21_507, 0, 21_504, 87), "tool_use", 54_636),
+        (include_str!("../../../../../seed/src/provider/testdata/anthropic/cache-read.sse"), TapFamily::Messages, "anthropic",
+            "claude-sonnet-5-5", (22_148, 21_504, 640, 132), "stop", 5_079),
+        (include_str!("../../../../../seed/src/provider/testdata/openai/cache-write.sse"), TapFamily::Responses, "openai",
+            "gpt-6.1-sol", (21_510, 0, 21_504, 95), "tool_use", 54_722),
+        (include_str!("../../../../../seed/src/provider/testdata/openai/cache-read.sse"), TapFamily::Responses, "openai",
+            "gpt-6.1-sol", (22_150, 21_504, 640, 140), "stop", 5_163),
+    ];
+    for (bytes, family, p, m, (input, read, write, out), finish, provider_musd) in cases {
+        let mut tap = TapReader::new(family, true);
+        for chunk in bytes.as_bytes().chunks(97) {
+            tap.feed(chunk);
+        }
+        let (usage, fin) = tap.finish();
+        let u = usage.unwrap();
+        assert_eq!((u.input, u.cache_read, u.cache_write + u.cache_write_1h, u.output), (input, read, write, out), "{p}/{m}: the body's tokens");
+        assert_eq!(u.cache_write_1h, 0, "{p}/{m}: INIT asks for the 5-minute TTL only");
+        assert_eq!(fin, Some(finish));
+        let c = cat_model(p, m).unwrap();
+        assert_eq!(list(&u, c), provider_musd, "{p}/{m}: the provider's bill");
+        let root = u.cost(&md(m));
+        assert!(within_1pct(root, provider_musd), "{p}/{m}: ledger {root} µUSD vs provider {provider_musd} µUSD");
+        assert_eq!(root, provider_musd, "{p}/{m}: the same formula on the same tokens");
+        assert_eq!(u.json()["cache_write"], write, "{p}/{m}: the ledger's usage records the writes");
+    }
+    // the 2026-10-25 T2 demo's volume (102 requests, 3,748,538 input tokens, 98.0 % read from the cache, writes ≈ the
+    // uncached rest, 21,693 output; INIT Labs research/demo/SUMMARY.md), as 102 requests the ledger settles one by
+    // one, against the provider's bill on the totals. Before this change the ledger was 4.9 % under.
+    for (p, m) in [("anthropic", "claude-sonnet-5-5"), ("anthropic", "claude-opus-5-5"), ("openai", "gpt-6.1-sol")] {
+        let (c, model) = (cat_model(p, m).unwrap(), md(m));
+        let req = TapUsage { input: 36_750, cache_read: 36_015, cache_write: 735, cache_write_1h: 0, output: 213 };
+        let ledger: u64 = (0..102).map(|_| req.cost(&model)).sum();
+        let total = TapUsage { input: 36_750 * 102, cache_read: 36_015 * 102, cache_write: 735 * 102, cache_write_1h: 0, output: 213 * 102 };
+        let provider = list(&total, c);
+        assert!(within_1pct(ledger, provider), "{p}/{m}: T2 volume, ledger {ledger} vs provider {provider} µUSD");
+        assert!(ledger >= provider, "{p}/{m}: per-request rounding only ever rounds up");
+        let old = tap_musd(&[(total.input - total.cache_read, c.input), (total.cache_read, c.cache_read), (total.output, c.output)]);
+        assert!((provider - old) * 100 > 4 * provider, "{p}/{m}: the input-price bill was more than 4 % under ({old} vs {provider})");
+    }
+    let _ = fs::remove_dir_all(&dir);
+}
+
+/// v0.5.0 L3: a model whose charter row has no write price bills writes at twice its input price, at or above every
+/// write price in Table A, so the ledger never under-counts; DeepSeek, which reports no writes, bills as before.
+#[test]
+fn missing_write_prices_never_under_count_and_deepseek_is_unchanged() {
+    use crate::egress::{TapFamily, TapReader, TapUsage, tap_compile, tap_musd};
+    let (dir, p) = home("cf");
+    let src = template();
+    let (ch, ..) = charter::parse(&src, &p.ctx()).unwrap();
+    let flash = tap_compile(&ch.actions)["providers"].models["deepseek-flash"].clone();
+    assert_eq!((flash.cache_write, flash.cache_write_1h), (600_000, 600_000), "no write key: 2× input");
+    // a hand-written or gateway row with no write price, on Anthropic's and OpenAI's write-heavy requests
+    for (p, m) in [("anthropic", "claude-sonnet-5-5"), ("anthropic", "claude-opus-5-5"), ("openai", "gpt-6.1-sol"), ("openai", "gpt-6-astra")] {
+        let c = cat_model(p, m).unwrap();
+        let s = spec(&req("gateway", Some("https://gw.example/v1"), Some(m), Some("gw"), Some(&format!("{},{},{}", usd(c.input), usd(c.cache_read), usd(c.output))))).unwrap();
+        let (_, row) = charter_fragment(&s);
+        assert!(row.get("cache_write_musd_per_mtok").is_none(), "a --price row has no write price");
+        let (mut models, mut class, mut t) = (Table::new(), Table::new(), Table::new());
+        models.insert(m.to_string(), toml::Value::Table(row));
+        class.insert("kind".into(), tv("model"));
+        class.insert("models".into(), toml::Value::Table(models));
+        t.insert("providers".into(), toml::Value::Table(class));
+        let model = tap_compile(&t)["providers"].models[m].clone();
+        let (w5, w1) = c.cache_write.unwrap();
+        assert!(model.cache_write >= w5.max(w1) && model.cache_write_1h >= w1, "{p}/{m}: the fallback is at or above the list write prices");
+        let cold = TapUsage { input: 21_507, cache_read: 0, cache_write: 21_504, cache_write_1h: 0, output: 87 };
+        let provider = tap_musd(&[(3, c.input), (21_504, w5), (87, c.output)]);
+        assert!(cold.cost(&model) >= provider, "{p}/{m}: never under the provider's bill");
+    }
+    // DeepSeek: a real recorded stream (S-REAL, 2026-10-20) bills exactly as the input/cache-read formula did
+    let mut tap = TapReader::new(TapFamily::Chat, true);
+    tap.feed(include_bytes!("../../../../../seed/src/provider/testdata/deepseek/real-text-cache-hit.sse"));
+    let u = tap.finish().0.unwrap();
+    assert!(u.cache_read > 0 && u.cache_write == 0 && u.cache_write_1h == 0);
+    assert_eq!(u.cost(&flash), tap_musd(&[(u.input - u.cache_read, 300_000), (u.cache_read, 6_000), (u.output, 1_200_000)]));
+    assert!(u.json().get("cache_write").is_none(), "DeepSeek's ledger records keep their shape");
     let _ = fs::remove_dir_all(&dir);
 }

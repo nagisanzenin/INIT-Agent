@@ -917,12 +917,42 @@ impl Session {
                 return self.end_idle();
             }
             self.set_phase(Phase::Tools);
+            // ask_owner (tools/ask.rs): its question frame, sent once the call has run.
+            let asks: Vec<(String, Value)> = prepared
+                .iter()
+                .filter_map(|p| match p {
+                    Prepared::Ready { job: Job::Ask(a), call_id, .. } => {
+                        Some((call_id.clone(), crate::tools::ask::frame(a)))
+                    }
+                    _ => None,
+                })
+                .collect();
             match self.execute_batch(prepared, req.out.task_id.as_deref()) {
                 Ok(results) => input.results = results,
                 Err(end) => return end,
             }
+            if self.send_asks(&asks, &input.results) {
+                // The turn ends: the owner's answer is their next message. No timer, no default.
+                self.drain_ctl();
+                if self.queue.steers.is_empty() && self.queue.follow_ups.is_empty() {
+                    return self.end_with(input, RunEnd::Idle);
+                }
+            }
             self.status.turn.fetch_add(1, Ordering::Relaxed);
         }
+    }
+
+    /// Sends the question frame of each `ask_owner` call whose result is not an error. True when
+    /// at least one was sent (the run then ends, unless the owner already said something).
+    fn send_asks(&self, asks: &[(String, Value)], results: &[(String, ToolResult)]) -> bool {
+        let mut sent = false;
+        for (id, frame) in asks {
+            if results.iter().any(|(_, r)| r.call_id == *id && !r.is_error) {
+                self.out.send(Out::Ask(frame.clone()));
+                sent = true;
+            }
+        }
+        sent
     }
 
     /// Interrupt-and-steer (§3.5): the abort asked to continue, and there is a note to answer
@@ -1264,6 +1294,7 @@ impl Session {
                     name: Some(p.name().to_string()),
                     ok: None,
                     parent: None,
+                    detail: None,
                 });
             }
         }
@@ -1427,6 +1458,7 @@ fn send_end(out: &OutTx, p: &Prepared, r: &Ran) {
         name: Some(p.name().to_string()),
         ok: Some(!r.result.is_error),
         parent: None,
+        detail: crate::tools::fail_detail(&r.result),
     });
 }
 

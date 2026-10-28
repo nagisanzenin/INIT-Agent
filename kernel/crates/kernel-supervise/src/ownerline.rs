@@ -186,7 +186,8 @@ fn with_note(mut out: Vec<OwnerOutFrame>, note: String, split: bool, boot_seq: u
 /// `None` when it still cannot fit (not reachable with the kernel's own frames).
 pub fn bounded(frame: OwnerOutFrame) -> Option<OwnerOutFrame> {
     let sure = match &frame {
-        OwnerOutFrame::Echo { text, .. } | OwnerOutFrame::Notice { text, .. } => FIXED + 6 * text.len() <= LINE_BUDGET,
+        OwnerOutFrame::Echo { text, .. } => FIXED + 6 * text.len() <= LINE_BUDGET,
+        OwnerOutFrame::Notice { text, data, .. } => data.is_none() && FIXED + 6 * text.len() <= LINE_BUDGET,
         OwnerOutFrame::Display(d) => {
             let raw = d.display.text.len() + d.display.call_id.as_ref().map_or(0, String::len) + d.display.name.as_ref().map_or(0, String::len);
             d.extra.is_empty() && FIXED + 6 * raw <= LINE_BUDGET
@@ -207,9 +208,11 @@ pub fn bounded(frame: OwnerOutFrame) -> Option<OwnerOutFrame> {
             cut(&mut text);
             OwnerOutFrame::Echo { seq, text }
         }
-        OwnerOutFrame::Notice { level, mut text, ts } => {
+        OwnerOutFrame::Notice { level, mut text, ts, data } => {
             cut(&mut text);
-            OwnerOutFrame::Notice { level, text, ts }
+            // TUI-OBSERVE: the structured payload goes before the text does (the text is the notice).
+            let with = OwnerOutFrame::Notice { level, text: text.clone(), ts: ts.clone(), data };
+            if fits(&with) { with } else { OwnerOutFrame::Notice { level, text, ts, data: None } }
         }
         OwnerOutFrame::Display(d) => return display_frames(d.boot_seq, d.display, d.extra).into_iter().next(),
         f @ OwnerOutFrame::State { .. } => f,
@@ -321,7 +324,7 @@ impl Pacer {
         }
         if self.held.is_empty() && self.dropped > 0 && self.take() {
             let text = format!("[kernel] {} display frames dropped: the body sent more than {RATE} a second", self.dropped);
-            out.push(OwnerOutFrame::Notice { level: AlertLevel::Warn, text, ts: crate::clock::now_rfc3339() });
+            out.push(OwnerOutFrame::Notice { level: AlertLevel::Warn, text, ts: crate::clock::now_rfc3339(), data: None });
             self.dropped = 0;
         }
         out
@@ -366,7 +369,7 @@ mod tests {
     fn line_len_is_the_real_line() {
         let f = display(7, Display { kind: DisplayKind::ToolEnd, text: nasty(5000), call_id: Some("c1".into()), name: Some("bash".into()), ok: Some(true) }, BTreeMap::from([("detail".into(), json!({"lines": [1, 2]}))]));
         assert_eq!(line_len(&f), real_line(&f).len());
-        let n = OwnerOutFrame::Notice { level: AlertLevel::Warn, text: "x".into(), ts: "2026-10-20T00:00:00Z".into() };
+        let n = OwnerOutFrame::Notice { level: AlertLevel::Warn, text: "x".into(), ts: "2026-10-20T00:00:00Z".into(), data: None };
         assert_eq!(line_len(&n), real_line(&n).len());
     }
 
@@ -489,10 +492,17 @@ mod tests {
         let OwnerOutFrame::Echo { seq, text: shown } = &e else { panic!() };
         assert_eq!(*seq, 5);
         assert!(shown.starts_with(prefix(&text, KEEP)) && shown.contains("[kernel: showing"));
-        let n = bounded(OwnerOutFrame::Notice { level: AlertLevel::Info, text, ts: "t".into() }).unwrap();
+        let n = bounded(OwnerOutFrame::Notice { level: AlertLevel::Info, text, ts: "t".into(), data: None }).unwrap();
         assert!(real_line(&n).len() <= LINE_BUDGET);
         let small = OwnerOutFrame::Echo { seq: 1, text: "hi".into() };
         assert_eq!(bounded(small.clone()), Some(small));
+        // TUI-OBSERVE: a notice's `data` is kept when it fits and dropped (text kept) when it does not.
+        let d = json!({"kind": "gate", "stage": "G0", "pass": true});
+        let n = OwnerOutFrame::Notice { level: AlertLevel::Info, text: "[kernel] gate G0 pass".into(), ts: "t".into(), data: Some(d.clone()) };
+        assert_eq!(bounded(n.clone()), Some(n));
+        let huge = json!({"kind": "gate", "reason": "x".repeat(MAX_RESPONSE_LINE)});
+        let n = bounded(OwnerOutFrame::Notice { level: AlertLevel::Warn, text: "[kernel] gate G2 fail".into(), ts: "t".into(), data: Some(huge) }).unwrap();
+        assert!(matches!(&n, OwnerOutFrame::Notice { data: None, text, .. } if text.starts_with("[kernel] gate G2 fail")), "{n:?}");
     }
 
     fn delta(kind: DisplayKind, text: &str) -> OwnerOutFrame {

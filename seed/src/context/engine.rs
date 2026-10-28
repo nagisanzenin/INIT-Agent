@@ -1379,15 +1379,23 @@ impl Context {
     }
 
     /// The leaf is an owner message, a steer, a harness message, or a complete result set.
+    /// A result set holding a successful `ask_owner` is not pending: that call ended the turn and
+    /// the agent waits for the owner's answer, also after a restart (tools/ask.rs).
     pub fn has_pending_work(&self) -> bool {
+        let (mut results, mut asked) = (false, false);
         for l in self.view.window.iter().rev() {
             match &l.ev.body {
+                EventBody::ToolResult(r) => {
+                    results = true;
+                    asked |= r.name == crate::tools::ask::NAME && !r.is_error;
+                }
+                _ if results => return !asked,
                 EventBody::Message(m) => return !m.is_assistant(),
-                EventBody::Steer(_) | EventBody::ToolResult(_) => return true,
+                EventBody::Steer(_) => return true,
                 _ => {}
             }
         }
-        false
+        results && !asked
     }
 }
 

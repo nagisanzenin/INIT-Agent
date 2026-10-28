@@ -375,6 +375,6 @@ fn text<R: BufRead>(a: &ReadArgs, lim: &Limits, r: &mut R) -> Result<Ran, ToolEr
     }
     Ok(Ran {
         result: text_result("", out),
-        summary: format!("{emitted} lines"),
+        summary: format!("{emitted} line{}", if emitted == 1 { "" } else { "s" }),
     })
 }

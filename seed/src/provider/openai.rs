@@ -838,4 +838,57 @@ mod tests {
         assert_eq!(p.classify(503, &[], None, ""), ErrorKind::Overloaded);
         assert_eq!(p.classify(500, &[], None, ""), ErrorKind::Server);
     }
+
+    /// v0.5.0 L3, offline: `response.completed`'s `input_tokens_details.cached_tokens` and `.cache_write_tokens`.
+    /// The log's `input_tokens` is the uncached rest (input − read − write). The Root meters the same bytes with its
+    /// own tap: root/crates/init-root/src/providers/tests.rs `cache_writes_bill_at_the_charter_write_price`.
+    #[test]
+    fn cache_write_then_read_usage_reaches_the_log() {
+        let (_, m1) = decode(dec(), &fixture("openai/cache-write.sse"));
+        let m1 = m1.unwrap();
+        assert_eq!(m1.stop, StopReason::ToolUse);
+        assert_eq!(m1.usage, Usage { input: 21_510, cache_read: 0, cache_write: 21_504, output: 95, reasoning: 64 });
+        let (_, m2) = decode(dec(), &fixture("openai/cache-read.sse"));
+        let m2 = m2.unwrap();
+        assert_eq!(m2.stop, StopReason::EndTurn);
+        assert_eq!(m2.usage, Usage { input: 22_150, cache_read: 21_504, cache_write: 640, output: 140, reasoning: 96 });
+        assert_eq!(m2.usage.hit_permille(), 970);
+        let l1 = m1.usage.to_log(None);
+        assert_eq!((l1.input_tokens, l1.cache_read_tokens, l1.cache_write_tokens, l1.output_tokens), (6, 0, 21_504, 95));
+        let l2 = m2.usage.to_log(None);
+        assert_eq!((l2.input_tokens, l2.cache_read_tokens, l2.cache_write_tokens, l2.reasoning_tokens), (6, 21_504, 640, Some(96)));
+        assert_eq!(l2.prompt_total(), m2.usage.input);
+    }
+
+    /// Every request of a session carries `prompt_cache_key` = the session id (report "Bước tiếp theo cho INIT":
+    /// openai.rs:152), the head is one developer message with the explicit breakpoint on its `self_` part, and
+    /// request 2's input starts with request 1's items unchanged, so the cached prefix can match.
+    #[test]
+    fn prompt_cache_key_and_a_stable_prefix_across_requests() {
+        let info = models::lookup("openai", "gpt-6.1-sol").unwrap();
+        let ts = tools();
+        let first = vec![user("Run the qualify command.")];
+        let (_, m1) = decode(dec(), &fixture("openai/cache-write.sse"));
+        let mut second = first.clone();
+        second.push(Message::Assistant(m1.unwrap()));
+        second.push(Message::ToolResults(vec![result("call_q1", "3f1c0b9e  -", false)]));
+        let body = |msgs: &[Message]| -> Value {
+            let p = Prompt {
+                head: PromptHead { core: "CORE", self_: "SELF" }, tools: &ts, messages: msgs, b3: None,
+                max_tokens: 64_000, effort: Effort::High, session: "sess-q",
+            };
+            serde_json::from_slice(&OpenAi::new(info).build(&p).unwrap().body).unwrap()
+        };
+        let (v1, v2) = (body(&first), body(&second));
+        assert_eq!((&v1["prompt_cache_key"], &v2["prompt_cache_key"]), (&json!("sess-q"), &json!("sess-q")));
+        assert_eq!(v1["input"][0]["role"], "developer");
+        assert!(v1["input"][0]["content"][0].get("prompt_cache_breakpoint").is_none());
+        assert_eq!(v1["input"][0]["content"][1]["prompt_cache_breakpoint"], json!({"mode": "explicit"}));
+        for k in ["tools", "model", "reasoning", "include", "store", "max_output_tokens"] {
+            assert_eq!(v1[k], v2[k], "{k} differs between consecutive requests");
+        }
+        let (i1, i2) = (v1["input"].as_array().unwrap(), v2["input"].as_array().unwrap());
+        assert!(i2.len() > i1.len());
+        assert_eq!(&i2[..i1.len()], &i1[..], "request 2 must start with request 1's input items");
+    }
 }

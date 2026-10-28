@@ -45,25 +45,42 @@ pub fn musd(parts: &[(u64, u64)]) -> u64 {
 
 /// Tokens as the provider reported them: the input total (cache reads and writes included), the cache
 /// reads within it (DeepSeek `prompt_cache_hit_tokens`, OpenAI `cached_tokens`, Anthropic
-/// `cache_read_input_tokens`) and the output.
+/// `cache_read_input_tokens`), the cache writes within it (v0.5.0 L3: Anthropic `cache_creation_input_tokens`,
+/// split by TTL; OpenAI `cache_write_tokens`) and the output.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Usage {
     pub input: u64,
     pub cache_read: u64,
+    /// Writes at the 5-minute TTL, or a provider's single write class (OpenAI).
+    pub cache_write: u64,
+    /// Anthropic 1-hour writes, and every Anthropic write the response does not split by TTL (the dearer class).
+    pub cache_write_1h: u64,
     pub output: u64,
 }
 
 impl Usage {
-    /// The cost at the model's peak prices (egress.md §3.4): cache reads at its cache-read price, the rest of
-    /// the input at the input price, rounded up once. Provisional owner decision 2026-10-20 (build-deviations
-    /// §3.13); a model without a cache-read price bills them at the input price, the old safe default.
+    /// The cost at the model's peak prices (egress.md §3.4): cache reads at its cache-read price, cache writes at its
+    /// write prices, the rest of the input at the input price, rounded up once. Provisional owner decision 2026-10-20
+    /// (build-deviations §3.13); a model without a cache-read price bills reads at the input price, and one without
+    /// write prices bills writes at twice the input price (classes.rs), so neither under-counts. Each class is
+    /// clamped to what is left of the input, so a provider that reports more than its input cannot lower the bill.
     pub fn cost(&self, m: &Model) -> u64 {
         let cr = self.cache_read.min(self.input);
-        musd(&[(self.input - cr, m.input), (cr, m.cache_read), (self.output, m.output)])
+        let w1 = self.cache_write_1h.min(self.input - cr);
+        let w5 = self.cache_write.min(self.input - cr - w1);
+        musd(&[(self.input - cr - w1 - w5, m.input), (cr, m.cache_read), (w5, m.cache_write), (w1, m.cache_write_1h), (self.output, m.output)])
     }
-    /// The `usage` object of a ledger record.
+    /// The `usage` object of a ledger record; the write fields only when there are writes (DeepSeek's records are
+    /// unchanged).
     pub fn json(&self) -> Value {
-        json!({"cache_read": self.cache_read, "input": self.input, "output": self.output})
+        let mut v = json!({"cache_read": self.cache_read, "input": self.input, "output": self.output});
+        if self.cache_write > 0 {
+            v["cache_write"] = json!(self.cache_write);
+        }
+        if self.cache_write_1h > 0 {
+            v["cache_write_1h"] = json!(self.cache_write_1h);
+        }
+        v
     }
 }
 
@@ -76,8 +93,9 @@ pub struct Tap {
     sse: bool,
     buf: Vec<u8>,
     overflow: bool,
-    /// Anthropic's cumulative fields: input, cache read, cache write, output (overwritten, never summed).
-    a: [Option<u64>; 4],
+    /// Anthropic's cumulative fields: input, cache read, cache write, output, and the cache write's
+    /// `cache_creation` split, 5 minutes and 1 hour (overwritten, never summed).
+    a: [Option<u64>; 6],
     pub usage: Option<Usage>,
     pub finish: Option<&'static str>,
     /// X5: the tool-call reader, on live forwards only (`with_calls`).
@@ -86,7 +104,7 @@ pub struct Tap {
 
 impl Tap {
     pub fn new(family: Family, sse: bool) -> Tap {
-        Tap { family, sse, buf: Vec::new(), overflow: false, a: [None; 4], usage: None, finish: None, calls: None }
+        Tap { family, sse, buf: Vec::new(), overflow: false, a: [None; 6], usage: None, finish: None, calls: None }
     }
 
     /// X5: also read the response's tool calls (ADR-011 §5.2); the live forwarder only, never sealed lanes.
@@ -159,8 +177,10 @@ impl Tap {
                 if let Some(u) = v.get("usage").filter(|u| u.is_object()) {
                     let hm = n(u, "prompt_cache_hit_tokens").zip(n(u, "prompt_cache_miss_tokens")).map(|(h, m)| h + m);
                     let cache_read = n(u, "prompt_cache_hit_tokens").or_else(|| n(&u["prompt_tokens_details"], "cached_tokens")).unwrap_or(0);
+                    // a gateway's cache writes (OpenRouter `prompt_tokens_details.cache_write_tokens`); DeepSeek sends none
+                    let cache_write = n(&u["prompt_tokens_details"], "cache_write_tokens").unwrap_or(0);
                     if let Some(input) = n(u, "prompt_tokens").or(hm) {
-                        self.usage = Some(Usage { input, cache_read, output: n(u, "completion_tokens").unwrap_or(0) });
+                        self.usage = Some(Usage { input, cache_read, cache_write, cache_write_1h: 0, output: n(u, "completion_tokens").unwrap_or(0) });
                     }
                 }
                 if let Some(f) = v["choices"][0]["finish_reason"].as_str() {
@@ -180,9 +200,16 @@ impl Tap {
                         self.a[i] = Some(x);
                     }
                 }
+                for (i, k) in [(4, "ephemeral_5m_input_tokens"), (5, "ephemeral_1h_input_tokens")] {
+                    if let Some(x) = n(&u["cache_creation"], k) {
+                        self.a[i] = Some(x);
+                    }
+                }
                 if let Some(i) = self.a[0] {
-                    let (cache_read, output) = (self.a[1].unwrap_or(0), self.a[3].unwrap_or(0));
-                    self.usage = Some(Usage { input: i + cache_read + self.a[2].unwrap_or(0), cache_read, output });
+                    let (cache_read, output, created) = (self.a[1].unwrap_or(0), self.a[3].unwrap_or(0), self.a[2].unwrap_or(0));
+                    // only writes the response puts in the 5-minute class bill at the 5-minute price; the rest at 1 hour
+                    let w5 = self.a[4].unwrap_or(0).min(created);
+                    self.usage = Some(Usage { input: i + cache_read + created, cache_read, cache_write: w5, cache_write_1h: created - w5, output });
                 }
                 let stop = v["delta"]["stop_reason"].as_str().or(v["stop_reason"].as_str());
                 self.finish = match (t, stop) {
@@ -203,7 +230,8 @@ impl Tap {
                     && let Some(input) = n(u, "input_tokens")
                 {
                     let cache_read = n(&u["input_tokens_details"], "cached_tokens").unwrap_or(0);
-                    self.usage = Some(Usage { input, cache_read, output: n(u, "output_tokens").unwrap_or(0) });
+                    let cache_write = n(&u["input_tokens_details"], "cache_write_tokens").unwrap_or(0);
+                    self.usage = Some(Usage { input, cache_read, cache_write, cache_write_1h: 0, output: n(u, "output_tokens").unwrap_or(0) });
                 }
                 let call = r["output"].as_array().into_iter().flatten().any(|o| matches!(o["type"].as_str(), Some("function_call" | "custom_tool_call")));
                 self.finish = match r["status"].as_str() {
@@ -254,7 +282,8 @@ mod tests {
     fn families_at_every_split() {
         for split in [1, 2, 3, 7, 64, 10_000] {
             assert_eq!(run(Family::Chat, true, DEEPSEEK, split), (Some(u(1000, 200, 50)), Some("tool_use")), "{split}");
-            assert_eq!(run(Family::Messages, true, ANTHROPIC, split), (Some(u(315, 300, 42)), Some("stop")), "{split}");
+            // 5 written tokens with no TTL split: the dearer 1-hour class (v0.5.0 L3)
+            assert_eq!(run(Family::Messages, true, ANTHROPIC, split), (Some(Usage { cache_write_1h: 5, ..u(315, 300, 42) }), Some("stop")), "{split}");
             assert_eq!(run(Family::Responses, true, RESPONSES, split), (Some(u(900, 0, 70)), Some("tool_use")), "{split}");
         }
         let json = r#"{"choices":[{"finish_reason":"length"}],"usage":{"prompt_tokens":12,"completion_tokens":3}}"#;
@@ -281,7 +310,7 @@ mod tests {
     }
 
     fn u(input: u64, cache_read: u64, output: u64) -> Usage {
-        Usage { input, cache_read, output }
+        Usage { input, cache_read, output, ..Usage::default() }
     }
 
     /// One DeepSeek stream's final usage line (prompt = hit + miss), as the S1 run's provider sent it.
@@ -297,7 +326,7 @@ mod tests {
     /// upper bound). A model without a cache-read price keeps the old bill.
     #[test]
     fn s1_usage_at_the_cache_read_price() {
-        let flash = Model { min_level: 0, input: 300_000, cache_read: 6_000, output: 1_200_000, reserve_out: 65_536 };
+        let flash = Model { min_level: 0, input: 300_000, cache_read: 6_000, cache_write: 600_000, cache_write_1h: 600_000, output: 1_200_000, reserve_out: 65_536 };
         let old = Model { cache_read: flash.input, ..flash.clone() };
         let turns = [run(Family::Chat, true, &ds(0, 4474, 81), 7).0.unwrap(), run(Family::Chat, true, &ds(4480, 190, 2), 7).0.unwrap()];
         assert_eq!(turns[1], u(4670, 4480, 2));
@@ -310,6 +339,31 @@ mod tests {
         assert_eq!(root * 100 / proxy, 200, "Root/proxy 2.00× (was 2,844 / 762 = 3.73×)");
         // a provider that reports more cache reads than input cannot make the bill go negative
         assert_eq!(u(10, 99, 0).cost(&flash), 1);
+    }
+
+    /// v0.5.0 L3: cache writes by family and TTL, and their price.
+    #[test]
+    fn cache_writes_by_family_and_ttl() {
+        let w = |f: Family, s: &str| run(f, true, s, 5).0.unwrap();
+        // Anthropic with the TTL split: the 5-minute and the 1-hour writes apart
+        let split = "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":4,\"cache_read_input_tokens\":100,\
+            \"cache_creation_input_tokens\":30,\"cache_creation\":{\"ephemeral_5m_input_tokens\":20,\"ephemeral_1h_input_tokens\":10},\
+            \"output_tokens\":1}}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":9}}\n\n";
+        assert_eq!(w(Family::Messages, split), Usage { input: 134, cache_read: 100, cache_write: 20, cache_write_1h: 10, output: 9 });
+        // OpenAI Responses, and a Chat gateway's single write class (OpenRouter)
+        let resp = "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":50,\
+            \"input_tokens_details\":{\"cached_tokens\":20,\"cache_write_tokens\":25},\"output_tokens\":3}}}\n\n";
+        assert_eq!(w(Family::Responses, resp), Usage { input: 50, cache_read: 20, cache_write: 25, cache_write_1h: 0, output: 3 });
+        let chat = "data: {\"choices\":[{\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":50,\
+            \"prompt_tokens_details\":{\"cached_tokens\":20,\"cache_write_tokens\":25},\"completion_tokens\":3}}\n\n";
+        assert_eq!(w(Family::Chat, chat), Usage { input: 50, cache_read: 20, cache_write: 25, cache_write_1h: 0, output: 3 });
+        // each class at its own price; counts beyond the input are clamped to it and can only raise the bill
+        let m = Model { min_level: 0, input: 1_000_000, cache_read: 100_000, cache_write: 1_250_000, cache_write_1h: 2_000_000,
+            output: 5_000_000, reserve_out: 1 };
+        assert_eq!(w(Family::Messages, split).cost(&m), musd(&[(4, 1_000_000), (100, 100_000), (20, 1_250_000), (10, 2_000_000), (9, 5_000_000)]));
+        let inflated = Usage { input: 10, cache_read: 4, cache_write: 50, cache_write_1h: 50, output: 0 };
+        assert_eq!(inflated.cost(&m), musd(&[(4, 100_000), (6, 2_000_000)]), "the 4 reads, then the 6 tokens left at the dearest write class");
+        assert_eq!(w(Family::Responses, resp).json(), json!({"cache_read": 20, "cache_write": 25, "input": 50, "output": 3}));
     }
 
     #[test]

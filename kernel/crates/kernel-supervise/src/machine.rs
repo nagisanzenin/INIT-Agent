@@ -925,7 +925,13 @@ impl Machine {
                 // ADR-013 G2: a data-only rollback moves lineage `main` first, so B's `body/` resync
                 // (evolution.md §3.6) checks out the target's T0 data before B builds its head.
                 let early_main = matches!(&h.kind, HandoffKind::Rollback { to: Some(_), .. }).then(|| Act::RollbackMain { from: h.old_sha.clone(), to: sha.clone() });
-                let plan = SpawnPlan { tag, bin, sha, reason, mode: InitMode::Normal, replaces: Some(h.old.clone()), crash: None, branch, from_sha: Some(h.old_sha.clone()), cause: None };
+                // The Root's extend.rollback (reason `extend_<signal>`) names itself in boot.json.cause,
+                // so the new body never reads an older, stale cause (demo 2026-10-25, F4).
+                let cause = match &h.kind {
+                    HandoffKind::Rollback { reason, .. } if reason.starts_with("extend_") => Some(reason.clone()),
+                    _ => None,
+                };
+                let plan = SpawnPlan { tag, bin, sha, reason, mode: InitMode::Normal, replaces: Some(h.old.clone()), crash: None, branch, from_sha: Some(h.old_sha.clone()), cause };
                 let hm = self.handoff.as_mut().unwrap();
                 hm.new_tag = Some(tag);
                 hm.phase = Phase::AwaitSpawn;

@@ -2,6 +2,137 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.5.0-preview (candidate, 2026-10-27; not released)
+
+Workspaces are at version 0.5.0 (seed tag `seed-v0.5.0`). Release notes: docs/release-notes/v0.5.0-preview.md.
+
+### `init-agent upgrade` (build/status/UPGRADE.md)
+- `init-agent upgrade [--bundle FILE] [--sha256 HEX] [--version V]` moves an install to a new release and keeps the
+  evolved body, its extensions and skills, the sessions, the signed lineage, the keys and the charter. Installs of
+  0.4.1, which have no `upgrade`, run `curl -fsSL …/get.sh | sh -s -- --upgrade` once. The bundle is checked by its
+  SHA-256 and unpacked under `ROOT_HOME/cache/upgrade/`, which the agent cannot write in any access mode.
+- `install.sh --upgrade` stops the Root (a foreground Root is refused, never signalled), runs the new
+  `init-root upgrade --release DIR` (no downgrade, no same release, the body's control protocol, manifest format and
+  WIT majors checked against the release's own body, a snapshot, the replace, a new tuple with the new kernel), installs
+  the launchers, then `init-root upgrade --probe` and `--commit`, or `--rollback` when the probe fails
+  (root/crates/init-root/src/upgrade.rs; `--status [--json]`). An open free-mode change group refuses the upgrade.
+- Not done: merging a release's new seed into an evolved body, a live kernel swap, signed releases. The service path
+  (launchctl, systemd) of `install.sh --upgrade` uses the commands install.sh and uninstall.sh already run; only the
+  no-service path ran end to end.
+- Tests: tests/upgrade.rs (replace, probe, commit; a broken kernel rolled back; refusals; the zone in full and workspace
+  mode cannot run the upgrade or write what it replaces), tests/install/test_upgrade_guards.py,
+  scripts/upgrade-e2e.sh with scripts/upgrade-e2e-t1.sh (a T1-evolved 0.4.1 install).
+
+### The installer asks one question (build/status/UPGRADE.md)
+- install.sh asks no provider or model (the TUI's first run picks them) and no limits one by one. It prints the
+  settings it writes into the charter (disk floor, the day and total spending references, the autonomy cap, the access
+  mode) and asks `Install with these settings? [Y/n]` once; `--disk-floor`, `--day-usd`, `--total-usd`,
+  `--max-level`, `--access full|workspace` and `--purpose` set each value.
+- Spending is labelled as what it is: the day and total amounts are tracked and shown, not caps; a goal's `usd=` is the
+  one dollar limit the Root enforces (installer text, charter template comment, docs/guide.md "Spending").
+- macOS: v0.4.1's `init` shim is gone. install.sh installs no `init` on either platform and removes INIT's own old one
+  (the pre-v0.4.1 launcher or the shim, by path, regular file and content markers); `scripts/init-shim` is deleted.
+
+### TUI: colour means state (build/status/TUI-BRAND.md)
+- Semantic palette roles (ink, dim, mute, line, root, rewrite, pass, harm, warn) in four tiers (truecolor, 256, 16,
+  `NO_COLOR`) with dark and light variants; the background is read with OSC 11 or `COLORFGBG`, or set with
+  `--theme dark|light`. The Root's amber is used only for the Root.
+- A liveness row above the input while the agent works (waiting for the model, thinking, writing, a quiet stream, a tool
+  by name, with times; `waiting on you` while the agent's question waits). The status bar is split: the agent on the
+  left, the Root on the right ending in `root ok` or its alarm. A one-line identity at the first attach.
+- `/root status`, `/root ledger` and `/usage` render as aligned tables in the TUI (line mode keeps the raw JSON).
+  Identical notices in a row collapse into one line with a count.
+- Renderer property tests through a terminal emulator (`vt100`, dev-dependency only) found and fixed a redraw bug: the
+  live region's last row was erased when it had not changed, so the hint line vanished.
+
+### TUI: self-changes on screen (build/status/TUI-OBSERVE.md)
+- A gate track: one live block per self-change (G0 … G4, hand-off) collapsing into one line: kept, refused at a gate
+  (`still on <parent>`), or rolled back after it went live (`back on LKG`). The kernel sends owner-only `gate_start`
+  and `rolled_back` events and structured `data` on its notices; the body's notices are unchanged.
+- A failed tool call shows the last lines of its output (the body's `tool_end` `detail`, at most 10 lines, 2,000 bytes).
+- Ctrl-O ends with a lineage panel: `verify ✓` or the first failing record, and the newest records, from the Root's new
+  read-only `lineage.tail` owner request.
+- `scripts/demo/record-mock.sh`: a recording kit that installs a bundle with the mock model and records a kept T1
+  change and a refused one to an asciinema cast, every frame captioned "mock model".
+
+### TUI: pickers and the agent's questions (build/status/TUI-PICKER.md)
+- Every list choice is an inline picker (arrow keys, Enter, Esc, 1-9, type to filter, multi-select): the first-run
+  provider and model, `/model`, `/key`'s provider. Line mode keeps numbered prompts.
+- A body tool `ask_owner` (2-4 options, a recommended one, multi-select): the turn ends and the owner's answer is the
+  next message; no timer, no default. The TUI cleans and caps the question, shows it under its own label in plain
+  roles, and quotes a label that starts with `/`, so an option can never pass for the Root or a command.
+- The Root stops a goal's wall clock while an agent question waits on the owner, and starts it again at the owner's next
+  line or the next admitted model request; money, tokens and rounds are unchanged (goal.rs; ADR-013).
+
+### Robustness, offline lineage verify, proof export (build/status/HYGIENE.md)
+- G0 passes with a 63-64 byte `INIT_HOME` (the seed's test sockets bind through a short relative path when the absolute
+  one does not fit). A3's G3 stops when the Root rolls its change group back (`gate.g3.stopped`, no veto). The body's
+  boot block names the Root's rollback instead of a stale zone cause.
+- `init-root audit verify --file RECORDS --pub KEY [--head HASH]` checks a published lineage file offline (hash chain,
+  Ed25519 signatures from genesis, key rotation) and prints its limits.
+- `scripts/proof/export.sh` copies sessions, the signed lineage with its key, one diff per self-change and the spend
+  ledger, and refuses (exit 3) when its scan finds a key or token.
+- Docs: a Spending FAQ in guide.md; README states that the Root protects INIT, not your files, in full mode, and the
+  Root's real size.
+
+### Linux x86_64 (build/status/LINUX-X64.md)
+- get.sh names the platforms a release has when it has no bundle for the machine (HTTP 404), instead of "download
+  failed".
+- bundle.sh names each bundle's target triple and stops unless rustc's host, the release's MANIFEST host and every
+  binary header match it (linux-x86_64 = x86_64-unknown-linux-gnu).
+- A hosted-runner workflow (`ci/github/linux-x86_64.yml`): the x86_64 bundle in debian:bookworm-slim, the Linux zone
+  qualification on x86_64, and bundle-e2e on ubuntu-24.04 after INIT's AppArmor step (below). Results at integration:
+  build/status/REL-050.md.
+
+### Ubuntu 24.04: INIT's own AppArmor step (build/status/REL-050.md)
+- Ubuntu 24.04 restricts unprivileged user namespaces through AppArmor, and the zone needs two: util-linux `unshare`,
+  then bubblewrap inside it. Measured on a hosted Ubuntu 24.04 VM: Ubuntu's `bwrap-userns-restrict` and
+  `unshare-userns-restrict` profiles each pass their own program, but bwrap inside unshare is refused, so docs/platforms.md's
+  earlier step (the bwrap profile) never let INIT install there.
+- New one-time step, printed by install.sh when the namespace probes fail and the restriction is on
+  (`--print-apparmor` prints only the commands; `--apparmor` asks, then runs them with sudo; otherwise INIT never runs
+  sudo): root-owned copies of `unshare` and `bwrap` in `/usr/local/lib/init-agent/` (mode 0750, your group) and
+  `/etc/apparmor.d/init-agent`, which grants only those two paths `userns`. uninstall.sh prints (or with `--apparmor`
+  runs) the removal. The global sysctl is never recommended.
+- The Root (init-sandbox-profiles `entry.rs`) starts the zone through the copies when present, and only when the
+  canonical file and every directory above it are owned by root and writable by root alone; a copy that fails refuses
+  the zone instead of falling back. Tests: entry.rs (5), tests/install/test_apparmor_step.py (3).
+
+### Providers: cache writes billed, live qualification prepared (build/status/PROVIDERS-LIVE.md)
+- The Root bills cache writes at the charter's write prices (Anthropic 5-minute and 1-hour, OpenAI and gateways one
+  class); a model row without them bills writes at 2x input, so it can over-count, never under-count. Before, writes
+  were billed at the input price (about 20 % under on a cold Anthropic or OpenAI request). DeepSeek billing and its
+  records are unchanged. `providers add` writes the catalog's write prices; gpt-6.1-sol and gpt-6-astra gained theirs.
+- Per-model `tested` label in `providers list` (DeepSeek's two models; Anthropic and OpenAI are not live-tested).
+- `scripts/qualify-provider.sh` for the owner: one short live session inside a Root-metered `/goal usd=` budget (cap
+  at most $10), never reading a key; checks streaming, a tool round trip, pause and resume, cache reads, tokens and cost
+  against the Root's ledger. Tested on the mock only (tests/real/qualify_mock.sh).
+
+### Linux: the build disk floor read the sandbox's tmpfs; fixed (build/status/REL-050.md)
+- The kernel decided `disk.min_free_build_gib` (and the run floor at a body crash) from statvfs of INIT_HOME. Inside
+  the Linux kernel zone INIT_HOME's subtrees are bound, not INIT_HOME itself, so that read the zone's tmpfs: 64 MiB for
+  a home under /tmp (every promote refused `E_DISK`; the x86_64 T2 e2e), about half the RAM for `~/.init`. It now reads
+  `INIT_HOME/cache` (bound; where builds write), with INIT_HOME as the fallback (kernel-supervise `disk_probe_paths`).
+  Tests: `disk_probe_tests`, and the Linux qualification `linux_kernel_zone_disk_probe_reads_the_real_filesystem`
+  (inside the real kernel zone, cache has the host's device and INIT_HOME has not). The Root's disk floor is measured
+  by the Root outside every zone and was not affected; macOS was not affected.
+
+### A race in a body test that could refuse a good self-change (build/status/REL-050.md)
+- `loop::tests::t22_task_id` read the session hook's log right after the `/new` ack, which the loop sends before it
+  calls the hook. G0 runs the body's own tests at every T2 promote, so on a loaded machine the race refused a good
+  change (seen on the hosted x86_64 runner). The test now waits for the hook; `seed/self.json` re-blessed.
+- The same class in `t26_interrupt_and_steer_during_a_batch` and `t20_stop_grace_and_eof`: an interrupt or stop that
+  landed after `tool_start` but before the bash process existed ended the call "not executed" (correct), which the
+  tests read as a failure (run 8). They now wait until the command runs, as t09 already did; 50/50 under load.
+- `seed/self.json` is regenerated on the packaged seed tree (seedpack rewrites `.cargo/config.toml`'s vendor path), not
+  in the repository; an in-repo `--write` is 3 bytes off and bundle.sh's G1 refuses it (docs/release.md §1).
+
+### Release (lane REL-050, build/status/REL-050.md)
+- History: 46ec430 (TUI-PICKER's goal clock under a TUI-BRAND message, from a shared-index race) reworded as f385527;
+  the empty ddf8248 and 07b64d8 dropped; the tree unchanged.
+- Leftovers: `scripts/init-shim` and its TUI test case removed; `1 line` in the bash and read summaries; a clippy
+  doc-comment lint in tests/upgrade.rs; `/rollback`'s whole-system forms in guide.md; README's Root size counted.
+
 ## v0.4.1-preview (2026-10-27)
 
 Workspaces are at version 0.4.1 (seed tag `seed-v0.4.1`). Release notes: docs/release-notes/v0.4.1-preview.md.

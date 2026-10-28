@@ -1,0 +1,36 @@
+-- asking
+── lineage (signed by the Root)                                                                     |llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+  asking the Root…                                                                                  |dddddddddddddddddd                                                                                  
+-- verify ok
+── lineage (signed by the Root)                                                                     |llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+  verify ✓ 412 records · every signature · head 411 #0a1b2c3d4e5f · key 3f9c0a1b2c4d5e6f            |..ppppppppdddddddddddddddddddddddddddddddddddddddddddddddddddddddmmmmmmmmmmmmmmmmmmmmmmm            
+     405 gate          accept g0_g3 06be87a12345                                kernel #a1b2c3d4e5f6|mmmmmmmmm..............ppppppppppppppppppppppppp...............................mmmmmmmmmmmmmmmmmmmmm
+     406 promotion     live, provisional 06be87a12345                           kernel #b2c3d4e5f6a1|mmmmmmmmm..............dddddddddddddddddddddddddddddd..........................mmmmmmmmmmmmmmmmmmmmm
+     407 gate          reject probe_exit 77aa00bb11cc                           kernel #c3d4e5f6a1b2|mmmmmmmmm..............hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh..........................mmmmmmmmmmmmmmmmmmmmm
+     408 promotion     kept (LKG) 06be87a12345                                  kernel #d4e5f6a1b2c3|mmmmmmmmm..............ppppppppppppppppppppppp.................................mmmmmmmmmmmmmmmmmmmmm
+     409 body_rollback rolled back 88bb → 06be87a12345 gate.g4.score_inferior   kernel #e5f6a1b2c3d4|mmmmmmmmm..............hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh..mmmmmmmmmmmmmmmmmmmmm
+     410 rollback      Root rollback → tA harm                                    root #f6a1b2c3d4e5|mmmmmmmmm..............aaaaaaaaaaaaaaaaaaaaaaa...................................mmmmmmmmmmmmmmmmmmm
+     411 turns␛[2J                                                                root #0a1b2c3d4e5f|mmmmmmmmm.....d..................................................................mmmmmmmmmmmmmmmmmmm
+-- verify failed
+── lineage (signed by the Root)                                                                     |llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+  verify ✕ at seq 407: 4: hash does not recompute · key 3f9c0a1b2c4d5e6f                            |..hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhmmmmmmmmmmmmmmmmmmmmmmm                            
+     405 gate          accept g0_g3 06be87a12345                                kernel #a1b2c3d4e5f6|mmmmmmmmm..............ppppppppppppppppppppppppp...............................mmmmmmmmmmmmmmmmmmmmm
+     406 promotion     live, provisional 06be87a12345                           kernel #b2c3d4e5f6a1|mmmmmmmmm..............dddddddddddddddddddddddddddddd..........................mmmmmmmmmmmmmmmmmmmmm
+     407 gate          reject probe_exit 77aa00bb11cc                           kernel #c3d4e5f6a1b2|mmmmmmmmm..............hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh..........................mmmmmmmmmmmmmmmmmmmmm
+     408 promotion     kept (LKG) 06be87a12345                                  kernel #d4e5f6a1b2c3|mmmmmmmmm..............ppppppppppppppppppppppp.................................mmmmmmmmmmmmmmmmmmmmm
+     409 body_rollback rolled back 88bb → 06be87a12345 gate.g4.score_inferior   kernel #e5f6a1b2c3d4|mmmmmmmmm..............hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhh..mmmmmmmmmmmmmmmmmmmmm
+     410 rollback      Root rollback → tA harm                                    root #f6a1b2c3d4e5|mmmmmmmmm..............aaaaaaaaaaaaaaaaaaaaaaa...................................mmmmmmmmmmmmmmmmmmm
+     411 turns␛[2J                                                                root #0a1b2c3d4e5f|mmmmmmmmm.....d..................................................................mmmmmmmmmmmmmmmmmmm
+-- an older Root
+── lineage (signed by the Root)                                                                     |llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+  lineage: this Root has no lineage view (it predates v0.5.0)                                       |nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn                                       
+-- narrow
+── lineage (signed by the Root)                             |llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+  verify ✓ 412 records · every signature · head 411 #0a1b2c…|..ppppppppdddddddddddddddddddddddddddddddddddddddddddddddddd
+     405 gate          accept g0_g3 0…  kernel #a1b2c3d4e5f6|mmmmmmmmm..............ppppppppppppppd.mmmmmmmmmmmmmmmmmmmmm
+     406 promotion     live, provisio…  kernel #b2c3d4e5f6a1|mmmmmmmmm..............ddddddddddddddd.mmmmmmmmmmmmmmmmmmmmm
+     407 gate          reject probe_e…  kernel #c3d4e5f6a1b2|mmmmmmmmm..............hhhhhhhhhhhhhhd.mmmmmmmmmmmmmmmmmmmmm
+     408 promotion     kept (LKG) 06b…  kernel #d4e5f6a1b2c3|mmmmmmmmm..............ppppppppppppppd.mmmmmmmmmmmmmmmmmmmmm
+     409 body_rollback rolled back 88…  kernel #e5f6a1b2c3d4|mmmmmmmmm..............hhhhhhhhhhhhhhd.mmmmmmmmmmmmmmmmmmmmm
+     410 rollback      Root rollback → …  root #f6a1b2c3d4e5|mmmmmmmmm..............aaaaaaaaaaaaaaaad.mmmmmmmmmmmmmmmmmmm
+     411 turns␛[2J                        root #0a1b2c3d4e5f|mmmmmmmmm.....d..........................mmmmmmmmmmmmmmmmmmm

@@ -1060,6 +1060,26 @@ DeepSeek serves Chat Completions, Responses (`/responses`) and Anthropic Message
 - **Reconciliation.** `GET user/balance` before and after the whole batch; the balance delta must be ≤ the Root's total and within the kernel's measured cost ± the balance's display precision (the field's resolution is UNVERIFIED; if it is coarser than the run's cost, only the upper-bound check is asserted).
 - **Outputs.** Every stream is saved as an `.sse` fixture under `seed/src/provider/testdata/deepseek-{chat,responses,messages}/`; the catalog's DeepSeek rows and the three dialects get `wire_verified = "live"`. Everything else stays `fixture` or `docs`.
 
+#### 3.10.2 Live qualification of Anthropic Messages and OpenAI Responses (v0.5.0 L3)
+
+Status 2026-10-27: offline preparation done, nothing run live (build/status/PROVIDERS-LIVE.md).
+
+- **Offline evidence.** Fixtures of a cold request (cache write) and the next (cache read) for each codec
+  (`seed/src/provider/testdata/{anthropic,openai}/cache-{write,read}.sse`). The body's decoder and session log, and the
+  Root's egress tap with the catalog prices, read the same token counts from the same bytes. The request tests show
+  the cache markers (Messages: B1, B2, A, the moving B3; Responses: `prompt_cache_key` = the session id, the explicit
+  breakpoint on the head's `self_` part) and a byte-stable prefix across two consecutive requests.
+- **The run.** `scripts/qualify-provider.sh --cap-usd N` (N ≤ 10), by the owner, after `init-root keys set` and
+  `init-root model use` from their own shell and a limit at the provider. One session inside `/goal "…" usd=N`:
+  streaming, a bash round trip (a SHA-256 digest of a random nonce), pause and resume. Pass needs every check: the
+  second request reads the cache (> 0), the ledger's and the session log's tokens agree, and the ledger's cost is within
+  5 % of the provider-reported usage at list price. Only a model that passes is labelled live-tested.
+- **Found offline, then fixed (2026-10-27).** The Root billed cache writes at the input price (1.25× under for
+  Anthropic's 5-minute writes, 2.00 vs 2.50 for gpt-6.1-sol): a short qualify session read 10-20 % under list, a long
+  cached one about 5 %. The Root now bills writes at the charter's `cache_write_musd_per_mtok` and
+  `cache_write_1h_musd_per_mtok` (root/egress.md §3.4), the part of §3.2.4's `w5`/`w60` classes the live run needs;
+  a row without them bills writes at 2× input. On the fixtures the ledger equals the provider's bill.
+
 
 ## 4. Interfaces
 

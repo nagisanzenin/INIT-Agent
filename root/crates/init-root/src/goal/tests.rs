@@ -364,3 +364,74 @@ fn met_requires_a_registered_change_beyond_noise() {
         let _ = std::fs::remove_dir_all(&dir); // exact path, made by test_home
     }
 }
+
+/// TUI-PICKER: an agent question (`ask_owner`) stops the active goal's wall clock until the owner writes or the zone
+/// makes a request; money, tokens and rounds are untouched; a paused goal is not touched.
+#[test]
+fn the_wall_clock_waits_while_the_owner_is_asked() {
+    let mut g = Goal { state: "active".into(), since: 1_000, wall_s: 10, usd_musd: 500, rounds: 3, ..Goal::default() };
+    assert_eq!(g.wall_ms(5_000), 4_000);
+    g.wait(5_000);
+    assert_eq!((g.wall_ms(5_000), g.wall_ms(9_000), g.wall_ms(1_000_000)), (4_000, 4_000, 4_000), "stopped while waiting");
+    assert_eq!(g.budget_hit(1_000_000, false), None, "a long wait never spends the wall budget");
+    g.wait(7_000);
+    assert_eq!(g.waiting_since, Some(5_000), "a second question does not move the start of the wait");
+    g.unwait(9_000);
+    assert_eq!((g.waiting_since, g.wall_ms(9_000), g.wall_ms(10_000)), (None, 4_000, 5_000), "runs again from where it stopped");
+    g.unwait(12_000);
+    assert_eq!(g.wall_ms(12_000), 7_000, "no wait: nothing to resume");
+    // a pause or stop during a wait banks only the active time
+    g.wait(12_000);
+    g.bank(20_000);
+    assert_eq!((g.active_ms, g.waiting_since), (7_000, None));
+    // paused or stopped goals do not wait
+    let mut p = Goal { state: "paused".into(), active_ms: 3_000, ..Goal::default() };
+    p.wait(1);
+    assert_eq!((p.waiting_since, p.wall_ms(99)), (None, 3_000));
+    assert_eq!((g.spent_musd, g.used_rounds, g.usd_musd, g.rounds), (0, 0, 500, 3), "money and rounds untouched");
+    // a state.json from before this field still loads
+    let old: Goal = serde_json::from_value(json!({"id": "G-1", "kind": "owner", "done": null, "usd_musd": 1, "wall_s": 1, "rounds": 1,
+        "guard": [], "state": "active", "spent_musd": 0, "active_ms": 0, "since": 0, "used_rounds": 0, "since_checkin": 0})).unwrap();
+    assert_eq!(old.waiting_since, None);
+}
+
+/// TUI-PICKER, through the Root's state: `asked` (the relayed ask frame) stops the clock; `resumed` (an owner line, or
+/// the egress admitting a zone request) and a settled model request start it again; spend is metered throughout.
+#[cfg_attr(not(feature = "test-fixtures"), ignore = "a test home needs the test-fixtures ROOT_HOME bound (80 bytes)")]
+#[test]
+fn an_agent_question_pauses_the_goal_clock_until_the_owner_or_a_request() {
+    let (dir, root) = crate::grant::tests::test_home("gask", "");
+    asked(&root);
+    assert!(!root.p.r("state/goals/state.json").exists(), "no goal: nothing written");
+    assert!(line(&root, r#"/goal "x" usd=1.00"#));
+    let st = |root: &Root| kernel(root, "goal.status", &json!({})).unwrap()["goal"].clone();
+    // the goal has been active for 100 s
+    with(&root, |s, _, _| {
+        s.goals[0].since -= 100_000;
+        Ok(())
+    }).unwrap();
+    assert_eq!((st(&root)["spent"]["wall_s"].as_i64(), st(&root)["waiting_owner"].as_bool()), (Some(100), Some(false)));
+    asked(&root);
+    assert_eq!(st(&root)["waiting_owner"], true);
+    // the question was asked 40 s ago: 60 s of active time, and it stays 60 while the owner is away
+    with(&root, |s, _, _| {
+        s.goals[0].waiting_since = s.goals[0].waiting_since.map(|w| w - 40_000);
+        Ok(())
+    }).unwrap();
+    assert_eq!(st(&root)["spent"]["wall_s"], 60);
+    // the owner writes (link.rs `line` calls `resumed`): the clock runs again from 60 s
+    resumed(&root);
+    assert_eq!((st(&root)["spent"]["wall_s"].as_i64(), st(&root)["waiting_owner"].as_bool()), (Some(60), Some(false)));
+    // a question, then a model request with no owner line: the request settles and the clock runs (admission calls
+    // `resumed` too); its cost is the goal's as always
+    asked(&root);
+    assert_eq!(st(&root)["waiting_owner"], true);
+    egress_spent(&root, 70);
+    let g = st(&root);
+    assert_eq!((g["waiting_owner"].as_bool(), g["spent"]["musd"].as_u64(), g["spent"]["rounds"].as_u64()), (Some(false), Some(70), Some(0)));
+    // a paused goal never waits
+    assert!(line(&root, "/goal pause"));
+    asked(&root);
+    assert_eq!(st(&root)["waiting_owner"], false);
+    let _ = std::fs::remove_dir_all(&dir); // exact path, made by test_home
+}

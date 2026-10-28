@@ -1,9 +1,10 @@
 //! The Markdown subset for `text` frames (docs/tui.md §3.5), line by line so that streaming stays
-//! O(new bytes): fenced code blocks (indented, dim background), inline code, `**bold**`, `#`
+//! O(new bytes): fenced code blocks (indented, on the hairline background), inline code (ink between
+//! muted backticks: no colour, since a colour must mean a state), `**bold**`, `#`
 //! headings and `-`/`*`/`1.` lists. Links print as plain text; no images, tables or HTML.
 //! Every piece of text still passes the sanitizer.
 
-use super::{Color, Line, Style, sanitize};
+use super::{Role, Line, Style, sanitize};
 
 /// The state carried from one logical line to the next.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -11,8 +12,9 @@ pub struct MdState {
     pub in_code: bool,
 }
 
-const CODE: Style = Style { fg: None, bg: Some(Color::Grey), bold: false, dim: false, reverse: false, italic: false };
-const INLINE_CODE: Style = Style { fg: Some(Color::Cyan), bg: None, bold: false, dim: false, reverse: false, italic: false };
+const CODE: Style = Style { bg: Some(Role::Line), ..Style::PLAIN };
+/// Inline code's backticks stay visible, muted: the code itself is ink (TUI-BRAND).
+const TICK: Style = Style::mute();
 
 /// Renders one logical line (no `\n` inside) and returns the state for the next one, plus the
 /// continuation indent for wrapping.
@@ -85,8 +87,13 @@ fn inline_md(s: &str, base: Style, out: &mut Line) {
         };
         push(&rest[..pos], base, out, &mut col);
         let inner = &after[..close];
-        let st = if kind == 1 { INLINE_CODE } else { base.with_bold() };
-        push(inner, st, out, &mut col);
+        if kind == 1 {
+            push("`", TICK, out, &mut col);
+            push(inner, base, out, &mut col);
+            push("`", TICK, out, &mut col);
+        } else {
+            push(inner, base.with_bold(), out, &mut col);
+        }
         rest = &after[close + marker.len()..];
     }
     push(rest, base, out, &mut col);
@@ -117,7 +124,7 @@ mod tests {
     #[test]
     fn subset() {
         assert_eq!(r("# Title"), ("Title".into(), "bbbbb".into()));
-        assert_eq!(r("- item `x` **y**"), ("• item x y".into(), ".......c.b".into()));
+        assert_eq!(r("- item `x` **y**"), ("• item `x` y".into(), ".......m.m.b".into()));
         assert_eq!(r("  * nested"), ("  • nested".into(), "..........".into()));
         assert_eq!(r("12. twelve"), ("12. twelve".into(), "..........".into()));
         assert_eq!(r("a `unclosed"), ("a `unclosed".into(), "...........".into()));

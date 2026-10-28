@@ -77,9 +77,15 @@ fn foundation(full: bool) -> Result<Vec<OsString>, String> {
     // net namespace stays isolated; unlike bwrap --unshare-net it never configures lo,
     // which also works on restricted kernels that reject RTM_NEWADDR. Neither stage
     // may fall back to sharing a namespace. ADR-012 full access keeps the host network (no `--net`).
-    let unshare: &[&str] = if full { &["/usr/bin/unshare", "--user", "--map-root-user", "--"] } else { &["/usr/bin/unshare", "--user", "--map-root-user", "--net", "--"] };
-    let mut v: Vec<OsString> = unshare.iter().chain(&["/usr/bin/bwrap", "--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid",
-        "--unshare-ipc", "--unshare-uts", "--disable-userns", "--cap-drop", "ALL", "--add-seccomp-fd", "5"]).map(Into::into).collect();
+    // The two binaries are the owner's root-owned copies under /usr/local/lib/init-agent when present (AppArmor-
+    // restricted Ubuntu, entry.rs), else /usr/bin's; a copy that fails the root-only check refuses the zone.
+    let (unshare, bwrap) = (crate::entry::zone_entry("unshare")?, crate::entry::zone_entry("bwrap")?);
+    let flags: &[&str] = if full { &["--user", "--map-root-user", "--"] } else { &["--user", "--map-root-user", "--net", "--"] };
+    let mut v: Vec<OsString> = vec![unshare.into_os_string()];
+    v.extend(flags.iter().map(Into::into));
+    v.push(bwrap.into_os_string());
+    v.extend(["--die-with-parent", "--new-session", "--unshare-user", "--unshare-pid",
+        "--unshare-ipc", "--unshare-uts", "--disable-userns", "--cap-drop", "ALL", "--add-seccomp-fd", "5"].iter().map(Into::into));
     // Full access: the host root read-write first (every later mount overlays it), then a fresh /proc and /dev; the
     // owner's /tmp stays the host's. Otherwise a fresh root with a private /tmp.
     let mounts: &[&str] = if full { &["--bind", "/", "/", "--proc", "/proc", "--dev", "/dev"] } else { &["--proc", "/proc", "--dev", "/dev", "--size", "67108864", "--tmpfs", "/tmp"] };

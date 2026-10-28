@@ -1,0 +1,72 @@
+== 60 cols, caret (1, 2)
+── setup · model ───────────────────────────────────────────|llldddddmmmbbbbbllllllllllllllllllllllllllllllllllllllllllll
+ Switch model                                               |.............                                               
+ › 1. deepseek-flash  current                               |bbbdddbbbbbbbbbbbbbb..mmmmmmm                               
+      $0.30 in · $1.20 out per 1M tokens                    |......dddddddddddddddddddddddddddddddddd                    
+   2. deepseek-v4-pro                                       |...mmmddddddddddddddd                                       
+   3. claude-opus-5-5                                       |...mmmddddddddddddddd                                       
+   4. claude-sonnet-5-5                                     |...mmmddddddddddddddddd                                     
+   5. gpt-6.1-sol                                           |...mmmddddddddddd                                           
+   6. gpt-6-astra                                           |...mmmddddddddddd                                           
+   7. qwen3-coder                                           |...mmmddddddddddd                                           
+   8. llama-4-70b                                           |...mmmddddddddddd                                           
+   ↓ 3 more                                                 |mmmmmmmmmmm                                                 
+────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ Enter · type to filter · Esc keep the current model     |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm     
+== 100 cols, caret (1, 2)
+── setup · model ───────────────────────────────────────────────────────────────────────────────────|llldddddmmmbbbbbllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ Switch model                                                                                       |.............                                                                                       
+ › 1. deepseek-flash  current                                                                       |bbbdddbbbbbbbbbbbbbb..mmmmmmm                                                                       
+      $0.30 in · $1.20 out per 1M tokens                                                            |......dddddddddddddddddddddddddddddddddd                                                            
+   2. deepseek-v4-pro                                                                               |...mmmddddddddddddddd                                                                               
+   3. claude-opus-5-5                                                                               |...mmmddddddddddddddd                                                                               
+   4. claude-sonnet-5-5                                                                             |...mmmddddddddddddddddd                                                                             
+   5. gpt-6.1-sol                                                                                   |...mmmddddddddddd                                                                                   
+   6. gpt-6-astra                                                                                   |...mmmddddddddddd                                                                                   
+   7. qwen3-coder                                                                                   |...mmmddddddddddd                                                                                   
+   8. llama-4-70b                                                                                   |...mmmddddddddddd                                                                                   
+   ↓ 3 more                                                                                         |mmmmmmmmmmm                                                                                         
+────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Enter choose · type to filter · Esc keep the current model                               |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                               
+== 140 cols, caret (1, 2)
+── setup · model ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|llldddddmmmbbbbbllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ Switch model                                                                                                                               |.............                                                                                                                               
+ › 1. deepseek-flash  current                                                                                                               |bbbdddbbbbbbbbbbbbbb..mmmmmmm                                                                                                               
+      $0.30 in · $1.20 out per 1M tokens                                                                                                    |......dddddddddddddddddddddddddddddddddd                                                                                                    
+   2. deepseek-v4-pro                                                                                                                       |...mmmddddddddddddddd                                                                                                                       
+   3. claude-opus-5-5                                                                                                                       |...mmmddddddddddddddd                                                                                                                       
+   4. claude-sonnet-5-5                                                                                                                     |...mmmddddddddddddddddd                                                                                                                     
+   5. gpt-6.1-sol                                                                                                                           |...mmmddddddddddd                                                                                                                           
+   6. gpt-6-astra                                                                                                                           |...mmmddddddddddd                                                                                                                           
+   7. qwen3-coder                                                                                                                           |...mmmddddddddddd                                                                                                                           
+   8. llama-4-70b                                                                                                                           |...mmmddddddddddd                                                                                                                           
+   ↓ 3 more                                                                                                                                 |mmmmmmmmmmm                                                                                                                                 
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Enter choose · type to filter · Esc keep the current model                                                                       |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                                                                       
+== 60 cols, caret (11, 2)
+── setup · model ───────────────────────────────────────────|llldddddmmmbbbbbllllllllllllllllllllllllllllllllllllllllllll
+ Switch model                                               |.............                                               
+ filter: gp   2 of 11                                       |mmmmmmmmm..mmmmmmmmmm                                       
+ › 5. gpt-6.1-sol                                           |bbbdddbbbbbbbbbbb                                           
+      $0.30 in · $1.20 out per 1M tokens                    |......dddddddddddddddddddddddddddddddddd                    
+   6. gpt-6-astra                                           |...mmmddddddddddd                                           
+────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ Enter · type to filter · Esc keep the current model     |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm     
+== 100 cols, caret (11, 2)
+── setup · model ───────────────────────────────────────────────────────────────────────────────────|llldddddmmmbbbbbllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ Switch model                                                                                       |.............                                                                                       
+ filter: gp   2 of 11                                                                               |mmmmmmmmm..mmmmmmmmmm                                                                               
+ › 5. gpt-6.1-sol                                                                                   |bbbdddbbbbbbbbbbb                                                                                   
+      $0.30 in · $1.20 out per 1M tokens                                                            |......dddddddddddddddddddddddddddddddddd                                                            
+   6. gpt-6-astra                                                                                   |...mmmddddddddddd                                                                                   
+────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Enter choose · type to filter · Esc keep the current model                               |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                               
+== 140 cols, caret (11, 2)
+── setup · model ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|llldddddmmmbbbbbllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ Switch model                                                                                                                               |.............                                                                                                                               
+ filter: gp   2 of 11                                                                                                                       |mmmmmmmmm..mmmmmmmmmm                                                                                                                       
+ › 5. gpt-6.1-sol                                                                                                                           |bbbdddbbbbbbbbbbb                                                                                                                           
+      $0.30 in · $1.20 out per 1M tokens                                                                                                    |......dddddddddddddddddddddddddddddddddd                                                                                                    
+   6. gpt-6-astra                                                                                                                           |...mmmddddddddddd                                                                                                                           
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Enter choose · type to filter · Esc keep the current model                                                                       |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                                                                       

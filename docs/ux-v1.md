@@ -209,7 +209,7 @@ The target is at most 60 s from typing `init` to a prompt that answers, p50 on t
 
 The owner's Mac has a v0.1 source install.
 1. `install.sh` replaces the bash launcher in `~/.local/bin/init` with the link to the new binary.
-2. The first `init` finds a configured `ROOT_HOME` (`install.json` exists), so there is no first run. It runs `init-root install --upgrade --release <app>/current` (root.md §4.3): new Root, kernel swap through `system.swap{source:"maintainer"}`, and the new seed bundle. **The body the agent has evolved is kept.** The agent considers the new seed through its own upstream merge flow (evolution.md), and the TUI says so.
+2. (As built in v0.5.0: `init-agent upgrade`, §3.7's note.) The first `init` finds a configured `ROOT_HOME` (`install.json` exists), so there is no first run. It runs `init-root install --upgrade --release <app>/current` (root.md §4.3): new Root, kernel swap through `system.swap{source:"maintainer"}`, and the new seed bundle. **The body the agent has evolved is kept.** The agent considers the new seed through its own upstream merge flow (evolution.md), and the TUI says so.
 3. It shows one "What's new in 1.0" panel, then the folder trust prompt for the cwd (§3.6.4).
 
 The charter, keys, lineage, level and sessions are untouched. `scripts/install.sh` stays as the from-source path for maintainers (release.md).
@@ -739,6 +739,19 @@ A form with one row per setting. Each change goes through a Root request; nothin
 `charter.set` edits only the named keys in place, then runs the same validate-and-apply path as `charter check --apply` (root.md §3.12.4). If the owner has restructured the file so a key is not on its own line, it refuses with `charter.not_editable{key}`, and the copy says to edit the file and run `init charter check --apply`. `config.set` rewrites the kernel config's `[model]` or `[budget]` keys and asks the kernel to pick them up at its next idle point (§9 Q4).
 
 ### 3.7 Update
+
+**As built in v0.5.0 (lane UPGRADE; build/status/UPGRADE.md), a reduced version of this section.** There is no
+`init-fetch`, no background check, no channels and no apply-when-idle: the owner runs `init-agent upgrade [--bundle F]
+[--version V]` (or, from 0.4.1, `get.sh --upgrade`), which downloads and checks the release (sha256 only: OW-UX2's
+signature is not built), unpacks it under `ROOT_HOME/cache/upgrade/` and runs its `install.sh --upgrade`. That is "stop
+then replace": the Root stops, the new `init-root upgrade --release <dir>` checks the version (no downgrade) and the
+body (the installed body's `--manifest` against the release's own body, both in a sealed sandbox; a mismatch is
+refused, never migrated), snapshots what it replaces, installs the new Root, kernel, kernel source and launchers and
+forms a tuple {new kernel, current body, current ext}; then a health probe, and `--commit` (`lkg` moves) or `--rollback`
+(the snapshot comes back, `rollback` to the tuple from before). Not built: the kernel swap through
+`system.swap{source:"maintainer"}` (step 3 below; unqualified), offering the new seed to the agent (item 6), `init
+update --rollback` to an older version (item 7) and the lineage record `release{from, to}` (the upgrade's `tuple` record
+carries `upgrade{from, id, to}` instead, so a Root that never heard of it still verifies the chain).
 
 1. **Check.** The Root runs `<app>/current/bin/init-fetch check --channel <c>` once a day at a random minute, and on `init update --check`. It runs as the owner, outside any sandbox, with a 60 s timeout. `init-fetch` fetches `<DIST>/<channel>.json` and its signature, checks the signature with its embedded key, compares versions, and writes `<app>/update/status.json`.
 2. **Download.** If a newer version exists, it is downloaded in the background at low priority, at most once a day, then its signature and every file's sha256 are checked and it is unpacked to `versions/<new>/`. The status becomes `ready`, and the status bar shows `↑1.0.3`.

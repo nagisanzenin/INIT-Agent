@@ -1,0 +1,30 @@
+== 60 cols, caret (1, 3)
+── agent asks ──────────────────────────── waiting on you ──|lllddddddddddllllllllllllllllllllllllllllllddddddddddddddlll
+ Which checks should run before each commit?                |............................................                
+   1. [x] cargo test                                        |...mmmbbbbdddddddddd                                        
+ › 2. [ ] clippy -D warnings                                |bbbdddmmmmbbbbbbbbbbbbbbbbbb                                
+          slower on a cold cache                            |..........dddddddddddddddddddddd                            
+   3. [ ] fmt --check                                       |...mmmmmmmddddddddddd                                       
+   4.     Type your own answer…                             |...mmm....ddddddddddddddddddddd                             
+────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ Space · Enter · 1–4 · type to answer · Esc dismiss      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm      
+== 100 cols, caret (1, 3)
+── agent asks ──────────────────────────────────────────────────────────────────── waiting on you ──|lllddddddddddllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllddddddddddddddlll
+ Which checks should run before each commit?                                                        |............................................                                                        
+   1. [x] cargo test                                                                                |...mmmbbbbdddddddddd                                                                                
+ › 2. [ ] clippy -D warnings                                                                        |bbbdddmmmmbbbbbbbbbbbbbbbbbb                                                                        
+          slower on a cold cache                                                                    |..........dddddddddddddddddddddd                                                                    
+   3. [ ] fmt --check                                                                               |...mmmmmmmddddddddddd                                                                               
+   4.     Type your own answer…                                                                     |...mmm....ddddddddddddddddddddd                                                                     
+────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Space toggle · Enter confirm · 1–4 pick · or just type your answer · Esc dismiss         |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm         
+== 140 cols, caret (1, 3)
+── agent asks ──────────────────────────────────────────────────────────────────────────────────────────────────────────── waiting on you ──|lllddddddddddllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllddddddddddddddlll
+ Which checks should run before each commit?                                                                                                |............................................                                                                                                
+   1. [x] cargo test                                                                                                                        |...mmmbbbbdddddddddd                                                                                                                        
+ › 2. [ ] clippy -D warnings                                                                                                                |bbbdddmmmmbbbbbbbbbbbbbbbbbb                                                                                                                
+          slower on a cold cache                                                                                                            |..........dddddddddddddddddddddd                                                                                                            
+   3. [ ] fmt --check                                                                                                                       |...mmmmmmmddddddddddd                                                                                                                       
+   4.     Type your own answer…                                                                                                             |...mmm....ddddddddddddddddddddd                                                                                                             
+────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ ↑↓ move · Space toggle · Enter confirm · 1–4 pick · or just type your answer · Esc dismiss                                                 |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                                                 

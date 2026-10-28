@@ -516,6 +516,9 @@ fn read_loop(root: Arc<Root>, k: Arc<Kctl>, s: UnixStream) {
                     if v["data"]["frame"]["t"] == "state" && v["data"]["frame"]["busy"] == false {
                         crate::sentinel::idle(&root); // the owner turn ends when the body goes idle (GBAL cards)
                     }
+                    if v["data"]["frame"]["t"] == "display" && v["data"]["frame"]["ask"].is_object() {
+                        crate::goal::asked(&root); // TUI-PICKER: the agent asked the owner: a goal's wall clock waits
+                    }
                     root.emit(&v["data"]["frame"]);
                 }
                 _ => {}

@@ -29,6 +29,8 @@ pub enum Ev {
     /// The answer to a UX-KEYMODEL setup request (`crate::setup`).
     Setup { op: crate::setup::Op, result: Result<Value, ReqErr> },
     PanicDone(Result<String, String>),
+    /// TUI-OBSERVE: the Root's `lineage.tail` answer, for the transcript view's lineage panel.
+    Lineage(Result<Value, ReqErr>),
     Key(crossterm::event::KeyEvent, Instant),
     Paste(String, Instant),
     Resize(u16, u16),
@@ -97,6 +99,14 @@ pub fn spawn_access(sock: PathBuf, req: crate::access::Req, tx: Sender<Ev>) {
 }
 
 /// A UX-KEYMODEL setup request on its own thread; the answer comes back as `Ev::Setup`.
+/// TUI-OBSERVE: `lineage.tail{n}` on its own connection (the lineage panel, when Ctrl-O opens).
+pub fn spawn_lineage(sock: PathBuf, n: u64, tx: Sender<Ev>) {
+    std::thread::spawn(move || {
+        let result = request_args(&sock, "lineage.tail", serde_json::json!({"n": n}), Duration::from_secs(5));
+        let _ = tx.send(Ev::Lineage(result));
+    });
+}
+
 pub fn spawn_setup(sock: PathBuf, req: crate::setup::Req, tx: Sender<Ev>) {
     std::thread::spawn(move || {
         let result = request_args(&sock, req.op.cmd(), req.args.clone(), req.op.timeout());

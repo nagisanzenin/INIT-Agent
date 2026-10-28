@@ -1178,4 +1178,64 @@ mod tests {
         assert_eq!(p.classify(413, &[], None, ""), ErrorKind::TooLarge);
         assert_eq!(p.classify(403, &[], None, ""), ErrorKind::Permission);
     }
+
+    /// v0.5.0 L3, offline: a cold request writes the prefix to the cache (5-minute TTL, the only one INIT asks for)
+    /// and the next request reads it back. The decoder's `Usage` is what the session log records (`to_log`) and what
+    /// the cache % in the status line comes from. The Root meters the same bytes with its own tap:
+    /// root/crates/init-root/src/providers/tests.rs `cache_writes_bill_at_the_charter_write_price`.
+    #[test]
+    fn cache_write_then_read_usage_reaches_the_log() {
+        let (_, m1) = decode(dec(), &fixture("anthropic/cache-write.sse"));
+        let m1 = m1.unwrap();
+        assert_eq!(m1.stop, StopReason::ToolUse);
+        assert_eq!(m1.usage, Usage { input: 21_507, cache_read: 0, cache_write: 21_504, output: 87, reasoning: 0 });
+        let (_, m2) = decode(dec(), &fixture("anthropic/cache-read.sse"));
+        let m2 = m2.unwrap();
+        assert_eq!(m2.stop, StopReason::EndTurn);
+        // message_delta carries only output_tokens: the input fields of message_start stand (cumulative, never summed)
+        assert_eq!(m2.usage, Usage { input: 22_148, cache_read: 21_504, cache_write: 640, output: 132, reasoning: 0 });
+        assert_eq!(m2.usage.hit_permille(), 970);
+        let l1 = m1.usage.to_log(None);
+        assert_eq!((l1.input_tokens, l1.cache_read_tokens, l1.cache_write_tokens, l1.output_tokens), (3, 0, 21_504, 87));
+        let l2 = m2.usage.to_log(None);
+        assert_eq!((l2.input_tokens, l2.cache_read_tokens, l2.cache_write_tokens, l2.output_tokens), (4, 21_504, 640, 132));
+        assert_eq!(l2.prompt_total(), m2.usage.input);
+    }
+
+    /// The cache is read only if request 2 starts with request 1's content: the same system blocks with B1 and B2,
+    /// the same tools and options, the earlier messages unchanged. B3 moves to the newest message and the top-level
+    /// `cache_control` (A) stays; four markers, the API's limit (report "Bước tiếp theo cho INIT": anthropic.rs:157-181).
+    #[test]
+    fn consecutive_requests_keep_the_cached_prefix_stable() {
+        let ts = tools();
+        let first = vec![user("Run the qualify command.")];
+        let (_, m1) = decode(dec(), &fixture("anthropic/cache-write.sse"));
+        let mut second = first.clone();
+        second.push(Message::Assistant(m1.unwrap()));
+        second.push(Message::ToolResults(vec![result("toolu_q1", "3f1c0b9e  -", false)]));
+        let p = Anthropic::new(info(), false);
+        let body = |msgs: &[Message], b3| -> Value { serde_json::from_slice(&p.build(&prompt(msgs, &ts, Some(b3))).unwrap().body).unwrap() };
+        let (v1, v2) = (body(&first, 0), body(&second, 2));
+        for k in ["system", "tools", "model", "thinking", "output_config", "max_tokens", "cache_control"] {
+            assert_eq!(v1[k], v2[k], "{k} differs between consecutive requests");
+        }
+        assert_eq!(v1["system"][0]["cache_control"], ephemeral()); // B1: the core head
+        assert_eq!(v1["system"][1]["cache_control"], ephemeral()); // B2: the self head
+        assert_eq!(v1["cache_control"], ephemeral()); // A
+        let unmarked = |m: &Value| {
+            let mut m = m.clone();
+            for b in m["content"].as_array_mut().into_iter().flatten() {
+                b.as_object_mut().unwrap().remove("cache_control");
+            }
+            m
+        };
+        assert_eq!(unmarked(&v1["messages"][0]), unmarked(&v2["messages"][0]));
+        assert_eq!(v1["messages"][0]["content"][0]["cache_control"], ephemeral()); // B3 on the newest message
+        assert!(v2["messages"][0]["content"][0].get("cache_control").is_none());
+        let newest = v2["messages"].as_array().unwrap().last().unwrap();
+        assert_eq!(newest["content"].as_array().unwrap().last().unwrap()["cache_control"], ephemeral());
+        for v in [&v1, &v2] {
+            assert_eq!(icj::to_string(v).unwrap().matches("cache_control").count(), 4);
+        }
+    }
 }

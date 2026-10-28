@@ -1,7 +1,9 @@
 #!/bin/bash
 # Build the prebuilt release bundle (docs/ux-v1.md §3.2.2, §3.5.1; lane UX-BUNDLE): one tar.gz that installs INIT
 # on a Mac or a Linux machine with no Rust, in about a minute, through scripts/get.sh. It builds for the machine it
-# runs on: macos-arm64 (Apple silicon), linux-arm64 (aarch64) or linux-x86_64.
+# runs on: macos-arm64 (aarch64-apple-darwin), linux-arm64 (aarch64-unknown-linux-gnu) or linux-x86_64
+# (x86_64-unknown-linux-gnu). rustc's host, the release's MANIFEST.json host and every binary's header must name that
+# triple, or it stops. Linux bundles are built on Debian 12 (glibc 2.36), with bubblewrap >= 0.13 (install.sh's preflight).
 #
 #   scripts/bundle.sh [--label preview] [--reuse-release] [--keep-release] [-- <release.sh args>]
 #
@@ -20,7 +22,7 @@
 # kernel source bundle src/<version>.bundle, the seed bundle seed/seed-v<version>.bundle with its skills and
 # vendor/, docs, wit, ext, assets, MANIFEST.json), plus:
 #   body/init-body, body/BODY.json   the prebuilt genesis body and its record {sha256, commit, tag, profile, rustc}
-#   scripts/{install.sh,init-agent,init-shim,uninstall.sh,get.sh}, VERSION, README.md
+#   scripts/{install.sh,init-agent,uninstall.sh,get.sh}, VERSION, README.md
 #   SHA256SUMS                       every other file (`shasum -a 256 -c SHA256SUMS`, or `sha256sum -c` on Linux)
 #
 # The prebuilt body is the one the install-mode kernel builds: this script installs the release into scratch
@@ -52,11 +54,15 @@ now() { date +%s; }
 T0=$(now)
 
 case "$(uname -s)/$(uname -m)" in
-  Darwin/arm64) TARGET=macos-arm64 ;;
-  Linux/aarch64|Linux/arm64) TARGET=linux-arm64 ;;
-  Linux/x86_64) TARGET=linux-x86_64 ;;
+  Darwin/arm64) TARGET=macos-arm64; TRIPLE=aarch64-apple-darwin ;;
+  Linux/aarch64|Linux/arm64) TARGET=linux-arm64; TRIPLE=aarch64-unknown-linux-gnu ;;
+  Linux/x86_64) TARGET=linux-x86_64; TRIPLE=x86_64-unknown-linux-gnu ;;
   *) die "no bundle target for $(uname -s) $(uname -m) (macOS arm64, Linux aarch64 or x86_64)" ;;
 esac
+# A bundle is built natively: the install-mode kernel must run here to build its body. The toolchain must target this
+# machine exactly (glibc, not musl; no x86_64 toolchain under Rosetta), or the bundle's name would not match its contents.
+HOST_TRIPLE="$(rustc -vV 2>/dev/null | sed -n 's/^host: //p')"
+[ "$HOST_TRIPLE" = "$TRIPLE" ] || die "rustc's host is ${HOST_TRIPLE:-unknown}; a $TARGET bundle needs a $TRIPLE toolchain"
 if [ "$(uname -s)" = Darwin ]; then
   sha256() { shasum -a 256 "$@"; }
   sha_check() { shasum -a 256 -c --quiet "$@"; }
@@ -100,6 +106,8 @@ fi
 # changes nothing in it)
 RCOMMIT="$(/usr/bin/python3 -I -c 'import json,sys; m=json.load(open(sys.argv[1])); print("" if m.get("dirty") else m.get("commit",""))' "$REL/MANIFEST.json")"
 [ -n "$RCOMMIT" ] || die "$REL was built from a dirty tree"
+RHOST="$(/usr/bin/python3 -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("host",""))' "$REL/MANIFEST.json")"
+[ "$RHOST" = "$TRIPLE" ] || die "$REL was built for ${RHOST:-an unknown host}, not $TRIPLE"
 if [ $REUSE = 1 ]; then # (a release just built names the HEAD it started from, even if other lanes commit meanwhile)
   git -C "$REPO" diff --quiet "$RCOMMIT" HEAD -- kernel root seed wit tui \
     || die "$REL (built from ${RCOMMIT:0:12}) differs from HEAD in kernel/ root/ seed/ wit/ tui/"
@@ -187,9 +195,33 @@ rec = {"v": 1, "sha256": sha, "commit": commit, "tag": tag, "profile": "dev", "r
        "g1": "self.json reproduced"}
 open(out, "w").write(json.dumps(rec, indent=1, sort_keys=True) + "\n")
 PY
-for f in install.sh init-agent init-shim uninstall.sh get.sh; do cp "$REPO/scripts/$f" "$D/scripts/$f"; chmod 755 "$D/scripts/$f"; done
+for f in install.sh init-agent uninstall.sh get.sh; do cp "$REPO/scripts/$f" "$D/scripts/$f"; chmod 755 "$D/scripts/$f"; done
 cp "$REPO/README.md" "$D/README.md"
 printf '%s\n' "${TAG#v}" >"$D/VERSION"
+/usr/bin/python3 -I - "$D" "$TRIPLE" <<'PY' || die "the bundle holds a binary that is not built for $TRIPLE"
+import os, struct, sys
+d, triple = sys.argv[1:3]
+# (format, machine): ELF e_machine 62 = x86-64, 183 = AArch64 (64-bit, little-endian); Mach-O 64 CPU_TYPE_ARM64
+want = {"x86_64-unknown-linux-gnu": ("elf64le", 62), "aarch64-unknown-linux-gnu": ("elf64le", 183),
+        "aarch64-apple-darwin": ("macho64", 0x0100000C)}[triple]
+bad, seen = [], 0
+for rel in ("init-root", "init-kernel", "initctl", "init-mockllm", "init-tui", "init-body", "body/init-body"):
+    p = os.path.join(d, rel)
+    if not os.path.isfile(p):
+        continue
+    h = open(p, "rb").read(20)
+    if h[:4] == b"\x7fELF" and h[4] == 2 and h[5] == 1:
+        got = ("elf64le", struct.unpack_from("<H", h, 18)[0])
+    elif h[:4] == b"\xcf\xfa\xed\xfe":
+        got = ("macho64", struct.unpack_from("<I", h, 4)[0])
+    else:
+        got = ("unknown", None)
+    seen += 1
+    if got != want:
+        bad.append(f"{rel}: {got}")
+if bad or seen < 6:
+    sys.exit(f"want {want} for {triple}; {', '.join(bad) or f'only {seen} binaries found'}")
+PY
 (cd "$D" && find . -type f ! -name SHA256SUMS | sed 's|^\./||' | LC_ALL=C sort | while IFS= read -r f; do sha256 "$f"; done) >"$D/SHA256SUMS"
 (cd "$D" && sha_check SHA256SUMS) || die "SHA256SUMS does not verify"
 TGZ="$OUT/$NAME.tar.gz"

@@ -41,7 +41,12 @@ const CRATES_HOSTS: [&str; 2] = ["index.crates.io:443", "static.crates.io:443"];
 const CLASS_KEYS: [&str; 12] = ["kind", "min_level", "destinations", "providers", "methods", "paths", "requests_per_day",
     "bytes_per_day", "rate_per_min", "models", "response_max_bytes", "enabled"];
 /// `cache_read_musd_per_mtok` is optional: absent, cache reads bill at the input price (egress.md §3.4).
-const MODEL_KEYS: [&str; 5] = ["min_level", "input_musd_per_mtok", "cache_read_musd_per_mtok", "output_musd_per_mtok", "reserve_output_tokens"];
+/// `cache_write_musd_per_mtok` (5-minute or single-class writes) and `cache_write_1h_musd_per_mtok` are optional
+/// (v0.5.0 L3): absent, writes bill at `WRITE_FALLBACK` × the input price, never below a write price the providers
+/// charge (the highest in reports/INIT v1 providers UX vision.md Table A is 2× input, Anthropic's 1-hour TTL).
+const MODEL_KEYS: [&str; 7] = ["min_level", "input_musd_per_mtok", "cache_read_musd_per_mtok", "cache_write_musd_per_mtok",
+    "cache_write_1h_musd_per_mtok", "output_musd_per_mtok", "reserve_output_tokens"];
+const WRITE_FALLBACK: u64 = 2;
 /// kernel/proxy.md §3.5: the provider presets and their base URLs.
 const PRESETS: [(&str, &str, Auth); 3] = [("deepseek", "api.deepseek.com:443", Auth::Bearer),
     ("anthropic", "api.anthropic.com:443", Auth::XApiKey), ("openai", "api.openai.com:443", Auth::Bearer)];
@@ -101,6 +106,9 @@ pub struct Model {
     pub input: u64,
     /// µUSD per 1M cache-hit input tokens, at the peak window (provisional owner decision 2026-10-20, §3.13).
     pub cache_read: u64,
+    /// µUSD per 1M tokens written to the cache: 5-minute (or single-class) and 1-hour writes (v0.5.0 L3).
+    pub cache_write: u64,
+    pub cache_write_1h: u64,
     pub output: u64,
     pub reserve_out: u64,
 }
@@ -285,7 +293,8 @@ pub fn validate_actions(t: &toml::Table, test_mode: bool) -> Vec<Finding> {
             let n = |f: &str| mt.get(f).and_then(toml::Value::as_integer);
             l0 |= n("min_level") == Some(0);
             let prices = ["input_musd_per_mtok", "output_musd_per_mtok"].iter().all(|f| n(f).is_some_and(|x| x >= 0));
-            let cache = mt.get("cache_read_musd_per_mtok").is_none_or(|v| v.as_integer().is_some_and(|x| x >= 0));
+            let cache = ["cache_read_musd_per_mtok", "cache_write_musd_per_mtok", "cache_write_1h_musd_per_mtok"].iter()
+                .all(|f| mt.get(*f).is_none_or(|v| v.as_integer().is_some_and(|x| x >= 0)));
             if !prices || !cache || !n("min_level").is_some_and(|x| (0..=4).contains(&x)) || n("reserve_output_tokens").is_some_and(|x| x <= 0) {
                 e.push(err(&mk, "C11", "needs min_level 0–4 and non-negative integer prices (µUSD per 1M tokens)"));
             }
@@ -328,7 +337,10 @@ pub fn compile(t: &toml::Table) -> BTreeMap<String, Class> {
             .filter_map(|(m, mv)| {
                 let mt = mv.as_table()?;
                 let input = int(mt, "input_musd_per_mtok", 0);
+                let fallback = input.saturating_mul(WRITE_FALLBACK).min(i64::MAX as u64) as i64;
+                let cache_write = int(mt, "cache_write_musd_per_mtok", fallback);
                 Some((m.clone(), Model { min_level: int(mt, "min_level", 0) as u8, input, cache_read: int(mt, "cache_read_musd_per_mtok", input as i64),
+                    cache_write, cache_write_1h: int(mt, "cache_write_1h_musd_per_mtok", fallback.max(cache_write.min(i64::MAX as u64) as i64)),
                     output: int(mt, "output_musd_per_mtok", 0), reserve_out: int(mt, "reserve_output_tokens", 65_536) }))
             })
             .collect();
@@ -545,11 +557,27 @@ mod tests {
         assert!(e.is_empty() && t.contains_key("crates") && t.contains_key("providers"));
         let c = compile(&t);
         assert_eq!(c["providers"].providers["deepseek"], Provider { host: "api.deepseek.com:443".into(), base_path: "".into(), auth: Auth::Bearer, api: None, local: false, no_auth: false });
-        assert_eq!(c["providers"].models["deepseek-flash"], Model { min_level: 0, input: 300_000, cache_read: 6_000, output: 1_200_000, reserve_out: 65_536 });
+        // the built-in DeepSeek row has no write price: writes would bill at 2× input (DeepSeek reports none)
+        assert_eq!(c["providers"].models["deepseek-flash"], Model { min_level: 0, input: 300_000, cache_read: 6_000, cache_write: 600_000,
+            cache_write_1h: 600_000, output: 1_200_000, reserve_out: 65_536 });
         // a charter model without a cache-read price bills cache hits at its input price (the safe default)
         assert_eq!(table("[providers.models.m]\nmin_level = 0\ninput_musd_per_mtok = 5\noutput_musd_per_mtok = 7\n", false)["providers"].models["m"].cache_read, 5);
         assert_eq!(errs("[providers.models.m]\nmin_level = 0\ninput_musd_per_mtok = 5\noutput_musd_per_mtok = 7\ncache_read_musd_per_mtok = -1\n"),
             vec!["actions.providers.models.m"]);
+        // v0.5.0 L3 write prices: as given; a missing 1-hour price at least the 5-minute one and 2× input; none: 2× input
+        let m = |extra: &str| table(&format!("[providers.models.m]\nmin_level = 0\ninput_musd_per_mtok = 2000000\noutput_musd_per_mtok = 7\n{extra}"),
+            false)["providers"].models["m"].clone();
+        let w = |x: Model| (x.cache_write, x.cache_write_1h);
+        assert_eq!(w(m("cache_write_musd_per_mtok = 2500000\ncache_write_1h_musd_per_mtok = 4000000\n")), (2_500_000, 4_000_000));
+        assert_eq!(w(m("cache_write_musd_per_mtok = 2500000\n")), (2_500_000, 4_000_000));
+        assert_eq!(w(m("cache_write_musd_per_mtok = 9000000\n")), (9_000_000, 9_000_000));
+        assert_eq!(w(m("")), (4_000_000, 4_000_000));
+        for bad in ["cache_write_musd_per_mtok = -1\n", "cache_write_1h_musd_per_mtok = \"2.50\"\n"] {
+            assert_eq!(errs(&format!("[providers.models.m]\nmin_level = 0\ninput_musd_per_mtok = 5\noutput_musd_per_mtok = 7\n{bad}")),
+                vec!["actions.providers.models.m"], "{bad}");
+        }
+        assert_eq!(errs("[providers.models.m]\nmin_level = 0\ninput_musd_per_mtok = 5\noutput_musd_per_mtok = 7\ncache_write_2h_musd_per_mtok = 1\n"),
+            vec!["actions.providers.models.m.cache_write_2h_musd_per_mtok"], "unknown keys stay refused");
         assert!(!c["crates"].model && !c["crates"].effectful() && c["crates"].enabled);
     }
 

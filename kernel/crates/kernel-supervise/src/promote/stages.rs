@@ -18,6 +18,7 @@ use kernel_gate::g2::{ArmObs, Continuity, G2Input, G2Outcome, StartFail};
 use serde_json::{json, Value};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -324,6 +325,13 @@ pub fn prepare_deps(env: &Env, slot: &BuildSlot, git: &Git, sha: &str, job: &str
 /// `advisory`: ADR-011 A1 on the free path, clippy and the body's tests do not fail G0; their
 /// failures are in the record's `advisory` list and steps (A3 reads the `test` step).
 pub fn build_and_g0(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Path, advisory: bool) -> Result<Built, StageFail> {
+    build_and_g0_until(env, job, sha, parent, out_dir, advisory, &AtomicBool::new(false))
+}
+
+/// [`build_and_g0`] that stops when `stop` is set: the body build is killed through the Root
+/// ([`StopSpawner`]) and G0 runs no further command ([`StopG0`]). A3 uses it (F7).
+#[allow(clippy::too_many_arguments)]
+fn build_and_g0_until(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Path, advisory: bool, stop: &AtomicBool) -> Result<Built, StageFail> {
     let git = env.git();
     let slot = BuildSlot::configured(&env.home, &env.cfg.supervise);
     let t0 = Instant::now();
@@ -343,7 +351,7 @@ pub fn build_and_g0(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Pat
     };
     let req = slot.build_request(epoch, &env.cfg.sandbox);
     let log = env.home.join("state/kernel/gate").join(job).join("build.log");
-    let b = slot.run_build(env.spawner.as_ref(), &req, warm, &log);
+    let b = slot.run_build(&StopSpawner { inner: env.spawner.as_ref(), stop }, &req, warm, &log);
     if !b.ok {
         discard();
         let code = if b.timed_out { "gate.build.timeout" } else { "gate.build.failed" };
@@ -359,7 +367,7 @@ pub fn build_and_g0(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Pat
     spec.total_timeout = Duration::from_secs(env.gate.g0_timeout_s);
     spec.advisory = advisory;
     spec.parent_cargo_toml = git.path_id(parent, "Cargo.toml").ok().flatten().and_then(|o| git.read_blob(&o).ok()).map(|b| String::from_utf8_lossy(&b).into_owned());
-    let rep = kernel_gate::g0::run(&spec, env.g0.as_ref());
+    let rep = kernel_gate::g0::run(&spec, &StopG0 { inner: env.g0.as_ref(), stop });
     let mut record = json!({
         "pass": rep.pass, "wall_ms": rep.wall_ms, "build_ms": build_ms, "cold_target": deps.mode != "hit",
         "steps": rep.steps.iter().map(|s| {
@@ -669,11 +677,11 @@ impl AgentWait {
 
 /// Wait for the agent part to end: a new `stop` finish with nothing in flight for `quiet`, or the
 /// timeout, or the body exiting.
-fn wait_agent(h: &crate::probe::ProbeHandle, base_requests: u64, quiet: Duration, timeout: Duration) -> bool {
+fn wait_agent(h: &crate::probe::ProbeHandle, base_requests: u64, quiet: Duration, timeout: Duration, stop: &AtomicBool) -> bool {
     let t0 = Instant::now();
     let mut w = AgentWait::new(Duration::ZERO, timeout, quiet, base_requests);
     loop {
-        if h.exited(Duration::from_millis(200)).is_some() {
+        if h.exited(Duration::from_millis(200)).is_some() || stop.load(Ordering::SeqCst) {
             return false;
         }
         match w.step(t0.elapsed(), &h.scope_summary()) {
@@ -691,6 +699,13 @@ fn wait_agent(h: &crate::probe::ProbeHandle, base_requests: u64, quiet: Duration
 /// `cand_prefix_change`: the candidate's own `Prefix-change: yes` (a promote's G3); false for A3,
 /// where the candidate is already the live body.
 pub fn g3(env: &Env, job: &str, cand: &Candidate, cand_built: &Built, cand_prefix_change: bool) -> Result<G3Out, StageFail> {
+    g3_until(env, job, cand, cand_built, cand_prefix_change, &AtomicBool::new(false))
+}
+
+/// [`g3`] that stops when `stop` is set (A3 after its change was rolled back, F7): the probe and
+/// its agent's own builds end within about 200 ms, nothing is fetched, the inner gate's build is
+/// killed and no later inner stage starts. The result is then [`G3_STOPPED`].
+fn g3_until(env: &Env, job: &str, cand: &Candidate, cand_built: &Built, cand_prefix_change: bool, stop: &AtomicBool) -> Result<G3Out, StageFail> {
     let t0 = Instant::now();
     let n = kernel_gate::g3::nonce(job);
     let fail = |reason: &str, d: String| StageFail::new(Stage::G3, format!("gate.g3.{reason}"), d);
@@ -705,7 +720,14 @@ pub fn g3(env: &Env, job: &str, cand: &Candidate, cand_built: &Built, cand_prefi
     let base = h.scope_summary()["requests"].as_u64().unwrap_or(0);
     h.send_input(&kernel_gate::g3::instruction(&n, &root.to_string_lossy()));
     let bounds = env.gate.g3_bounds(&env.cfg.supervise);
-    let finished = wait_agent(&h, base, Duration::from_millis(env.gate.quiet_ms), bounds.agent);
+    let finished = wait_agent(&h, base, Duration::from_millis(env.gate.quiet_ms), bounds.agent, stop);
+    if stop.load(Ordering::SeqCst) {
+        let out = h.stop();
+        let mut f = fail("stopped", "the change was rolled back while its G3 ran: the probe was stopped".into());
+        f.record = json!({"pass": false, "mode": env.gate.g3_mode, "wall_ms": t0.elapsed().as_millis() as u64,
+                          "spent_musd": out.scope["spent_musd"].as_u64().unwrap_or(0), "reason": "stopped"});
+        return Err(f);
+    }
     // Fetch before stop(): stop deletes the root. The kernel never runs git inside the root.
     let dst = format!("refs/init/g3/{job}");
     let fetched = fetch(env, &root.join("body"), &kernel_gate::g3::branch(&n), &dst);
@@ -730,11 +752,15 @@ pub fn g3(env: &Env, job: &str, cand: &Candidate, cand_built: &Built, cand_prefi
         let inner_job = format!("{job}-g3");
         let inner_out = job_cache(env, job).join("g3");
         let t_inner = Instant::now();
-        let built = build_and_g0(env, &inner_job, &c3, &cand.sha, &inner_out, false).map_err(|f| fail("inner_g0", format!("{}: {}", f.code, f.detail)))?;
+        let stopped = || if stop.load(Ordering::SeqCst) { Err(fail("stopped", "the change was rolled back while its G3 ran".into())) } else { Ok(()) };
+        stopped()?;
+        let built = build_and_g0_until(env, &inner_job, &c3, &cand.sha, &inner_out, false, stop).map_err(|f| fail("inner_g0", format!("{}: {}", f.code, f.detail)))?;
+        stopped()?;
         let build = Duration::from_millis(built.record["build_ms"].as_u64().unwrap_or(0));
         let g1o = g1(env, &inner_job, &BuildSlot::new(&env.home).src(), &built, &v, &cand.sha).map_err(|f| fail("inner_g1", format!("{}: {}", f.code, f.detail)))?;
         let inner_c = Candidate { sha: c3.clone(), binary: built.binary.clone(), ext_set_dir: None };
         let inner_p = Candidate { sha: cand.sha.clone(), binary: cand_built.binary.clone(), ext_set_dir: None };
+        stopped()?;
         let o = g2_inner(env, &inner_job, job, &inner_c, &inner_p, &g1o, false, cand_prefix_change);
         if !o.pass {
             return Err(fail("inner_g2", format!("{}: {}", o.code().unwrap_or(""), o.detail())));
@@ -744,6 +770,11 @@ pub fn g3(env: &Env, job: &str, cand: &Candidate, cand_built: &Built, cand_prefi
         }
         Ok(())
     })();
+    // A stop during an inner stage reads as that stage's failure; it is a stop.
+    let res = match res {
+        Err(_) if stop.load(Ordering::SeqCst) => Err(fail("stopped", "the change was rolled back while its G3 ran".into())),
+        r => r,
+    };
     let record = json!({"pass": res.is_ok(), "mode": env.gate.g3_mode, "wall_ms": t0.elapsed().as_millis() as u64, "spent_musd": spent, "commit": c3,
                         "reason": res.as_ref().err().map(|f| f.reason().to_string())});
     match res {
@@ -768,6 +799,58 @@ fn g3_facts(git: &Git, cand: &str, c3: &str) -> Result<kernel_gate::g3::Facts, S
 }
 
 // ---- A3: G3 and the body's tests after the change went live (ADR-011 §2.1; X0c) ---------------
+
+/// A3's G3 was stopped because the Root rolled its change's group back while it ran (demo
+/// 2026-10-25, F7: G3 kept building in `INIT_HOME/probe`, about 1.6 GB, after the owner's
+/// `/rollback`). It vetoes nothing.
+pub const G3_STOPPED: &str = "gate.g3.stopped";
+
+/// A spawner whose `wait_exit` kills the instance (through the Root, which signals its process
+/// group) as soon as `stop` is set; the build then fails as killed.
+struct StopSpawner<'a> {
+    inner: &'a dyn crate::instance::Spawner,
+    stop: &'a AtomicBool,
+}
+
+impl crate::instance::Spawner for StopSpawner<'_> {
+    fn spawn(&self, req: &SpawnRequest) -> Result<crate::instance::Spawned, crate::instance::SpawnError> {
+        self.inner.spawn(req)
+    }
+    fn kill(&self, instance: &str, mode: init_proto::root_link::KillMode) -> Result<(), crate::instance::SpawnError> {
+        self.inner.kill(instance, mode)
+    }
+    fn wait_exit(&self, instance: &str, timeout: Duration) -> Option<crate::instance::ExitInfo> {
+        let until = Instant::now() + timeout;
+        loop {
+            if self.stop.load(Ordering::SeqCst) {
+                let _ = self.inner.kill(instance, init_proto::root_link::KillMode::Kill);
+                return self.inner.wait_exit(instance, Duration::from_secs(30));
+            }
+            let left = until.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return None;
+            }
+            if let Some(e) = self.inner.wait_exit(instance, left.min(Duration::from_millis(250))) {
+                return Some(e);
+            }
+        }
+    }
+}
+
+/// G0's spawner that starts no command once `stop` is set (the running one ends on its own bound).
+struct StopG0<'a> {
+    inner: &'a dyn kernel_gate::g0::Spawner,
+    stop: &'a AtomicBool,
+}
+
+impl kernel_gate::g0::Spawner for StopG0<'_> {
+    fn spawn(&self, req: kernel_gate::g0::SpawnRequest) -> std::io::Result<std::process::Child> {
+        if self.stop.load(Ordering::SeqCst) {
+            return Err(std::io::Error::new(std::io::ErrorKind::Interrupted, "stopped: the change was rolled back"));
+        }
+        self.inner.spawn(req)
+    }
+}
 
 /// What A3 found. `veto` is the `change.veto` call's result when A3 failed.
 #[derive(Clone, Debug)]
@@ -796,7 +879,8 @@ pub fn a3_run(scope: &str, g0: &Value, g3: impl FnOnce() -> Result<Value, StageF
     } else {
         (None, Value::Null)
     };
-    let veto = reason.as_deref().map(veto);
+    // A stopped G3 vetoes nothing: its group is already being rolled back (F7).
+    let veto = reason.as_deref().filter(|r| *r != G3_STOPPED).map(veto);
     let record = json!({"pass": reason.is_none(), "reason": reason, "tests_failed": tests_failed, "G3": g3_record,
                         "vetoed": veto.as_ref().map(|v| v.is_ok())});
     A3Out { pass: reason.is_none(), reason, record, veto }
@@ -805,11 +889,16 @@ pub fn a3_run(scope: &str, g0: &Value, g3: impl FnOnce() -> Result<Value, StageF
 /// A3 on the running gate (K2's `admit::a3_after_live` calls it): `job` names the A3 run (its G3
 /// probe, proxy gate and cache), `binary` is the live candidate's binary (it must still exist), `g0`
 /// the change's G0 record. G3 takes the build slot like G0–G3 of a promote, and spends at most
-/// `budget.gate_usd` on its own proxy gate.
+/// `budget.gate_usd` on its own proxy gate. `stop`: set by the supervisor when the Root rolls the
+/// change's group back ([`super::admit::stop_a3`]); G3 then stops ([`G3_STOPPED`]) and vetoes nothing.
 #[allow(clippy::too_many_arguments)]
-pub fn a3(env: &Env, job: &str, scope: &str, sha: &str, binary: &Path, g0: &Value, veto: impl FnOnce(&str) -> Result<(), String>) -> A3Out {
+pub fn a3(env: &Env, job: &str, scope: &str, sha: &str, binary: &Path, g0: &Value, stop: &AtomicBool, veto: impl FnOnce(&str) -> Result<(), String>) -> A3Out {
     let g3 = || {
         let _slot = env.slot_lock.lock().unwrap_or_else(|e| e.into_inner());
+        if stop.load(Ordering::SeqCst) {
+            // Rolled back while A3 waited for the build slot: no probe starts.
+            return Err(StageFail::new(Stage::G3, G3_STOPPED, "the change was rolled back before its G3 started"));
+        }
         let dir = job_cache(env, job);
         let built = Built { dir: dir.clone(), binary: dir.join("bin/init-body"), components: dir.join("ext"), record: g0.clone() };
         let _ = std::fs::create_dir_all(dir.join("bin"));
@@ -821,7 +910,7 @@ pub fn a3(env: &Env, job: &str, scope: &str, sha: &str, binary: &Path, g0: &Valu
         }
         let _ = env.proxy.open_gate(job, "a3", env.gate.gate_musd);
         let cand = Candidate { sha: sha.into(), binary: built.binary.clone(), ext_set_dir: None };
-        let r = g3(env, job, &cand, &built, false).map(|o| o.record);
+        let r = g3_until(env, job, &cand, &built, false, stop).map(|o| o.record);
         env.proxy.close_gate(job);
         let _ = env.git().run(&["update-ref", "-d", &format!("refs/init/g3/{job}")], None, Duration::from_secs(30));
         if dir.starts_with(env.home.join("cache/gate")) && dir != env.home.join("cache/gate") {
@@ -948,5 +1037,70 @@ mod x0c_tests {
         let o = a3_run("t2", &g0_ok, g3_fail, |_: &str| Err("control link down".into()));
         assert_eq!((o.record["vetoed"].clone(), o.veto.clone()), (json!(false), Some(Err("control link down".to_string()))));
         assert_eq!(vetoes.borrow().len(), 3);
+    }
+
+    /// F7: a G3 stopped because its group was rolled back vetoes nothing.
+    #[test]
+    fn f7_a_stopped_g3_vetoes_nothing() {
+        let g0_ok = json!({"pass": true, "steps": [{"name": "test", "exit": 0}]});
+        let o = a3_run("t2", &g0_ok, || Err(StageFail::new(Stage::G3, G3_STOPPED, "rolled back")), |_: &str| -> Result<(), String> { panic!("no veto when stopped") });
+        assert!(!o.pass && o.veto.is_none(), "{o:?}");
+        assert_eq!((o.reason.as_deref(), o.record["vetoed"].clone()), (Some(G3_STOPPED), Value::Null));
+    }
+
+    /// An instance that runs until it is killed (a cold build, as far as the waiter can tell).
+    #[derive(Default)]
+    struct Endless {
+        killed: std::sync::Mutex<Option<init_proto::root_link::KillMode>>,
+    }
+
+    impl crate::instance::Spawner for Endless {
+        fn spawn(&self, _: &SpawnRequest) -> Result<crate::instance::Spawned, crate::instance::SpawnError> {
+            Err(crate::instance::SpawnError::Io("not used".into()))
+        }
+        fn kill(&self, _: &str, mode: init_proto::root_link::KillMode) -> Result<(), crate::instance::SpawnError> {
+            *self.killed.lock().unwrap() = Some(mode);
+            Ok(())
+        }
+        fn wait_exit(&self, _: &str, timeout: Duration) -> Option<crate::instance::ExitInfo> {
+            let until = Instant::now() + timeout;
+            while Instant::now() < until {
+                if self.killed.lock().unwrap().is_some() {
+                    return Some(crate::instance::ExitInfo { code: None, signal: Some(9), at: String::new() });
+                }
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            None
+        }
+    }
+
+    /// F7: the inner gate's build is killed (through the Root) within about 250 ms of the stop,
+    /// and G0 starts no further command; without a stop the waiter keeps its own bound.
+    #[test]
+    fn f7_stop_kills_the_build_and_g0_starts_nothing() {
+        use crate::instance::Spawner;
+        let inner = Endless::default();
+        let stop = AtomicBool::new(false);
+        let sp = StopSpawner { inner: &inner, stop: &stop };
+        assert!(sp.wait_exit("i-1", Duration::from_millis(300)).is_none(), "no stop: the timeout");
+        assert!(inner.killed.lock().unwrap().is_none());
+        std::thread::scope(|s| {
+            s.spawn(|| {
+                std::thread::sleep(Duration::from_millis(200));
+                stop.store(true, Ordering::SeqCst);
+            });
+            let t0 = Instant::now();
+            let e = sp.wait_exit("i-1", Duration::from_secs(600)).expect("killed, not timed out");
+            assert_eq!(e.signal, Some(9));
+            assert!(t0.elapsed() < Duration::from_secs(5), "{:?}", t0.elapsed());
+        });
+        assert_eq!(*inner.killed.lock().unwrap(), Some(init_proto::root_link::KillMode::Kill));
+        let g0 = StopG0 { inner: &kernel_gate::g0::DirectSpawner, stop: &stop };
+        let req = kernel_gate::g0::SpawnRequest {
+            program: "/bin/echo".into(), args: vec![], env: vec![], cwd: "/".into(),
+            stdout: std::process::Stdio::null(), stderr: std::process::Stdio::null(),
+        };
+        let err = kernel_gate::g0::Spawner::spawn(&g0, req).expect_err("stopped");
+        assert_eq!(err.kind(), std::io::ErrorKind::Interrupted);
     }
 }

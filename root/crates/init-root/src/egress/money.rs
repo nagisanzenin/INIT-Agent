@@ -31,7 +31,10 @@ pub const MAX_OUT_TOKENS: u64 = 1 << 20;
 /// estimate is conservative for text (review F4). The legacy guard figure keeps egress.md §3.4's
 /// `ceil(bytes / 3)` that the kernel proxy mirrors, and only D6 rule (c) 3 reads it, so a guard that did its
 /// sum remains readable by older clients. Inspection rejects absent/invalid wire caps before this
-/// call; defense in depth saturates both figures if that precondition is violated (F1).
+/// call; defense in depth saturates both figures if that precondition is violated (F1). Cache writes (v0.5.0 L3)
+/// bill at up to 2× the input price (every write price in Table A, and the fallback): the hold at the input price
+/// per byte still covers them for any request of 2 or more bytes per input token, which every tokenizer's text and
+/// the JSON framing give, so the input price stays the hold's price and DeepSeek's holds are unchanged.
 pub fn reservation(body_len: u64, max_out: Option<u64>, md: &Model) -> (u64, u64) {
     let Some(out) = max_out.filter(|n| (1..=MAX_OUT_TOKENS).contains(n)) else { return (u64::MAX, u64::MAX) };
     (tap::musd(&[(body_len, md.input), (out, md.output)]), tap::musd(&[(body_len.div_ceil(3), md.input), (out, md.output)]))
@@ -118,6 +121,7 @@ impl TokenTotals {
         let usage = end.and_then(|e| Some(tap::Usage {
             input: e["usage"]["input"].as_u64()?, output: e["usage"]["output"].as_u64()?,
             cache_read: e["usage"]["cache_read"].as_u64().unwrap_or(0),
+            cache_write: e["usage"]["cache_write"].as_u64().unwrap_or(0), cache_write_1h: e["usage"]["cache_write_1h"].as_u64().unwrap_or(0),
         }));
         self.observe(usage);
     }
@@ -568,7 +572,7 @@ mod tests {
     /// than the guard's `bytes / 3` still costs no more than was reserved.
     #[test]
     fn accounting_saturates_and_invalid_wire_caps_never_get_smaller_estimates() {
-        let md = Model { min_level: 0, input: 300_000, cache_read: 6_000, output: 1_200_000, reserve_out: 65_536 };
+        let md = Model { min_level: 0, input: 300_000, cache_read: 6_000, cache_write: 600_000, cache_write_1h: 600_000, output: 1_200_000, reserve_out: 65_536 };
         let mut m = Money::new(lim(1000, 10_000), T0);
         let ds = m.day_start;
         m.admit(100).unwrap();
@@ -591,7 +595,7 @@ mod tests {
         // F4: 3000 request bytes, guard 1000 input tokens; the provider bills 2500 (dense text): still within the hold
         let (hold, guard) = reservation(3000, Some(10), &md);
         assert_eq!((hold, guard), (912, 312));
-        let billed = tap::Usage { input: 2500, cache_read: 0, output: 10 }.cost(&md);
+        let billed = tap::Usage { input: 2500, cache_read: 0, output: 10, ..tap::Usage::default() }.cost(&md);
         assert!(guard < billed && billed <= hold, "{guard} < {billed} ≤ {hold}");
     }
 
@@ -720,10 +724,10 @@ mod tests {
     #[test]
     fn tokens_keep_known_subtotals_and_mark_missing_usage_unknown() {
         let mut tokens = TokenTotals::default();
-        tokens.observe(Some(tap::Usage { input: 12, output: 3, cache_read: 4 }));
+        tokens.observe(Some(tap::Usage { input: 12, output: 3, cache_read: 4, ..tap::Usage::default() }));
         assert!(tokens.complete);
         tokens.observe(None);
-        tokens.observe(Some(tap::Usage { input: 5, output: 2, cache_read: 0 }));
+        tokens.observe(Some(tap::Usage { input: 5, output: 2, cache_read: 0, ..tap::Usage::default() }));
         assert_eq!((tokens.input, tokens.output, tokens.complete), (17, 5, false));
     }
 

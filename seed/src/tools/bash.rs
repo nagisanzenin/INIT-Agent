@@ -810,7 +810,7 @@ pub fn run(tools: &Tools, a: &BashArgs, cx: &ToolCx) -> Ran {
     } else if let Some(c) = code {
         (
             format!("[exit_code={c} wall_time={}]", secs(o.wall)),
-            format!("exit {c}, {lines} lines"),
+            format!("exit {c}, {lines} line{}", if lines == 1 { "" } else { "s" }),
         )
     } else {
         let sig = signal

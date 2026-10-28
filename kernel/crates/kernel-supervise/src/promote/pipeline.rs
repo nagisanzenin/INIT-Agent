@@ -277,6 +277,8 @@ fn run_promote(env: &Arc<Env>, f: stages::Fetched, job: &dyn Job, slot: Slot<'_>
     env.gates.fetch_add(1, Ordering::SeqCst);
     let lkg = env.sup.snapshot().map(|s| s.lkg_sha).unwrap_or_else(|| env.git().rev_parse_commit("refs/heads/lkg").unwrap_or_default());
     let mut rec = Record::new(env, &jid, "promote", Some(f.scope.scope.as_str()), &f.sha, Some(&f.branch), Some(&f.validated), &f.running, &lkg);
+    // TUI-OBSERVE: the owner's gate track starts here (owner channel only; the body gets nothing).
+    env.sup.owner_event("gate_start", json!({"gate_id": jid, "gate_kind": "promote", "sha": f.sha, "parent": f.running, "scope": f.scope.scope.as_str(), "steps": crate::supervisor::gate_steps(&f.scope)}));
     if env.proxy.open_gate(&jid, "promote", env.gate.gate_musd).is_err() {
         crate::klog::log("gate", &format!("{jid}: open_gate refused"));
     }

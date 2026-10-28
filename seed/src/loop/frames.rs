@@ -175,6 +175,9 @@ pub enum Out {
         /// `parent_call_id`: the `delegate` call a sub-task's tool frame belongs to (the TUI nests
         /// it under that call). Absent on the main loop's frames.
         parent: Option<String>,
+        /// TUI-OBSERVE (tui.md §3.6): on a failed `tool_end`, the last lines of the call's output
+        /// ([`crate::tools::fail_detail`]), shown under the failed call. Absent otherwise.
+        detail: Option<String>,
     },
     Ack(u64),
     /// `ok`: input `seq` will never be appended; false: it was already consumed (acked normally).
@@ -196,6 +199,9 @@ pub enum Out {
         components: Vec<String>,
         error: Option<String>,
     },
+    /// `ask_owner` (tools/ask.rs): the whole `display` frame with its `ask` object
+    /// ([`crate::tools::ask::frame`]); the TUI shows it as the agent's question.
+    Ask(Value),
 }
 
 impl Out {
@@ -207,6 +213,7 @@ impl Out {
             name: None,
             ok: None,
             parent: None,
+            detail: None,
         }
     }
 
@@ -220,8 +227,12 @@ impl Out {
                 name,
                 ok,
                 parent,
+                detail,
             } => {
                 let mut m = json!({"t": "display", "kind": kind, "text": text});
+                if let Some(d) = detail {
+                    m["detail"] = d.clone().into();
+                }
                 if let Some(p) = parent {
                     m["parent_call_id"] = p.clone().into();
                 }
@@ -253,6 +264,7 @@ impl Out {
                 error,
             } => json!({"t": "reload_done", "job": job, "ok": ok, "prefix_changed": prefix_changed,
                          "components": components, "error": error}),
+            Out::Ask(frame) => frame.clone(),
         };
         v["v"] = 1.into();
         v

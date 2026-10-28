@@ -1,156 +1,159 @@
 -- running, no output for 52 s (heartbeat)
 == 100x24 ==
-› wire the delegate worktree                                                                        |CC..........................                                                                        
+› wire the delegate worktree                                                                        |dd..........................                                                                        
 Let me look at the worktree first.                                                                  |..................................                                                                  
-⠸ bash cd wt-delegate && cargo build --offline 2>&…  8 tool calls · 1 running · 1 failed · 1 min 2 s|ccbbbb............................................d..dddddddddddddddddddddddddddrrrrrrrrdddddddddddd
-    running 52 s · still working… no output yet                                                     |....ccccccccccccddddddddddddddddddddddddddddddd                                                     
+◇ bash cd wt-delegate && cargo build --offline 2>&…  8 tool calls · 1 running · 1 failed · 1 min 2 s|ww................................................d..dddddddddddddddddddddddddddhhhhhhhhdddddddddddd
+    running 52 s · still working… no output yet                                                     |....ddddddddddddddddddddddddddddddddddddddddddd                                                     
   … +3 more                                                                                         |ddddddddddd                                                                                         
-  ▸ edit   src/delegate.rs (2 edits)                                       ✗ error: no_match · 0.4 s|..ddbbbb...................................................................rrrrrrrrrrrrrrrrrdddddddd
-  ▸ read   read src/delegate.rs                                                   ✓ 96 lines · 0.4 s|..ddbbbb..........................................................................ggdddddddddddddddd
-  ▸ edit   src/delegate.rs (1 edit)                                                     ✓ ok · 0.4 s|..ddbbbb................................................................................ggdddddddddd
-  ▸ bash   rg -n 'fn spawn' src                                            ✓ exit 0, 4 lines · 0.4 s|..ddbbbb...................................................................ggddddddddddddddddddddddd
-╭──────────────────────────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                                       │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd......................................ee
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · turn in 978k out 4.9k · cache 99.4% · $0.000 · $1.23/$5.00 today · running                    |.bbdddddddd................ddddddddd.....ddd......ddd.................ddd.......                    
- Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                      
-cursor 4,10
+  ◇ edit   src/delegate.rs (2 edits)                                       ✕ error: no_match · 0.4 s|..mm.......................................................................hhhhhhhhhhhhhhhhhdddddddd
+  ◇ read   read src/delegate.rs                                                   ✓ 96 lines · 0.4 s|..mm..............................................................................dddddddddddddddddd
+  ◇ edit   src/delegate.rs (1 edit)                                                     ✓ ok · 0.4 s|..mm....................................................................................dddddddddddd
+  ◇ bash   rg -n 'fn spawn' src                                            ✓ exit 0, 4 lines · 0.4 s|..mm.......................................................................ddddddddddddddddddddddddd
+⠸ running bash · 52 s                                                                  run 1 min 4 s|..............ddddddd..................................................................mmmmmmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 min · turn in 978k out 4.9k · cache 99.4% · $0.000 · $1.23/$5.00 today         L0 · root ok |...........mmmmmmmm................mmmmmmmmm.....mmm......mmm............................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
+cursor 4,11
 -- running, output 1 s ago
 == 100x24 ==
-› wire the delegate worktree                                                                        |CC..........................                                                                        
+› wire the delegate worktree                                                                        |dd..........................                                                                        
 Let me look at the worktree first.                                                                  |..................................                                                                  
-⠸ bash cd wt-delegate && cargo build --offline 2>&…  8 tool calls · 1 running · 1 failed · 1 min 2 s|ccbbbb............................................d..dddddddddddddddddddddddddddrrrrrrrrdddddddddddd
-    running 52 s · │ Compiling init-root v0.2.0 (/x/root/crates/init-root)                          |....ccccccccccccdddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                          
+◇ bash cd wt-delegate && cargo build --offline 2>&…  8 tool calls · 1 running · 1 failed · 1 min 2 s|ww................................................d..dddddddddddddddddddddddddddhhhhhhhhdddddddddddd
+    running 52 s · │ Compiling init-root v0.2.0 (/x/root/crates/init-root)                          |....dddddddddddddddllddddddddddddddddddddddddddddddddddddddddddddddddddddd                          
   … +3 more                                                                                         |ddddddddddd                                                                                         
-  ▸ edit   src/delegate.rs (2 edits)                                       ✗ error: no_match · 0.4 s|..ddbbbb...................................................................rrrrrrrrrrrrrrrrrdddddddd
-  ▸ read   read src/delegate.rs                                                   ✓ 96 lines · 0.4 s|..ddbbbb..........................................................................ggdddddddddddddddd
-  ▸ edit   src/delegate.rs (1 edit)                                                     ✓ ok · 0.4 s|..ddbbbb................................................................................ggdddddddddd
-  ▸ bash   rg -n 'fn spawn' src                                            ✓ exit 0, 4 lines · 0.4 s|..ddbbbb...................................................................ggddddddddddddddddddddddd
-╭──────────────────────────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                                       │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd......................................ee
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · turn in 978k out 4.9k · cache 99.4% · $0.000 · $1.23/$5.00 today · running                    |.bbdddddddd................ddddddddd.....ddd......ddd.................ddd.......                    
- Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                      
-cursor 4,10
+  ◇ edit   src/delegate.rs (2 edits)                                       ✕ error: no_match · 0.4 s|..mm.......................................................................hhhhhhhhhhhhhhhhhdddddddd
+  ◇ read   read src/delegate.rs                                                   ✓ 96 lines · 0.4 s|..mm..............................................................................dddddddddddddddddd
+  ◇ edit   src/delegate.rs (1 edit)                                                     ✓ ok · 0.4 s|..mm....................................................................................dddddddddddd
+  ◇ bash   rg -n 'fn spawn' src                                            ✓ exit 0, 4 lines · 0.4 s|..mm.......................................................................ddddddddddddddddddddddddd
+⠸ running bash · 52 s                                                                  run 1 min 4 s|..............ddddddd..................................................................mmmmmmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 min · turn in 978k out 4.9k · cache 99.4% · $0.000 · $1.23/$5.00 today         L0 · root ok |...........mmmmmmmm................mmmmmmmmm.....mmm......mmm............................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
+cursor 4,11
 -- running, output 15 s ago
 == 100x24 ==
-› wire the delegate worktree                                                                        |CC..........................                                                                        
+› wire the delegate worktree                                                                        |dd..........................                                                                        
 Let me look at the worktree first.                                                                  |..................................                                                                  
-⠸ bash cd wt-delegate && cargo build --offline 2>…  8 tool calls · 1 running · 1 failed · 1 min 16 s|ccbbbb...........................................d..dddddddddddddddddddddddddddrrrrrrrrddddddddddddd
-    running 1 min 6 s · │ Compiling init-root v0.2.0 (/x/root/c… · still working… no output for 15 s|....cccccccccccccccccddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
+◇ bash cd wt-delegate && cargo build --offline 2>…  8 tool calls · 1 running · 1 failed · 1 min 16 s|ww...............................................d..dddddddddddddddddddddddddddhhhhhhhhddddddddddddd
+    running 1 min 6 s · │ Compiling init-root v0.2.0 (/x/root/c… · still working… no output for 15 s|....ddddddddddddddddddddlldddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
   … +3 more                                                                                         |ddddddddddd                                                                                         
-  ▸ edit   src/delegate.rs (2 edits)                                       ✗ error: no_match · 0.4 s|..ddbbbb...................................................................rrrrrrrrrrrrrrrrrdddddddd
-  ▸ read   read src/delegate.rs                                                   ✓ 96 lines · 0.4 s|..ddbbbb..........................................................................ggdddddddddddddddd
-  ▸ edit   src/delegate.rs (1 edit)                                                     ✓ ok · 0.4 s|..ddbbbb................................................................................ggdddddddddd
-  ▸ bash   rg -n 'fn spawn' src                                            ✓ exit 0, 4 lines · 0.4 s|..ddbbbb...................................................................ggddddddddddddddddddddddd
-╭──────────────────────────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                                       │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd......................................ee
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · turn in 978k out 4.9k · cache 99.4% · $0.000 · $1.23/$5.00 today · running                    |.bbdddddddd................ddddddddd.....ddd......ddd.................ddd.......                    
- Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                      
-cursor 4,10
+  ◇ edit   src/delegate.rs (2 edits)                                       ✕ error: no_match · 0.4 s|..mm.......................................................................hhhhhhhhhhhhhhhhhdddddddd
+  ◇ read   read src/delegate.rs                                                   ✓ 96 lines · 0.4 s|..mm..............................................................................dddddddddddddddddd
+  ◇ edit   src/delegate.rs (1 edit)                                                     ✓ ok · 0.4 s|..mm....................................................................................dddddddddddd
+  ◇ bash   rg -n 'fn spawn' src                                            ✓ exit 0, 4 lines · 0.4 s|..mm.......................................................................ddddddddddddddddddddddddd
+⠸ running bash · 1 min                                                                run 1 min 18 s|..............dddddddd................................................................mmmmmmmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 min · turn in 978k out 4.9k · cache 99.4% · $0.000 · $1.23/$5.00 today         L0 · root ok |...........mmmmmmmm................mmmmmmmmm.....mmm......mmm............................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
+cursor 4,11
 -- running, narrow
 == 40x14 ==
-› wire the delegate worktree            |CC..........................            
 Let me look at the worktree first.      |..................................      
-⠸ bash cd wt-dele…  8 calls · 1 failed …|ccbbbb...........d..ddddddddddrrrrrrrrdd
-    running 1 min 6 s · no output for 1…|....cccccccccccccccccddddddddddddddddddd
+◇ bash cd wt-dele…  8 calls · 1 failed …|ww...............d..ddddddddddhhhhhhhhdd
+    running 1 min 6 s · no output for 1…|....dddddddddddddddddddddddddddddddddddd
   … +3 more                             |ddddddddddd                             
-  ▸ edit   src/del…  ✗ error: no_match …|..ddbbbb..........d..rrrrrrrrrrrrrrrrrdd
-  ▸ read   read src…  ✓ 96 lines · 0.4 s|..ddbbbb...........d..ggdddddddddddddddd
-  ▸ edit   src/delegate.r…  ✓ ok · 0.4 s|..ddbbbb.................d..ggdddddddddd
-  ▸ bash   rg -n '…  ✓ exit 0, 4 lines …|..ddbbbb..........d..ggddddddddddddddddd
-╭──────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the nex… │|eeccddddddddddddddddddddddddddddddddddee
-╰──────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · $1.23/$5.00 today · running       |.bbddd.................ddd.......       
- Enter send · Shift-Enter newline · Ctr…|dddddddddddddddddddddddddddddddddddddddd
+  ◇ edit   src/del…  ✕ error: no_match …|..mm..............d..hhhhhhhhhhhhhhhhhdd
+  ◇ read   read src…  ✓ 96 lines · 0.4 s|..mm...............d..dddddddddddddddddd
+  ◇ edit   src/delegate.r…  ✓ ok · 0.4 s|..mm.....................d..dddddddddddd
+  ◇ bash   rg -n '…  ✓ exit 0, 4 lines …|..mm..............d..ddddddddddddddddddd
+⠸ running bash · 1 min    run 1 min 18 s|..............dddddddd....mmmmmmmmmmmmmm
+┌──────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the nex… │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmdll
+└──────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllll
+ $1.23/$5.00 today         L0 · root ok |.............................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctr…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
 cursor 4,10
 -- frozen
 == 100x24 ==
-› wire the delegate worktree                                                                        |CC..........................                                                                        
+› wire the delegate worktree                                                                        |dd..........................                                                                        
 Let me look at the worktree first.                                                                  |..................................                                                                  
-▸ ran 8 tools in 1 min 22 s · bash ×4 · read ×2 · edit ×2                                 ✗ 1 failed|dd.........................dddddddddddddddddddddddddddddd.................................rrrrrrrrrr
-  ▸ edit   src/delegate.rs (2 edits)                                       ✗ error: no_match · 0.4 s|..ddbbbb...................................................................rrrrrrrrrrrrrrrrrdddddddd
+◇ ran 8 tools in 1 min 22 s · bash ×4 · read ×2 · edit ×2                                 ✕ 1 failed|mm.........................dddddddddddddddddddddddddddddd.................................hhhhhhhhhh
+  ◇ edit   src/delegate.rs (2 edits)                                       ✕ error: no_match · 0.4 s|..mm.......................................................................hhhhhhhhhhhhhhhhhdddddddd
 The delegate builds. One edit missed its anchor; I re-read and fixed it.                            |........................................................................                            
-╭──────────────────────────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Type a message · / for commands · ? for keys                                                   │|eeccdddddddddddddddddddddddddddddddddddddddddddd..................................................ee
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · turn in 978k out 4.9k · cache 99.4% · $0.000 · $1.23/$5.00 today · running                    |.bbdddddddd................ddddddddd.....ddd......ddd.................ddd.......                    
- Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                      
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Type a message · / for commands · ? for keys                                                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ turn in 978k out 4.9k · cache 99.4% · $0.000 · $1.23/$5.00 today                      L0 · root ok |.mmmmm................mmmmmmmmm.....mmm......mmm.........................................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,6
 -- expanded (Ctrl-O)
 == 100x40 ==
  transcript · j/k move · Enter toggle details · e expand all · c collapse all · g/G top/bottom · q …|VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVd
-▶ ▾ 8 tool calls · 1 failed · 1 min 22 s · started 21:04:05Z                                        |bbdd........................................................                                        
-    ▸ bash   cd "$INIT_HOME/work/wt-delegate" && python3 - <<'EOF'         ✓ exit 0, 3 lines · 0.4 s|bb..ddbbbb.................................................................ggddddddddddddddddddddddd
+▶ ◇ 8 tool calls · 1 failed · 1 min 22 s · started 21:04:05Z                                        |bbmm........................................................                                        
+    ◇ bash   cd "$INIT_HOME/work/wt-delegate" && python3 - <<'EOF'         ✓ exit 0, 3 lines · 0.4 s|bb..mm.....................................................................ddddddddddddddddddddddddd
         call_id: c0                                                                                 |bb..ddddddddddddd..                                                                                 
         call: cd "$INIT_HOME/work/wt-delegate" && python3 - <<'EOF'                                 |bb..dddddddddd.....................................................                                 
         result: ok · exit 0, 3 lines                                                                |bb..dddddddddddd....................                                                                
         time: started 21:04:05Z · 0.4 s                                                             |bb..dddddddddd.........................                                                             
     · tokens: in 119586 (cached 118860), out 861                                                    |bbdddddddddddddddddddddddddddddddddddddddddddddd                                                    
-    ▸ read   read root/crates/init-root/src/link.rs                              ✓ 412 lines · 0.4 s|bb..ddbbbb.......................................................................ggddddddddddddddddd
+    ◇ read   read root/crates/init-root/src/link.rs                              ✓ 412 lines · 0.4 s|bb..mm...........................................................................ddddddddddddddddddd
         call_id: c1                                                                                 |bb..ddddddddddddd..                                                                                 
         call: read root/crates/init-root/src/link.rs                                                |bb..dddddddddd......................................                                                
         result: ok · 412 lines                                                                      |bb..dddddddddddd..............                                                                      
         time: started 21:04:05Z · 0.4 s                                                             |bb..dddddddddd.........................                                                             
     · tokens: in 120675 (cached 119960), out 761                                                    |bbdddddddddddddddddddddddddddddddddddddddddddddd                                                    
-    ▸ bash   git -C wt-delegate status --short                             ✓ exit 0, 7 lines · 0.4 s|bb..ddbbbb.................................................................ggddddddddddddddddddddddd
+    ◇ bash   git -C wt-delegate status --short                             ✓ exit 0, 7 lines · 0.4 s|bb..mm.....................................................................ddddddddddddddddddddddddd
         call_id: c2                                                                                 |bb..ddddddddddddd..                                                                                 
         call: git -C wt-delegate status --short                                                     |bb..dddddddddd.................................                                                     
         result: ok · exit 0, 7 lines                                                                |bb..dddddddddddd....................                                                                
         time: started 21:04:05Z · 0.4 s                                                             |bb..dddddddddd.........................                                                             
     · tokens: in 121764 (cached 121060), out 661                                                    |bbdddddddddddddddddddddddddddddddddddddddddddddd                                                    
-    ▸ edit   src/delegate.rs (2 edits)                                     ✗ error: no_match · 0.4 s|bb..ddbbbb.................................................................rrrrrrrrrrrrrrrrrdddddddd
+    ◇ edit   src/delegate.rs (2 edits)                                     ✕ error: no_match · 0.4 s|bb..mm.....................................................................hhhhhhhhhhhhhhhhhdddddddd
         call_id: c3                                                                                 |bb..ddddddddddddd..                                                                                 
         call: src/delegate.rs (2 edits)                                                             |bb..dddddddddd.........................                                                             
         result: error · error: no_match                                                             |bb..dddddddddddd.......................                                                             
         time: started 21:04:05Z · 0.4 s                                                             |bb..dddddddddd.........................                                                             
     · tokens: in 122853 (cached 122160), out 561                                                    |bbdddddddddddddddddddddddddddddddddddddddddddddd                                                    
-    ▸ read   read src/delegate.rs                                                 ✓ 96 lines · 0.4 s|bb..ddbbbb........................................................................ggdddddddddddddddd
+    ◇ read   read src/delegate.rs                                                 ✓ 96 lines · 0.4 s|bb..mm............................................................................dddddddddddddddddd
         call_id: c4                                                                                 |bb..ddddddddddddd..                                                                                 
         call: read src/delegate.rs                                                                  |bb..dddddddddd....................                                                                  
         result: ok · 96 lines                                                                       |bb..dddddddddddd.............                                                                       
         time: started 21:04:05Z · 0.4 s                                                             |bb..dddddddddd.........................                                                             
     · tokens: in 123942 (cached 123260), out 461                                                    |bbdddddddddddddddddddddddddddddddddddddddddddddd                                                    
-    ▸ edit   src/delegate.rs (1 edit)                                                   ✓ ok · 0.4 s|bb..ddbbbb..............................................................................ggdddddddddd
+    ◇ edit   src/delegate.rs (1 edit)                                                   ✓ ok · 0.4 s|bb..mm..................................................................................dddddddddddd
         call_id: c5                                                                                 |bb..ddddddddddddd..                                                                                 
         call: src/delegate.rs (1 edit)                                                              |bb..dddddddddd........................                                                              
         result: ok · ok                                                                             |bb..dddddddddddd.......                                                                             
         time: started 21:04:05Z · 0.4 s                                                             |bb..dddddddddd.........................                                                             
     · tokens: in 125031 (cached 124360), out 361                                                    |bbdddddddddddddddddddddddddddddddddddddddddddddd                                                    
-    ▸ bash   rg -n 'fn spawn' src                                          ✓ exit 0, 4 lines · 0.4 s|bb..ddbbbb.................................................................ggddddddddddddddddddddddd
+    ◇ bash   rg -n 'fn spawn' src                                          ✓ exit 0, 4 lines · 0.4 s|bb..mm.....................................................................ddddddddddddddddddddddddd
         call_id: c6                                                                                 |bb..ddddddddddddd..                                                                                 
 -- /details (printed in full; the tail of the screen)
 == 100x30 ==
 Built.                                                                                              |......                                                                                              
-      result: ok · 96 lines                                                                         |..dddddddddddd.............                                                                         
       time: started 21:04:05Z · 0.4 s                                                               |..dddddddddd.........................                                                               
   · tokens: in 123942 (cached 123260), out 461                                                      |dddddddddddddddddddddddddddddddddddddddddddddd                                                      
-  ▸ edit   src/delegate.rs (1 edit)                                                     ✓ ok · 0.4 s|..ddbbbb................................................................................ggdddddddddd
+  ◇ edit   src/delegate.rs (1 edit)                                                     ✓ ok · 0.4 s|..mm....................................................................................dddddddddddd
       call_id: c5                                                                                   |..ddddddddddddd..                                                                                   
       call: src/delegate.rs (1 edit)                                                                |..dddddddddd........................                                                                
       result: ok · ok                                                                               |..dddddddddddd.......                                                                               
       time: started 21:04:05Z · 0.4 s                                                               |..dddddddddd.........................                                                               
   · tokens: in 125031 (cached 124360), out 361                                                      |dddddddddddddddddddddddddddddddddddddddddddddd                                                      
-  ▸ bash   rg -n 'fn spawn' src                                            ✓ exit 0, 4 lines · 0.4 s|..ddbbbb...................................................................ggddddddddddddddddddddddd
+  ◇ bash   rg -n 'fn spawn' src                                            ✓ exit 0, 4 lines · 0.4 s|..mm.......................................................................ddddddddddddddddddddddddd
       call_id: c6                                                                                   |..ddddddddddddd..                                                                                   
       call: rg -n 'fn spawn' src                                                                    |..dddddddddd....................                                                                    
       result: ok · exit 0, 4 lines                                                                  |..dddddddddddd....................                                                                  
       time: started 21:04:05Z · 0.4 s                                                               |..dddddddddd.........................                                                               
   · tokens: in 126120 (cached 125460), out 261                                                      |dddddddddddddddddddddddddddddddddddddddddddddd                                                      
-  ▸ bash   cd wt-delegate && cargo build --offline 2>&1 | tail -40        ✓ exit 0, 40 lines · 1 min|..ddbbbb..................................................................ggdddddddddddddddddddddddd
+  ◇ bash   cd wt-delegate && cargo build --offline 2>&1 | tail -40        ✓ exit 0, 40 lines · 1 min|..mm......................................................................dddddddddddddddddddddddddd
       call_id: c9                                                                                   |..ddddddddddddd..                                                                                   
       call: cd wt-delegate && cargo build --offline 2>&1 | tail -40                                 |..dddddddddd.......................................................                                 
       result: ok · exit 0, 40 lines                                                                 |..dddddddddddd.....................                                                                 
       time: started 21:04:05Z · 1 min                                                               |..dddddddddd.........................                                                               
       detail: warning: unused import `Read`                                                         |..ddddddddddddddddddddddddddddddddddddddddd                                                         
                --> src/delegate.rs:3:5                                                              |..dddddddddddddddddddddddddddddddddddd                                                              
-  ✻ thought for 3.0 s                                                                               |ddddddddddddddddddddd                                                                               
+  · thought for 3.0 s                                                                               |ddddddddddddddddddddd                                                                               
     The build passed.                                                                               |....ddddddddddddddddd                                                                               
-╭──────────────────────────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                                       │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd......................................ee
-╰──────────────────────────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · turn in 978k out 4.9k · cache 99.4% · $0.000 · $1.23/$5.00 today · running                    |.bbdddddddd................ddddddddd.....ddd......ddd.................ddd.......                    
- Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd                      
+⠸ writing                                                                             run 1 min 26 s|......................................................................................mmmmmmmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                                       │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm......................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 min · turn in 978k out 4.9k · cache 99.4% · $0.000 · $1.23/$5.00 today         L0 · root ok |...........mmmmmmmm................mmmmmmmmm.....mmm......mmm............................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys                      |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                      
 cursor 4,26

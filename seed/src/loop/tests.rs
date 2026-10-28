@@ -1560,13 +1560,20 @@ fn t19_crash_repair_and_auto_continue() {
 #[test]
 fn t20_stop_grace_and_eof() {
     let home = TempHome::new("loop-20");
+    let started = home.work().join("started");
     let mut h = H::start(
         &home,
-        vec![tools_reply(vec![bash_call("sleep 10")])],
+        vec![tools_reply(vec![bash_call(&format!("echo $$ > '{}'; sleep 10", started.display()))])],
         Opts::default(),
     );
     h.input(ID1, 1, "go");
     h.wait(is_display("tool_start"));
+    // The stop must land while the command runs (see t26).
+    wait_until("the bash command started", || {
+        std::fs::read_to_string(&started)
+            .map(|s| s.ends_with('\n'))
+            .unwrap_or(false)
+    });
     let t0 = h.send(json!({"t": "stop", "reason": "owner", "grace_ms": 2000}));
     let (code, _) = h.join_exit();
     let took = t0.elapsed();
@@ -1650,6 +1657,9 @@ fn t22_task_id() {
     // /new: the hook hears the new session with no task.
     h.input(ID3, 3, "/new");
     h.wait(|f| f["t"] == "ack" && f["seq"] == 3);
+    // The loop acks the line before it calls the hook for the new session (loop/mod.rs `boundary`), so wait for the
+    // hook too: reading right after the ack raced it (REL-050: G0 on a hosted x86_64 runner read the old session).
+    wait_until("the hook hears the new session", || tasks.lock().unwrap().last().is_some_and(|(s, _)| s != SID));
     let t = tasks.lock().unwrap().clone();
     let (sid, task) = t.last().unwrap().clone();
     assert_ne!(sid, SID);
@@ -1906,16 +1916,24 @@ fn t25c_retract_a_queued_follow_up() {
 #[test]
 fn t26_interrupt_and_steer_during_a_batch() {
     let home = TempHome::new("loop-26");
+    let started = home.work().join("started");
     let mut h = H::start(
         &home,
         vec![
-            tools_reply(vec![bash_call("sleep 30")]),
+            tools_reply(vec![bash_call(&format!("echo $$ > '{}'; sleep 30", started.display()))]),
             reply("answered the note"),
         ],
         Opts::default(),
     );
     h.input(ID1, 1, "start");
     h.wait(is_display("tool_start"));
+    // The interrupt must land while the command runs: before its process starts, the call ends "not executed", not
+    // "aborted after" (a race seen on a slow x86_64 runner, REL-050 run 8).
+    wait_until("the bash command started", || {
+        std::fs::read_to_string(&started)
+            .map(|s| s.ends_with('\n'))
+            .unwrap_or(false)
+    });
     h.input(ID2, 2, "use the other dir");
     let t_int = h.send(json!({"t": "interrupt", "then": "continue"}));
     h.wait(is_info(CONTINUE_TEXT));
@@ -2543,5 +2561,164 @@ fn t103_delegate_owner_abort_stops_sub_tasks() {
     }
     assert_eq!(delegate_record(&home, &aid)["end"], "aborted");
     assert_eq!(delegate_record(&home, &bid)["end"], "aborted");
+    h.finish();
+}
+
+/// TUI-OBSERVE (tui.md §3.6): a failed call's `tool_end` carries the last lines of its output as
+/// `detail` (without the bash trailer); a call that succeeded carries none. The model's result is
+/// the whole output either way.
+#[test]
+fn failed_call_sends_its_output_tail_as_detail() {
+    let home = TempHome::new("loop-detail");
+    let calls = vec![
+        bash_call("for i in $(seq 1 12); do echo line $i; done; exit 3"),
+        bash_call("echo fine"),
+    ];
+    let mut h = H::start(&home, vec![tools_reply(calls), reply("done")], Opts::default());
+    h.input(ID1, 1, "go");
+    h.idle(1);
+    let ends: Vec<Value> = h
+        .frames
+        .iter()
+        .filter(|(_, f)| is_display("tool_end")(f))
+        .map(|(_, f)| f.clone())
+        .collect();
+    assert_eq!(ends.len(), 2);
+    let failed = ends.iter().find(|f| f["ok"] == false).expect("a failed tool_end");
+    let want: Vec<String> = (3..=12).map(|i| format!("line {i}")).collect();
+    assert_eq!(failed["detail"].as_str(), Some(want.join("\n").as_str()), "{failed}");
+    assert_eq!(failed["text"], "exit 3, 12 lines");
+    let ok = ends.iter().find(|f| f["ok"] == true).expect("an ok tool_end");
+    assert!(ok.get("detail").is_none(), "{ok}");
+    let evs = h.events();
+    let r = of_type(&evs, "tool_result");
+    assert!(result_text(r[0]).starts_with("line 1\nline 2\n"), "the model sees all of it");
+    assert_eq!(h.finish(), 0);
+}
+
+// ---------------------------------------------------------------------------------------------
+// TUI-PICKER: ask_owner ends the turn; the answer is the owner's next message
+// ---------------------------------------------------------------------------------------------
+
+fn ask_call() -> ToolCall {
+    call(
+        "ask_owner",
+        json!({"question": "Which database?", "header": "Database",
+            "options": [{"label": "SQLite", "description": "one file"}, {"label": "Postgres", "recommended": true}]}),
+    )
+}
+
+fn is_ask(f: &Value) -> bool {
+    f["t"] == "display" && f["kind"] == "info" && f.get("ask").is_some()
+}
+
+/// The newest tool results' first text, and the newest user message after them (the owner's).
+fn ask_result_then_owner(m: &[Msg]) -> (String, String) {
+    let ti = m.iter().rposition(|x| matches!(x, Msg::ToolResults(_))).unwrap();
+    let Msg::ToolResults(res) = &m[ti] else { unreachable!() };
+    let owner = m[ti + 1..]
+        .iter()
+        .rev()
+        .find_map(|x| match x {
+            Msg::User { blocks, .. } => Some(blocks_text(blocks)),
+            _ => None,
+        })
+        .unwrap_or_default();
+    (blocks_text(&res[0].content), owner)
+}
+
+#[test]
+fn t104_ask_owner_ends_the_turn_and_the_answer_starts_the_next_run() {
+    let home = TempHome::new("loop-104");
+    let mut h = H::start(
+        &home,
+        vec![tools_reply(vec![ask_call()]), reply("Going with Postgres."), reply("never sent")],
+        Opts::default(),
+    );
+    h.input(ID1, 1, "set up the service");
+    h.idle(1);
+    let (_, f) = h.wait(is_ask);
+    let want = json!({"ask": {"header": "Database", "multi": false, "question": "Which database?",
+            "options": [{"label": "Postgres", "recommended": true}, {"description": "one file", "label": "SQLite"}]},
+        "kind": "info", "t": "display", "v": 1,
+        "text": "The agent asks: Which database?\n  1. Postgres\n  2. SQLite — one file\nReply with a number, the option, or your own words."});
+    assert_eq!(f, want);
+    let ask = h.pos(is_ask).unwrap();
+    let end = h.pos(is_display("tool_end")).unwrap();
+    let idle = h.pos(|f| f["t"] == "state" && f["busy"] == false).unwrap();
+    assert!(end < ask && ask < idle, "tool_end, then the question, then idle");
+    assert_eq!(h.frames[end].1["text"], "asked the owner");
+    // No timer, no default: nothing more happens until the owner answers.
+    std::thread::sleep(Duration::from_millis(300));
+    while h.pull(Instant::now() + Duration::from_millis(50)) {}
+    assert_eq!(h.model.seen().len(), 1, "the run ended after ask_owner");
+    assert_eq!(h.frames.iter().filter(|(_, f)| f["t"] == "state" && f["busy"] == true).count(), 1);
+    // The answer is an ordinary owner message: a new run; the model reads the result, then it.
+    h.input(ID2, 2, "Postgres");
+    h.idle(2);
+    let seen = h.model.seen();
+    assert_eq!(seen.len(), 2);
+    let (result, owner) = ask_result_then_owner(&seen[1].messages);
+    assert_eq!(result, crate::tools::ask::RESULT_TEXT);
+    assert_eq!(owner, "Postgres");
+    assert_eq!(seen[1].task.as_deref(), Some(ID2), "the answer starts a run of its own");
+    h.finish();
+}
+
+#[test]
+fn t105_ask_owner_with_a_steer_waiting_continues_the_run() {
+    let home = TempHome::new("loop-105");
+    let mut h = H::start(
+        &home,
+        vec![tools_reply(vec![ask_call(), bash_call("sleep 1; echo slept")]), reply("SQLite it is.")],
+        Opts::default(),
+    );
+    h.input(ID1, 1, "set up the service");
+    h.wait(is_display("tool_start"));
+    h.input(ID2, 2, "use SQLite");
+    h.idle(1);
+    assert!(h.pos(is_ask).is_some(), "the question was still sent");
+    let seen = h.model.seen();
+    assert_eq!(seen.len(), 2, "the owner already answered: the model reads it in the same run");
+    let (role, text) = last_msg_text(&seen[1].messages[..seen[1].messages.len() - 1]);
+    assert_eq!((role.as_str(), text.contains("use SQLite")), ("user", true), "{text}");
+    h.finish();
+}
+
+#[test]
+fn t106_a_restart_while_the_question_waits_does_not_continue() {
+    let home = TempHome::new("loop-106");
+    let mut h = H::start(&home, vec![tools_reply(vec![ask_call()])], Opts::default());
+    h.input(ID1, 1, "set up the service");
+    h.idle(1);
+    assert_eq!(h.finish(), 0);
+    // A restart (handoff, crash, promote) while the owner has not answered: no auto-continue.
+    let mut h = H::start(&home, vec![reply("Going with SQLite.")], Opts::default());
+    std::thread::sleep(Duration::from_millis(300));
+    while h.pull(Instant::now() + Duration::from_millis(50)) {}
+    assert!(h.model.seen().is_empty(), "no model request before the owner answers");
+    h.input(ID2, 2, "SQLite");
+    h.idle(1);
+    let seen = h.model.seen();
+    assert_eq!(seen.len(), 1);
+    let (result, owner) = ask_result_then_owner(&seen[0].messages);
+    assert_eq!((result.as_str(), owner.as_str()), (crate::tools::ask::RESULT_TEXT, "SQLite"));
+    h.finish();
+}
+
+#[test]
+fn t107_delegate_sub_tasks_cannot_ask_the_owner() {
+    let home = TempHome::new("loop-107");
+    let d = call("delegate", json!({"task": "asker AK: pick a database"}));
+    let did = d.id.clone();
+    let mut h = H::start(&home, vec![tools_reply(vec![d]), reply("done")], Opts::default());
+    h.model.route("AK", vec![tools_reply(vec![ask_call()]), reply("could not ask")]);
+    h.input(ID1, 1, "go");
+    h.idle(1);
+    assert!(h.pos(is_ask).is_none(), "no question frame from a sub-task");
+    let rec = delegate_record(&home, &did);
+    let text = rec["messages"][2]["results"][0]["blocks"][0]["text"].as_str().unwrap_or("").to_string();
+    assert!(text.contains("not_available: only the main agent can ask the owner"), "{text}");
+    assert_eq!(h.model.seen().len(), 4, "main, the sub-task twice, main again: the run went on");
     h.finish();
 }

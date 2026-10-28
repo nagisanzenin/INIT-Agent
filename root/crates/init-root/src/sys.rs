@@ -1107,6 +1107,49 @@ print('linux isolation passed')
         fs::remove_dir_all(dir).unwrap();
     }
 
+    /// REL-050: the kernel reads free space for its build floor at INIT_HOME/cache (kernel-supervise
+    /// `disk_probe_paths`), because inside the Linux kernel zone INIT_HOME itself is a directory on the zone's own tmpfs
+    /// (its subtrees are bound, not INIT_HOME), while cache is bound from the real filesystem. On the real zone: inside,
+    /// INIT_HOME/cache has the host's device and size; INIT_HOME has neither (it was what the kernel measured before:
+    /// every promote refused E_DISK on a test home under /tmp, whose zone tmpfs is 64 MiB).
+    #[test]
+    #[ignore = "requires qualified Linux user namespaces, fd-bind bubblewrap and INIT_TEST_ROOT_BIN"]
+    fn linux_kernel_zone_disk_probe_reads_the_real_filesystem() {
+        use std::os::unix::fs::MetadataExt;
+        let binary = std::env::var_os("INIT_TEST_ROOT_BIN").expect("set INIT_TEST_ROOT_BIN to the freshly-built init-root");
+        let dir = fixture("diskprobe");
+        let l = Layout { root_home: dir.join("rh"), init_home: dir.join("ih"), toolchain: dir.join("tool"), extra_read: vec![], read_deny: vec![], write_deny: vec![], home: dir.clone(), frozen: false, benchmark: false };
+        for d in [&l.root_home, &l.init_home, &l.toolchain, &l.init_home.join("cache"), &l.init_home.join("run")] { fs::create_dir_all(d).unwrap(); }
+        let mark = l.init_home.join("mark"); fs::write(&mark, "").unwrap();
+        let mut args = compose(ProfileId::Kernel, &BTreeMap::new(), &l, &mark, &Grant::default()).unwrap();
+        let mounts = linux_bind_fds(&mut args).unwrap();
+        let seccomp = linux_seccomp(false).unwrap();
+        let (mut left, right) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (mut left4, right4) = std::os::unix::net::UnixStream::pair().unwrap();
+        let (a, b) = (dup_high(&right).unwrap(), dup_high(&right4).unwrap());
+        left.write_all(b"control3").unwrap(); left4.write_all(b"control4").unwrap();
+        let mut cmd = std::process::Command::new(binary);
+        cmd.args(["exec-clean", "--keep", "3", "--keep", "4", "--keep", "5"]);
+        for fd in &mounts { cmd.arg("--keep").arg(fd.as_raw_fd().to_string()); }
+        cmd.arg("--").args(args).args(["--", "/usr/bin/python3", "-c", r#"
+import os,sys
+c=os.statvfs(sys.argv[1]+'/cache'); h=os.statvfs(sys.argv[1])
+print(os.stat(sys.argv[1]+'/cache').st_dev, os.stat(sys.argv[1]).st_dev, c.f_blocks*c.f_frsize, h.f_blocks*h.f_frsize)
+"#]).arg(&l.init_home).current_dir("/").env_clear().env("PATH", "/usr/bin:/bin");
+        map_fds(&mut cmd, [a.as_raw_fd(), b.as_raw_fd()]); map_seccomp(&mut cmd, seccomp.as_raw_fd());
+        inherit_fds(&mut cmd, mounts.iter().map(AsRawFd::as_raw_fd).collect());
+        let out = cmd.output().unwrap();
+        assert!(out.status.success(), "the kernel zone must actually run: {}", String::from_utf8_lossy(&out.stderr));
+        let got: Vec<u64> = String::from_utf8_lossy(&out.stdout).split_whitespace().map(|x| x.parse().unwrap()).collect();
+        assert_eq!(got.len(), 4, "device of cache and of INIT_HOME, size of each: {got:?}");
+        let host_cache = fs::metadata(l.init_home.join("cache")).unwrap().dev();
+        let host_home = fs::metadata(&l.init_home).unwrap().dev();
+        assert_eq!(host_cache, host_home, "the fixture keeps INIT_HOME and its cache on one host filesystem");
+        assert_eq!(got[0], host_cache, "inside the kernel zone INIT_HOME/cache is the host's filesystem (what the kernel measures)");
+        assert_ne!(got[1], host_home, "inside the kernel zone INIT_HOME itself is the zone's own filesystem (what it measured before)");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
     /// ADR-012 native qualification of the live body's full plan (bwrap, user + pid namespaces, the full seccomp
     /// program): outside INIT_HOME the body writes anywhere (a fresh /var/tmp dir, its home, the rest of the bin dir)
     /// and reaches a 127.0.0.1 server of the host network; ROOT_HOME is empty and read-only (no file, no socket); the

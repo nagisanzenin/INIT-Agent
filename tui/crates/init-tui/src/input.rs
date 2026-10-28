@@ -17,6 +17,12 @@ pub struct Editor {
     /// The completion popup's selection; the popup itself is shown while `popup_open()`.
     pub sel: usize,
     pub popup_dismissed: bool,
+    /// TUI-PICKER (§3.7.2): the open picker. It takes the box's place, and keys go to it.
+    pub picker: Option<crate::render::picker::Picker>,
+    /// TUI-PICKER: an agent question that arrived while another picker (setup) was open.
+    pub picker_next: Option<crate::render::picker::Picker>,
+    /// TUI-PICKER: the agent's question after its picker was dismissed, until the owner sends a line.
+    pub waiting: Option<String>,
 }
 
 impl Editor {

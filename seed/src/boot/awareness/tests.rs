@@ -860,6 +860,26 @@ fn t_aw_6_kernel_rollback_with_and_without_stash() {
     );
 }
 
+/// F4 of the 2026-10-25 demo: after the owner's `/rollback` (H3), the boot block named the stale
+/// cause of an earlier demotion ("Cause: ceiling_hit: ?. Lineage record 21"). The kernel now names
+/// the Root's rollback in `cause.kind` (`extend_H3`), and the block says what happened.
+#[test]
+fn t_aw_6_root_rolls_back_a_change_group() {
+    let mut fx = Fx::with("rollback", SHA_OLD, Some(SHA_BAD));
+    fx.boot["cause"] = json!({"kind": "extend_H3"});
+    assert_eq!(
+        fx.line(0),
+        "[init:boot] The Root rolled back your change after harm signal H3 (the owner's /reject, /rollback or /panic): you are on 3f2a1c0 from 9d0e4b7. Your rolled-back commits are kept at refs/init/rolled-back/9d0e4b7. The conversation continues."
+    );
+    fx.boot["cause"] = json!({"kind": "extend_H99"});
+    assert!(
+        fx.line(0)
+            .starts_with("[init:boot] The Root rolled back your change after harm signal H99: you are on 3f2a1c0"),
+        "{}",
+        fx.line(0)
+    );
+}
+
 #[test]
 fn t_aw_6_root_rollback_with_demotion() {
     let mut fx = Fx::with("rollback", SHA_OLD, Some(SHA_BAD));
@@ -2005,13 +2025,43 @@ struct FakeProxy {
     handle: Option<JoinHandle<Vec<u8>>>,
 }
 
+/// The path from `from` to `to`, both absolute and canonical (`..` steps, then the rest of `to`).
+fn relative_path(from: &Path, to: &Path) -> PathBuf {
+    let (f, t): (Vec<_>, Vec<_>) = (from.components().collect(), to.components().collect());
+    let common = f.iter().zip(&t).take_while(|(a, b)| a == b).count();
+    let mut r = PathBuf::new();
+    for _ in common..f.len() {
+        r.push("..");
+    }
+    for c in &t[common..] {
+        r.push(c);
+    }
+    r
+}
+
+/// A socket path that `bind` and `connect` accept for the file `dir/name`: absolute when it fits
+/// sun_path, else relative to `cwd`. Under G0 the target dir is `$INIT_HOME/cache/build/slot/out/target`
+/// (92 bytes for a 64-byte home, the most the kernel allows) and the cwd is `slot/src` next to it, so
+/// the relative path stays short however long the home is (demo 2026-10-25, F5). The tests never
+/// change the cwd, and the fake proxy and `fetch_stats` run in this process.
+fn sock_path(dir: &Path, cwd: &Path, name: &str) -> PathBuf {
+    let abs = dir.join(name);
+    if abs.as_os_str().len() <= crate::provider::transport::MAX_SOCK_PATH {
+        return abs;
+    }
+    let rel = relative_path(cwd, &abs);
+    if rel.as_os_str().len() < abs.as_os_str().len() { rel } else { abs }
+}
+
 impl FakeProxy {
     fn start(response: Vec<u8>, delay: Duration) -> FakeProxy {
         // A short name in `<target>/sk/`: under G0 a path in test-homes/ can exceed sun_path.
         let dir = test_target().join("sk");
         std::fs::create_dir_all(&dir).unwrap();
+        let dir = dir.canonicalize().unwrap();
         let n = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let path = dir.join(format!("a{}-{n}", std::process::id()));
+        let cwd = std::env::current_dir().unwrap();
+        let path = sock_path(&dir, &cwd, &format!("a{}-{n}", std::process::id()));
         let _ = std::fs::remove_file(&path);
         let l = UnixListener::bind(&path).unwrap();
         let handle = std::thread::spawn(move || {
@@ -2072,6 +2122,32 @@ fn fetch_stats_content_length_and_chunked() {
     );
     let p = FakeProxy::start(resp.into_bytes(), Duration::ZERO);
     assert_eq!(fetch_stats(&p.path, Duration::from_secs(2)), stats_ok());
+}
+
+/// F5 of the 2026-10-25 demo: G0 failed this file's socket tests ("path must be shorter than
+/// SUN_LEN") when `INIT_HOME` was 63 bytes or longer. The longest layout G0 can have (a 64-byte
+/// home, the kernel's limit) still gets a socket path within sun_path, and it names the same file.
+#[test]
+fn fake_proxy_socket_fits_the_longest_g0_layout() {
+    let home = PathBuf::from(format!("/{}", "h".repeat(63)));
+    assert_eq!(home.as_os_str().len(), 64);
+    let slot = home.join("cache/build/slot");
+    let (dir, cwd) = (slot.join("out/target/sk"), slot.join("src"));
+    let name = "a99999-99999";
+    let p = sock_path(&dir, &cwd, name);
+    assert!(
+        p.as_os_str().len() <= crate::provider::transport::MAX_SOCK_PATH,
+        "{} bytes: {}",
+        p.as_os_str().len(),
+        p.display()
+    );
+    assert_eq!(p, Path::new("../out/target/sk").join(name));
+    // A short layout keeps the absolute path.
+    let short = Path::new("/r/seed");
+    assert_eq!(
+        sock_path(&short.join("target/sk"), short, name),
+        short.join("target/sk").join(name)
+    );
 }
 
 #[test]

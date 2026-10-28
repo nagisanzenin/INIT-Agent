@@ -155,11 +155,13 @@ fn only_held_pids_can_be_signalled_in_a_default_build() {
     // the reviewed held-pid sites: the broker's instance kills (leader + own group, unreaped under the table
     // lock), the reaper (a zombie leader keeps its group ours), the sealed runs this process spawned, and (X8) the
     // conformance probe's check body: `kprobe::spawn_body`'s waiter thread owns the body's `Child`, signals its pid
-    // (leader of its own process group) only before it reaps it, on the 90 s bound or the run's end
+    // (leader of its own process group) only before it reaps it, on the 90 s bound or the run's end; and (v0.5.0,
+    // UPGRADE, reviewed at integration REL-050) `upgrade::Daemon::drop`: `upgrade --probe` owns the probe Root's
+    // `Child`, sends it SIGTERM (not to a group) before it reaps it, then reaps it through the same handle
     signal_callers.sort();
     signal_callers.dedup();
     let reviewed: Vec<(String, String)> = [("sealed/run.rs", "cancel_all"), ("sealed/run.rs", "supervise"), ("sup/kprobe.rs", "spawn_body"),
-        ("zone.rs", "kill"), ("zone.rs", "kill_all"), ("zone.rs", "reaper")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
+        ("upgrade.rs", "drop"), ("zone.rs", "kill"), ("zone.rs", "kill_all"), ("zone.rs", "reaper")].iter().map(|(a, b)| (a.to_string(), b.to_string())).collect();
     assert_eq!(signal_callers, reviewed, "a new sys::signal caller needs review: it must pass a pid the Root holds");
     // signal_member: only zone::scan, inside its live-sweep block
     assert_eq!(member_callers.len(), 1, "{member_callers:?}");

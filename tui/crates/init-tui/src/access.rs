@@ -99,6 +99,9 @@ pub struct Flow {
     ws: Ws,
     inflight: Option<Op>,
     confirm: Option<(Op, String)>,
+    /// TUI-BRAND: the Root already said "no workspace" in this process (often in the attach
+    /// replay), so the TUI does not say it a second time.
+    root_said_no_ws: bool,
 }
 
 fn err_text(e: &ReqErr) -> String {
@@ -126,7 +129,14 @@ impl Flow {
     /// refuses both); `want_full` wins if both are set.
     pub fn new(cwd: Option<String>, want_full: bool, want_workspace: bool) -> Flow {
         let want_workspace = want_workspace && !want_full;
-        Flow { cwd, want_full, want_workspace, ws: Ws::NotSent, inflight: None, confirm: None }
+        Flow { cwd, want_full, want_workspace, ws: Ws::NotSent, inflight: None, confirm: None, root_said_no_ws: false }
+    }
+
+    /// A notice the Root stamped (`src:"root"`): remembers a "no workspace" it already gave.
+    pub fn on_root_notice(&mut self, text: &str) {
+        if text.starts_with("[root] no workspace") {
+            self.root_said_no_ws = true;
+        }
     }
 
     /// Owner lines wait while the workspace is being set (SBX-009 §A: before any owner line) and
@@ -217,7 +227,7 @@ impl Flow {
                 out.push(Out::Access(v["access"].clone()));
                 // A change is announced by the Root itself (`code:"access"` notices to every
                 // client); an unchanged "no workspace" is not, so the TUI says it.
-                if v["access"]["workspace"].is_null() && v["changed"] != true {
+                if v["access"]["workspace"].is_null() && v["changed"] != true && !self.root_said_no_ws {
                     let why = v["refused"]["message"].as_str().map(|m| format!(" ({m})")).unwrap_or_default();
                     out.push(Out::Notice(format!("{NO_WORKSPACE}{why}")));
                 }
@@ -307,6 +317,12 @@ mod tests {
         f.on_attached();
         let changed = json!({"access": view(None, false), "changed": true, "refused": {"code": "home", "message": "x"}});
         assert_eq!(f.on_answer(Op::Workspace, Ok(changed)).len(), 1, "the Root's code:access notice says it");
+        // the Root said it already (the attach replay): the TUI does not say it twice
+        let mut f = Flow::new(Some("/Users/o".into()), false, false);
+        f.on_attached();
+        f.on_root_notice("[root] no workspace: cd into a project and run init-agent to let me edit it");
+        let home = json!({"access": view(None, false), "changed": false, "refused": {"code": "home", "message": "the home itself"}});
+        assert_eq!(f.on_answer(Op::Workspace, Ok(home)).len(), 1, "only the access view");
     }
 
     #[test]

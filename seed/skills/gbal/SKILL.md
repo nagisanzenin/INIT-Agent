@@ -63,3 +63,5 @@ registered change of yours must have moved the card beyond noise in the directio
 `met_unattributed` and the owner is told; say so yourself rather than claim `met`. `instrument_gap` is a good stop:
 say which evidence is missing and what getting it would cost. When the Root asks for a check-in
 (`goal.checkin`), summarise the ledger for the owner and wait for `/goal continue`.
+A decision only the owner can make: ask it with `ask_owner` (options, recommended first). The goal waits
+until the owner answers; there is no default and no timeout, so ask only for decisions you cannot make.

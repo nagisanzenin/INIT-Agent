@@ -31,8 +31,13 @@ pub struct CatModel {
     pub cache_read: u64,
     pub output: u64,
     pub offpeak: Option<(u64, u64, u64)>,
-    /// Anthropic cache writes (5 min, 1 h). The Root bills them at the input price (provider-configuration.md).
+    /// Cache writes (Anthropic: 5 min, 1 h; OpenAI's one write class in both). `providers add` writes them into the
+    /// charter, where the Root bills writes at them (v0.5.0 L3), and into the kernel config's prices. None: the
+    /// charter gets no write price and the Root bills writes at twice the input price (egress/classes.rs).
     pub cache_write: Option<(u64, u64)>,
+    /// Live-tested on this model: a passing scripts/qualify-provider.sh run (DeepSeek: the v0.1–v0.4 real runs).
+    /// The label the app shows per model; the preset's `tested` stays the provider's label.
+    pub live: bool,
     /// Input window, used only when a custom alias (a gateway) serves this model and the kernel needs a descriptor.
     pub context: u64,
     pub max_output: u64,
@@ -59,17 +64,19 @@ pub struct Preset {
 }
 
 const fn m(id: &'static str, p: (u64, u64, u64), (context, max_output): (u64, u64), reserve: u64) -> CatModel {
-    CatModel { id, input: p.0, cache_read: p.1, output: p.2, offpeak: None, cache_write: None, context, max_output, reserve }
+    CatModel { id, input: p.0, cache_read: p.1, output: p.2, offpeak: None, cache_write: None, live: false, context, max_output, reserve }
 }
 
 /// DeepSeek prices as `scripts/install.sh` writes them; Anthropic and OpenAI from
-/// research_notes/INIT v1 providers UX vision/llm_api_providers.md (standard tier, verified 2026-10-20).
+/// research_notes/INIT v1 providers UX vision/llm_api_providers.md (standard tier, verified 2026-10-20), checked
+/// against reports/INIT v1 providers UX vision.md Table A on 2026-10-27 (v0.5.0 L3; the OpenAI cache-write prices
+/// were missing). Not representable here: gpt-6.1-sol and gpt-6-astra reprice a whole request above 272K input.
 pub const CATALOG: [Preset; 5] = [
     Preset { id: "deepseek", display: "DeepSeek", api: "chat", host: Some("api.deepseek.com:443"),
         paths: &["chat/completions", "beta/chat/completions", "models", "user/balance"], kernel_preset: "deepseek", local: false,
         default_url: None, tested: "live", env: Some("DEEPSEEK_API_KEY"), models: &[
-            CatModel { offpeak: Some((150_000, 3_000, 600_000)), ..m("deepseek-flash", (300_000, 6_000, 1_200_000), (1_000_000, 393_216), 65_536) },
-            CatModel { offpeak: Some((660_000, 22_000, 1_980_000)), ..m("deepseek-v4-pro", (1_320_000, 44_000, 3_960_000), (1_000_000, 393_216), 65_536) },
+            CatModel { offpeak: Some((150_000, 3_000, 600_000)), live: true, ..m("deepseek-flash", (300_000, 6_000, 1_200_000), (1_000_000, 393_216), 65_536) },
+            CatModel { offpeak: Some((660_000, 22_000, 1_980_000)), live: true, ..m("deepseek-v4-pro", (1_320_000, 44_000, 3_960_000), (1_000_000, 393_216), 65_536) },
         ] },
     Preset { id: "gateway", display: "OpenAI-compatible gateway (Chat Completions)", api: "chat", host: None, paths: &["chat/completions"],
         kernel_preset: "deepseek", local: false, default_url: None, tested: "experimental", env: None, models: &[] },
@@ -80,8 +87,8 @@ pub const CATALOG: [Preset; 5] = [
         ] },
     Preset { id: "openai", display: "OpenAI (Responses API)", api: "responses", host: Some("api.openai.com:443"), paths: &["v1/responses"],
         kernel_preset: "openai", local: false, default_url: None, tested: "experimental", env: Some("OPENAI_API_KEY"), models: &[
-            m("gpt-6.1-sol", (2_000_000, 100_000, 10_000_000), (922_000, 128_000), 32_768),
-            m("gpt-6-astra", (10_000_000, 1_000_000, 50_000_000), (922_000, 128_000), 32_768),
+            CatModel { cache_write: Some((2_500_000, 2_500_000)), ..m("gpt-6.1-sol", (2_000_000, 100_000, 10_000_000), (922_000, 128_000), 32_768) },
+            CatModel { cache_write: Some((12_500_000, 12_500_000)), ..m("gpt-6-astra", (10_000_000, 1_000_000, 50_000_000), (922_000, 128_000), 32_768) },
         ] },
     Preset { id: "local", display: "Local server, no key (Ollama, LM Studio, llama.cpp; Chat Completions)", api: "chat", host: None,
         paths: &["chat/completions"], kernel_preset: "deepseek", local: true, default_url: Some("http://127.0.0.1:11434/v1"),
@@ -267,7 +274,8 @@ pub fn spec(r: &AddReq) -> Result<Spec, String> {
         preset: pr.id, host, base_path, api: pr.api, local: pr.local, custom, kernel_preset: pr.kernel_preset,
         paths: pr.paths.iter().map(|p| p.to_string()).collect(), price: price.unwrap_or((0, 0, 0)), priced: price.is_some() || pr.local,
         offpeak: cat.and_then(|c| c.offpeak).filter(|_| official), cache_write: cat.and_then(|c| c.cache_write).filter(|_| official),
-        context, max_output, reserve: cat.map_or(CUSTOM_REQUEST.min(max_output), |c| c.reserve), tested: pr.tested, model, alias,
+        context, max_output, reserve: cat.map_or(CUSTOM_REQUEST.min(max_output), |c| c.reserve), model, alias,
+        tested: cat.filter(|_| official).map_or(pr.tested, |c| if c.live { "live" } else { "experimental" }),
     })
 }
 
@@ -299,6 +307,10 @@ pub fn charter_fragment(s: &Spec) -> (Table, Table) {
     md.insert("min_level".into(), tv(0));
     md.insert("input_musd_per_mtok".into(), tv(s.price.0 as i64));
     md.insert("cache_read_musd_per_mtok".into(), tv(s.price.1 as i64));
+    if let Some((w5, w1)) = s.cache_write { // v0.5.0 L3: the Root bills writes at these, not at 2× input
+        md.insert("cache_write_musd_per_mtok".into(), tv(w5 as i64));
+        md.insert("cache_write_1h_musd_per_mtok".into(), tv(w1 as i64));
+    }
     md.insert("output_musd_per_mtok".into(), tv(s.price.2 as i64));
     md.insert("reserve_output_tokens".into(), tv(s.reserve as i64));
     (p, md)
@@ -654,7 +666,7 @@ pub fn list(p: &Paths) -> Result<Value, String> {
         let ks = key_state(p, pid, &pt, test_mode);
         let pre = if OFFICIAL.contains(&pid.as_str()) { pid.as_str() } else if pt.get("local").and_then(toml::Value::as_bool) == Some(true) { "local" }
             else { match pt.get("api").and_then(toml::Value::as_str) { Some("messages") => "anthropic", Some("responses") => "openai", _ => "gateway" } };
-        let tested = if pid == "deepseek" { "live" } else { "experimental" };
+        let tested = preset(pid).filter(|p| OFFICIAL.contains(&p.id)).map_or("experimental", |p| p.tested);
         pv.push(json!({"id": pid, "preset": pre, "key": ks, "tested": tested, "api": pt.get("api").and_then(toml::Value::as_str).unwrap_or(preset(pre).map_or("chat", |x| x.api))}));
         for (mid, md) in &models {
             let mine = cat_model(pid, mid).is_some() || get(&k, &["providers", pid, "models", mid]).is_some() || provs.len() == 1;
@@ -662,6 +674,7 @@ pub fn list(p: &Paths) -> Result<Value, String> {
                 continue;
             }
             let n = |f: &str| md.get(f).and_then(toml::Value::as_integer).unwrap_or(0).max(0) as u64;
+            let tested = cat_model(pid, mid).map_or(tested, |c| if c.live { "live" } else { "experimental" }); // per model
             mv.push(json!({"provider": pid, "model": mid, "selected": *pid == sp && *mid == sm, "tested": tested, "key": ks,
                 "input_usd": usd(n("input_musd_per_mtok")), "output_usd": usd(n("output_musd_per_mtok")), "min_level": n("min_level")}));
         }
@@ -669,7 +682,8 @@ pub fn list(p: &Paths) -> Result<Value, String> {
     let ready = mv.iter().any(|m| m["selected"] == true && matches!(m["key"].as_str(), Some("present" | "not_required")));
     let catalog: Vec<Value> = CATALOG.iter().map(|c| json!({"preset": c.id, "display": c.display, "tested": c.tested, "api": c.api,
         "needs_url": c.host.is_none(), "default_url": c.default_url, "needs_key": !c.local, "env": c.env,
-        "models": c.models.iter().map(|x| json!({"id": x.id, "input_usd": usd(x.input), "output_usd": usd(x.output)})).collect::<Vec<_>>()})).collect();
+        "models": c.models.iter().map(|x| json!({"id": x.id, "input_usd": usd(x.input), "output_usd": usd(x.output),
+            "tested": if x.live { "live" } else { "experimental" }})).collect::<Vec<_>>()})).collect();
     Ok(json!({"v": 1, "ready": ready, "selected": {"provider": sp, "model": sm}, "providers": pv, "models": mv, "catalog": catalog, "test_mode": test_mode}))
 }
 

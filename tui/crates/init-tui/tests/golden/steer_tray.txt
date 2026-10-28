@@ -1,56 +1,61 @@
 == 80x16 ==
-› fix the flaky test                                                            |CC..................                                                            
-⠸ bash cargo test -p init-root --offline                           1 call · 41 s|ccbbbb.............................................................ddddddddddddd
-    running 41 s · still working… no output yet                                 |....ccccccccccccddddddddddddddddddddddddddddddd                                 
-› fix the test name too                    after bash: cargo test -p ini… · 41 s|ccddddddddddddddddddddd....................ddddddddddddddddddddddddddddddddddddd
-› then update the changelog                                            next task|ccddddddddddddddddddddddddd............................................ddddddddd
-› also run clippy …                                                     sending…|ccddddddddddddddddd.....................................................dddddddd
-╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
-╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-cursor 4,7
+› fix the flaky test                                                            |dd..................                                                            
+◇ bash cargo test -p init-root --offline                           1 call · 41 s|ww.................................................................ddddddddddddd
+    running 41 s · still working… no output yet                                 |....ddddddddddddddddddddddddddddddddddddddddddd                                 
+› fix the test name too                    after bash: cargo test -p ini… · 41 s|ddddddddddddddddddddddd....................ddddddddddddddddddddddddddddddddddddd
+› then update the changelog                                            next task|ddddddddddddddddddddddddddd............................................ddddddddd
+› also run clippy …                                                     sending…|ddddddddddddddddddd.....................................................dddddddd
+⠸ running bash · 41 s                                                   run 41 s|..............ddddddd...................................................mmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 41 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg             L0 · root ok |..........mmm.................mmmmmmmmddddddddddddmmmm...............mmmaaaaaaa 
+ Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,8
 == 80x12 ==
 Running the tests now.                                                          |......................                                                          
-› use --nocapture                                               after this reply|ccddddddddddddddd...............................................dddddddddddddddd
-› never mind                                                        taking back…|ccdddddddddd........................................................dddddddddddd
-╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
-╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-cursor 4,4
+› use --nocapture                                               after this reply|ddddddddddddddddd...............................................dddddddddddddddd
+› never mind                                                        taking back…|dddddddddddd........................................................dddddddddddd
+⠸ writing                                                              run 2.0 s|.......................................................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 2 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg              L0 · root ok |.........mmm.................mmmmmmmmddddddddddddmmmm................mmmaaaaaaa 
+ Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,5
 == 80x12 ==
-› keep going after the update                            held while INIT updates|ccddddddddddddddddddddddddddd............................ddddddddddddddddddddddd
-› and say when done                                   queued while INIT restarts|ccddddddddddddddddd...................................dddddddddddddddddddddddddd
-╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
-╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-cursor 4,3
+› keep going after the update                            held while INIT updates|ddddddddddddddddddddddddddddd............................ddddddddddddddddddddddd
+› and say when done                                   queued while INIT restarts|ddddddddddddddddddd...................................dddddddddddddddddddddddddd
+⠸ waiting for the model · 1 s                                          run 1.0 s|.......................dddddd..........................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg              L0 · root ok |.........mmm.................mmmmmmmmddddddddddddmmmm................mmmaaaaaaa 
+ Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,4
 == 80x14 ==
   … +2 more waiting                                                             |ddddddddddddddddddd                                                             
-› note 2                                                        after this reply|ccdddddd........................................................dddddddddddddddd
-› note 3                                                        after this reply|ccdddddd........................................................dddddddddddddddd
-› note 4                                                        after this reply|ccdddddd........................................................dddddddddddddddd
-› note 5                                                        after this reply|ccdddddd........................................................dddddddddddddddd
-╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
-╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
-cursor 4,6
+› note 2                                                        after this reply|dddddddd........................................................dddddddddddddddd
+› note 3                                                        after this reply|dddddddd........................................................dddddddddddddddd
+› note 4                                                        after this reply|dddddddd........................................................dddddddddddddddd
+› note 5                                                        after this reply|dddddddd........................................................dddddddddddddddd
+⠸ waiting for the model · 1 s                                          run 1.0 s|.......................dddddd..........................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg              L0 · root ok |.........mmm.................mmmmmmmmddddddddddddmmmm................mmmaaaaaaa 
+ Esc interrupt and send it now · ↑ take back the newest · Tab queue the next ta…|mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmd
+cursor 4,7
 == 80x14 ==
-› fix the flaky test                                                            |CC..................                                                            
-▸ bash   cargo test -p init-root --offline           ✓ exit 0, 214 passed · 41 s|ddbbbb...............................................ggddddddddddddddddddddddddd
+› fix the flaky test                                                            |dd..................                                                            
+◇ bash   cargo test -p init-root --offline           ✓ exit 0, 214 passed · 41 s|mm...................................................ddddddddddddddddddddddddddd
                                                                                 |                                                                                
-› fix the test name too · seen                                                  |CC......................dddddd                                                  
+› fix the test name too · seen                                                  |dd......................dddddd                                                  
 Renaming it as well.                                                            |....................                                                            
-╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
-╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
-cursor 4,6
+⠸ writing                                                               run 42 s|........................................................................mmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 42 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg             L0 · root ok |..........mmm.................mmmmmmmmddddddddddddmmmm...............mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  
+cursor 4,7

@@ -1,52 +1,54 @@
 == 80x24 ==
-› add a pty tool                                                                |CC..............                                                                
-✻ thought for 2.0 s                                                             |ddddddddddddddddddd                                                             
-I'll check SELF.md first, then write the tool.                                  |...........ccccccc.............bbbbb..........                                  
+› add a pty tool                                                                |dd..............                                                                
+· thought for 2.0 s                                                             |ddddddddddddddddddd                                                             
+I'll check `SELF.md` first, then write the tool.                                |...........m.......m.............bbbbb..........                                
                                                                                 |                                                                                
 Plan:                                                                           |.....                                                                           
 • read the file                                                                 |...............                                                                 
-• edit src/tools/pty.rs                                                         |.......cccccccccccccccc                                                         
-▸ ran 2 tools in 1.8 s · bash · edit                                  ✗ 1 failed|dd....................dddddddddddddd..................................rrrrrrrrrr
-  ▸ edit   src/tools/pty.rs (2 edits)                  ✗ error: no_match · 0.0 s|..ddbbbb...............................................rrrrrrrrrrrrrrrrrdddddddd
-▲ [kernel] promoted                                                             |ggggggggggggggggggg                                                             
+• edit `src/tools/pty.rs`                                                       |.......m................m                                                       
+◇ ran 2 tools in 1.8 s · bash · edit                                  ✕ 1 failed|mm....................dddddddddddddd..................................hhhhhhhhhh
+  ◇ edit   src/tools/pty.rs (2 edits)                  ✕ error: no_match · 0.0 s|..mm...................................................hhhhhhhhhhhhhhhhhdddddddd
+✓ [kernel] promoted                                                             |ppmmmmmmmm.........                                                             
 The anchor moved, so I'll read the file again and retry                         |.......................................................                         
-⠸ bash cargo test -p init-body pty                                 1 call · 12 s|ccbbbb.............................................................ddddddddddddd
-    running 12 s · still working… no output yet                                 |....ccccccccccccddddddddddddddddddddddddddddddd                                 
-╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > also add a timeout flag                                                    │|eecc..........................................................................ee
-╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
-cursor 27,14
+◇ bash cargo test -p init-body pty                                 1 call · 12 s|ww.................................................................ddddddddddddd
+    running 12 s · still working… no output yet                                 |....ddddddddddddddddddddddddddddddddddddddddddd                                 
+⠸ running bash · 12 s                                                   run 17 s|..............ddddddd...................................................mmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › also add a timeout flag                                                    │|llmm..........................................................................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 17 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg             L0 · root ok |..........mmm.................mmmmmmmmddddddddddddmmmm...............mmmaaaaaaa 
+cursor 27,15
 == 120x40 ==
-› add a pty tool                                                                                                        |CC..............                                                                                                        
-✻ thought for 2.0 s                                                                                                     |ddddddddddddddddddd                                                                                                     
-I'll check SELF.md first, then write the tool.                                                                          |...........ccccccc.............bbbbb..........                                                                          
+› add a pty tool                                                                                                        |dd..............                                                                                                        
+· thought for 2.0 s                                                                                                     |ddddddddddddddddddd                                                                                                     
+I'll check `SELF.md` first, then write the tool.                                                                        |...........m.......m.............bbbbb..........                                                                        
                                                                                                                         |                                                                                                                        
 Plan:                                                                                                                   |.....                                                                                                                   
 • read the file                                                                                                         |...............                                                                                                         
-• edit src/tools/pty.rs                                                                                                 |.......cccccccccccccccc                                                                                                 
-▸ ran 2 tools in 1.8 s · bash · edit                                                                          ✗ 1 failed|dd....................dddddddddddddd..........................................................................rrrrrrrrrr
-  ▸ edit   src/tools/pty.rs (2 edits)                                                          ✗ error: no_match · 0.0 s|..ddbbbb.......................................................................................rrrrrrrrrrrrrrrrrdddddddd
-▲ [kernel] promoted                                                                                                     |ggggggggggggggggggg                                                                                                     
+• edit `src/tools/pty.rs`                                                                                               |.......m................m                                                                                               
+◇ ran 2 tools in 1.8 s · bash · edit                                                                          ✕ 1 failed|mm....................dddddddddddddd..........................................................................hhhhhhhhhh
+  ◇ edit   src/tools/pty.rs (2 edits)                                                          ✕ error: no_match · 0.0 s|..mm...........................................................................................hhhhhhhhhhhhhhhhhdddddddd
+✓ [kernel] promoted                                                                                                     |ppmmmmmmmm.........                                                                                                     
 The anchor moved, so I'll read the file again and retry                                                                 |.......................................................                                                                 
-⠸ bash cargo test -p init-body pty                                             1 tool call · 1 running · 0 failed · 12 s|ccbbbb.........................................................................ddddddddddddddddddddddddddddddddddddddddd
-    running 12 s · still working… no output yet                                                                         |....ccccccccccccddddddddddddddddddddddddddddddd                                                                         
-╭──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > also add a timeout flag                                                                                            │|eecc..................................................................................................................ee
-╰──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 (cap L1) · deepseek-flash · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg · ⠸ busy 17 s |.bbbbbbbbbbbdddddddddddddddddddddddddddddddddddddddddd.................ddd.......ddd.................dddddddccccccccccc 
-cursor 27,14
+◇ bash cargo test -p init-body pty                                             1 tool call · 1 running · 0 failed · 12 s|ww.............................................................................ddddddddddddddddddddddddddddddddddddddddd
+    running 12 s · still working… no output yet                                                                         |....ddddddddddddddddddddddddddddddddddddddddddd                                                                         
+⠸ running bash · 12 s                                                                                           run 17 s|..............ddddddd...........................................................................................mmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › also add a timeout flag                                                                                            │|llmm..................................................................................................................ll
+└──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 17 s · deepseek-flash · +$0.00 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg     L0 (cap L1) · root ok |..........mmmddddddddddddddmmmdddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm................mmmaaaaaaa 
+cursor 27,15
 == 40x12 ==
-• edit src/tools/pty.rs                 |.......cccccccccccccccc                 
-▸ ran 2 tools in 1.8 s · ba…  ✗ 1 failed|dd....................dddddd..rrrrrrrrrr
-  ▸ edit   src/too…  ✗ error: no_match …|..ddbbbb..........d..rrrrrrrrrrrrrrrrrdd
-▲ [kernel] promoted                     |ggggggggggggggggggg                     
+◇ ran 2 tools in 1.8 s · ba…  ✕ 1 failed|mm....................dddddd..hhhhhhhhhh
+  ◇ edit   src/too…  ✕ error: no_match …|..mm..............d..hhhhhhhhhhhhhhhhhdd
+✓ [kernel] promoted                     |ppmmmmmmmm.........                     
 The anchor moved, so I'll read the file |....................................... 
 again and retry                         |...............                         
-⠸ bash cargo test -p ini…  1 call · 12 s|ccbbbb..................d..ddddddddddddd
-    running 12 s · still working… no ou…|....ccccccccccccdddddddddddddddddddddddd
-╭──────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > also add a timeout flag            │|eecc..................................ee
-╰──────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · $1.23/$5.00 today · running       |.bbddd.................ddd.......       
+◇ bash cargo test -p ini…  1 call · 12 s|ww......................d..ddddddddddddd
+    running 12 s · still working… no ou…|....dddddddddddddddddddddddddddddddddddd
+⠸ running bash · 12 s           run 17 s|..............ddddddd...........mmmmmmmm
+┌──────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllll
+│ › also add a timeout flag            │|llmm..................................ll
+└──────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllll
+ $1.23/$5.00 today         L0 · root ok |.............................mmmaaaaaaa 
 cursor 27,9

@@ -14,8 +14,8 @@
 #      download of about 150 MB), so the install records that toolchain (T1/T2). UBE_NO_RUST=1 passes --no-rust
 #      instead and checks the T0-only install (no toolchain, the rustup hint).
 #      Before get.sh the harness plants INIT's launcher of v0.4.0 and earlier at ~/.local/bin/init (the command's old
-#      name, nagisanzenin/INIT-Agent#1): on Linux the install must remove it and install no `init`; on macOS it must
-#      become the one-release shim, which prints the new name and runs init-agent (`init --which` = `init-agent --which`).
+#      name, nagisanzenin/INIT-Agent#1): the install must remove it and install no `init` (macOS too since v0.5.0, which
+#      dropped v0.4.1's one-release shim).
 #   3. a `test-` key written by this harness, `init-root start --foreground` (our child)
 #   4. the installed `init-agent`, one owner line, frames until idle; the reply must be the mock's
 #   5. checks: the genesis body is the bundle's prebuilt one; the recorded toolchain is the test home's (or, with
@@ -207,19 +207,10 @@ GET_MS=$(( $(ms) - T0 ))
 log "get.sh exit $GRC in $GET_MS ms"
 [ $GRC = 0 ] || { tail -40 "$D/get.log"; die "get.sh"; }
 [ -x "$BIN/init-agent" ] || die "no $BIN/init-agent"
-# the old name (issue #1): Linux removes INIT's old launcher and installs no init; macOS replaces it with the shim
-if [ "$(uname -s)" = Linux ]; then
-  [ ! -e "$BIN/init" ] && [ ! -L "$BIN/init" ] || die "$BIN/init is still there on Linux"
-  grep -qF "removed $BIN/init, INIT's launcher under its old name" "$D/get.log" || die "the install did not report removing $BIN/init"
-  RENAME=linux-old-launcher-removed
-else
-  grep -qx 'INIT_AGENT_SHIM=1' "$BIN/init" || die "$BIN/init is not the init-agent shim"
-  W_NEW="$(env HOME="$H" "$BIN/init-agent" --which)"
-  W_OLD="$(env HOME="$H" "$BIN/init" --which 2>"$D/shim.err")"
-  [ "$W_OLD" = "$W_NEW" ] || die "init --which ($W_OLD) differs from init-agent --which ($W_NEW)"
-  grep -q 'this command is now init-agent' "$D/shim.err" || die "the init shim printed no rename notice"
-  RENAME=macos-shim
-fi
+# the old name (issue #1): the install removes INIT's old launcher and installs no init (v0.5.0 dropped v0.4.1's macOS shim)
+[ ! -e "$BIN/init" ] && [ ! -L "$BIN/init" ] || die "$BIN/init is still there"
+grep -qF "removed $BIN/init, INIT's launcher under its old name" "$D/get.log" || die "the install did not report removing $BIN/init"
+RENAME=old-launcher-removed
 log "old name: $RENAME"
 if [ "$NO_RUST" = 1 ]; then
   grep -q 'self-evolution: T0 only' "$D/get.log" || die "the install did not report T0-only self-evolution"
@@ -566,7 +557,7 @@ else:
         "reply_is_the_mocks": int(drc) == 0 and "hello from the mock" in drive["reply"],
     }
 # issue #1: the install handled the command's old name (the harness died otherwise; recorded here)
-checks["old_name_" + rename.replace("-", "_")] = rename in ("linux-old-launcher-removed", "macos-shim")
+checks["old_name_" + rename.replace("-", "_")] = rename == "old-launcher-removed"
 # without Rust the bound is the UX-BUNDLE target; get.sh's Rust install (a ~150 MB download) is allowed 5 min more
 if no_rust:
     checks["install_plus_first_reply_le_90s"] = int(first_ms) <= 90000

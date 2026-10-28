@@ -1,28 +1,31 @@
 == 80x24 ==
-⠸ thinking… 1.5 s                                                               |ddddddddddddddddd                                                               
-╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
-╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
-cursor 4,2
+· thinking… 1.5 s                                                               |ddddddddddddddddd                                                               
+⠸ thinking · 1 s                                                       run 1.5 s|..........dddddd.......................................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg              L0 · root ok |.........mmm.................mmmmmmmmddddddddddddmmmm................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  
+cursor 4,3
 == 80x24 ==
-⠸ thinking… 1.5 s                                                               |ddddddddddddddddd                                                               
+· thinking… 1.5 s                                                               |ddddddddddddddddd                                                               
   Step one: read.                                                               |..ddddddddddddddd                                                               
   Step two: write.                                                              |..dddddddddddddddd                                                              
-╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
-╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
-cursor 4,4
+⠸ thinking · 1 s                                                       run 1.5 s|..........dddddd.......................................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 1 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg              L0 · root ok |.........mmm.................mmmmmmmmddddddddddddmmmm................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  
+cursor 4,5
 == 80x24 ==
-⠸ bash sleep 5                                                   2 calls · 3.0 s|ccbbbb...........................................................ddddddddddddddd
-    running 3.0 s                                                               |....ccccccccccccc                                                               
-  ▸ read   read docs/tui.md                                  ✓ 512 lines · 0.4 s|..ddbbbb.....................................................ggddddddddddddddddd
-╭──────────────────────────────────────────────────────────────────────────────╮|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
-│ > Enter steers · Tab queues the next task · Esc interrupts                   │|eeccdddddddddddddddddddddddddddddddddddddddddddddddddddddddd..................ee
-╰──────────────────────────────────────────────────────────────────────────────╯|eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee
- L0 · +$0.00 since attach · $1.23/$5.00 today · running · body 3f9c0a1b2c4d lkg |.bbddddddddddddddddddddddddd.................ddd.......ddd.................dddd 
- Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd  
-cursor 4,4
+◇ bash sleep 5                                                   2 calls · 3.0 s|ww...............................................................ddddddddddddddd
+    running 3.0 s                                                               |....ddddddddddddd                                                               
+  ◇ read   read docs/tui.md                                  ✓ 512 lines · 0.4 s|..mm.........................................................ddddddddddddddddddd
+⠸ running bash · 3 s                                                   run 3.0 s|..............dddddd...................................................mmmmmmmmm
+┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+│ › Enter steers · Tab queues the next task · Esc interrupts                   │|llmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm..................ll
+└──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
+ busy 3 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg              L0 · root ok |.........mmm.................mmmmmmmmddddddddddddmmmm................mmmaaaaaaa 
+ Enter send · Shift-Enter newline · Ctrl-C interrupt · Ctrl-O details · ? keys  |mmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm  
+cursor 4,5

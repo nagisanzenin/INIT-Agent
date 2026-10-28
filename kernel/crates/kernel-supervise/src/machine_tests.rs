@@ -392,6 +392,7 @@ fn rollback_handoff_commits_to_lkg() {
     let a = m.on(Ev::FenceOk, t);
     let p = spawns(&a).pop().unwrap();
     assert_eq!((p.bin, p.reason, p.sha.as_str()), (BinSel::Lkg, BootReason::Rollback, X));
+    assert_eq!(p.cause, None, "a kernel rollback has no cause of its own (update-failed.json says why)");
     m.on(Ev::Spawned { tag: p.tag, result: Ok("b".into()) }, t);
     m.on(Ev::Ready { inst: "b".into() }, t);
     let a = m.on(Ev::Tick, t.plus(Duration::from_secs(4)));
@@ -417,6 +418,7 @@ fn g2_data_only_rollback_to_a_non_lkg_target() {
         assert!(main < spawn, "{a:?}");
         let p = spawns(&a).pop().unwrap();
         assert_eq!((p.bin, p.reason, p.sha.as_str()), (BinSel::Current, BootReason::Rollback, Y));
+        assert_eq!(p.cause.as_deref(), Some("extend_H12"), "the Root's rollback names itself (F4)");
         m.on(Ev::Spawned { tag: p.tag, result: Ok("b".into()) }, t);
         if abort {
             let a = m.on(Ev::Exited { inst: "b".into(), code: Some(1), signal: None, disk_low: false, stderr_tail: String::new() }, t);

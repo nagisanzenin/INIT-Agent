@@ -152,7 +152,7 @@ pub fn view(k: &KeyEvent) -> View {
 pub const HELP: &[(&str, &str)] = &[
     ("Enter", "send"),
     ("Shift-Enter · Alt-Enter · Ctrl-J · \\ Enter", "newline"),
-    ("Ctrl-C", "interrupt; twice within 2 s: quit init (the agent keeps running)"),
+    ("Ctrl-C", "interrupt; twice within 2 s: quit init-agent (the agent keeps running)"),
     ("Esc", "pause while busy: your next message continues the task (a pending steer goes in now); close a popup"),
     ("Tab (while busy)", "queue the box as the next task (/later)"),
     ("Up (empty box, pending line)", "take back the newest line not yet read"),
@@ -167,6 +167,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("/panic", "stop everything (Root)"),
     ("/new · /clear", "start a new session"),
     ("/model · /key · /setup", "switch model · set a key (hidden) · provider setup"),
+    ("in a picker: ↑↓ Enter · 1–9 · Esc", "choose; type to filter, or to answer the agent in your own words"),
 ];
 
 #[cfg(test)]

@@ -8,7 +8,7 @@ use crate::conn::{self, Ev, PollCmd};
 use crate::model::{EchoOut, Echoes, Feed, FeedOut, Info, OwnerSt};
 use crate::notice;
 use crate::proto::{self, DisplayKind, Frame, LineKind};
-use crate::render::{Color, Style, sanitize, wrap};
+use crate::render::{Role, Style, sanitize, wrap};
 use crate::setup;
 use std::collections::{HashSet, VecDeque};
 use std::io::{self, BufRead, Write};
@@ -142,11 +142,25 @@ struct LineApp<W: Write> {
     reqs: Vec<String>,
     /// STEER: lines echoed while the agent worked and not read yet: seq → (text, follow-up).
     steers: std::collections::BTreeMap<u64, (String, bool)>,
+    /// TUI-BRAND: the last notice printed and how many times it came in a row (`  ×n in all`).
+    last_notice: Option<(String, u32)>,
+    /// TUI-PICKER: the agent's open question; the next input line answers it (numbers become labels).
+    ask: Option<crate::render::picker::Ask>,
 }
 
 impl<W: Write> LineApp<W> {
     /// The activity ends (the reply's text, an error, the run's end): one summary line when it had
     /// more than one call.
+    /// TUI-BRAND: closes a run of identical notices with `  ×n in all`.
+    fn flush_repeat(&mut self) {
+        if let Some((_, n)) = self.last_notice.take()
+            && n > 1
+            && !self.o.raw
+        {
+            self.out.line(&format!("  ×{n} in all"), Style::dim());
+        }
+    }
+
     fn end_act(&mut self) {
         self.running.clear();
         let Some(a) = self.act.take() else { return };
@@ -155,7 +169,7 @@ impl<W: Write> LineApp<W> {
         }
         let names: Vec<String> = a.names.iter().map(|(n, k)| format!("{k} {n}")).collect();
         let failed = if a.failed > 0 { format!(", {} failed", a.failed) } else { String::new() };
-        let st = if a.failed > 0 { Style::fg(Color::Red) } else { Style::dim() };
+        let st = if a.failed > 0 { Style::fg(Role::Harm) } else { Style::dim() };
         self.out.line(&format!("[tools] ran {} calls ({}){failed}", a.calls, names.join(", ")), st);
     }
 
@@ -221,9 +235,9 @@ impl<W: Write> LineApp<W> {
                 AccOut::Send(req) => conn::spawn_access(conn::sock(&self.o.root_home), req, self.tx.clone()),
                 AccOut::Access(v) => self.info.on_access(v),
                 _ if self.o.raw => {}
-                AccOut::Notice(t) | AccOut::Warn(t) => self.out.line(&format!("[tui] {t}"), Style::fg(Color::Yellow)),
+                AccOut::Notice(t) | AccOut::Warn(t) => self.out.line(&format!("[tui] {t}"), Style::fg(Role::Warn)),
                 AccOut::Info(t) | AccOut::Ask(t) => self.out.line(&format!("[tui] {t}"), Style::dim()),
-                AccOut::Error(t) => self.out.line(&format!("[tui] {t}"), Style::fg(Color::Red)),
+                AccOut::Error(t) => self.out.line(&format!("[tui] {t}"), Style::fg(Role::Harm)),
             }
         }
     }
@@ -234,11 +248,11 @@ impl<W: Write> LineApp<W> {
             match o {
                 setup::Out::Send(req) => conn::spawn_setup(conn::sock(&self.o.root_home), req, self.tx.clone()),
                 setup::Out::SendKey { provider, secret } => conn::spawn_key(conn::sock(&self.o.root_home), provider, secret, self.tx.clone()),
-                setup::Out::Secret(_) => {}
+                setup::Out::Secret(_) | setup::Out::Pick(_) => {} // line mode never asks for pickers (TUI-PICKER)
                 _ if self.o.raw => {}
                 setup::Out::Info(t) => self.out.line(&format!("[setup] {t}"), Style::dim()),
-                setup::Out::Warn(t) => self.out.line(&format!("[setup] {t}"), Style::fg(Color::Yellow)),
-                setup::Out::Error(t) => self.out.line(&format!("[setup] {t}"), Style::fg(Color::Red)),
+                setup::Out::Warn(t) => self.out.line(&format!("[setup] {t}"), Style::fg(Role::Warn)),
+                setup::Out::Error(t) => self.out.line(&format!("[setup] {t}"), Style::fg(Role::Harm)),
             }
         }
     }
@@ -274,6 +288,14 @@ impl<W: Write> LineApp<W> {
                     continue;
                 }
             }
+            // TUI-PICKER: the reply to the agent's question; option numbers become the labels
+            let text = match (kind, self.ask.take()) {
+                (LineKind::Input, Some(a)) => a.answer_for_line(&text).unwrap_or(text),
+                (_, a) => {
+                    self.ask = a;
+                    text
+                }
+            };
             let text = proto::canonical(&text);
             let frame = match kind {
                 LineKind::Panic => proto::panic_frame(),
@@ -281,7 +303,7 @@ impl<W: Write> LineApp<W> {
             };
             if frame.len() > proto::LINE_MAX {
                 self.unsent.pop_front();
-                self.out.line(&format!("[tui] too long to send ({} KiB > 900 KiB); not sent", frame.len() / 1024), Style::fg(Color::Yellow));
+                self.out.line(&format!("[tui] too long to send ({} KiB > 900 KiB); not sent", frame.len() / 1024), Style::fg(Role::Warn));
                 continue;
             }
             if !self.send(&frame) {
@@ -366,7 +388,7 @@ impl<W: Write> LineApp<W> {
                 let q = self.info.status.as_ref().and_then(|s| s["queued"].as_u64());
                 for id in self.echoes.sweep(now, self.info.ready_since, q) {
                     if !self.o.raw {
-                        self.out.line(&format!("[tui] no confirmation seen for line {id} (it may have been delivered before the Root restarted); check before resending"), Style::fg(Color::Yellow));
+                        self.out.line(&format!("[tui] no confirmation seen for line {id} (it may have been delivered before the Root restarted); check before resending"), Style::fg(Role::Warn));
                     }
                 }
             }
@@ -393,7 +415,8 @@ impl<W: Write> LineApp<W> {
                     return;
                 }
                 if l.trim() == "/usage" && !self.o.raw {
-                    self.out.line(&format!("[usage] {}", crate::render::status::usage_summary(&self.info)), Style::PLAIN);
+                    let u = crate::render::status::usage_summary(&self.info);
+                    self.out.line(&format!("[usage] {}", u.strip_prefix("usage ").unwrap_or(&u)), Style::PLAIN);
                     self.out.flush();
                     return;
                 }
@@ -429,7 +452,7 @@ impl<W: Write> LineApp<W> {
                     Ok(m) => format!("[tui] /panic: {m}"),
                     Err(e) => format!("[tui] /panic failed: {e}"),
                 };
-                self.out.line(&s, Style::fg(Color::Red));
+                self.out.line(&s, Style::fg(Role::Harm));
             }
             _ => {}
         }
@@ -445,6 +468,9 @@ impl<W: Write> LineApp<W> {
                 self.out.line(&t, Style::dim());
             }
             FeedOut::Frame(v) => {
+                if v["t"] != "notice" {
+                    self.flush_repeat();
+                }
                 match proto::classify(&v) {
                     Frame::Echo { text, qid, seq } => {
                         if seq.is_some() {
@@ -492,7 +518,8 @@ impl<W: Write> LineApp<W> {
                             self.end_act();
                             if !raw && self.info.turn.requests > 0 {
                                 let (t, sc) = (self.info.turn_line(), self.info.session.cache().show());
-                                self.out.line(&format!("[turn] {} requests: {t} (session cache {sc})", self.info.turn.requests), Style::dim());
+                                let n = crate::render::status::plural(self.info.turn.requests, "request");
+                                self.out.line(&format!("[turn] {n}: {t} (session cache {sc})"), Style::dim());
                             }
                         }
                     }
@@ -500,14 +527,36 @@ impl<W: Write> LineApp<W> {
                         if notice::is_queue_full(&text, proto::src(&v)) {
                             self.echoes.queue_full();
                         }
-                        if !raw {
-                            self.out.line(&text, Style::PLAIN);
+                        if proto::src(&v) == Some("root") {
+                            self.acc.on_root_notice(&text); // TUI-BRAND: no second "no workspace"
+                        }
+                        // TUI-BRAND: the same notice again and again prints once, then `  ×n in all`
+                        let key = format!("{}\u{0}{}", proto::src(&v).unwrap_or(""), text);
+                        match self.last_notice.as_mut() {
+                            Some((k, n)) if *k == key => *n += 1,
+                            _ => {
+                                self.flush_repeat();
+                                if !raw {
+                                    self.out.line(&text, Style::PLAIN);
+                                }
+                                self.last_notice = Some((key, 1));
+                            }
                         }
                         if text.starts_with("[root]") || matches!(code.as_deref(), Some("access" | "snapshot")) {
                             let _ = self.poll.send(PollCmd::Status);
                         }
                     }
-                    Frame::Display(d) if !raw => self.display(&d),
+                    Frame::Display(d) if !raw => match crate::render::picker::Ask::from_frame(&v) {
+                        // TUI-PICKER: the agent's question as a numbered prompt, under the TUI's own label
+                        Some(a) => {
+                            self.end_act();
+                            for l in a.line_mode() {
+                                self.out.line(&l, Style::PLAIN);
+                            }
+                            self.ask = Some(a);
+                        }
+                        None => self.display(&d),
+                    },
                     _ => {}
                 }
             }
@@ -577,7 +626,7 @@ impl<W: Write> LineApp<W> {
                 self.running.push(Running { call_id, name: name.to_string(), started: now, beat: now });
                 // a delegate sub-task's call (parent_call_id): indented under its delegate line
                 let pad = if d.parent.is_some() { "    " } else { "" };
-                self.out.line(&format!("{pad}» {name}: {}", d.text), Style::fg(Color::Cyan))
+                self.out.line(&format!("{pad}» {name}: {}", d.text), Style::dim())
             }
             DisplayKind::ToolProgress => {
                 // no animation in line mode: output only resets the heartbeat's silence
@@ -596,7 +645,7 @@ impl<W: Write> LineApp<W> {
                 if !ok && let Some(a) = self.act.as_mut() {
                     a.failed += 1;
                 }
-                let (w, st) = if ok { ("ok", Style::dim()) } else { ("error", Style::fg(Color::Red)) };
+                let (w, st) = if ok { ("ok", Style::dim()) } else { ("error", Style::fg(Role::Harm)) };
                 let pad = if d.parent.is_some() { "    " } else { "" };
                 self.out.line(&format!("{pad}  « {w} {}", d.text), st);
             }
@@ -615,7 +664,7 @@ impl<W: Write> LineApp<W> {
             DisplayKind::Info | DisplayKind::Other => self.out.line(&format!("[info] {}", d.text), Style::dim()),
             DisplayKind::Error => {
                 self.end_act();
-                self.out.line(&format!("[error] {}", d.text), Style::fg(Color::Red))
+                self.out.line(&format!("[error] {}", d.text), Style::fg(Role::Harm))
             }
         }
     }
@@ -703,10 +752,12 @@ pub fn run(o: LineOpts) -> i32 {
         attached_once: false,
         act: None,
         running: Vec::new(),
+        last_notice: None,
         reqs: Vec::new(),
         steers: std::collections::BTreeMap::new(),
         // a key typed into a terminal in line mode would be echoed: only a pipe may carry one
         setup: setup::Flow::new(!std::io::IsTerminal::is_terminal(&std::io::stdin())),
+        ask: None,
     };
     app.start_attach();
     spawn_stdin(tx);

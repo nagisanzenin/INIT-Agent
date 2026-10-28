@@ -372,3 +372,54 @@ fn f2_a_charter_mode_switch_reaches_the_running_kernel() {
     wait(10, "the ceilings event", || h.events("ceilings").iter().any(|e| e["extend"]["mode"] == "free"));
     assert!(h.of("ladder").is_empty(), "a mode switch demotes nothing");
 }
+
+/// TUI-PICKER: in a `/goal` run, an agent question (the display frame the body's `ask_owner` sends, relayed through the
+/// Root) stops the goal's wall clock: ten fake minutes pass and none counts. A model request on the egress with no owner
+/// line starts it again (a fake question buys no time); the next question waits again and the owner's line ends it.
+/// The money meter counts every request throughout.
+#[test]
+fn an_agent_question_pauses_the_goal_wall_clock() {
+    let up = upstream();
+    let h = home("ask");
+    h.install(&charter("free", up.port));
+    let _d = h.daemon();
+    h.say(r#"/goal "answer my questions" usd=1.00 wall=1h"#);
+    wait(10, "the goal", || !h.of("goal").is_empty());
+    let waiting = |h: &Home| h.goals()["goals"][0]["waiting_since"].is_i64();
+    let wall = |h: &Home| h.kernel_call("goal.status", json!({}))["result"]["goal"]["spent"]["wall_s"].as_i64().unwrap();
+    let ask = |h: &Home| {
+        h.say("!ask which database?");
+        wait(10, "the question stops the clock", || waiting(h));
+    };
+    // waiting: ten minutes pass, the goal spends none of them
+    ask(&h);
+    let w0 = wall(&h);
+    h.clock(600);
+    assert!(wall(&h) <= w0 + 2, "the clock waits: {} after {w0}", wall(&h));
+    assert_eq!(h.kernel_call("goal.status", json!({}))["result"]["goal"]["waiting_owner"], true);
+    // a model request with no owner line: the clock runs again
+    let body = json!({"max_tokens": 200, "messages": [{"content": "hi", "role": "user"}], "model": "deepseek-flash", "stream": true}).to_string();
+    let mut s = UnixStream::connect(h.rh.join("run/egress.sock")).unwrap();
+    write!(s, "POST /deepseek/chat/completions HTTP/1.1\r\nhost: egress\r\nconnection: close\r\ncontent-type: application/json\r\ncontent-length: {}\r\n\r\n{body}", body.len()).unwrap();
+    let mut raw = Vec::new();
+    let _ = s.read_to_end(&mut raw);
+    assert!(raw.starts_with(b"HTTP/1.1 200"), "egress: {}", String::from_utf8_lossy(&raw[..raw.len().min(400)]));
+    wait(10, "the request resumed the clock", || !waiting(&h));
+    let w1 = wall(&h);
+    h.clock(60);
+    assert!(wall(&h) >= w1 + 60, "the clock runs: {} after {w1}", wall(&h));
+    // usd: the request is the goal's, as the ledger says
+    wait(10, "the meter", || h.goals()["goals"][0]["spent_musd"].as_u64() == Some(h.ledger_musd()));
+    assert!(h.ledger_musd() > 0);
+    // the next question waits again; the owner's line ends the wait
+    ask(&h);
+    let w2 = wall(&h);
+    h.clock(600);
+    assert!(wall(&h) <= w2 + 2);
+    h.say("Postgres");
+    wait(10, "the owner's line resumed the clock", || !waiting(&h));
+    let w3 = wall(&h);
+    h.clock(120);
+    assert!(wall(&h) >= w3 + 120);
+    assert!(w3 < 600, "two ten-minute waits are not in the goal's wall time: {w3} s");
+}

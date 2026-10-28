@@ -69,6 +69,35 @@ fn crate_file(rel: &str) -> Vec<u8> {
 /// The longest Unix socket path the body accepts (boot.md §3.2; `sun_path` is 104 bytes on macOS).
 const MAX_SOCK: usize = 103;
 
+/// The proxy and kernel sockets of home `{tag}{n}` in `socks`. The body takes absolute paths only,
+/// and under G0 `socks` is `$INIT_HOME/cache/build/slot/out/target/sk` (96 bytes for a 64-byte home,
+/// the kernel's limit), so a name that would not fit drops the tag: `{n}.p` (demo 2026-10-25, F5).
+fn sock_paths(socks: &Path, tag: &str, n: u64) -> (PathBuf, PathBuf) {
+    let fits = |s: &str| socks.join(format!("{s}.p")).as_os_str().len() <= MAX_SOCK;
+    let stem = if fits(&format!("{tag}{n}")) { format!("{tag}{n}") } else { n.to_string() };
+    (socks.join(format!("{stem}.p")), socks.join(format!("{stem}.k")))
+}
+
+/// F5 of the 2026-10-25 demo: with `INIT_HOME` at 63–64 bytes, G0 failed here ("socket path too
+/// long"). Every home of this file still gets sockets within the body's limit in the longest G0
+/// layout, and two homes (two values of the counter `n`) never share one.
+#[test]
+fn sock_paths_fit_the_longest_g0_layout() {
+    let socks = PathBuf::from(format!("/{}/cache/build/slot/out/target/sk", "h".repeat(63)));
+    for tag in ["check", "x11", "cf"] {
+        let mut seen = std::collections::BTreeSet::new();
+        for n in 0..1000 {
+            let (p, k) = sock_paths(&socks, tag, n);
+            for s in [&p, &k] {
+                assert!(s.as_os_str().len() <= MAX_SOCK, "{} bytes: {}", s.as_os_str().len(), s.display());
+            }
+            assert!(seen.insert(p.clone()), "{}", p.display());
+        }
+    }
+    // A short target dir keeps the readable name.
+    assert_eq!(sock_paths(Path::new("/r/seed/target/sk"), "check", 7).0, Path::new("/r/seed/target/sk/check7.p"));
+}
+
 struct Home {
     path: PathBuf,
     /// The proxy socket (`INIT_PROXY_SOCK`, where the mock listens) and `INIT_KERNEL_SOCK`.
@@ -93,8 +122,7 @@ impl Home {
         }
         let socks = target_dir().join("sk");
         std::fs::create_dir_all(&socks).unwrap();
-        let proxy_sock = socks.join(format!("{tag}{n}.p"));
-        let kernel_sock = socks.join(format!("{tag}{n}.k"));
+        let (proxy_sock, kernel_sock) = sock_paths(&socks, tag, n);
         for s in [&proxy_sock, &kernel_sock] {
             assert!(
                 s.as_os_str().len() <= MAX_SOCK,
@@ -505,7 +533,7 @@ fn manifest_reads_no_env() {
         serde_json::from_slice(&crate_file("src/context/testdata/tools.json")).unwrap();
     assert_eq!(m["tools"], golden);
     let icj = serde_json::to_string(&golden).unwrap(); // BTreeMap keys: sorted, no spaces
-    assert_eq!(icj.len(), 4_986);
+    assert_eq!(icj.len(), 6_582);
     let mut sh = Command::new("/usr/bin/shasum")
         .args(["-a", "256"])
         .stdin(Stdio::piped())
@@ -822,7 +850,7 @@ fn live_boot_then_stop(home: &Home) -> Value {
 fn probe_round_trip() {
     let home = Home::new("pa");
     let script = [
-        r#"{"v":1,"kind":"turn","purpose":"probe","expect":{"last_text_contains":"[init:probe] Gate probe","tools":["bash","delegate","edit","ext","read","write"]},"reply":{"calls":[{"name":"bash","input":{"command":"true"}}],"stop":"tool_use"}}"#,
+        r#"{"v":1,"kind":"turn","purpose":"probe","expect":{"last_text_contains":"[init:probe] Gate probe","tools":["ask_owner","bash","delegate","edit","ext","read","write"]},"reply":{"calls":[{"name":"bash","input":{"command":"true"}}],"stop":"tool_use"}}"#,
         r#"{"v":1,"kind":"turn","purpose":"probe","expect":{"prefix":"same"},"reply":{"text":"ready","stop":"end_turn"}}"#,
     ]
     .join("\n");
@@ -864,7 +892,7 @@ fn probe_round_trip() {
         .iter()
         .map(|t| t["function"]["name"].as_str().unwrap())
         .collect();
-    assert_eq!(names, ["bash", "delegate", "edit", "ext", "read", "write"]);
+    assert_eq!(names, ["ask_owner", "bash", "delegate", "edit", "ext", "read", "write"]);
     assert_eq!(b1["reasoning_effort"], "high");
     let msgs = b1["messages"].as_array().unwrap();
     assert_eq!(msgs[0]["role"], "system");
@@ -1341,8 +1369,8 @@ fn ext_cli_on_count_lines() {
 fn ext_tool_calls_kept_count_lines() {
     let home = Home::new("ex");
     let script = [
-        r#"{"v":1,"kind":"turn","expect":{"last_role":"user","tools":["bash","delegate","edit","ext","read","write"]},"reply":{"calls":[{"name":"ext","input":{"name":"count-lines","input":{"needle":"fn ","path":"a2/notes.txt"}}}],"stop":"tool_use"}}"#,
-        r#"{"v":1,"kind":"turn","expect":{"prefix":"same","tools":["bash","delegate","edit","ext","read","write"]},"reply":{"text":"3 lines contain fn: 1, 3 and 4.","stop":"end_turn"}}"#,
+        r#"{"v":1,"kind":"turn","expect":{"last_role":"user","tools":["ask_owner","bash","delegate","edit","ext","read","write"]},"reply":{"calls":[{"name":"ext","input":{"name":"count-lines","input":{"needle":"fn ","path":"a2/notes.txt"}}}],"stop":"tool_use"}}"#,
+        r#"{"v":1,"kind":"turn","expect":{"prefix":"same","tools":["ask_owner","bash","delegate","edit","ext","read","write"]},"reply":{"text":"3 lines contain fn: 1, 3 and 4.","stop":"end_turn"}}"#,
     ]
     .join("\n");
     let Some(mock) = Mock::start(&home, "ext_tool_calls_kept_count_lines", &script, &[]) else {
