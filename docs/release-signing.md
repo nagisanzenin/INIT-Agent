@@ -26,9 +26,9 @@ Every claim below carries one of these statuses (the Math First discipline):
 
 | # | Attacker | Without signing (≤ 0.5.2) | With signing (0.5.3) | Status |
 |---|---|---|---|---|
-| A1 | controls the release page: a stolen GitHub session or token, a malicious collaborator, a fault at GitHub; swaps or adds assets | installs and upgrades take whatever the page lists | **an upgrade from 0.5.3 on refuses it**: the installed Root checks the signature with its own key before get.sh unpacks or runs anything from the download. **A fresh install is not protected**: get.sh itself comes from that page, so its controller can serve a get.sh that pins another key or checks nothing (trust on first use). A user who checks the files against the key fingerprint from a second channel is protected (§4.4). Immutable releases (§7.1) stop changes to a release already published, so the attacker must publish a new release, which is public | refusal: measured; key secrecy and ed25519: assumed; fresh install: not claimed |
+| A1 | controls the release page: a stolen GitHub session or token, a malicious collaborator, a fault at GitHub; swaps or adds assets | installs and upgrades take whatever the page lists | **an upgrade from 0.5.3 on refuses it**: the installed Root checks the signature with its own key before get.sh unpacks or runs anything from the download. **A fresh install is not protected**: get.sh itself comes from that page, so its controller can serve a get.sh that pins another key or checks nothing (trust on first use). A user who checks the files against the key fingerprint on the INIT Labs site is protected unless the attacker changes the site too (§4.4: it deploys from the same GitHub account). Immutable releases (§7.1) stop changes to a release already published, so the attacker must publish a new release, which is public | refusal: measured; key secrecy and ed25519: assumed; fresh install: not claimed |
 | A2 | sits on the network path (a proxy with its own root CA, a mis-issued certificate) or runs a mirror that `INIT_DIST_URL` names | as A1 | as A1: upgrades refuse; a fresh install is as safe as the TLS that fetched get.sh | measured / not claimed |
-| A3 | **the agent**, through the owner's shell: in full access (ADR-012) it can write `~/.zshrc`, so the owner's next terminal can carry `INIT_DIST_URL`, a proxy or a CA file of its choosing, and `init-agent upgrade` passes the environment to get.sh | guide.md lists "the shell you type it in" as a limit. Concretely, as this lane found: get.sh read `INIT_DIST_URL` and took the sha256 from that server's latest.json, so the agent could choose the Root that the owner's next upgrade installs (class 1 in release-protocol.md). Measured: the 0.5.1 and 0.5.2 launchers pass a planted `INIT_DIST_URL` on to the kept get.sh | an upgrade from 0.5.3 on refuses anything the key did not sign, wherever it came from. The upgrade *into* 0.5.3 from 0.5.1 or 0.5.2 runs that install's own get.sh, so it is still exposed: §10 gives the command that avoids it | measured (from 0.5.3); 0.5.1/0.5.2 → 0.5.3: not claimed |
+| A3 | **the agent**, through the owner's shell: in full access (ADR-012) it can write `~/.zshrc`, so the owner's next terminal can carry `INIT_DIST_URL`, a proxy or a CA file of its choosing, and `init-agent upgrade` passes the environment to get.sh | guide.md lists "the shell you type it in" as a limit. Concretely, as this lane found: get.sh read `INIT_DIST_URL` and took the sha256 from that server's latest.json, so the agent could choose the Root that the owner's next upgrade installs (class 1 in release-protocol.md). Measured: the 0.5.1 and 0.5.2 launchers pass a planted `INIT_DIST_URL` on to the kept get.sh | for a planted `INIT_DIST_URL`, an upgrade from 0.5.3 on refuses anything the key did not sign, wherever it came from (a proxy or a CA file is A2). **Not for a planted `INIT_ROOT_HOME`:** `init-agent upgrade` prefers that variable over the home install.sh baked into it, so the agent can make it run another home's `cache/get.sh`, one the agent wrote, which need not check anything (a v0.5.4 fix; until then the `env -i` line of §10 avoids it). The upgrade *into* 0.5.3 from 0.5.1 or 0.5.2 runs that install's own get.sh, so it is still exposed: §10 gives the command that avoids it | `INIT_DIST_URL`: measured (from 0.5.3); a planted `INIT_ROOT_HOME`: not claimed; 0.5.1/0.5.2 → 0.5.3: not claimed |
 | A4 | offers an older, validly signed release as the newest, to bring back a known flaw (a downgrade) | refused by `init-root upgrade` (v0.5.0), but only after the old bundle's own install.sh started | refused by the installed Root before anything from the download runs (the signed version is older than install.json's); `init-root upgrade` refuses it again. No flag allows it: INIT never downgrades, and going back is an uninstall and a fresh install with `--version` | measured |
 | A5 | offers the installed release, or an old one to a fresh install, as the newest for ever, so a fix never arrives (freeze, replay) | not detected | bounded by `expires` (§5): a newer-than-installed or fresh release past its date is refused unless `--allow-expired`; the installed release offered past its date gets a note. A replay inside the validity window is not detected | refusal: measured; inside the window: not claimed |
 | A6 | steals the release key | — | the thief can sign releases every install that pins the key accepts, given A1 or A2 to deliver them. §8 recommends an offline key behind a passphrase; key 1 is a file on the maintainer's Mac without one (§8, "As done"), so anything that runs as the maintainer there can copy it, including a full-access INIT agent through the shell startup files (A3). The response is in §8.5 | not claimed |
@@ -73,9 +73,10 @@ One ed25519 key, made with `ssh-keygen -t ed25519` (§8). Its public half is pin
 - `scripts/get.sh`, `RELEASE_KEYS='…'`;
 - `root/crates/init-root/src/release.rs`, `RELEASE_KEYS: &[&str]`.
 
-release.rs `the_root_and_get_sh_pin_the_same_keys` fails when the two differ (measured). Both are empty until the key
-ceremony. A get.sh or a Root built that way verifies nothing and says so; `sign-release.sh` refuses to sign for such a
-get.sh, so a release cannot ship without the key.
+release.rs `the_root_and_get_sh_pin_the_same_keys` fails when the two differ (measured). Since v0.5.3 both hold key 1,
+`SHA256:IS7wIWkppZkHSUwdnsJR+K4fBPkmPa/IJwfNi9sIoMs` (§8, "As done"). Before that both were empty: a get.sh or a Root
+built that way verifies nothing and says so, and `sign-release.sh` refuses to sign for such a get.sh, so a release
+cannot ship without the key.
 
 The same key in other forms: the base64 decodes to `string "ssh-ed25519"` followed by `string <32 bytes>` (SSH wire
 strings: a big-endian u32 length, then the bytes), so the raw ed25519 public key is bytes 19 to 50 of the decoded blob.
@@ -115,7 +116,10 @@ for the lineage (INV-6); base64 is the `base64` crate that `ureq` already builds
 
 ### 4.4 Checking a fresh install by hand
 The one-liner trusts the get.sh it downloads. A careful user can check the release first, with the key's fingerprint
-taken from a second channel (the README of an earlier tag, the INIT Labs site, the release notes, the Show HN post):
+taken from a channel off GitHub: the INIT Labs site, [initlabs.si/record](https://initlabs.si/record). README and the
+release notes print the fingerprint too, but they live on the same GitHub account as the release, so whoever controls
+the release page (A1) can change them as well. The site is served by Cloudflare, not GitHub, but it deploys from a
+private repository of the same account: it is a second place an attacker must change, not a second account.
 
 ```sh
 d="$(mktemp -d)" && cd "$d"
@@ -264,8 +268,9 @@ In the main checkout, as a normal commit:
 3. Run `cargo test --offline -p init-root --bin init-root release::` (the two must agree) and
    `python3 -m unittest discover -s tests/install`.
 4. Commit: "Release key 1: pin the release signing key (SHA256:…)".
-5. Publish the fingerprint in a second channel: README (a "Verify a download" line), the INIT Labs site, the release
-   notes, the Show HN post. That second channel is what gives the check in §4.4 its meaning.
+5. Publish the fingerprint: README (a "Verify a download" line) and the release notes, and off GitHub, the INIT Labs
+   site and the Show HN post. Only a channel off GitHub gives the check in §4.4 its meaning, since README and the
+   notes live on the same account as the release.
 6. Remove `~/init-release-1.pub` (it is public; this is only tidying).
 
 ### 8.4 Where the key never is
@@ -325,7 +330,10 @@ owners a clean environment for that one upgrade:
 env -i HOME="$HOME" ~/.local/bin/init-agent upgrade
 ```
 
-The launcher finds its ROOT_HOME from the value install.sh baked into it, so a custom home needs nothing more.
+The launcher finds its ROOT_HOME from the value install.sh baked into it, so a custom home needs nothing more. The
+same line is worth keeping for upgrades from 0.5.3: without `env -i`, the 0.5.3 launcher prefers an `INIT_ROOT_HOME`
+in the environment over the baked one, so a planted one runs another home's get.sh unchecked (A3; v0.5.4 fixes the
+order).
 Measured for the launcher (the 0.5.1, 0.5.2 and 0.5.3 launchers hand `--upgrade` to the kept get.sh with
 `INIT_DIST_URL` unset and the baked ROOT_HOME). The whole upgrade under `env -i` is to be measured at release, as an
 install-matrix row from 0.5.2.
@@ -367,8 +375,11 @@ install-matrix row from 0.5.2.
 
 ## 12. Open questions, and what is not built
 
-- The key ceremony (§8) and the pin (§8.3) are the owner's. Until then both lists are empty, sign-release.sh refuses,
-  and v0.5.3 cannot be published as a signed release.
+- Key 1 is pinned in get.sh and the Root since v0.5.3 (§8, "As done"), and v0.5.3 was published signed with it. It is
+  a file key without a passphrase (A6); an offline key behind a passphrase (§8.1) or a hardware key (§8.6) is not done.
+- `init-agent upgrade` prefers an environment `INIT_ROOT_HOME` over its baked home, so a planted one bypasses the
+  signature check (A3). The fix is v0.5.4's; until then, upgrade with
+  `env -i HOME="$HOME" ~/.local/bin/init-agent upgrade`.
 - The rotation statement (§6) is designed, not built. FIDO keys are not accepted (§8.6).
 - A local bundle is checked by sha256 only, even with signed files beside it.
 - A fresh install trusts the get.sh it downloads (A1, A2); §4.4 is the way around it.

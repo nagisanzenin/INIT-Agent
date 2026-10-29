@@ -46,7 +46,7 @@ build/status/REL-053.md.
   keep 5. Null rollbacks stay ≤ 2.2 %, and detection is at or above v0.5.2's in every measured cell but one (cache
   reads at 2× with 40 turns before, 1.1 points lower). A verdict comes about 10 owner turns later.
 - **What a level means (the owner's choice):** a level certifies, at 95 % confidence and valid however often it is
-  re-checked, that the share of closed change groups ending in a direct-harm rollback is below 25 % (L1), 20 % (L2),
+  re-checked, that the share of exercised change groups ending in a direct-harm rollback is below 25 % (L1), 20 % (L2),
   10 % (L3) or 5 % (L4). It replaces "at most 6/4/3 rollbacks in 30 groups", which certified only < 35.7 % / 28.0 % /
   23.9 %. Release builds still stop at L0.
 - **A static test** checks that every level permission names its Root cap or rollback path.
@@ -66,7 +66,8 @@ build/status/REL-053.md.
 - An Anthropic stream cut after `message_start` was billed 1 output token; it is now booked as an upper bound.
 - A property test checks, over every combination of usage classes on every catalog model and random price tables,
   that the bill is at most the reservation and at least the provider's list price.
-- **OpenAI gpt-6.1-sol is tested live** (qualified on 2026-10-29, build/status/qualify/). Anthropic stays experimental.
+- **OpenAI gpt-6.1-sol was qualified live on v0.5.2** (2026-10-29, build/status/qualify/); v0.5.3 changed how a cut
+  request is booked and has not been re-qualified yet. Anthropic stays experimental.
 
 ### Access and the gated path (lane H)
 - **Plain `/rollback` works on the gated path.** A kept core change became LKG within about a second there, and the
@@ -112,6 +113,13 @@ build/status/REL-053.md.
   receipt (docs/guide.md "Time"). The Root's TCB is counted in docs/root/root.md §4.8.
 - A5 refuses a change when free disk cannot be read (it passed before). The dependency estimate is the measured
   15–21 min on a busy M2.
+
+### Corrections after the release (2026-10-29; build/status/REL-053.md §7.5)
+- Text only, the release unchanged: OpenAI gpt-6.1-sol is "qualified live on v0.5.2", not tested live on v0.5.3;
+  the notes say which macOS checks ran on the c045d65 candidate's bundle; a level counts exercised groups and direct
+  rollbacks; the `env -i` upgrade line is for every upgrade until v0.5.4 (a planted `INIT_ROOT_HOME`); the Root's
+  size is the tag's (26,010 lines, TCB 8,246–12,298); docs/release-signing.md's second channels, key pin and A3
+  claim; guide.md's unknown `/word`; MERGE-T2CACHE.md is published. The notes list each with its reason.
 
 ## v0.5.2-preview (2026-10-29)
 

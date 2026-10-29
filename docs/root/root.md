@@ -2008,34 +2008,35 @@ Expected recovery after each, checked by RR-35 and testing.md F-kill-root (in a 
 
 **Measured (build, 2026-10-20).** WP24's earlier ≈ 6,450 used a different count. This method gave 7,053 for `init-root` at dd5c358. At cdb49e8, after R-DEC's money-meter commit, it gave 7,085, the column above. Both counts include WP21b's install path, FIX5's `proposal.file` and the later fixes. R-SAFE and R-DEC are still adding Root code for v0.1.0, so the table is re-measured at release.
 
-**Measured since.** The table above was not re-measured per module after v0.1.0, and the ≈ 7,500 budget no longer holds. By this method `init-root` was 20,334 lines at 04dbabf (v0.5.0; REL-050) and is **21,498** at 67d5172 (the v0.5.3 candidate after lane E1); `root/sandbox-profiles/src` is 3,298 more. The script below gives 20,335 at 04dbabf, and exactly 7,085, 821 and 1,454 at cdb49e8. REL-050's 3,474 for the sandbox profiles at 04dbabf does not reproduce: the script gives 3,244.
+**Measured since.** The table above was not re-measured per module after v0.1.0, and the ≈ 7,500 budget no longer holds. By this method `init-root` was 20,334 lines at 04dbabf (v0.5.0; REL-050), 21,498 at 67d5172 (the v0.5.3 candidate after lane E1), and is **22,623** at the tag v0.5.3-preview (a7f483c, whose code is the shipped bb5dc0e's); `root/sandbox-profiles/src` is 3,387 more (3,298 at 67d5172). The script below gives 20,335 at 04dbabf, and exactly 7,085, 821 and 1,454 at cdb49e8. REL-050's 3,474 for the sandbox profiles at 04dbabf does not reproduce: the script gives 3,244.
 
-**The trusted computing base (TCB), counted separately.** docs/foundations.md §10 names the parts of the Root that FG-1 and FG-2 rest on. The table splits the Root by those parts, by this section's method, at 67d5172. It is a file-level split: a file is in a part when that part is the file's job. Eight files hold a TCB part beside other code. They are listed with their whole size, so the TCB lies between the two bold totals. Lane L2's typed pointer core is the planned way to narrow it.
+**The trusted computing base (TCB), counted separately.** docs/foundations.md §10 names the parts of the Root that FG-1 and FG-2 rest on. The table splits the Root by those parts, by this section's method, at the tag v0.5.3-preview. It is a file-level split: a file is in a part when that part is the file's job. Eight files hold a TCB part beside other code. They are listed with their whole size, so the TCB lies between the two bold totals. Lane L2's typed pointer core is the planned way to narrow it.
 
 | foundations.md §10 part | Invariants | Files (`root/crates/init-root/src/` unless named) and their lines | Lines |
 |---|---|---|---|
-| the spawn broker, the profile builder, A0's re-hash | INV-1, INV-2 | `zone.rs` 448, `boundary.rs` 80, `sys.rs` 705 (the FFI the broker, kill and the snapshot clones use; the crate's only `unsafe`); `root/sandbox-profiles/src/` `lib.rs` 38, `params.rs` 292, `seatbelt.rs` 281, `linux.rs` 244, `access.rs` 224, `entry.rs` 60 | 2,372 |
-| the store, the pointers, tuple installation | INV-3 to INV-5, INV-10, INV-12 | `tuple.rs` 349, `sup.rs` 1,022 (with the kernel control link's reader and handlers), `sup/kupgrade.rs` 397, `upgrade.rs` 697 | 2,465 |
-| snapshots and restore | FG-1, INV-4 | `snapshot.rs` 647 (with A4), `sys/clone_tree.rs` 165 | 812 |
-| the lineage's append, sign and verify | INV-6 | `lineage/mod.rs` 317, `lineage/verify.rs` 180, `lineage/kinds.rs` 90 (the checks on kernel-reported records), `util.rs` 186 (ICJ, atomic writes) | 773 |
-| the ledger fold and the permission table | INV-7, INV-8 | `ledger.rs` 377 (the fold, `NEED`, `cap`) | 377 |
+| the spawn broker, the profile builder, A0's re-hash | INV-1, INV-2 | `zone.rs` 448, `boundary.rs` 80, `sys.rs` 812 (the FFI the broker, kill and the snapshot clones use; the crate's only `unsafe`); `root/sandbox-profiles/src/` `lib.rs` 38, `params.rs` 292, `seatbelt.rs` 281, `linux.rs` 244, `access.rs` 277, `entry.rs` 60 | 2,532 |
+| the store, the pointers, tuple installation | INV-3 to INV-5, INV-10, INV-12 | `tuple.rs` 430, `sup.rs` 1,030 (with the kernel control link's reader and handlers), `sup/kupgrade.rs` 397, `upgrade.rs` 704 | 2,561 |
+| snapshots and restore | FG-1, INV-4 | `snapshot.rs` 688 (with A4), `sys/clone_tree.rs` 165 | 853 |
+| the lineage's append, sign and verify | INV-6 | `lineage/mod.rs` 317, `lineage/verify.rs` 187, `lineage/kinds.rs` 90 (the checks on kernel-reported records), `util.rs` 186 (ICJ, atomic writes) | 780 |
+| the ledger fold and the permission table | INV-7, INV-8 | `ledger.rs` 419 (the fold, `NEED`, `cap`) | 419 |
 | kill and the panic latch | INV-11 | `panic.rs` 166, `sweep.rs` 84 | 250 |
-| the control-link parser | all (zone input) | `link.rs` 590 (the owner channel and its peer check, the Root's state); the kernel side is in `sup.rs` above | 590 |
-| **TCB, whole files** | | | **7,639** |
-| files that hold a TCB part beside other code | | `access.rs` 802 (the deny sets and `spawn_grant` that `zone.rs` composes), `cli.rs` 571 (`exec-clean`, the first step of every spawn), `charter.rs` 482 (the per-level `[extend]` budgets, `Extend::budget`), `sentinel/mod.rs` 580 (`change_open`, the admission path), `sealed/audit.rs` 126 (`lkg_cas`, INV-5), `sealed/run.rs` 454 (the sandboxed run A4's probe uses), `grant.rs` 334 (the overlay only the owner's `/grant` writes), `install.rs` 620 (the genesis install) | 3,969 |
-| **TCB, upper bound** | | | **11,608** |
-| the rest | outside the TCB: the sentinel's statistics, goals, the twin, sealed evaluation, selection, egress and money, providers, the memory watchdog, the mirror, the kernel conformance probe, the sandbox self-test | 39 files | 13,188 |
-| **the whole Root** | | `init-root` 21,498 + `root/sandbox-profiles` 3,298 | **24,796** |
+| the control-link parser | all (zone input) | `link.rs` 598 (the owner channel and its peer check, the Root's state); the kernel side is in `sup.rs` above | 598 |
+| the release verifier (v0.5.3) | A_rel | `release.rs` 253 (the signature check a download must pass before it may replace this Root) | 253 |
+| **TCB, whole files** | | | **8,246** |
+| files that hold a TCB part beside other code | | `access.rs` 855 (the deny sets and `spawn_grant` that `zone.rs` composes), `cli.rs` 573 (`exec-clean`, the first step of every spawn), `charter.rs` 482 (the per-level `[extend]` budgets, `Extend::budget`), `sentinel/mod.rs` 599 (`change_open`, the admission path), `sealed/audit.rs` 135 (`lkg_cas`, INV-5), `sealed/run.rs` 454 (the sandboxed run A4's probe uses), `grant.rs` 334 (the overlay only the owner's `/grant` writes), `install.rs` 620 (the genesis install) | 4,052 |
+| **TCB, upper bound** | | | **12,298** |
+| the rest | outside the TCB: the sentinel's statistics, goals, the twin, sealed evaluation, selection, egress and money, providers, the memory watchdog, the mirror, the kernel conformance probe, the sandbox self-test | 41 files | 13,712 |
+| **the whole Root** | | `init-root` 22,623 + `root/sandbox-profiles` 3,387 | **26,010** |
 
 What is counted and what is not:
 - **Not counted:** `tests/` in both crates; `#[cfg(test)]` and `#[cfg(all(test, …))]` items and the files they declare (`*/tests.rs`, `extend/select_tests.rs`, `sealed/exact/tests.rs`); `testfix.rs` (feature `test-fixtures`); the nine profile texts in `root/sandbox-profiles/profiles/` (SBPL data that `seatbelt.rs` embeds with `include_str!`, 192 non-blank, non-comment lines); the embedded assets (`CONSTITUTION.md`, the charter template); the vendored dependencies (serde, serde_json, toml, sha2, ed25519-dalek, libc, seccompiler, ureq, httparse), which the TCB trusts but this count does not cover. Neither crate has a `build.rs` or generated Rust.
-- **Counted although release builds leave it out:** the 7 `#[cfg(feature = "test-fixtures")]` items outside `testfix.rs` and the test modules (in `util.rs`, `link.rs`, `cli.rs`, and `main.rs`'s `mod testfix;` line), and `lineage/fault.rs` (30 lines, feature `fault-injection`), which is in "the rest".
-- **Not in the TCB although FG-1 names it:** FG-1's bound on irreversible effects uses the egress gateway's action classes (`egress.rs` 679, `egress/classes.rs` 423). foundations.md §10 does not list them, so they are in "the rest".
+- **Counted although release builds leave it out:** the 8 `#[cfg(feature = "test-fixtures")]` items outside `testfix.rs` and the test modules (in `util.rs`, `link.rs`, `cli.rs`, `release.rs`, and `main.rs`'s `mod testfix;` line); `lineage/fault.rs` (30 lines, feature `fault-injection`); and `sentinel/tests/sim.rs` (65 lines of test code: a module of `sentinel/tests.rs`, which `#[cfg(test)]` removes, but the script removes only the file a `mod` line declares, not that file's own modules). Both files are in "the rest".
+- **Not in the TCB although FG-1 names it:** FG-1's bound on irreversible effects uses the egress gateway's action classes (`egress.rs` 697, `egress/classes.rs` 423). foundations.md §10 does not list them, so they are in "the rest".
 
 The command, run in the repository (the script is below; `-I` keeps Python from importing anything from the checkout):
 
 ```sh
-python3 -I rootloc.py 67d5172 root/crates/init-root/src root/sandbox-profiles/src
+python3 -I rootloc.py v0.5.3-preview root/crates/init-root/src root/sandbox-profiles/src
 ```
 
 <details><summary><code>rootloc.py</code> (this section's method)</summary>

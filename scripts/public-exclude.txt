@@ -21,6 +21,7 @@
 + /build/status/*.json
 + /build/status/FULLACCESS.md
 + /build/status/STATS-053.md
++ /build/status/MERGE-T2CACHE.md
 + /build/status/qualify/
 + /build/status/qualify/*.json
 - /build/status/qualify/*

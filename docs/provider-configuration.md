@@ -1,9 +1,11 @@
 # Configure an API gateway or local model
 
 > **Status: experimental (v0.2.0-preview).** Live-tested: DeepSeek through the installer
-> (deepseek-flash, deepseek-v4-pro), and OpenAI's gpt-6.1-sol on OpenAI's own host
-> (`scripts/qualify-provider.sh` PASS 7/7 on a v0.5.2 install, 2026-10-29:
-> build/status/qualify/openai-gpt-6.1-sol-v0.5.2.json). Every other configuration below
+> (deepseek-flash, deepseek-v4-pro). OpenAI's gpt-6.1-sol on OpenAI's own host was qualified live
+> on v0.5.2 (`scripts/qualify-provider.sh` PASS 7/7 on a v0.5.2 install, 2026-10-29:
+> build/status/qualify/openai-gpt-6.1-sol-v0.5.2.json); v0.5.3 changed how a cut request is booked
+> and has not been re-qualified yet, although the app still labels it live-tested. Every other
+> configuration below
 > (Chat-compatible gateways, OpenAI's gpt-6-astra, Responses or Messages at a gateway's URL,
 > Anthropic, local no-auth servers) is implemented and covered by offline tests only. Set them
 > up in the app (`init-agent`'s first run, `/setup`, `/model`, `/key`) or with
@@ -25,9 +27,10 @@ init-root model use gateway/custom-model     # rewrites [model] in kernel/config
 
 `providers add` writes the same values as the fragments below: the charter's `[actions.providers]` (µUSD per
 1M tokens) through the charter check and apply path, and the kernel's `[providers.<id>]` table (decimal USD per
-1M tokens). Presets: `deepseek` (live-tested), `openai` (gpt-6.1-sol live-tested, gpt-6-astra experimental),
-`gateway`, `anthropic`, `local` (experimental, not live-tested). `anthropic` and `openai` with `--base-url`
-configure a Messages or Responses gateway, which is experimental: the live test was of OpenAI's own host.
+1M tokens). Presets: `deepseek` (live-tested), `openai` (gpt-6.1-sol qualified live on v0.5.2, not yet re-qualified
+on v0.5.3; gpt-6-astra experimental), `gateway`, `anthropic`, `local` (experimental, not live-tested). `anthropic`
+and `openai` with `--base-url` configure a Messages or Responses gateway, which is experimental: the live test was of
+OpenAI's own host.
 
 Implementation guide, 2026-10-23. These examples describe configurable wire compatibility;
 they are not live certification of a vendor or model. Native isolation and the release A/B
