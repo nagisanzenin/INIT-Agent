@@ -1,0 +1,15 @@
+event: response.created
+data: {"response":{"id":"resp_g1","model":"gpt-6.1-sol","object":"response","output":[],"status":"in_progress","usage":null},"sequence_number":0,"type":"response.created"}
+
+event: response.in_progress
+data: {"response":{"id":"resp_g1","model":"gpt-6.1-sol","object":"response","output":[],"status":"in_progress","usage":null},"sequence_number":1,"type":"response.in_progress"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"Running","item_id":"msg_resp_g1","output_index":1,"sequence_number":2,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":" it now.","item_id":"msg_resp_g1","output_index":1,"sequence_number":3,"type":"response.output_text.delta"}
+
+event: response.completed
+data: {"response":{"id":"resp_g1","model":"gpt-6.1-sol","object":"response","output":[{"encrypted_content":"enc-resp_g1","id":"rs_resp_g1","summary":[],"type":"reasoning"},{"content":[{"annotations":[],"text":"Running it now.","type":"output_text"}],"id":"msg_resp_g1","role":"assistant","status":"completed","type":"message"}],"status":"completed","usage":{"input_tokens":21510,"input_tokens_details":{"cache_write_tokens":21504,"cached_tokens":0},"output_tokens":95,"output_tokens_details":{"reasoning_tokens":64},"total_tokens":21605}},"sequence_number":4,"type":"response.completed"}
+

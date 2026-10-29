@@ -1010,6 +1010,12 @@ fn access_line_forms_and_position() {
         access(&mut fx, "workspace", Some(WS)),
         "- access: write the workspace /Users/q/projects/app and INIT_HOME (your tools start in the workspace) · read the owner's home, secret stores denied"
     );
+    // v0.5.3 (lane H): with the charter's `sandbox.read_home = false` the Root sends
+    // `workspace_only`, and the line no longer says the home is readable
+    assert_eq!(
+        access(&mut fx, "workspace_only", Some(WS)),
+        "- access: write the workspace /Users/q/projects/app and INIT_HOME (your tools start in the workspace) · no other part of the owner's home is readable (charter sandbox.read_home = false)"
+    );
     assert_eq!(
         access(&mut fx, "read_home", None),
         "- access: no workspace (init-agent was launched outside a project): write INIT_HOME only · read the owner's home, secret stores denied"
@@ -1040,6 +1046,10 @@ fn access_line_forms_and_position() {
         "- access: workspace · workspace none"
     );
     assert_eq!(
+        access(&mut fx, "workspace_only", None),
+        "- access: workspace_only · workspace none"
+    );
+    assert_eq!(
         access(&mut fx, "none", Some(WS)),
         "- access: none · workspace /Users/q/projects/app"
     );
@@ -1058,7 +1068,7 @@ fn access_line_forms_and_position() {
     );
     // The access line is per-boot status: never in the head files (T-AW-3 covers those), and
     // the line itself carries nothing the volatility lint flags.
-    for a in ["workspace", "read_home", "none", "full"] {
+    for a in ["workspace", "workspace_only", "read_home", "none", "full"] {
         fx.access = Some(a);
         let line = fx.find("- access: ").unwrap();
         assert!(volatility_hits(&line, true).is_empty(), "{line}");

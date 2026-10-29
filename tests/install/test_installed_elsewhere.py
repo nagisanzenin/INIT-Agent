@@ -8,7 +8,13 @@ The post-release review of v0.5.1 found two ways the one-line installer led an e
   the ROOT_HOME the service file names (when this run would write the service: not with --no-service, and only when
   HOME is the passwd home) and the one INIT's launchers in INIT_BIN_DIR have baked in. When that home holds an
   install.json they refuse, before anything is downloaded or written, with that home's upgrade line (INIT_ROOT_HOME=X
-  filled in, by release as for an install in this ROOT_HOME) and how to make a separate second INIT instead.
+  filled in, by release as for an install in this ROOT_HOME; from v0.5.3 `init-agent` with its path) and how to make a
+  separate second INIT instead.
+- **`--upgrade` without INIT_ROOT_HOME** (v0.5.3; the post-release review of v0.5.2). On such an install,
+  `… | sh -s -- --upgrade` said "INIT is not installed … run this without --upgrade", and only that second run printed
+  the line that works. Now get.sh --upgrade and install.sh --upgrade look the same way first, and print that home's
+  upgrade line with INIT_ROOT_HOME filled in, by release (`init-agent upgrade`, or the pipe for 0.4.1 and 0.5.0; the
+  uninstall line before 0.4.1), with the arguments of the run.
 - **No bundle for this machine.** A Linux aarch64 user on 0.4.1 (no 0.5.x aarch64 bundle) was told to upgrade with a
   command that then stopped on a missing bundle. Now get.sh reads the latest release's latest.json before it advises
   an upgrade; when it lists no bundle for this target, the message says so, that the installed INIT keeps working, and
@@ -22,6 +28,7 @@ scratch directory under /private/tmp (or the system temp dir) and leaves nothing
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import tempfile
@@ -58,12 +65,14 @@ def tree(d):
     return sorted(out)
 
 
-def fake_install(rh, version):
-    """An install.json and a stand-in bin/init-root that prints `init-root <version>`."""
+def fake_install(rh, version, bin_dir=None):
+    """An install.json (with the launchers' `bin_dir` when given) and a stand-in bin/init-root that prints
+    `init-root <version>`."""
     os.makedirs(os.path.join(rh, "bin"))
     os.makedirs(os.path.join(rh, "cache"))
     with open(os.path.join(rh, "install.json"), "w") as f:
-        f.write('{"init_home":"%s","v":1}\n' % os.path.join(os.path.dirname(rh), "ih"))
+        f.write('{%s"init_home":"%s","v":1}\n' % ('"bin_dir":%s,' % json.dumps(bin_dir) if bin_dir else "",
+                                                  os.path.join(os.path.dirname(rh), "ih")))
     exe = os.path.join(rh, "bin", "init-root")
     with open(exe, "w") as f:
         f.write('#!/bin/sh\n[ "$1" = --version ] && echo "init-root %s"\n' % version)
@@ -82,6 +91,22 @@ def put_launcher(bin_dir, rh):
         f.write(text)
     os.chmod(p, 0o755)
     return p
+
+
+def stand_in(path):
+    """In place of INIT's launcher at `path`: a script that prints the INIT_ROOT_HOME and the arguments it got."""
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w") as f:
+        f.write('#!/bin/sh\necho "home=${INIT_ROOT_HOME-unset}|args=$*"\n')
+    os.chmod(path, 0o755)
+
+
+def run_printed(test, line, home):
+    """A printed line as the owner pastes it in a new terminal: their HOME, no INIT_ROOT_HOME, a PATH without INIT's."""
+    p = subprocess.run(["/bin/sh", "-c", line], env={"PATH": "/usr/bin:/bin", "HOME": home}, capture_output=True, text=True,
+                       timeout=30)
+    test.assertEqual(p.returncode, 0, line + "\n" + p.stderr)
+    return p.stdout.strip()
 
 
 def plist(rh):
@@ -168,19 +193,26 @@ class GetSh(unittest.TestCase):
         e = p.stderr
         self.assertIn("INIT 0.5.1 is already installed in %s: the init-agent command in %s opens it. A second install, in %s,"
                       " would take that over and leave this one behind. Upgrade it instead" % (self.other, self.bin, self.rh), e)
-        line = "INIT_ROOT_HOME=%s init-agent upgrade" % shq(self.other)
+        line = "INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade" % shq(self.other)  # v0.5.3: with its path
         self.assertIn("\n  %s\n" % line, e)
         self.assertIn("own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, without the service: sh -s -- -- --no-service.", e)
-        self.assertNotIn("\n  init-agent upgrade", e)
-        # the line runs as printed: a stand-in init-agent on PATH, in a new terminal without INIT_ROOT_HOME
-        stand_in = os.path.join(self.t, "path")
-        os.makedirs(stand_in)
-        with open(os.path.join(stand_in, "init-agent"), "w") as f:
-            f.write('#!/bin/sh\necho "home=${INIT_ROOT_HOME-unset}|args=$*"\n')
-        os.chmod(os.path.join(stand_in, "init-agent"), 0o755)
-        q = subprocess.run(["/bin/sh", "-c", line], env={"PATH": stand_in + ":/usr/bin:/bin", "HOME": self.home},
-                           capture_output=True, text=True, timeout=30)
-        self.assertEqual(q.stdout.strip(), "home=%s|args=upgrade" % self.other, q.stderr)
+        self.assertNotIn("init-agent upgrade\n", e.replace(line + "\n", ""))
+        # the line runs as printed, in a new terminal without INIT_ROOT_HOME and without ~/.local/bin on its PATH
+        stand_in(os.path.join(self.bin, "init-agent"))
+        self.assertEqual(run_printed(self, line, self.home), "home=%s|args=upgrade" % self.other)
+
+    def test_the_upgrade_line_names_the_launcher_where_that_install_put_it(self):
+        # v0.5.3: installed with INIT_BIN_DIR, its install.json records the launchers' directory
+        self.latest([TARGET])
+        elsewhere = os.path.join(self.t, "its bin")
+        fake_install(self.other, "0.5.1", bin_dir=elsewhere)
+        put_launcher(self.bin, self.other)
+        stand_in(os.path.join(elsewhere, "init-agent"))
+        p = self.get()
+        self.assert_refused_before_anything(p)
+        line = "INIT_ROOT_HOME=%s %s upgrade" % (shq(self.other), shq(os.path.join(elsewhere, "init-agent")))
+        self.assertIn("\n  %s\n" % line, p.stderr)
+        self.assertEqual(run_printed(self, line, self.home), "home=%s|args=upgrade" % self.other)
 
     def test_every_release_gets_its_own_line_for_that_home(self):
         self.latest([TARGET])
@@ -228,11 +260,69 @@ class GetSh(unittest.TestCase):
         p = self.get()
         self.assertNotIn("already installed", p.stderr)
 
+    # ---------------------------------------------------------------- 1b. --upgrade without INIT_ROOT_HOME (v0.5.3)
+    def assert_upgrade_refused(self, p):
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertFalse(os.path.exists(self.rh), "get.sh created this run's ROOT_HOME")
+        self.assertFalse(os.path.exists(os.path.join(self.other, "cache", "upgrade")), "get.sh started the upgrade")
+        self.assertEqual(self.fetched(), [], "get.sh fetched something")
+        self.assertNotIn("run this without --upgrade", p.stderr)
+
+    def test_upgrade_finds_that_home_on_the_first_try(self):
+        put_launcher(self.bin, self.other)
+        fake_install(self.other, "0.5.1")
+        p = self.get("--upgrade")
+        self.assert_upgrade_refused(p)
+        e = p.stderr
+        self.assertIn("INIT 0.5.1 is installed in %s: the init-agent command in %s opens it. It is not in %s, the home this "
+                      "upgrade looked in (INIT_ROOT_HOME was not set). Upgrade it with:\n" % (self.other, self.bin, self.rh), e)
+        agent = "INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade" % shq(self.other)
+        pipe = "/usr/bin/curl -q -fsSL %s/get.sh | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade" % (DIST, shq(self.other))
+        self.assertIn("\n  %s\n(or, as you ran it, with its home given to sh: %s)\n" % (agent, pipe), e)
+        self.assertEqual(run_pipe(self, pipe, DIST + "/get.sh", self.home), "home=%s|args=--upgrade" % self.other)
+        stand_in(os.path.join(self.bin, "init-agent"))
+        self.assertEqual(run_printed(self, agent, self.home), "home=%s|args=upgrade" % self.other)
+
+    def test_upgrade_keeps_the_arguments_of_the_run(self):
+        put_launcher(self.bin, self.other)
+        fake_install(self.other, "0.5.2")
+        bundle = os.path.join(self.t, "a b", "init-v0.5.3-preview-%s.tar.gz" % TARGET)
+        p = self.get("--upgrade", "--from", bundle, "--sha256", "a" * 64, "--", "--probe-timeout", "60")
+        self.assert_upgrade_refused(p)
+        tail = "--sha256 %s -- --probe-timeout 60" % ("a" * 64)
+        agent = "INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade --bundle %s %s" % (shq(self.other), shq(bundle), tail)
+        pipe = "/usr/bin/curl -q -fsSL %s/get.sh | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade --from %s %s" % (DIST, shq(self.other), shq(bundle), tail)
+        self.assertIn("\n  %s\n(or, as you ran it, with its home given to sh: %s)\n" % (agent, pipe), p.stderr)
+        self.assertEqual(run_pipe(self, pipe, DIST + "/get.sh", self.home), "home=%s|args=--upgrade --from %s %s" % (self.other, bundle, tail))
+        p = self.get("--upgrade", "--version", "0.5.3")
+        self.assertIn("\n  INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade --version 0.5.3\n" % shq(self.other), p.stderr)
+
+    def test_upgrade_gives_each_release_its_line_for_that_home(self):
+        put_launcher(self.bin, self.other)
+        fake_install(self.other, "0.5.0")
+        p = self.get("--upgrade")
+        self.assert_upgrade_refused(p)
+        pipe = "/usr/bin/curl -q -fsSL %s/get.sh | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade" % (DIST, shq(self.other))
+        self.assertIn("INIT 0.5.0 is installed in %s: the init-agent command in %s opens it. It is not in %s" % (self.other, self.bin, self.rh), p.stderr)
+        self.assertTrue(p.stderr.endswith("Upgrade it with its home given to sh:\n  %s\n" % pipe), p.stderr)
+        shutil.rmtree(self.other)
+        fake_install(self.other, "0.3.1")
+        p = self.get("--upgrade")
+        self.assert_upgrade_refused(p)
+        self.assertIn("INIT 0.3.1 is installed in %s: the init-agent command" % self.other, p.stderr)
+        self.assertIn("An upgrade from a release before 0.4.1 is not supported", p.stderr)
+        self.assertIn('&& INIT_ROOT_HOME=%s bash "$f"' % shq(self.other), p.stderr)
+        # nothing installed anywhere: the plain answer
+        shutil.rmtree(self.other)
+        p = self.get("--upgrade")
+        self.assertEqual(p.returncode, 1, p.stderr)
+        self.assertIn("INIT is not installed in %s (no install.json): run this without --upgrade to install it" % self.rh, p.stderr)
+
     # ---------------------------------------------------------------- 2. no bundle for this machine
     def test_no_bundle_for_this_target_is_said_before_the_upgrade_line(self):
         others = [t for t in ("macos-arm64", "linux-arm64", "linux-x86_64") if t != TARGET]
         for version, tail in (("0.4.1", "Run this once, from your own shell (0.4.1 has no init-agent upgrade):\n  /usr/bin/curl"),
-                              ("0.5.1", ":\n  INIT_ROOT_HOME=%s init-agent upgrade\n" % shq(self.rh))):
+                              ("0.5.1", ":\n  INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade\n" % shq(self.rh))):
             with self.subTest(version=version):
                 self.latest(others)
                 fake_install(self.rh, version)
@@ -256,7 +346,7 @@ class GetSh(unittest.TestCase):
                 p = self.get()
                 self.assertEqual(p.returncode, 1, p.stderr)
                 self.assertIn("INIT 0.5.1 is already installed in %s. Upgrade it instead, which keeps what INIT has become:\n"
-                              "  INIT_ROOT_HOME=%s init-agent upgrade\n" % (self.rh, shq(self.rh)), p.stderr)
+                              "  INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade\n" % (self.rh, shq(self.rh)), p.stderr)
                 self.assertNotIn("no bundle", p.stderr)
 
     def test_an_unreachable_release_keeps_the_plain_upgrade_advice(self):
@@ -337,9 +427,32 @@ class Functions(unittest.TestCase):
         rh = "INIT_ROOT_HOME=%s " % shq(other)
         self.assertIn("INIT 0.5.1 is already installed in %s: the init-agent command in %s opens it. A second install, in %s,"
                       " would take that over and leave this one behind. Upgrade it to v" % (other, bin_dir, os.path.join(home, ".init-root")), e)
-        self.assertIn("\n  %sinit-agent upgrade        (or: %s%s --upgrade)\n" % (rh, rh, shq(INSTALL)), e)
+        self.assertIn("\n  %s~/.local/bin/init-agent upgrade        (or: %s%s --upgrade)\n" % (rh, rh, shq(INSTALL)), e)
         self.assertIn("own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, and pass --no-service.", e)
         self.assertNotIn("/install.json exists", e)
+
+    def test_install_sh_upgrade_finds_that_home_on_the_first_try(self):
+        # v0.5.3: install.sh --upgrade without INIT_ROOT_HOME, with the launcher of an install elsewhere
+        t = tempfile.mkdtemp(prefix="i5-l53b-", dir="/tmp")  # short: install.sh checks home lengths first
+        self.addCleanup(shutil.rmtree, t, True)
+        home = os.path.join(t, "h")
+        other = os.path.join(t, "o r")
+        os.makedirs(home)
+        fake_install(other, "0.5.1")
+        bin_dir = os.path.join(home, ".local", "bin")
+        put_launcher(bin_dir, other)
+        before = tree(t)
+        p = subprocess.run(["/bin/bash", INSTALL, "--upgrade", "--yes"], stdin=subprocess.DEVNULL, capture_output=True,
+                           text=True, timeout=120, env={"PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "HOME": home, "LANG": "C"})
+        self.assertEqual(tree(t), before, "install.sh wrote something\n" + p.stdout + p.stderr)
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        e = p.stderr
+        self.assertNotIn("run this without --upgrade", e)
+        self.assertIn("INIT 0.5.1 is installed in %s: the init-agent command in %s opens it. It is not in %s, the home this upgrade "
+                      "looked in (INIT_ROOT_HOME was not set). Upgrade it to v" % (other, bin_dir, os.path.join(home, ".init-root")), e)
+        line = e.rstrip("\n").splitlines()[-1]
+        self.assertEqual(line, "  INIT_ROOT_HOME=%s %s --upgrade" % (shq(other), shq(INSTALL)))
+        self.assertEqual(shlex.split(line), ["INIT_ROOT_HOME=" + other, INSTALL, "--upgrade"])
 
     def test_an_upgrade_that_finds_no_bundle_says_nothing_changed(self):
         t = scratch(self)

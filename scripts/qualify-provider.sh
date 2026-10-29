@@ -85,7 +85,7 @@ read -r IH BIN_DIR <<<"$(/usr/bin/python3 -I -c 'import json,sys; d=json.load(op
 [ -d "$IH" ] || refuse "$RH/install.json names no INIT_HOME"
 RENV=(env -i HOME="$HOME" INIT_ROOT_HOME="$RH" PATH=/usr/bin:/bin LANG=en_US.UTF-8)
 "${RENV[@]}" "$ROOT_BIN" status --json 2>/dev/null | /usr/bin/python3 -I -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("slot")=="running" else 1)' \
-  || refuse "the Root is not running with its kernel and body; start INIT first (init-agent, or init-root start)"
+  || refuse "the Root is not running with its kernel and body; start INIT first (${BIN_DIR:-$HOME/.local/bin}/init-agent, or INIT_ROOT_HOME=$RH $ROOT_BIN start --foreground)"
 SEL="$("${RENV[@]}" "$ROOT_BIN" providers list --json)" || refuse "init-root providers list --json failed"
 read -r SP SM KEY TESTED <<<"$(/usr/bin/python3 -I -c '
 import json, sys

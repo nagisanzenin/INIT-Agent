@@ -88,8 +88,8 @@ pub fn run(home: &Path, ctl: OwnedFd, pass: OwnedFd, bundle: &Path, seed_tag: Op
             return 78;
         }
     };
-    // `ready` early: the seed build may take minutes (the Root allows 1,200 s before ready, but
-    // hb keeps flowing either way).
+    // `ready` early, before the seed build: the Root bounds the whole install at `INSTALL_TIMEOUT_S`
+    // (4,500 s, over the cold build's 3,600 s), and hb keeps flowing while it builds.
     let _ = link.call(&KernelRequest::Ready, link.request_timeout);
     crate::supervisor::start_hb(link.clone(), Duration::from_secs(boot.limits.hb_interval_s.max(1)), "install");
     match install(home, &link, &cfg, bundle, seed_tag) {

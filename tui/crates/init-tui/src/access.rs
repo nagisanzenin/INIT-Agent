@@ -22,7 +22,8 @@ pub const WORKSPACE_RULE: &str = "a workspace is a folder inside your home, not 
 /// and `/undo`'s advice ("cd into a project and run init-agent") sent the owner in a circle. This says
 /// why there is none, where the agent works instead, what `/undo` can restore, and how to get one.
 /// `refused` is the Root's `workspace.set` refusal (`code`, `message`); `full` the session's access.
-pub fn no_workspace_text(cwd: Option<&str>, refused: Option<&(String, String)>, full: bool) -> String {
+/// `agent` is `init-agent` as the owner types it (v0.5.3, [`crate::app::agent_cmd`]).
+pub fn no_workspace_text(cwd: Option<&str>, refused: Option<&(String, String)>, full: bool, agent: &str) -> String {
     let why = match (cwd, refused) {
         (Some(c), Some((_, m))) => format!("{c} is not one ({m})"),
         (Some(c), None) => format!("the Root set none for {c}"),
@@ -37,7 +38,7 @@ pub fn no_workspace_text(cwd: Option<&str>, refused: Option<&(String, String)>, 
         "no workspace: {why}. The agent works in its own folder instead (INIT_HOME/work, ~/.init/work by default): \
          files it creates by name land there, not where you started init-agent. {access} /undo restores only a workspace's \
          snapshots, so it has nothing to restore in this session. To let it edit a project: {WORKSPACE_RULE}; cd into one \
-         and run init-agent again."
+         and run {agent} again."
     )
 }
 
@@ -125,6 +126,8 @@ pub struct Flow {
     /// TUI-FIX (v0.5.1): the Root's refusal of the cwd as the workspace (`code`, `message`), for the
     /// no-workspace explanation and `/undo`'s advice.
     refused: Option<(String, String)>,
+    /// v0.5.3: `init-agent` as the owner types it ([`crate::app::agent_cmd`]), for the texts that say to run it.
+    agent: String,
 }
 
 fn err_text(e: &ReqErr) -> String {
@@ -152,7 +155,13 @@ impl Flow {
     /// refuses both); `want_full` wins if both are set.
     pub fn new(cwd: Option<String>, want_full: bool, want_workspace: bool) -> Flow {
         let want_workspace = want_workspace && !want_full;
-        Flow { cwd, want_full, want_workspace, ws: Ws::NotSent, inflight: None, confirm: None, refused: None }
+        Flow { cwd, want_full, want_workspace, ws: Ws::NotSent, inflight: None, confirm: None, refused: None, agent: crate::app::DEFAULT_AGENT.into() }
+    }
+
+    /// `init-agent` as the owner types it, for the texts that tell them to run it (v0.5.3).
+    pub fn with_agent(mut self, agent: &str) -> Flow {
+        self.agent = agent.to_string();
+        self
     }
 
     /// Owner lines wait while the workspace is being set (SBX-009 §A: before any owner line) and
@@ -242,7 +251,8 @@ impl Flow {
         format!(
             "/undo: nothing to restore. This session has no workspace{why}, and /undo restores only a workspace's snapshots: \
              what the agent wrote in its own folder (INIT_HOME/work) or elsewhere is not covered. To have /undo next time, \
-             start init-agent in a project folder ({WORKSPACE_RULE})."
+             start {} in a project folder ({WORKSPACE_RULE}).",
+            self.agent
         )
     }
 
@@ -261,7 +271,7 @@ impl Flow {
                 // /undo can restore and how to get one; the Root's own one-liner (if any) does not
                 if v["access"]["workspace"].is_null() {
                     let full = v["access"]["full"] == true;
-                    out.push(Out::Notice(no_workspace_text(self.cwd.as_deref(), self.refused.as_ref(), full)));
+                    out.push(Out::Notice(no_workspace_text(self.cwd.as_deref(), self.refused.as_ref(), full, &self.agent)));
                 }
                 out.extend(self.then_full());
             }
@@ -279,12 +289,13 @@ impl Flow {
                 let r = &v["restored"];
                 let s = |x: &Value, k: &str| x[k].as_str().unwrap_or("?").to_string();
                 // v0.5.2 (user session v0.5.1-new: "/undo times are in UTC"): no raw `at` (UTC); the Root's
-                // own `snapshot` notice for the restore gives the local time and the trigger
+                // own `snapshot` notice for the restore gives the local time and the trigger. v0.5.3: plain
+                // /undo never goes back to a state an /undo replaced, so the line names the one that does
+                let saved = s(&v["saved"], "id");
                 out.push(Out::Info(format!(
-                    "/undo: restored snapshot {} of {}; the state before it is kept as snapshot {}, so /undo again goes back",
+                    "/undo: restored snapshot {} of {}; the state before it is kept as snapshot {saved}, so /undo {saved} brings it back",
                     s(r, "id"),
-                    s(r, "workspace"),
-                    s(&v["saved"], "id")
+                    s(r, "workspace")
                 )));
             }
             (op, Err(ReqErr::Refused(code, msg, data))) if code == "root.confirm" => match data["phrase"].as_str().filter(|p| !p.trim().is_empty()) {
@@ -302,8 +313,11 @@ impl Flow {
             (Op::Undo, Err(ReqErr::Refused(code, ..))) if code == "root.busy" => {
                 out.push(Out::Warn("/undo: the agent is in the middle of a turn; try again when it is idle (Esc interrupts it)".into()))
             }
-            // v0.5.2 (R-UNDO): the folder is the same as every snapshot: the Root says which and when
-            (Op::Undo, Err(ReqErr::Refused(code, msg, data))) if code == "root.not_found" && data["reason"] == "unchanged" => out.push(Out::Info(msg)),
+            // v0.5.2 (R-UNDO): the folder is the same as every snapshot: the Root says which and when; v0.5.3: or
+            // the others hold only states an /undo replaced, and the Root names the `/undo <id>` that brings one back
+            (Op::Undo, Err(ReqErr::Refused(code, msg, data))) if code == "root.not_found" && matches!(data["reason"].as_str(), Some("unchanged" | "replaced")) => {
+                out.push(Out::Info(msg))
+            }
             (Op::Undo, Err(ReqErr::Refused(code, ..))) if code == "root.not_found" => out.push(Out::Warn("/undo: there is no snapshot of this workspace to restore".into())),
             (Op::Full(_), Err(ReqErr::Refused(code, _, data))) if code == "root.mode" && data["reason"] == "charter" => {
                 out.push(Out::Warn("full mode is disabled by the charter (sandbox.allow_full = false)".into()))
@@ -436,6 +450,13 @@ mod tests {
                           "saved": {"at": "2026-10-20T21:05:00Z", "id": "s2", "reason": "pre_undo", "workspace": "/p"}});
         let out = f.on_answer(Op::Undo, Ok(done));
         assert!(matches!(&out[0], Out::Info(t) if t.starts_with("/undo: restored snapshot s1 of /p") && !t.contains("21:00:00Z") && t.contains("kept as snapshot s2")), "{out:?}");
+        // v0.5.3: plain /undo never goes back to a state an /undo replaced, so the line names the one that does
+        assert!(matches!(&out[0], Out::Info(t) if t.ends_with("kept as snapshot s2, so /undo s2 brings it back") && !t.contains("/undo again")), "{out:?}");
+        // and the Root's own words when only replaced states differ from the folder
+        f.on_line("/undo");
+        let msg = "/undo has nothing to restore: ... /undo s2 brings back ...";
+        let out = f.on_answer(Op::Undo, Err(ReqErr::Refused("root.not_found".into(), msg.into(), json!({"reason": "replaced"}))));
+        assert_eq!(out, [Out::Info(msg.into())]);
     }
 
     #[test]
@@ -485,5 +506,29 @@ mod tests {
         // `/undo list` and `/undo <id>` are the Root's lines: the access flow does not take them
         assert_eq!(f.on_line("/undo list"), None);
         assert_eq!(f.on_line("/undo 20261028T111910.728Z-project confirm"), None);
+    }
+
+    /// v0.5.3 (the v0.5.2 post-release review, finding 4): the no-workspace texts told the owner to "run
+    /// init-agent again", a bare command a fresh Mac does not find (~/.local/bin is not on its PATH). They
+    /// name the launcher by its path.
+    #[test]
+    fn no_workspace_lines_name_the_launcher_by_its_path() {
+        let mut f = Flow::new(Some("/Users/o".into()), false, true);
+        f.on_attached();
+        let out = f.on_answer(Op::Workspace, Ok(json!({"access": view(None, false), "refused": {"code": "home", "message": "the launch directory is your home itself"}})));
+        let Out::Notice(t) = &out[1] else { panic!("{out:?}") };
+        assert!(t.contains("cd into one and run ~/.local/bin/init-agent again.") && !t.contains("run init-agent"), "{t}");
+        f.on_line("/undo");
+        let out = f.on_answer(Op::Undo, refused("root.mode", json!({"reason": "no_workspace"})));
+        let Out::Warn(u) = &out[0] else { panic!("{out:?}") };
+        assert!(u.contains("start ~/.local/bin/init-agent in a project folder") && !u.contains("start init-agent"), "{u}");
+        // the TUI's own launcher, as it prints it (crate::app::agent_cmd)
+        let mut f = Flow::new(Some("/Users/o".into()), false, true).with_agent("INIT_ROOT_HOME=/rh '/opt/my bin/init-agent'");
+        f.on_attached();
+        let out = f.on_answer(Op::Workspace, Ok(json!({"access": view(None, false)})));
+        assert!(matches!(&out[1], Out::Notice(t) if t.ends_with("cd into one and run INIT_ROOT_HOME=/rh '/opt/my bin/init-agent' again.")), "{out:?}");
+        f.on_line("/undo");
+        let out = f.on_answer(Op::Undo, refused("root.mode", json!({"reason": "no_workspace"})));
+        assert!(matches!(&out[0], Out::Warn(u) if u.contains("start INIT_ROOT_HOME=/rh '/opt/my bin/init-agent' in a project folder")), "{out:?}");
     }
 }

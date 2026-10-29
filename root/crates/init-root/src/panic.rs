@@ -150,7 +150,9 @@ pub fn resume(root: &Arc<Root>) -> Result<Value, Refusal> {
     if let Some(e) = root.egress.get() {
         e.resume();
     }
+    let mut to = "current".to_string();
     if let Ok((_, d)) = crate::tuple::rollback(root, crate::ledger::anchor(root), "panic") { // ADR-011 §4.1: `settled` on the free path
+        to = crate::tuple::pointer_name(d["target"].as_str().unwrap_or("")).to_string();
         let _ = root.append_locked(&mut lg, "root", "rollback", d);
     }
     let tuple = lock(&root.sup.ptrs).current.clone();
@@ -158,7 +160,8 @@ pub fn resume(root: &Arc<Root>) -> Result<Value, Refusal> {
     drop(lg);
     let panic = json!({"at": rfc3339(at), "channel": channel});
     root.sup.send(Ev::Start(Plan { target: None, reason: "panic_resume", cause: Value::Null, panic, mode: None }));
-    root.alert("resume", &format!("[root] resumed after panic at level L{level}; the zone restarts on the audited-good tuple"));
+    // v0.5.3: the tuple the rollback chose (on the free path `settled` or LKG, not audited-good as this said before)
+    root.alert("resume", &format!("[root] resumed after panic at level L{level}; the zone restarts on the {to} tuple"));
     root.publish();
     Ok(json!({"level": level, "mode": mode, "slot": "starting", "tuple": tuple}))
 }

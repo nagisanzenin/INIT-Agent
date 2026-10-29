@@ -114,6 +114,27 @@ fn f15_corrupt_lkg_is_fetched_from_the_store_on_a_cold_start() {
     remove_home(&home);
 }
 
+/// §3.9 steps 6, 7 and 12 (v0.5.3 lane F): a cold start builds nothing before `ready`. With no LKG in bin/ and
+/// none in the Root's store, the kernel halts `no_lkg` and is still `ready`, having asked the Root for no spawn (a
+/// build is one, `spawn{kind:"build"}`). The Root's ready bound (`kernel_ready_timeout_s`, 1,200 s) relies on this:
+/// it does not cover a cold build, which the kernel bounds at `build_timeout_cold_s` (3,600 s) and runs after `ready`.
+#[test]
+fn a_cold_start_with_no_lkg_anywhere_halts_and_is_ready_without_a_build() {
+    let _wd = init_testkit::watchdog::arm("a_cold_start_with_no_lkg_anywhere_halts_and_is_ready_without_a_build", Duration::from_secs(30));
+    let home = make_home("r-nolkg", "");
+    std::fs::remove_file(home.join("bin/init-body")).unwrap();
+    std::fs::remove_file(home.join("bin/init-body.lkg")).unwrap();
+    // the tuple's body blob, which the fake Root's store does not hold
+    let fr = FakeRoot::new(&home, Opts { tuple_binary: "ab".repeat(32), ..Opts::default() });
+    let (_h, code) = fr.start_in_process();
+    fr.wait_for("ready", T, |s| s.ready.then_some(()));
+    assert!(fr.seen.0.lock().unwrap().spawns.is_empty(), "a spawn before ready");
+    fr.wait_for("the no_lkg alert", T, |s| s.alerts.iter().any(|a| a.message.contains("no_lkg")).then_some(()));
+    assert!(fr.seen.0.lock().unwrap().spawns.is_empty(), "a halted kernel spawns nothing");
+    stop(&fr, code);
+    remove_home(&home);
+}
+
 /// Rewrite `supervisor.json.handoff`.
 fn set_handoff(home: &Path, phase: &str, from: &str, to: &str, staged: &str) {
     let p = home.join("state/kernel/supervisor.json");

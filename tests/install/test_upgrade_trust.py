@@ -171,12 +171,12 @@ class LocalBundleUpgrade(unittest.TestCase):
         self.installed("0.5.1")
         e = self.get("--from", self.file).stderr
         rh = "INIT_ROOT_HOME=%s " % shq(self.rh)
-        self.assertIn(f"\n  {rh}init-agent upgrade --bundle {shq(self.file)} --sha256 <the 64 hex digits>\n", e)
-        self.assertIn(f"\n  {rh}init-agent upgrade --version 9.9.9-test\n", e)
+        self.assertIn(f"\n  {rh}~/.local/bin/init-agent upgrade --bundle {shq(self.file)} --sha256 <the 64 hex digits>\n", e)
+        self.assertIn(f"\n  {rh}~/.local/bin/init-agent upgrade --version 9.9.9-test\n", e)
         self.assertNotIn("/usr/bin/curl", e)
         self.installed(None)  # a Root that cannot say its version: both, the piped one for 0.4.1 and 0.5.0
         e = self.get("--from", self.file).stderr
-        self.assertIn(f"\n  {rh}init-agent upgrade --bundle {shq(self.file)} --sha256 <the 64 hex digits>\n", e)
+        self.assertIn(f"\n  {rh}~/.local/bin/init-agent upgrade --bundle {shq(self.file)} --sha256 <the 64 hex digits>\n", e)
         self.assertIn(f"\n(from INIT 0.4.1 or 0.5.0: {self.pipe()} --from {shq(self.file)} --sha256 <the 64 hex digits>)\n", e)
 
     def test_the_printed_command_runs_as_printed(self):
@@ -266,7 +266,8 @@ class VersionTags(unittest.TestCase):
     def get(self, version, dist_url="https://dist.invalid/rel/latest/download", extra=()):
         env = {"PATH": f"{self.bin}:/usr/bin:/bin", "HOME": self.tmp, "INIT_APP_DIR": self.app, "INIT_DIST_URL": dist_url,
                "FAKE_DIST": self.dist, "LANG": "C"}
-        p = subprocess.run(["/bin/sh", GET, "--unpack-only", "--version", version, *extra], env=env, stdin=subprocess.DEVNULL,
+        # unsigned stand-in releases: the signature is test_release_signature.py's (--allow-unsigned skips it here)
+        p = subprocess.run(["/bin/sh", GET, "--unpack-only", "--allow-unsigned", "--version", version, *extra], env=env, stdin=subprocess.DEVNULL,
                            capture_output=True, text=True, timeout=120)
         log = os.path.join(self.tmp, "curl.log")
         urls = open(log).read().split() if os.path.exists(log) else []

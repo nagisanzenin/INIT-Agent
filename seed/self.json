@@ -3,14 +3,14 @@
     "crate": "init-body",
     "edition": "2024",
     "rust_version": null,
-    "version": "0.5.2"
+    "version": "0.5.3"
   },
-  "body_tokens": 433723,
+  "body_tokens": 434049,
   "budget": {
-    "bytes": 1672198,
+    "bytes": 1673497,
     "files": 99,
     "tests_tokens": 23734,
-    "tokens": 433723,
+    "tokens": 434049,
     "uncounted_tokens": 74200
   },
   "components": [
@@ -35,7 +35,7 @@
       "paths": [
         "src/boot/awareness.rs"
       ],
-      "tokens": 19017
+      "tokens": 19106
     },
     {
       "compensates_for": "none",
@@ -57,7 +57,7 @@
       "paths": [
         "src/boot/awareness/tests.rs"
       ],
-      "tokens": 28599
+      "tokens": 28737
     },
     {
       "compensates_for": "none",
@@ -68,7 +68,7 @@
       "paths": [
         "src/boot/env.rs"
       ],
-      "tokens": 7171
+      "tokens": 7176
     },
     {
       "compensates_for": "none",
@@ -939,7 +939,7 @@
       "paths": [
         "skills/gbal/SKILL.md"
       ],
-      "tokens": 1400
+      "tokens": 1494
     },
     {
       "compensates_for": "none",
@@ -2204,14 +2204,14 @@
       "bytes": 49136,
       "counted": false,
       "path": "Cargo.lock",
-      "sha256": "cc88b2b248319e18e65a0413c25acba48d41612337fa2cbbd487b76eb7d21cb7",
+      "sha256": "e47f09d66c120d77978b1e70ef56252fe3f9de0d33b3bf6c065762dbe70131d1",
       "tokens": 18415
     },
     {
       "bytes": 1840,
       "counted": true,
       "path": "Cargo.toml",
-      "sha256": "07196d383c7545dc085a8d3f8283d8593baaf4d611a7408a82615d556877ad59",
+      "sha256": "ea61b41f41bc2c65194631e1f34657d335443c1027cc0b31620effb319b841ff",
       "tokens": 524
     },
     {
@@ -2299,11 +2299,11 @@
       "tokens": 2814
     },
     {
-      "bytes": 5586,
+      "bytes": 5937,
       "counted": true,
       "path": "skills/gbal/SKILL.md",
-      "sha256": "dc31e40215bf5120c4ea9920a179d5ce5a51d3396c11e00a5ebeff1b4a6870d7",
-      "tokens": 1400
+      "sha256": "b2704156f74e70a8f6744cda4273127ef5a1eaf0a5f3562c453c078727f6e5c2",
+      "tokens": 1494
     },
     {
       "bytes": 4045,
@@ -2320,11 +2320,11 @@
       "tokens": 874
     },
     {
-      "bytes": 70050,
+      "bytes": 70402,
       "counted": true,
       "path": "src/boot/awareness.rs",
-      "sha256": "af4ee434f9368d5d84a48684fc0476884b1d0821986e2b7c055f3c6ad8f28ff9",
-      "tokens": 19017
+      "sha256": "1d1a36db8e604e136d16d2c39de054a501dd57a75012a24827f4b537927d7547",
+      "tokens": 19106
     },
     {
       "bytes": 4543,
@@ -2334,18 +2334,18 @@
       "tokens": 1460
     },
     {
-      "bytes": 97857,
+      "bytes": 98433,
       "counted": true,
       "path": "src/boot/awareness/tests.rs",
-      "sha256": "cadc9a25871aa96a946848b460e638329a36b477a0ba7786c770bddf250aa806",
-      "tokens": 28599
+      "sha256": "358575e82ef2277446539c72329e0170fa6ccdbd124f0331a8970a34468ae234",
+      "tokens": 28737
     },
     {
-      "bytes": 27362,
+      "bytes": 27382,
       "counted": true,
       "path": "src/boot/env.rs",
-      "sha256": "1d5546b5582e85ceae4d37de7eb7dde19be98791ccecd9ef33e04062964607a0",
-      "tokens": 7171
+      "sha256": "20fcf8ffb8fa3caa3ac758e3b8a14e0ba3adf6222ce15e9f14d8ce53a5185f7c",
+      "tokens": 7176
     },
     {
       "bytes": 8504,
@@ -3202,7 +3202,7 @@
   },
   "hooks": [],
   "manifest": {
-    "body_version": "0.5.2",
+    "body_version": "0.5.3",
     "control_channel": "stdio-jsonl/1",
     "env": [
       "HOME",
@@ -3957,305 +3957,305 @@
           "vis": "private"
         },
         {
-          "end_line": 1139,
+          "end_line": 1143,
           "kind": "fn",
           "line": 1105,
           "name": "access_line",
-          "tokens": 545,
+          "tokens": 634,
           "vis": "private"
         },
         {
-          "end_line": 1152,
+          "end_line": 1156,
           "kind": "fn",
-          "line": 1141,
+          "line": 1145,
           "name": "prefix_line",
           "tokens": 119,
           "vis": "private"
         },
         {
-          "end_line": 1174,
+          "end_line": 1178,
           "kind": "fn",
-          "line": 1154,
+          "line": 1158,
           "name": "session_line",
           "tokens": 147,
           "vis": "private"
         },
         {
-          "end_line": 1179,
+          "end_line": 1183,
           "kind": "fn",
-          "line": 1176,
+          "line": 1180,
           "name": "frac",
           "tokens": 43,
           "vis": "private"
         },
         {
-          "end_line": 1197,
+          "end_line": 1201,
           "kind": "fn",
-          "line": 1181,
+          "line": 1185,
           "name": "cap_list",
           "tokens": 155,
           "vis": "private"
         },
         {
-          "end_line": 1251,
+          "end_line": 1255,
           "kind": "fn",
-          "line": 1199,
+          "line": 1203,
           "name": "extend_level",
           "tokens": 598,
           "vis": "private"
         },
         {
-          "end_line": 1317,
+          "end_line": 1321,
           "kind": "fn",
-          "line": 1253,
+          "line": 1257,
           "name": "extend_line",
           "tokens": 726,
           "vis": "private"
         },
         {
-          "end_line": 1330,
+          "end_line": 1334,
           "kind": "fn",
-          "line": 1319,
+          "line": 1323,
           "name": "new_for_level",
           "tokens": 122,
           "vis": "private"
         },
         {
-          "end_line": 1379,
+          "end_line": 1383,
           "kind": "fn",
-          "line": 1332,
+          "line": 1336,
           "name": "level_change_line",
           "tokens": 564,
           "vis": "private"
         },
         {
-          "end_line": 1396,
+          "end_line": 1400,
           "kind": "fn",
-          "line": 1381,
+          "line": 1385,
           "name": "update_failed_line",
           "tokens": 159,
           "vis": "private"
         },
         {
-          "end_line": 1423,
+          "end_line": 1427,
           "kind": "fn",
-          "line": 1398,
+          "line": 1402,
           "name": "audit_lines",
           "tokens": 256,
           "vis": "private"
         },
         {
-          "end_line": 1464,
+          "end_line": 1468,
           "kind": "fn",
-          "line": 1425,
+          "line": 1429,
           "name": "capability_rows",
           "tokens": 461,
           "vis": "private"
         },
         {
-          "end_line": 1477,
+          "end_line": 1481,
           "kind": "fn",
-          "line": 1466,
+          "line": 1470,
           "name": "capability_digest",
           "tokens": 131,
           "vis": "pub"
         },
         {
-          "end_line": 1522,
+          "end_line": 1526,
           "kind": "fn",
-          "line": 1479,
+          "line": 1483,
           "name": "capability_line",
           "tokens": 446,
           "vis": "private"
         },
         {
-          "end_line": 1529,
+          "end_line": 1533,
           "kind": "fn",
-          "line": 1524,
+          "line": 1528,
           "name": "evolution_items",
           "tokens": 64,
           "vis": "private"
         },
         {
-          "end_line": 1553,
+          "end_line": 1557,
           "kind": "fn",
-          "line": 1531,
+          "line": 1535,
           "name": "retire_line",
           "tokens": 177,
           "vis": "private"
         },
         {
-          "end_line": 1579,
+          "end_line": 1583,
           "kind": "fn",
-          "line": 1555,
+          "line": 1559,
           "name": "thin_line",
           "tokens": 201,
           "vis": "private"
         },
         {
-          "end_line": 1588,
+          "end_line": 1592,
           "kind": "fn",
-          "line": 1581,
+          "line": 1585,
           "name": "upstream_line",
           "tokens": 86,
           "vis": "private"
         },
         {
-          "end_line": 1596,
+          "end_line": 1600,
           "kind": "fn",
-          "line": 1590,
+          "line": 1594,
           "name": "predict_line",
           "tokens": 68,
           "vis": "private"
         },
         {
-          "end_line": 1601,
+          "end_line": 1605,
           "kind": "fn",
-          "line": 1598,
+          "line": 1602,
           "name": "kernel_word",
           "tokens": 45,
           "vis": "private"
         },
         {
-          "end_line": 1605,
+          "end_line": 1609,
           "kind": "fn",
-          "line": 1603,
+          "line": 1607,
           "name": "plural",
           "tokens": 41,
           "vis": "private"
         },
         {
-          "end_line": 1654,
+          "end_line": 1658,
           "kind": "fn",
-          "line": 1607,
+          "line": 1611,
           "name": "engine_line",
           "tokens": 536,
           "vis": "private"
         },
         {
-          "end_line": 1660,
+          "end_line": 1664,
           "kind": "fn",
-          "line": 1656,
+          "line": 1660,
           "name": "evolution_state_line",
           "tokens": 73,
           "vis": "private"
         },
         {
-          "end_line": 1674,
+          "end_line": 1678,
           "kind": "struct",
-          "line": 1666,
+          "line": 1670,
           "name": "SignalCx",
           "tokens": 87,
           "vis": "pub"
         },
         {
-          "end_line": 1690,
+          "end_line": 1694,
           "kind": "impl",
-          "line": 1676,
+          "line": 1680,
           "name": "impl SignalCx",
           "tokens": 204,
           "vis": "private"
         },
         {
-          "end_line": 1703,
+          "end_line": 1707,
           "kind": "struct",
-          "line": 1692,
+          "line": 1696,
           "name": "Stats",
           "tokens": 131,
           "vis": "pub"
         },
         {
-          "end_line": 1722,
+          "end_line": 1726,
           "kind": "impl",
-          "line": 1705,
+          "line": 1709,
           "name": "impl Stats",
           "tokens": 225,
           "vis": "private"
         },
         {
-          "end_line": 1728,
+          "end_line": 1732,
           "kind": "struct",
-          "line": 1724,
+          "line": 1728,
           "name": "Deadline",
           "tokens": 30,
           "vis": "private"
         },
         {
-          "end_line": 1741,
+          "end_line": 1745,
           "kind": "impl",
-          "line": 1730,
+          "line": 1734,
           "name": "impl Read for Deadline",
           "tokens": 132,
           "vis": "private"
         },
         {
-          "end_line": 1744,
+          "end_line": 1748,
           "kind": "const",
-          "line": 1743,
+          "line": 1747,
           "name": "STATS_MAX",
           "tokens": 20,
           "vis": "private"
         },
         {
-          "end_line": 1781,
+          "end_line": 1785,
           "kind": "fn",
-          "line": 1746,
+          "line": 1750,
           "name": "try_fetch_stats",
           "tokens": 319,
           "vis": "private"
         },
         {
-          "end_line": 1789,
+          "end_line": 1793,
           "kind": "fn",
-          "line": 1783,
+          "line": 1787,
           "name": "fetch_stats",
           "tokens": 84,
           "vis": "pub"
         },
         {
-          "end_line": 1793,
+          "end_line": 1797,
           "kind": "fn",
-          "line": 1791,
+          "line": 1795,
           "name": "pct",
           "tokens": 38,
           "vis": "private"
         },
         {
-          "end_line": 1802,
+          "end_line": 1806,
           "kind": "fn",
-          "line": 1795,
+          "line": 1799,
           "name": "uptime_text",
           "tokens": 90,
           "vis": "private"
         },
         {
-          "end_line": 1852,
+          "end_line": 1856,
           "kind": "fn",
-          "line": 1804,
+          "line": 1808,
           "name": "signal_text",
           "tokens": 492,
           "vis": "pub"
         },
         {
-          "end_line": 1861,
+          "end_line": 1865,
           "kind": "struct",
-          "line": 1854,
+          "line": 1858,
           "name": "Signals",
           "tokens": 71,
           "vis": "pub"
         },
         {
-          "end_line": 1891,
+          "end_line": 1895,
           "kind": "impl",
-          "line": 1863,
+          "line": 1867,
           "name": "impl SignalSource for Signals",
           "tokens": 250,
           "vis": "private"
         }
       ],
-      "lines": 1891,
+      "lines": 1895,
       "path": "src/boot/awareness.rs",
-      "tokens": 19017
+      "tokens": 19106
     },
     {
       "forbid_unsafe": false,
@@ -4749,337 +4749,337 @@
           "vis": "private"
         },
         {
-          "end_line": 1066,
+          "end_line": 1076,
           "kind": "fn",
           "line": 977,
           "name": "access_line_forms_and_position",
-          "tokens": 1058,
+          "tokens": 1196,
           "vis": "private"
         },
         {
-          "end_line": 1096,
+          "end_line": 1106,
           "kind": "fn",
-          "line": 1068,
+          "line": 1078,
           "name": "t_aw_6_handoff_workspace_change",
           "tokens": 340,
           "vis": "private"
         },
         {
-          "end_line": 1119,
+          "end_line": 1129,
           "kind": "fn",
-          "line": 1098,
+          "line": 1108,
           "name": "t_aw_6_safe_and_probe_modes",
           "tokens": 290,
           "vis": "private"
         },
         {
-          "end_line": 1127,
+          "end_line": 1137,
           "kind": "fn",
-          "line": 1121,
+          "line": 1131,
           "name": "t_aw_6_is_deterministic_and_float_free",
           "tokens": 69,
           "vis": "private"
         },
         {
-          "end_line": 1178,
+          "end_line": 1188,
           "kind": "fn",
-          "line": 1129,
+          "line": 1139,
           "name": "optional_lines_in_order",
           "tokens": 726,
           "vis": "private"
         },
         {
-          "end_line": 1234,
+          "end_line": 1244,
           "kind": "fn",
-          "line": 1180,
+          "line": 1190,
           "name": "engine_line_texts",
           "tokens": 737,
           "vis": "private"
         },
         {
-          "end_line": 1260,
+          "end_line": 1270,
           "kind": "fn",
-          "line": 1236,
+          "line": 1246,
           "name": "engine_line_order_in_boot_block",
           "tokens": 267,
           "vis": "private"
         },
         {
-          "end_line": 1343,
+          "end_line": 1353,
           "kind": "fn",
-          "line": 1262,
+          "line": 1272,
           "name": "supervise_example_boot_json_renders_with_unknowns",
           "tokens": 1491,
           "vis": "private"
         },
         {
-          "end_line": 1437,
+          "end_line": 1447,
           "kind": "fn",
-          "line": 1349,
+          "line": 1359,
           "name": "t_aw_12_autonomy_and_ceilings",
           "tokens": 1300,
           "vis": "private"
         },
         {
-          "end_line": 1477,
+          "end_line": 1487,
           "kind": "fn",
-          "line": 1443,
+          "line": 1453,
           "name": "t_aw_13_level_change_shown_once",
           "tokens": 517,
           "vis": "private"
         },
         {
-          "end_line": 1515,
+          "end_line": 1525,
           "kind": "fn",
-          "line": 1479,
+          "line": 1489,
           "name": "t_aw_13_demotion_triggers_and_charter_cap",
           "tokens": 400,
           "vis": "private"
         },
         {
-          "end_line": 1542,
+          "end_line": 1552,
           "kind": "fn",
-          "line": 1522,
+          "line": 1532,
           "name": "caps_view",
           "tokens": 300,
           "vis": "private"
         },
         {
-          "end_line": 1553,
+          "end_line": 1563,
           "kind": "fn",
-          "line": 1544,
+          "line": 1554,
           "name": "extend_view",
           "tokens": 213,
           "vis": "private"
         },
         {
-          "end_line": 1560,
+          "end_line": 1570,
           "kind": "fn",
-          "line": 1555,
+          "line": 1565,
           "name": "next_l1",
           "tokens": 187,
           "vis": "private"
         },
         {
-          "end_line": 1569,
+          "end_line": 1579,
           "kind": "fn",
-          "line": 1562,
+          "line": 1572,
           "name": "extend_of",
           "tokens": 82,
           "vis": "private"
         },
         {
-          "end_line": 1582,
+          "end_line": 1592,
           "kind": "fn",
-          "line": 1571,
+          "line": 1581,
           "name": "free_root",
           "tokens": 135,
           "vis": "private"
         },
         {
-          "end_line": 1770,
+          "end_line": 1780,
           "kind": "fn",
-          "line": 1584,
+          "line": 1594,
           "name": "t_aw_x11_extend_line_per_state",
           "tokens": 2286,
           "vis": "private"
         },
         {
-          "end_line": 1826,
+          "end_line": 1836,
           "kind": "fn",
-          "line": 1772,
+          "line": 1782,
           "name": "t_aw_x11_render_boot_reads_the_root_views",
           "tokens": 650,
           "vis": "private"
         },
         {
-          "end_line": 1846,
+          "end_line": 1856,
           "kind": "fn",
-          "line": 1832,
+          "line": 1842,
           "name": "live_capability",
           "tokens": 292,
           "vis": "private"
         },
         {
-          "end_line": 1848,
+          "end_line": 1858,
           "kind": "const",
-          "line": 1848,
+          "line": 1858,
           "name": "CAP_LINE",
           "tokens": 66,
           "vis": "private"
         },
         {
-          "end_line": 1914,
+          "end_line": 1924,
           "kind": "fn",
-          "line": 1850,
+          "line": 1860,
           "name": "t_aw_14_capability_line",
           "tokens": 737,
           "vis": "private"
         },
         {
-          "end_line": 1929,
+          "end_line": 1939,
           "kind": "fn",
-          "line": 1920,
+          "line": 1930,
           "name": "th",
           "tokens": 67,
           "vis": "private"
         },
         {
-          "end_line": 1939,
+          "end_line": 1949,
           "kind": "fn",
-          "line": 1931,
+          "line": 1941,
           "name": "cx0",
           "tokens": 60,
           "vis": "private"
         },
         {
-          "end_line": 1950,
+          "end_line": 1960,
           "kind": "fn",
-          "line": 1941,
+          "line": 1951,
           "name": "stats_ok",
           "tokens": 76,
           "vis": "private"
         },
         {
-          "end_line": 1952,
+          "end_line": 1962,
           "kind": "const",
-          "line": 1952,
+          "line": 1962,
           "name": "UP",
           "tokens": 25,
           "vis": "private"
         },
         {
-          "end_line": 1960,
+          "end_line": 1970,
           "kind": "fn",
-          "line": 1954,
+          "line": 1964,
           "name": "t_aw_7_signal_golden",
           "tokens": 107,
           "vis": "private"
         },
         {
-          "end_line": 1983,
+          "end_line": 1993,
           "kind": "fn",
-          "line": 1962,
+          "line": 1972,
           "name": "t_aw_7_unknowns_render_question_marks",
           "tokens": 227,
           "vis": "private"
         },
         {
-          "end_line": 2001,
+          "end_line": 2011,
           "kind": "fn",
-          "line": 1985,
+          "line": 1995,
           "name": "t_aw_7_compaction_hint_at_85_percent_of_trigger",
           "tokens": 207,
           "vis": "private"
         },
         {
-          "end_line": 2022,
+          "end_line": 2032,
           "kind": "fn",
-          "line": 2003,
+          "line": 2013,
           "name": "signal_cx_from_boot",
           "tokens": 145,
           "vis": "private"
         },
         {
-          "end_line": 2032,
+          "end_line": 2042,
           "kind": "struct",
-          "line": 2028,
+          "line": 2038,
           "name": "FakeProxy",
           "tokens": 44,
           "vis": "private"
         },
         {
-          "end_line": 2046,
+          "end_line": 2056,
           "kind": "fn",
-          "line": 2034,
+          "line": 2044,
           "name": "relative_path",
           "tokens": 147,
           "vis": "private"
         },
         {
-          "end_line": 2060,
+          "end_line": 2070,
           "kind": "fn",
-          "line": 2048,
+          "line": 2058,
           "name": "sock_path",
           "tokens": 225,
           "vis": "private"
         },
         {
-          "end_line": 2098,
+          "end_line": 2108,
           "kind": "impl",
-          "line": 2062,
+          "line": 2072,
           "name": "impl FakeProxy",
           "tokens": 352,
           "vis": "private"
         },
         {
-          "end_line": 2104,
+          "end_line": 2114,
           "kind": "impl",
-          "line": 2100,
+          "line": 2110,
           "name": "impl Drop for FakeProxy",
           "tokens": 31,
           "vis": "private"
         },
         {
-          "end_line": 2106,
+          "end_line": 2116,
           "kind": "const",
-          "line": 2106,
+          "line": 2116,
           "name": "STATS_BODY",
           "tokens": 120,
           "vis": "private"
         },
         {
-          "end_line": 2131,
+          "end_line": 2141,
           "kind": "fn",
-          "line": 2108,
+          "line": 2118,
           "name": "fetch_stats_content_length_and_chunked",
           "tokens": 269,
           "vis": "private"
         },
         {
-          "end_line": 2157,
+          "end_line": 2167,
           "kind": "fn",
-          "line": 2133,
+          "line": 2143,
           "name": "fake_proxy_socket_fits_the_longest_g0_layout",
           "tokens": 306,
           "vis": "private"
         },
         {
-          "end_line": 2216,
+          "end_line": 2226,
           "kind": "fn",
-          "line": 2159,
+          "line": 2169,
           "name": "fetch_stats_failures_give_all_unknown",
           "tokens": 536,
           "vis": "private"
         },
         {
-          "end_line": 2255,
+          "end_line": 2265,
           "kind": "fn",
-          "line": 2218,
+          "line": 2228,
           "name": "signals_source_fills_text_and_integer_extras",
           "tokens": 457,
           "vis": "private"
         },
         {
-          "end_line": 2272,
+          "end_line": 2282,
           "kind": "fn",
-          "line": 2257,
+          "line": 2267,
           "name": "observed_proxy_stats_keep_evolution_checks_and_suppress_cap",
           "tokens": 325,
           "vis": "private"
         },
         {
-          "end_line": 2288,
+          "end_line": 2298,
           "kind": "fn",
-          "line": 2274,
+          "line": 2284,
           "name": "observed_signal_extra_contains_only_known_evolution_cost",
           "tokens": 220,
           "vis": "private"
         }
       ],
-      "lines": 2288,
+      "lines": 2298,
       "path": "src/boot/awareness/tests.rs",
-      "tokens": 28599
+      "tokens": 28737
     },
     {
       "forbid_unsafe": false,
@@ -5129,7 +5129,7 @@
           "kind": "struct",
           "line": 58,
           "name": "BootEnv",
-          "tokens": 289,
+          "tokens": 294,
           "vis": "pub"
         },
         {
@@ -5327,7 +5327,7 @@
       ],
       "lines": 724,
       "path": "src/boot/env.rs",
-      "tokens": 7171
+      "tokens": 7176
     },
     {
       "forbid_unsafe": false,
@@ -17921,7 +17921,7 @@
       "description": "Pursue an owner goal about how you work (\"fewer tokens on big repos\", \"stop re-asking\") by changing your own Body. Choose mode A (Root card), B (judged) or hybrid with three instrument tests, file a prediction before each change, keep a change only when it beats noise on the goal and no guardrail regresses, record the outcome, stop with a reason. Use when `initctl goal status` shows an active goal.",
       "name": "gbal",
       "path": "skills/gbal/SKILL.md",
-      "tokens": 1400
+      "tokens": 1494
     },
     {
       "description": "Loop toward an owner goal on an external artifact (a website, a report, a repo) until it is met or you can name why not. Pairwise judging against the current best with position swap, a frozen yes/no checklist, at least 3 judge runs, a ledger file, and six stop reasons (met, budget, plateau, instrument_gap, owner_stop, harm). Use when the owner asks you to keep improving something to a bar. Your own Body is skills/gbal.",
@@ -17930,7 +17930,7 @@
       "tokens": 974
     }
   ],
-  "source_digest": "sha256:ca18f91b463b86f89852beae0c2944209f87a3388b5a8d68c182498e1451e61c",
+  "source_digest": "sha256:43720eb0ce67ff4aa2e4e90b1934ad753f3c88bff8170efc9bc0d416422d7475",
   "tools": {
     "list": [
       {

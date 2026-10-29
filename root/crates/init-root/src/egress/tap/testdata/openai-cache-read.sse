@@ -1,0 +1,15 @@
+event: response.created
+data: {"response":{"id":"resp_g2","model":"gpt-6.1-sol","object":"response","output":[],"status":"in_progress","usage":null},"sequence_number":0,"type":"response.created"}
+
+event: response.in_progress
+data: {"response":{"id":"resp_g2","model":"gpt-6.1-sol","object":"response","output":[],"status":"in_progress","usage":null},"sequence_number":1,"type":"response.in_progress"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"The digest","item_id":"msg_resp_g2","output_index":1,"sequence_number":2,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":" starts with 3f1c0b9e.","item_id":"msg_resp_g2","output_index":1,"sequence_number":3,"type":"response.output_text.delta"}
+
+event: response.completed
+data: {"response":{"id":"resp_g2","model":"gpt-6.1-sol","object":"response","output":[{"encrypted_content":"enc-resp_g2","id":"rs_resp_g2","summary":[],"type":"reasoning"},{"content":[{"annotations":[],"text":"The digest starts with 3f1c0b9e.","type":"output_text"}],"id":"msg_resp_g2","role":"assistant","status":"completed","type":"message"}],"status":"completed","usage":{"input_tokens":22150,"input_tokens_details":{"cache_write_tokens":640,"cached_tokens":21504},"output_tokens":140,"output_tokens_details":{"reasoning_tokens":96},"total_tokens":22290}},"sequence_number":4,"type":"response.completed"}
+

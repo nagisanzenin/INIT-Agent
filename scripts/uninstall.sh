@@ -50,6 +50,9 @@ IH_REC="$(printf '%s\n' "$REC" | sed -n 1p)"; BIN_REC="$(printf '%s\n' "$REC" | 
 IH="${INIT_HOME:-${IH_REC:-$HOME/.init}}"
 BIN_DIR="${INIT_BIN_DIR:-${BIN_REC:-$HOME/.local/bin}}"
 OS="$(uname -s)"
+# systemctl --user reaches the user's service manager through XDG_RUNTIME_DIR; a run under `env -i` has none, and
+# `disable --now` then failed silently and left the Root running (v0.5.3 review; install.sh does the same).
+if [ "$OS" = Linux ]; then XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; export XDG_RUNTIME_DIR; fi
 if [ "$OS" = Darwin ]; then
   TRASH="$HOME/.Trash"
   PLIST="$PW_HOME/Library/LaunchAgents/dev.init.root.plist"

@@ -1,0 +1,197 @@
+{
+ "anthropic-cache-read.sse": {
+  "bill_musd": 5079,
+  "finish": "stop",
+  "flags": [],
+  "hold_musd": 507680,
+  "list_musd": 5079,
+  "max_out": 32768,
+  "model": "claude-sonnet-5-5",
+  "req_bytes": 90000,
+  "usage": {
+   "cache_read": 21504,
+   "cache_write": 640,
+   "input": 22148,
+   "output": 132
+  }
+ },
+ "anthropic-cache-write-ttl.sse": {
+  "bill_musd": 56892,
+  "finish": "stop",
+  "flags": [],
+  "hold_musd": 507680,
+  "list_musd": 56892,
+  "max_out": 32768,
+  "model": "claude-sonnet-5-5",
+  "req_bytes": 90000,
+  "usage": {
+   "cache_read": 0,
+   "cache_write": 20000,
+   "cache_write_1h": 1504,
+   "input": 21507,
+   "output": 87
+  }
+ },
+ "anthropic-cut-after-start.sse": {
+  "bill_musd": 331439,
+  "finish": null,
+  "flags": [
+   "usage_partial"
+  ],
+  "hold_musd": 507680,
+  "list_musd": 3769,
+  "max_out": 32768,
+  "model": "claude-sonnet-5-5",
+  "req_bytes": 90000,
+  "usage": {
+   "cache_read": 21504,
+   "cache_write": 640,
+   "input": 22148,
+   "output": 1,
+   "partial": true
+  }
+ },
+ "anthropic-drift.sse": {
+  "bill_musd": 301182,
+  "finish": "stop",
+  "flags": [
+   "price_drift"
+  ],
+  "hold_musd": 507680,
+  "list_musd": 86142,
+  "max_out": 32768,
+  "model": "claude-sonnet-5-5",
+  "req_bytes": 90000,
+  "usage": {
+   "cache_read": 0,
+   "cache_write_1h": 21504,
+   "input": 21507,
+   "output": 12,
+   "unknown": 21504
+  }
+ },
+ "deepseek-cache-hit.sse": {
+  "bill_musd": 78,
+  "finish": "stop",
+  "flags": [],
+  "hold_musd": 83444,
+  "list_musd": 78,
+  "max_out": 65536,
+  "model": "deepseek-flash",
+  "req_bytes": 16000,
+  "usage": {
+   "cache_read": 3840,
+   "input": 4002,
+   "output": 5
+  }
+ },
+ "deepseek-cut.sse": {
+  "bill_musd": 83444,
+  "finish": null,
+  "flags": [
+   "usage_estimated"
+  ],
+  "hold_musd": 83444,
+  "list_musd": null,
+  "max_out": 65536,
+  "model": "deepseek-flash",
+  "req_bytes": 16000,
+  "usage": null
+ },
+ "deepseek-drift.sse": {
+  "bill_musd": 378,
+  "finish": "stop",
+  "flags": [
+   "price_drift"
+  ],
+  "hold_musd": 83444,
+  "list_musd": 78,
+  "max_out": 65536,
+  "model": "deepseek-flash",
+  "req_bytes": 16000,
+  "usage": {
+   "cache_read": 3840,
+   "input": 4002,
+   "output": 5,
+   "unknown": 250
+  }
+ },
+ "deepseek-reasoning-tool.sse": {
+  "bill_musd": 181,
+  "finish": "tool_use",
+  "flags": [],
+  "hold_musd": 83444,
+  "list_musd": 181,
+  "max_out": 65536,
+  "model": "deepseek-flash",
+  "req_bytes": 16000,
+  "usage": {
+   "cache_read": 3712,
+   "input": 3954,
+   "output": 71
+  }
+ },
+ "openai-cache-read.sse": {
+  "bill_musd": 5163,
+  "finish": "stop",
+  "flags": [],
+  "hold_musd": 507680,
+  "list_musd": 5163,
+  "max_out": 32768,
+  "model": "gpt-6.1-sol",
+  "req_bytes": 90000,
+  "usage": {
+   "cache_read": 21504,
+   "cache_write": 640,
+   "input": 22150,
+   "output": 140
+  }
+ },
+ "openai-cache-write.sse": {
+  "bill_musd": 54722,
+  "finish": "stop",
+  "flags": [],
+  "hold_musd": 507680,
+  "list_musd": 54722,
+  "max_out": 32768,
+  "model": "gpt-6.1-sol",
+  "req_bytes": 90000,
+  "usage": {
+   "cache_read": 0,
+   "cache_write": 21504,
+   "input": 21510,
+   "output": 95
+  }
+ },
+ "openai-cut.sse": {
+  "bill_musd": 507680,
+  "finish": null,
+  "flags": [
+   "usage_estimated"
+  ],
+  "hold_musd": 507680,
+  "list_musd": null,
+  "max_out": 32768,
+  "model": "gpt-6.1-sol",
+  "req_bytes": 90000,
+  "usage": null
+ },
+ "openai-drift.sse": {
+  "bill_musd": 258260,
+  "finish": "stop",
+  "flags": [
+   "price_drift"
+  ],
+  "hold_musd": 507680,
+  "list_musd": 43220,
+  "max_out": 32768,
+  "model": "gpt-6.1-sol",
+  "req_bytes": 90000,
+  "usage": {
+   "cache_read": 0,
+   "input": 21510,
+   "output": 20,
+   "unknown": 21504
+  }
+ }
+}

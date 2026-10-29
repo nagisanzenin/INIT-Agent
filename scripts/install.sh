@@ -2,8 +2,9 @@
 # Install INIT on this Mac or Linux machine with one command (root/root.md §4.3; RELEASE_PLAN.md "What v0.1.0 means" item 1).
 # Two modes: from a source checkout (builds with release.sh), or from an unpacked release bundle (scripts/bundle.sh;
 # scripts/get.sh runs it there), detected by SHA256SUMS and body/BODY.json next to scripts/. The bundle mode installs
-# the prebuilt body (verified bit for bit). get.sh installs the Rust toolchain first (rustup 1.97.1 + wasm32-wasip2,
-# unless --no-rust), which this script records for self-evolution T1/T2; without a toolchain self-evolution is T0 only.
+# the prebuilt body (hash-equal to the maintainer's build). get.sh installs the Rust toolchain first (rustup 1.97.1 +
+# wasm32-wasip2, unless --no-rust), which this script records for self-evolution T1/T2; without a toolchain
+# self-evolution is T0 only.
 #
 #   scripts/install.sh [--yes] [--no-service] [--rebuild | --reuse] [--with-tests] [--allow-dirty]
 #                      [--disk-floor GIB] [--day-usd X] [--total-usd X] [--max-level N] [--access full|workspace]
@@ -114,6 +115,11 @@ step() { printf '\n==> %s\n' "$*"; }
 die() { printf '\ninstall.sh: %s\n' "$*" >&2; exit 1; }
 free_mb() { df -Pm "${HOME:-/}" | awk 'NR==2{print $4}'; }
 OS="$(uname -s)"
+# systemctl --user reaches the user's service manager through XDG_RUNTIME_DIR (or DBUS_SESSION_BUS_ADDRESS). A run
+# under `env -i HOME="$HOME" …` (how the v0.5.3 release notes have an upgrade drop a planted INIT_DIST_URL) has
+# neither, and every systemctl --user call failed: the upgrade stopped the agent, then waited 60 s for a Root it could
+# not stop (the release review of v0.5.3). /run/user/<uid> is where systemd-logind puts it.
+if [ "$OS" = Linux ]; then XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"; export XDG_RUNTIME_DIR; fi
 # sha256 tools: shasum on macOS, coreutils sha256sum on Linux (same `<hash>  <file>` format)
 if [ "$OS" = Darwin ]; then SHA_CHECK=(/usr/bin/shasum -a 256 -c --quiet); else SHA_CHECK=(sha256sum -c --quiet); fi
 gt() { awk -v a="$1" -v b="$2" 'BEGIN { exit !(a + 0 > b + 0) }'; } # decimal a > b, without bc
@@ -156,6 +162,40 @@ shq() { case "$1" in ''|*[!A-Za-z0-9/._+,:@%=-]*) printf "'%s'" "$(printf '%s' "
 # rh_env: "INIT_ROOT_HOME=<ROOT_HOME> " when a new terminal would not find this ROOT_HOME (not ~/.init-root), else ""
 rh_env() { [ -n "$PW_HOME" ] && [ "$RH" = "$PW_HOME/.init-root" ] || printf 'INIT_ROOT_HOME=%s ' "$(shq "$RH")"; }
 rcmd() { printf '%s%s' "$(rh_env)" "$(shq "$RH/bin/init-root")"; [ $# = 0 ] || printf ' %s' "$*"; }
+# v0.5.3 (the post-release review of v0.5.2): `init-agent` is printed with its path too (get.sh's tilde and agent). A
+# bare `init-agent …` is "command not found" on a fresh Mac, whose PATH lacks ~/.local/bin. Under HOME the path is
+# written `~/…` (the shell expands it there), else as shq prints it.
+tilde() { local h="${HOME%/}"; if [ -n "$h" ] && [[ "$1" == "$h"/?* ]]; then printf '~/%s' "$(shq "${1#"$h"/}")"; else shq "$1"; fi; }
+agent() { # the init-agent command of the INIT in ROOT_HOME: in the bin_dir its install.json records, else BIN_DIR
+  local b
+  b="$(/usr/bin/python3 -I -c 'import json,sys
+try: print(json.load(open(sys.argv[1])).get("bin_dir") or "")
+except Exception: pass' "$RH/install.json" 2>/dev/null || true)"
+  [ -n "$b" ] && [ -x "$b/init-agent" ] || b="$BIN_DIR"
+  tilde "$b/init-agent"
+}
+# v0.5.3: the PATH hint names the startup file of the owner's shell ($SHELL); it always said ~/.zshrc, which a Linux
+# bash user never reads. zsh: ~/.zshrc (in ZDOTDIR when set). bash: ~/.bashrc on Linux; on macOS, whose terminals open
+# login shells, the file a login bash reads (~/.bash_profile, else ~/.bash_login, else ~/.profile; a new
+# ~/.bash_profile would hide an existing ~/.profile). fish: fish_add_path. Any other shell: ~/.profile.
+path_add() { # <dir>: the command that puts <dir> on PATH in the owner's new terminals
+  local d="$1" h="${HOME%/}" rc f
+  [ -n "$h" ] && [[ "$d" == "$h"/?* ]] && d="\$HOME/${d#"$h"/}"
+  case "${SHELL##*/}" in
+    fish) printf 'fish_add_path %s' "$(tilde "$1")"; return ;;
+    zsh) rc="$(tilde "${ZDOTDIR:-$HOME}/.zshrc")" ;;
+    bash)
+      if [ "$OS" = Darwin ]; then
+        rc="$HOME/.bash_profile"
+        for f in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do [ -e "$f" ] && { rc="$f"; break; }; done
+        rc="$(tilde "$rc")"
+      else
+        rc="$(tilde "$HOME/.bashrc")"
+      fi ;;
+    *) rc="$(tilde "$HOME/.profile")" ;;
+  esac
+  printf 'echo %s >> %s' "$(shq "export PATH=\"$d:\$PATH\"")" "$rc"
+}
 # The upgrade to the latest release with its get.sh and the system's curl and sh: what an install of 0.4.1 or 0.5.0 runs
 # (0.5.0's own `init-agent upgrade` runs 0.5.0's get.sh, without 0.5.1's fixes; docs/guide.md "Upgrade"; get.sh's up_pipe)
 up_pipe() {
@@ -353,13 +393,19 @@ for p in launchers:
 PY
 }
 ELSEWHERE=""; SECOND="" # set when the INIT found is in another ROOT_HOME than this run's
-if [ $UPGRADE = 0 ] && [ ! -e "$RH/install.json" ]; then
+# v0.5.3 (the post-release review of v0.5.2): --upgrade looks too, as get.sh's does. Without INIT_ROOT_HOME on a
+# custom-home install it said "not installed … run this without --upgrade", and only that run printed the right line.
+if [ ! -e "$RH/install.json" ]; then
   OTHER="$(other_home "$(svc_file)")"
   if [ -n "$OTHER" ]; then
     NEW="$RH"; RH="$(printf '%s\n' "$OTHER" | sed -n 1p)" # every line below names that INIT's home
-    ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). A second install, in $NEW, would take that over and leave this one behind"
-    SECOND="
+    if [ $UPGRADE = 1 ]; then
+      ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). It is not in $NEW, the home this upgrade looked in (INIT_ROOT_HOME was not set)"
+    else
+      ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). A second install, in $NEW, would take that over and leave this one behind"
+      SECOND="
 (For a separate, second INIT instead: give it its own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, and pass --no-service.)"
+    fi
   fi
 fi
 if [ -e "$RH/install.json" ]; then
@@ -377,9 +423,11 @@ or, to the latest release, once from your own shell: $(up_pipe)$SECOND"
   [ -n "$HAVE" ] && ALT="" || ALT="
 (from 0.4.1 or 0.5.0, init-agent upgrade does not apply: $UP_HERE, or the latest release: $(up_pipe))"
   die "INIT ${HAVE:+$HAVE }is already installed ${ELSEWHERE:-($RH/install.json exists)}. Upgrade it to v$VERSION instead, which keeps what INIT has become:
-  $(rh_env)init-agent upgrade        (or: $UP_HERE)$ALT$SECOND"
+  $(rh_env)$(agent) upgrade        (or: $UP_HERE)$ALT$SECOND"
 fi
 if [ $UPGRADE = 1 ]; then
+  [ -z "$ELSEWHERE" ] || die "INIT ${HAVE:+$HAVE }is installed $ELSEWHERE. Upgrade it to v$VERSION with its home given to install.sh:
+  $(rh_env)$(shq "$REPO/scripts/install.sh") --upgrade"
   [ -e "$RH/install.json" ] || die "INIT is not installed ($RH/install.json is missing): run this without --upgrade to install it"
   [ -z "$MOCK" ] && [ -z "$CHARTER_IN" ] || die "--upgrade keeps the installed charter: --mock-upstream and --charter do not apply"
   case "$PROBE_S" in ""|*[!0-9]*) die "--probe-timeout takes a number of seconds" ;; esac
@@ -507,15 +555,28 @@ try: fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
 except BlockingIOError: sys.exit(1)
 sys.exit(0)' "$RH/run/root.lock"
   }
+  # The service's stop and start (v0.5.3, the release review: their errors were thrown away, so a stop that failed read
+  # as a Root that would not stop): svc runs one, svc_cmd prints it as the owner types it, svc_err is what it said.
+  svc() { # stop|start
+    if [ "$OS" = Darwin ] && [ "$1" = stop ]; then launchctl bootout "gui/$(id -u)/dev.init.root"
+    elif [ "$OS" = Darwin ]; then launchctl bootstrap "gui/$(id -u)" "$SVCF" || launchctl kickstart "gui/$(id -u)/dev.init.root"
+    else systemctl --user "$1" init-root.service; fi
+  }
+  svc_cmd() { # stop|start
+    if [ "$OS" = Darwin ] && [ "$1" = stop ]; then printf 'launchctl bootout gui/%s/dev.init.root' "$(id -u)"
+    elif [ "$OS" = Darwin ]; then printf 'launchctl bootstrap gui/%s %s' "$(id -u)" "$(shq "$SVCF")"
+    else printf 'systemctl --user %s init-root.service' "$1"; fi
+  }
+  svc_err() { # <its output file>: its last lines, on one line
+    tail -n 3 "$1" | tr -s '\n' ' ' | sed 's/ *$//'
+  }
   svc_start() { # the service again (if INIT has one); else how to start the Root
     if [ $SVC = 0 ]; then
       say "  start the Root again as before, in its own terminal: $(rcmd start --foreground)"
-    elif [ "$OS" = Darwin ]; then
-      launchctl bootstrap "gui/$(id -u)" "$SVCF" 2>/dev/null || launchctl kickstart "gui/$(id -u)/dev.init.root" 2>/dev/null || true
+    elif ! svc start >"$WORK/svc.out" 2>&1; then
+      say "  warning: $(svc_cmd start) failed: $(svc_err "$WORK/svc.out")"
+      say "  The Root is not running. Start it: $(svc_cmd start)   (or, in a terminal of its own: $(rcmd start --foreground))"
     else
-      systemctl --user start init-root.service 2>/dev/null || true
-    fi
-    if [ $SVC = 1 ]; then
       for _ in $(seq 1 120); do [ -S "$RH/run/owner.sock" ] && ! lock_free && break; sleep 0.25; done
       lock_free && say "  warning: the Root did not come back under the service; see $RH/logs/" || say "  the Root runs again under the service"
     fi
@@ -537,17 +598,18 @@ sys.exit(0)' "$RH/run/root.lock"
     printf '%s, and this step needs it stopped. Run:\n  %s\n%sthen start the Root: %s' "$svc" "$1" "$alt" "$start"
   }
   # 1. stop: the zone through the Root, then the Root itself (service); a Root in a terminal is never signalled from here
-  step "upgrade 1/5 stop INIT"
-  if ! lock_free; then
+  stop_root() {
+    local why="" n=120 agent="its agent stopped by the upgrade (start it again: $(rcmd start))"
     [ $SVC = 1 ] || die "the Root (pid $(cat "$RH/run/root.pid" 2>/dev/null || echo '?')) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
-    "${IENV[@]}" "$ROOT_BIN" stop >/dev/null 2>&1 || true
-    if [ "$OS" = Darwin ]; then launchctl bootout "gui/$(id -u)/dev.init.root" 2>/dev/null || true; else systemctl --user stop init-root.service 2>/dev/null || true; fi
-    for _ in $(seq 1 120); do lock_free && break; sleep 0.5; done
-    lock_free || die "the Root did not stop within 60 s; nothing was changed"
+    "${IENV[@]}" "$ROOT_BIN" stop >/dev/null 2>&1 || agent="its agent as it was (the Root did not answer the upgrade's stop)"
+    # a stop the service refused stops nothing: a short wait, then what it said
+    svc stop >"$WORK/svc.out" 2>&1 || { why=" ($(svc_cmd stop) failed: $(svc_err "$WORK/svc.out"))"; n=20; }
+    for _ in $(seq 1 $n); do lock_free && break; sleep 0.5; done
+    lock_free || die "the Root did not stop within $((n / 2)) s$why. Nothing was changed: the Root (pid $(cat "$RH/run/root.pid" 2>/dev/null || echo '?')) still runs the version you had, with $agent. To upgrade, stop the Root yourself ($(svc_cmd stop)), then run the upgrade again."
     say "  stopped (the service)"
-  else
-    say "  the Root is not running"
-  fi
+  }
+  step "upgrade 1/5 stop INIT"
+  if ! lock_free; then stop_root; else say "  the Root is not running"; fi
   # 2. the replace step, by this release's own Root (refusals change nothing). --by-installer: this script runs the
   #    probe and the commit itself, so the Root prints no "next" hint for them (v0.5.2)
   step "upgrade 2/5 replace the Root and the kernel (v$VERSION)"
@@ -576,7 +638,7 @@ sys.exit(0)' "$RH/run/root.lock"
 
 INIT is upgraded to v$VERSION ($(( $(date +%s) - T_START )) s). Kept as they were: the body INIT evolved, its extensions,
 the sessions, the lineage, your keys and your charter. Not done by this release: offering its new seed to INIT.
-Open INIT: init-agent
+Open INIT: $(tilde "$BIN_DIR/init-agent")
 EOF
     exit 0
   fi
@@ -676,8 +738,8 @@ say "  autonomy     starts at L0 and may earn up to L$(val autonomy.max_level)  
 if [ "$ACCESS_EFF" = workspace ]; then
   say "  access       workspace: reads your home except secrets, writes the folder init-agent starts in    (--access full|workspace)"
 else
-  say "  access       full: reads and writes what you can, never INIT's Root files; init-agent --workspace   (--access full|workspace)"
-  say "               confines a session"
+  say "  access       full: reads and writes what you can, never INIT's Root files                           (--access full|workspace)"
+  say "               $(tilde "$BIN_DIR/init-agent") --workspace confines a session"
 fi
 [ -z "$MOCK" ] || say "  TEST MODE    the provider egress goes to the mock at $MOCK"
 say "Change any of them later: edit $RH/charter.toml, then run $(rcmd charter check --apply). The provider, model and key: the first run of init-agent."
@@ -692,7 +754,7 @@ NEED_MB=$(( FLOOR * 1024 + 2000 )); [ $BUNDLE = 1 ] && NEED_MB=$(( FLOOR * 1024 
 # ---------------------------------------------------------------- 4. init-root install (minutes: the cold body build)
 PRE=()
 if [ $BUNDLE = 1 ]; then
-  step "4/7 init-root install (the prebuilt body, verified bit for bit: seconds)"
+  step "4/7 init-root install (the prebuilt body, hash-equal to the maintainer's build: seconds)"
   BODY_SHA="$(sed -n 's/.*"sha256": "\([0-9a-f]\{64\}\)".*/\1/p' "$DIST/body/BODY.json" | head -1)"
   BODY_COMMIT="$(sed -n 's/.*"commit": "\([0-9a-f]\{40\}\)".*/\1/p' "$DIST/body/BODY.json" | head -1)"
   [ -n "$BODY_SHA" ] && [ -n "$BODY_COMMIT" ] || die "body/BODY.json has no sha256 or commit"
@@ -791,7 +853,7 @@ say "  $IH/kernel/config.toml: model $MODEL"
 step "6/7 the init-agent command"
 launchers
 keep_get
-case ":$PATH:" in *":$BIN_DIR:"*) ;; *) say "  note: $BIN_DIR is not on your PATH; add it: echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.$(basename "${SHELL:-bash}")rc" ;; esac
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) say "  note: $BIN_DIR is not on your PATH; add it: $(path_add "$BIN_DIR")" ;; esac
 
 # ---------------------------------------------------------------- 7. the service
 step "7/7 the Root service"
@@ -822,12 +884,12 @@ fi
 
 ELAPSED=$(( $(date +%s) - T_START ))
 PATH_HINT="" # the README's bare `init-agent` needs BIN_DIR on PATH; a default macOS PATH lacks ~/.local/bin (REL-051)
-case ":$PATH:" in *":$BIN_DIR:"*) ;; *) PATH_HINT="   ($BIN_DIR is not on your PATH; to type just init-agent, add: echo 'export PATH=\"$BIN_DIR:\$PATH\"' >> ~/.zshrc)" ;; esac
+case ":$PATH:" in *":$BIN_DIR:"*) ;; *) PATH_HINT="   ($BIN_DIR is not on your PATH; to type just init-agent, add: $(path_add "$BIN_DIR"))" ;; esac
 cat <<EOF
 
 INIT v$VERSION is installed ($(( ELAPSED / 60 )) min $(( ELAPSED % 60 )) s).
 
-Next: $(shq "$BIN_DIR/init-agent")$PATH_HINT
+Next: $(tilde "$BIN_DIR/init-agent")$PATH_HINT
   The first run picks the provider and the model and asks for your key (hidden; stored 0600 in $RH/keys/, never by
   this script). Then type a task. /stop stops the agent's current body; /panic stops everything and demotes one level.
 
@@ -835,7 +897,7 @@ Your limits: $RH/charter.toml (edit, then: $(rcmd charter check --apply)).
              Spending is tracked, not capped: /usage in the chat, or $(rcmd egress stats);
              a goal's usd= budget is enforced; set a limit at your provider.
 Logs:        $RH/logs/ (the Root), $IH/state/kernel/logs/ (the kernel and the body)
-Upgrade:     init-agent upgrade (keeps what INIT has become: its body, lineage, keys and charter)
+Upgrade:     $(rh_env)$(tilde "$BIN_DIR/init-agent") upgrade (keeps what INIT has become: its body, lineage, keys and charter)
 Uninstall:   $(rh_env)bash $(shq "$REPO/scripts/uninstall.sh")   (moves both homes to the Trash)
 EOF
 if [ "$ACCESS_EFF" = workspace ]; then
@@ -846,7 +908,7 @@ EOF
 else
   cat <<EOF
 Access:      FULL (default): the agent can read and write your files and use the network; INIT's Root ($RH) stays
-             off-limits. To confine it: init-agent --workspace, /full off, or sandbox.mode = "workspace" in the charter
+             off-limits. To confine it: $(tilde "$BIN_DIR/init-agent") --workspace, /full off, or sandbox.mode = "workspace" in the charter
              (docs/adr/012-full-access-by-default.md).
 EOF
 fi

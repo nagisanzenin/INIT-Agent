@@ -516,7 +516,7 @@ fn admit_at(root: &Root, args: &Value, now: i64) -> Result<Value, Err3> {
         return Err(refuse("extend.bloat", format!("bloat budget (L{level}): {m}; drop something first (cold caps: {})",
             if cold.is_empty() { "none".into() } else { cold.join(", ") }), json!({"cold": cold})));
     }
-    Ok(json!({}))
+    Ok(json!({"A5": "pass"})) // L2b: the change's `checks.A5` is this hook's result (sentinel::change_open)
 }
 
 // ------------------------------------------------------------------------------------------------ the tick

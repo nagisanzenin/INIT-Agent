@@ -30,25 +30,51 @@ const BASE_MAX: usize = 40;
 /// The noise floor needs this many baseline turns (ADR-013 §3: ≥ 5 baseline runs); a reading needs ≥ 3 after.
 pub const BASE_MIN: usize = 5;
 const AFTER_MIN: usize = 3;
-/// |z| at or beyond 2 (in permille of se) is beyond noise.
-const Z: i64 = 2000;
+/// L3 D1 (v0.5.3): "beyond noise" is a one-sided exact permutation p-value (goal/perm.rs) at or below Φ(−2) =
+/// 0.02275013…, the normal tail at z = 2 that ADR-013 decision 4 states as the false-rollback rate per guardrail per
+/// measured change; in ppm, rounded down so the stated rate is a bound. It used to be Welch's z ≥ 2, which only a
+/// large sample makes a 2.3 % rule (STATS-053, on main: null guardrail rollbacks up to 9.3 % of readings and null
+/// `better` up to 42 %, by card and size).
+pub const NOISE_ALPHA_PPM: u64 = 22_750;
+/// L3 D2 (v0.5.3): a goal's false-`met` rate is at most 5 % (the conventional α, Fisher's), spent evenly over the
+/// goal's rounds budget R: the attributed reading needs p ≤ 5 % / R toward the threshold. `met_check` counts at most
+/// one goal-card reading of each round's change, its first completed one (v0.5.3: `card.measure` can read a live change
+/// again, and a later reading of it is ignored), so the union bound (Bonferroni) over the R rounds holds
+/// under any dependence between readings (stacked changes share baselines). This is FWER control over R different
+/// changes, not a group-sequential design (Pocock, O'Brien–Fleming), which spends α over repeated looks at one
+/// accumulating sample.
+pub const MET_ALPHA_PPM: u64 = 50_000;
 const TEXT_MAX: usize = 8192;
+/// L3 D3: the forecast the Root files for a live change the agent did not forecast, in a card goal: 500‰ that the
+/// goal card moves toward the threshold, the forecast with no information. Its Brier score is 0.25 whatever happens,
+/// and an honest forecast q scores q(1 − q) ≤ 0.25 in expectation, so leaving a change unforecast never lowers the
+/// agent's expected Brier score, nor raises its skill (proper scoring, Gneiting & Raftery 2007, over every change).
+const ABSTAIN_PERMILLE: u64 = 500;
 
-/// A built-in observation card: one integer per owner turn, and which direction is better.
+/// A built-in observation card: one integer per owner turn, which direction is better, and how many owner turns an
+/// owner guardrail on it reads by default (`guard_n`).
 pub struct Card {
     pub id: &'static str,
     pub lower_better: bool,
     pub unit: &'static str,
     pub value: fn(&Obs) -> Option<i64>,
+    pub guard_n: usize,
 }
 
+/// v0.5.3 (the owner's decision of 2026-10-29, from STATS-053's discrete-card table): an owner guardrail on a discrete
+/// or count card (requests, cache reads, provider errors, corrections) reads 15 turns of the change. At 5 the exact
+/// test is blind to a fivefold rise of a 2 % or 10 % rate (10 binary turns hold too few events); at 15 it holds the
+/// 2.3 % level and catches at least what v0.5.2's 5-turn z caught, on every such card and rise. The continuous cards
+/// (cost, wall) keep `BASE_MIN`.
+pub const GUARD_DISCRETE: usize = 15;
+
 pub const CARDS: [Card; 6] = [
-    Card { id: "cost_turn", lower_better: true, unit: "musd", value: |o| Some(o.cost as i64) },
-    Card { id: "wall_turn", lower_better: true, unit: "ms", value: |o| Some(o.wall as i64) },
-    Card { id: "requests_turn", lower_better: true, unit: "requests", value: |o| Some(i64::from(o.req)) },
-    Card { id: "cache_read", lower_better: false, unit: "permille", value: |o| (o.input > 0).then(|| (o.cache * 1000 / o.input) as i64) },
-    Card { id: "provider_errors", lower_better: true, unit: "errors", value: |o| Some(i64::from(o.perr)) },
-    Card { id: "corrections", lower_better: true, unit: "permille", value: |o| Some(if o.corr { 1000 } else { 0 }) },
+    Card { id: "cost_turn", lower_better: true, unit: "musd", value: |o| Some(o.cost as i64), guard_n: BASE_MIN },
+    Card { id: "wall_turn", lower_better: true, unit: "ms", value: |o| Some(o.wall as i64), guard_n: BASE_MIN },
+    Card { id: "requests_turn", lower_better: true, unit: "requests", value: |o| Some(i64::from(o.req)), guard_n: GUARD_DISCRETE },
+    Card { id: "cache_read", lower_better: false, unit: "permille", value: |o| (o.input > 0).then(|| (o.cache * 1000 / o.input) as i64), guard_n: GUARD_DISCRETE },
+    Card { id: "provider_errors", lower_better: true, unit: "errors", value: |o| Some(i64::from(o.perr)), guard_n: GUARD_DISCRETE },
+    Card { id: "corrections", lower_better: true, unit: "permille", value: |o| Some(if o.corr { 1000 } else { 0 }), guard_n: GUARD_DISCRETE },
 ];
 
 pub fn card(id: &str) -> Option<&'static Card> {
@@ -100,6 +126,10 @@ pub struct Goal {
     /// stops here, and runs again at the next owner line or zone egress request ([`resumed`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting_since: Option<i64>,
+    /// v0.5.3: the newest lineage seq whose `tuple` records have been charged to this goal's rounds (`spend_live`).
+    /// Set when the goal is set or resumed; a goal from before this field starts charging at the next scan.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from_seq: Option<u64>,
 }
 
 impl Goal {
@@ -170,6 +200,10 @@ pub struct Measure {
     /// The agent's self-imposed gate (`card:<id> gate`), or an owner guardrail: roll back unless the reading passes.
     pub gate: bool,
     pub guard: Option<i64>,
+    /// L3 D3: the goal card's reading of a change that went live in a card goal with no forecast: scored at the
+    /// Root's abstention forecast (`ABSTAIN_PERMILLE`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub unforecast: bool,
 }
 
 #[derive(Serialize, Deserialize, Default, Debug)]
@@ -271,8 +305,11 @@ fn isqrt(v: u128) -> u128 {
     x
 }
 
-/// One card reading: candidate turns `after` against the incumbent's `before` (Welch's se of the difference).
-/// `z` is in permille of se and signed so that positive is better; `verdict` is better | worse | noise | no_noise_floor.
+/// One card reading: candidate turns `after` against the incumbent's `before`. `z` (Welch's se of the difference, in
+/// permille of se, positive is better) describes the size; the verdict comes from the exact permutation test (L3 D1):
+/// `better` or `worse` when that direction's one-sided p is at most `NOISE_ALPHA_PPM`, else `noise`;
+/// `no_noise_floor` with fewer than 5 baseline turns. `p_better_ppm` and `p_worse_ppm` (rounded up) are recorded, so
+/// the verdict and `met`'s attribution can be re-derived from the record; `test` says whether they were counted exactly.
 pub fn reading(c: &Card, before: &[i64], after: &[i64]) -> Value {
     let ((nb, mb, sb), (na, ma, sa)) = (stats(before), stats(after));
     let delta = ma - mb;
@@ -282,17 +319,21 @@ pub fn reading(c: &Card, before: &[i64], after: &[i64]) -> Value {
         0 => better.signum() * 99_999,
         _ => (i128::from(better) * 1000 / i128::from(se)).clamp(-99_999, 99_999) as i64,
     };
+    let p = perm::test(before, after);
+    // lower values are better on a lower-is-better card: its `better` tail is P(S* ≤ S)
+    let (pb, pw) = if c.lower_better { (p.le_ppm, p.ge_ppm) } else { (p.ge_ppm, p.le_ppm) };
     let verdict = if nb < BASE_MIN {
         "no_noise_floor"
-    } else if z >= Z {
+    } else if pb <= NOISE_ALPHA_PPM {
         "better"
-    } else if z <= -Z {
+    } else if pw <= NOISE_ALPHA_PPM {
         "worse"
     } else {
         "noise"
     };
     json!({"card": c.id, "delta_milli": delta, "mean_after_milli": ma, "mean_before_milli": mb, "n_after": na, "n_before": nb,
-        "sd_milli": sb, "se_milli": se, "unit": c.unit, "verdict": verdict, "z_permille": z})
+        "p_better_ppm": pb, "p_worse_ppm": pw, "sd_milli": sb, "se_milli": se, "test": if p.exact { "permutation" } else { "permutation_mc" },
+        "unit": c.unit, "verdict": verdict, "z_permille": z})
 }
 
 /// Brier score in ppm of (p in permille, outcome 0|1) pairs: mean (p − o)².
@@ -303,25 +344,58 @@ pub fn brier_ppm(pairs: &[(u64, u64)]) -> u64 {
     pairs.iter().map(|&(p, o)| (p.min(1000) as i64 - o.min(1) as i64 * 1000).pow(2) as u64).sum::<u64>() / pairs.len() as u64
 }
 
-/// Calibration per goal kind, folded from `goal_outcome` records only: kind → (n, brier_ppm).
-pub fn calibration(recs: &[Value]) -> BTreeMap<String, (u64, u64)> {
+/// One goal kind's calibration (L3 D3): the outcomes, the agent's Brier score, and the Brier score of the base-rate
+/// reference on the same outcomes (ppm).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Cal {
+    pub n: u64,
+    pub brier_ppm: u64,
+    pub ref_ppm: u64,
+}
+
+impl Cal {
+    /// Brier skill against the reference, 1 − BS/BS_ref (Murphy 1973), positive exactly when BS < BS_ref.
+    pub fn skilled(&self) -> bool {
+        self.brier_ppm < self.ref_ppm
+    }
+}
+
+/// Calibration per goal kind, folded from Root `goal_outcome` records only: kind → `Cal`. The reference (L3 D3) is
+/// climatology per class (goal kind, `expect`): it forecasts each class's base rate ō_c, the share of that class's
+/// outcomes that came true, and scores ō_c(1 − ō_c) per outcome, the uncertainty term of Murphy's (1973) Brier
+/// decomposition. A forecaster beats it only when its forecasts resolve outcomes within a class better than they
+/// mis-calibrate them; one that files `same` at p = 0.9 on changes that do nothing, which come out `same` 90 % of the
+/// time, scores 0.09 and ties it exactly (the research note's gaming case). An outcome from before v0.5.3 has no
+/// `expect`; it is taken from its `goal_predict` record, so old lineages fold to the same Brier scores as before. Each
+/// class's term is rounded down to the ppm.
+pub fn calibration(recs: &[Value]) -> BTreeMap<String, Cal> {
+    let expect: BTreeMap<&str, &str> = recs.iter().filter(|r| r["kind"] == "goal_predict" && r["by"] == "root")
+        .filter_map(|r| Some((r["data"]["id"].as_str()?, r["data"]["expect"].as_str()?))).collect();
     let mut by: BTreeMap<String, Vec<(u64, u64)>> = BTreeMap::new();
+    let mut class: BTreeMap<(String, String), (u64, u64)> = BTreeMap::new();
     for r in recs.iter().filter(|r| r["kind"] == "goal_outcome" && r["by"] == "root") {
         let d = &r["data"];
-        if let (Some(k), Some(p), Some(o)) = (d["goal_kind"].as_str(), d["p_permille"].as_u64(), d["o"].as_u64()) {
-            by.entry(k.into()).or_default().push((p, o));
-        }
+        let (Some(k), Some(p), Some(o)) = (d["goal_kind"].as_str(), d["p_permille"].as_u64(), d["o"].as_u64()) else { continue };
+        let e = d["expect"].as_str().or_else(|| d["prediction"].as_str().and_then(|i| expect.get(i).copied())).unwrap_or("");
+        by.entry(k.into()).or_default().push((p, o));
+        let c = class.entry((k.into(), e.into())).or_default();
+        *c = (c.0 + o.min(1), c.1 + 1);
     }
-    by.into_iter().map(|(k, v)| (k, (v.len() as u64, brier_ppm(&v)))).collect()
+    by.into_iter().map(|(k, v)| {
+        let unc: u128 = class.iter().filter(|((ck, _), _)| *ck == k).map(|(_, &(h, n))| 1_000_000 * u128::from(h) * u128::from(n - h) / u128::from(n)).sum();
+        let n = v.len() as u64;
+        (k, Cal { n, brier_ppm: brier_ppm(&v), ref_ppm: (unc / u128::from(n)) as u64 })
+    }).collect()
 }
 
 /// Calibration scales one freedom: how many rounds (predictions) the agent may run before it checks in with the
-/// owner. It never raises the owner's budget (the cap) and never reaches the autonomy ledger.
-pub fn checkin_rounds(cal: Option<(u64, u64)>) -> u64 {
+/// owner. It never raises the owner's budget (the cap) and never reaches the autonomy ledger. L3 D3: more than the
+/// default also needs skill against the base-rate reference (`Cal::skilled`), on top of ADR-013's Brier brackets.
+pub fn checkin_rounds(cal: Option<Cal>) -> u64 {
     match cal {
-        Some((n, b)) if n >= 10 && b <= 80_000 => 12,
-        Some((n, b)) if n >= 5 && b <= 150_000 => 6,
-        Some((n, b)) if n >= 5 && b > 250_000 => 1,
+        Some(c) if c.n >= 10 && c.brier_ppm <= 80_000 && c.skilled() => 12,
+        Some(c) if c.n >= 5 && c.brier_ppm <= 150_000 && c.skilled() => 6,
+        Some(c) if c.n >= 5 && c.brier_ppm > 250_000 => 1,
         _ => 3,
     }
 }
@@ -394,6 +468,7 @@ fn goal_rec(g: &Goal, op: &str, by: &str) -> Value {
 
 /// The owner sets a goal (only an owner line reaches this). An active goal is paused first: one active goal at a time.
 pub fn set(root: &Root, intent: &str, mut g: Goal) -> Result<Value, Err3> {
+    let top = top_seq(&crate::lineage::records(&root.p.rh).unwrap_or_default());
     let (r, _) = with(root, |st, out, now| {
         if let Some(a) = active(st) {
             a.bank(now);
@@ -402,7 +477,7 @@ pub fn set(root: &Root, intent: &str, mut g: Goal) -> Result<Value, Err3> {
             out.push(Out::Append("goal", rec));
         }
         g.id = id(st, 0, "G");
-        g.since = now;
+        (g.since, g.from_seq) = (now, Some(top));
         util::write_atomic(&root.p.r(&format!("state/goals/{}.md", g.id)), intent.as_bytes(), 0o600).map_err(|e| no("root.internal", e.to_string()))?;
         let mut rec = goal_rec(&g, "set", "owner");
         rec["intent_bytes"] = json!(intent.len());
@@ -419,6 +494,7 @@ pub fn set(root: &Root, intent: &str, mut g: Goal) -> Result<Value, Err3> {
 
 /// `pause`, `resume`, `stop` (owner_stop), `continue` (the check-in): owner ops on the newest live goal.
 fn owner_op(root: &Root, op: &str) -> Result<Value, Err3> {
+    let top = top_seq(&crate::lineage::records(&root.p.rh).unwrap_or_default());
     Ok(with(root, |st, out, now| {
         let g = st.goals.iter_mut().rev().find(|g| g.state != "stopped").ok_or_else(|| no("root.not_found", "no goal (set one: /goal \"<intent>\")"))?;
         match op {
@@ -426,7 +502,8 @@ fn owner_op(root: &Root, op: &str) -> Result<Value, Err3> {
                 g.bank(now);
                 g.state = "paused".into();
             }
-            "resume" | "continue" if g.state == "paused" => (g.since, g.state) = (now, "active".into()),
+            // changes made while the goal was paused are not its rounds
+            "resume" | "continue" if g.state == "paused" => (g.since, g.state, g.from_seq) = (now, "active".into(), Some(top)),
             "continue" => {}
             "stop" => {
                 if g.state == "active" {
@@ -457,7 +534,7 @@ fn owner_outcome(root: &Root, pid: Option<&str>, accept: bool) -> Result<Value, 
         let p = st.preds.iter_mut().rev().find(|p| !p.resolved && pid.is_none_or(|i| p.id == i)).ok_or_else(|| no("root.not_found", "no open prediction"))?;
         p.resolved = true;
         let o = u64::from(accept == (p.expect != "worse"));
-        let mut rec = outcome(&recs, p, o, if accept { "owner_accept" } else { "owner_reject" }, Value::Null);
+        let mut rec = outcome(&recs, &p.forecast(), o, if accept { "owner_accept" } else { "owner_reject" }, Value::Null);
         if !p.harm.is_empty() {
             rec["harm"] = json!(p.harm);
         }
@@ -466,13 +543,32 @@ fn owner_outcome(root: &Root, pid: Option<&str>, accept: bool) -> Result<Value, 
     })?.0)
 }
 
-fn outcome(recs: &[Value], p: &Pred, o: u64, source: &str, reading: Value) -> Value {
-    // the calibration of the goal's kind with this outcome included (the same fold as `calibration`)
-    let mut pairs: Vec<(u64, u64)> = recs.iter().filter(|r| r["kind"] == "goal_outcome" && r["by"] == "root" && r["data"]["goal_kind"] == p.kind.as_str())
-        .filter_map(|r| Some((r["data"]["p_permille"].as_u64()?, r["data"]["o"].as_u64()?))).collect();
-    pairs.push((p.p, o));
-    json!({"brier_ppm": brier_ppm(&pairs), "goal": p.goal, "goal_kind": p.kind, "n": pairs.len(), "o": o, "p_permille": p.p,
-        "prediction": p.id, "reading": reading, "sha": p.sha, "source": source})
+/// A forecast to score: the agent's prediction, or the Root's abstention forecast for an unforecast change (L3 D3).
+struct Forecast<'a> {
+    id: Option<&'a str>,
+    goal: &'a str,
+    kind: &'a str,
+    sha: &'a str,
+    expect: &'a str,
+    p: u64,
+}
+
+impl Pred {
+    fn forecast(&self) -> Forecast<'_> {
+        Forecast { id: Some(&self.id), goal: &self.goal, kind: &self.kind, sha: &self.sha, expect: &self.expect, p: self.p }
+    }
+}
+
+/// The `goal_outcome` record of forecast `f` with outcome `o`, and the goal kind's calibration with it included (the
+/// same fold as `calibration`; `brier_ref_ppm`: the reference's, L3 D3).
+fn outcome(recs: &[Value], f: &Forecast, o: u64, source: &str, reading: Value) -> Value {
+    let mut sub: Vec<Value> = recs.iter().filter(|r| (r["kind"] == "goal_outcome" || r["kind"] == "goal_predict") && r["by"] == "root").cloned().collect();
+    let mut d = json!({"expect": f.expect, "goal": f.goal, "goal_kind": f.kind, "o": o, "p_permille": f.p, "prediction": f.id, "reading": reading,
+        "sha": f.sha, "source": source});
+    sub.push(json!({"by": "root", "data": d.clone(), "kind": "goal_outcome"}));
+    let cal = calibration(&sub).get(f.kind).copied().unwrap_or_default();
+    (d["brier_ppm"], d["brier_ref_ppm"], d["n"]) = (json!(cal.brier_ppm), json!(cal.ref_ppm), json!(cal.n));
+    d
 }
 
 /// The owner's `/goal …` lines (root.md §4.2). False: not ours.
@@ -536,7 +632,8 @@ fn status(root: &Root) -> Result<Value, Err3> {
                 "kind": g.kind, "spent": {"musd": g.spent_musd, "rounds": g.used_rounds, "wall_s": g.wall_ms(now) / 1000}, "state": g.state,
                 "waiting_owner": g.waiting_since.is_some()})
         });
-        Ok(json!({"calibration": cal.iter().map(|(k, (n, b))| (k.clone(), json!({"brier_ppm": b, "n": n}))).collect::<serde_json::Map<_, _>>(),
+        Ok(json!({"calibration": cal.iter().map(|(k, c)| (k.clone(), json!({"brier_ppm": c.brier_ppm, "n": c.n, "ref_brier_ppm": c.ref_ppm, "skill": c.skilled()})))
+                .collect::<serde_json::Map<_, _>>(),
             "cards": CARDS.iter().map(|c| json!({"id": c.id, "lower_better": c.lower_better, "unit": c.unit})).collect::<Vec<_>>(),
             "goal": goal, "pending": st.measures,
             // open predictions of the live goal (G7: a re-file of the newest one, while its change is not live, supersedes it)
@@ -579,6 +676,11 @@ fn predict(root: &Root, a: &Value) -> Result<Value, Err3> {
         return Err(no("goal.late", format!("change {} is already live (tuple {tid}, lineage seq {seq}): a prediction must precede it, so its readings stay unregistered. Predict the final commit (after any amend) before `initctl promote`", &sha[..12])));
     }
     let cal = calibration(&lin);
+    // the rounds of changes that went live since the last owner turn, saved even when this prediction is refused
+    with(root, |st, _, _| {
+        spend_live(st, &lin);
+        Ok(())
+    })?;
     let (v, recs) = with(root, |st, out, now| {
         let gid = active(st).map(|g| g.id.clone()).ok_or_else(|| no("goal.none", "no active goal: the owner sets one (/goal), the agent may propose (goal.propose)"))?;
         // GBAL rerun (G7): an amend after the prediction makes it stale, and the agent re-files on the final sha. A
@@ -624,6 +726,15 @@ fn predict(root: &Root, a: &Value) -> Result<Value, Err3> {
         for (gc, tol) in guard {
             measure(st, &gc, sha, None, true, Some(tol))?;
         }
+        // v0.5.3: the forecast's own reading waits for the change's guardrails (15 turns on a discrete card), so a
+        // guardrail's rollback is on the outcome as `harm` (G4); a change that stops getting turns sooner is read on
+        // the turns it had (`complete`)
+        if let Some(c) = c
+            && let Some(g) = st.measures.iter().filter(|m| m.sha == sha && m.guard.is_some()).map(|m| m.n).max()
+            && let Some(m) = st.measures.iter_mut().find(|m| m.sha == sha && m.card == c)
+        {
+            m.n = m.n.max(g);
+        }
         st.measures.iter_mut().filter(|m| m.sha == sha && m.goal.is_none()).for_each(|m| m.goal = Some(gid.clone()));
         Ok(json!({"goal": gid, "id": pid, "round": round, "supersedes": supersedes}))
     })?;
@@ -639,21 +750,27 @@ fn predict(root: &Root, a: &Value) -> Result<Value, Err3> {
     Ok(v)
 }
 
-/// A pending reading of card `c` on change `sha`; `gate`: roll back unless it passes; `guard`: an owner guardrail.
+/// A pending reading of card `c` on change `sha`; `gate`: roll back unless it passes; `guard`: an owner guardrail,
+/// which reads the card's `guard_n` turns by default (a guardrail that joins a pending reading of the same card raises
+/// its turns to that).
 fn measure(st: &mut State, c: &str, sha: &str, n: Option<usize>, gate: bool, guard: Option<i64>) -> Result<Value, Err3> {
     let c = card(c).ok_or_else(|| no("root.args", format!("no card {c:?} (cards: {})", ids())))?;
     if !full_sha(sha) {
         return Err(no("root.args", "sha is a full commit id (40 hex): an abbreviated one never matches the change's tuple"));
     }
+    let default = if guard.is_some() { c.guard_n } else { BASE_MIN };
     if let Some(m) = st.measures.iter_mut().find(|m| m.card == c.id && m.sha == sha) {
         m.gate |= gate;
+        if guard.is_some() && n.is_none() {
+            m.n = m.n.max(default);
+        }
         m.guard = m.guard.or(guard);
         return Ok(json!({"id": m.id, "status": "pending"}));
     }
-    let n = n.unwrap_or(BASE_MIN).clamp(AFTER_MIN, BASE_MAX);
+    let n = n.unwrap_or(default).clamp(AFTER_MIN, BASE_MAX);
     let mid = id(st, 3, "M");
     let goal = st.goals.iter().find(|g| g.state == "active").map(|g| g.id.clone());
-    st.measures.push(Measure { id: mid.clone(), card: c.id.into(), sha: sha.into(), goal, n, gate, guard });
+    st.measures.push(Measure { id: mid.clone(), card: c.id.into(), sha: sha.into(), goal, n, gate, guard, unforecast: false });
     Ok(json!({"id": mid, "n_after": n, "status": "pending"}))
 }
 
@@ -665,25 +782,10 @@ fn stop(root: &Root, a: &Value) -> Result<Value, Err3> {
     let reason = a["reason"].as_str().filter(|r| STOP.contains(r)).ok_or_else(|| no("root.args", format!("reason: {}", STOP.join("|"))))?;
     let recs = crate::lineage::records(&root.p.rh).unwrap_or_default();
     Ok(with(root, |st, out, now| {
+        let preds = st.preds.clone();
         let g = st.goals.iter_mut().rev().find(|g| g.state != "stopped").ok_or_else(|| no("goal.none", "no goal to stop"))?;
         let (verified, attributed) = match (reason, g.done["kind"].as_str()) {
-            ("met", Some("card")) => {
-                // the goal card's readings in this goal on changes that were not rolled back, oldest first
-                let kept: Vec<&Value> = recs.iter().filter(|r| r["kind"] == "card_reading" && r["data"]["card"] == g.done["card"] && r["data"]["goal"] == g.id.as_str()
-                    && r["data"]["action"] != "cancelled" && !recs.iter().any(|x| x["kind"] == "card_reading" && x["data"]["sha"] == r["data"]["sha"] && x["data"]["action"] == "rollback"))
-                    .map(|r| &r["data"]).collect();
-                let (v, le) = (g.done["value"].as_i64().unwrap_or(0) * 1000, g.done["op"] == "<=");
-                // the threshold, on the newest kept reading
-                let reached = kept.last().and_then(|r| r["mean_after_milli"].as_i64()).is_some_and(|m| if le { m <= v } else { m >= v });
-                // attribution: a registered change moved the card beyond noise, in the direction its prediction named,
-                // toward the threshold (reaching it on noise, or on an unpredicted change, is not the agent's doing)
-                let by = kept.iter().rev().find(|r| {
-                    let d = r["delta_milli"].as_i64().unwrap_or(0);
-                    r["registered"] == true && (r["verdict"] == "better" || r["verdict"] == "worse") && (if le { d < 0 } else { d > 0 })
-                        && st.preds.iter().any(|p| r["prediction"] == p.id.as_str() && r["verdict"] == p.expect.as_str())
-                }).map(|r| json!({"prediction": r["prediction"], "sha": r["sha"], "verdict": r["verdict"], "z_permille": r["z_permille"]}));
-                (json!(reached && by.is_some()), if reached { by.or(Some(Value::Null)) } else { None })
-            }
+            ("met", Some("card")) => met_check(g, &recs, &preds),
             _ => (Value::Null, None),
         };
         // `met_unattributed`: the threshold is reached, but no registered change moved the card beyond noise as predicted
@@ -705,6 +807,52 @@ fn stop(root: &Root, a: &Value) -> Result<Value, Err3> {
         }
         Ok(json!({"attributed": attributed, "id": g.id, "reason": reason, "verified": verified}))
     })?.0)
+}
+
+/// `met` on a card goal (`stop`): (`verified`, `attributed`). Of each change only its first completed reading of the
+/// goal card counts (v0.5.3: a re-measure of the same change is not a new round). The newest kept reading of the goal
+/// card (in this goal, not cancelled, its change not rolled back) reaches the threshold, *and* a registered change moved that card beyond
+/// noise in the direction its prediction named, toward the threshold, at the goal's spent level (L3 D2): its p in that
+/// direction is at most `MET_ALPHA_PPM` / rounds, so a goal whose changes all do nothing ends `met` at most 5 % of the
+/// time, however the agent picks its moment to stop. A reading recorded before v0.5.3 has no p and attributes nothing.
+/// `attributed` is None when the threshold is not reached, `Some(Null)` when it is reached with no such change
+/// (`met_unattributed`). Pure: the null simulations (goal/sim.rs) call it as `stop` does.
+fn met_check(g: &Goal, recs: &[Value], preds: &[Pred]) -> (Value, Option<Value>) {
+    // the goal card's readings in this goal on changes that were not rolled back (by a guardrail or gate, or by the
+    // sentinel: v0.5.3), oldest first; V9 (v0.5.3): only the first completed one of each change, since a later
+    // `card.measure` of the same live change is a second look at it, which the α spent per round does not cover
+    let gone = undone(recs);
+    let mut seen = std::collections::BTreeSet::new();
+    let first: Vec<&Value> = recs.iter().filter(|r| r["kind"] == "card_reading" && r["data"]["card"] == g.done["card"] && r["data"]["goal"] == g.id.as_str()
+        && !matches!(r["data"]["action"].as_str(), Some("cancelled" | "closed"))).filter(|r| seen.insert(r["data"]["sha"].to_string())).collect();
+    let kept: Vec<&Value> = first.into_iter().filter(|r| r["data"]["sha"].as_str().is_none_or(|s| !gone.contains(s))
+        && !recs.iter().any(|x| x["kind"] == "card_reading" && x["data"]["sha"] == r["data"]["sha"] && x["data"]["action"] == "rollback"))
+        .map(|r| &r["data"]).collect();
+    let (v, le) = (g.done["value"].as_i64().unwrap_or(0) * 1000, g.done["op"] == "<=");
+    // the threshold, on the newest kept reading
+    let reached = kept.last().and_then(|r| r["mean_after_milli"].as_i64()).is_some_and(|m| if le { m <= v } else { m >= v });
+    // attribution: a registered change moved the card beyond noise, in the direction its prediction named, toward the
+    // threshold (reaching it on noise, or on an unpredicted change, is not the agent's doing)
+    let alpha_ppm = MET_ALPHA_PPM / g.rounds.max(1);
+    let p_of = |r: &Value| r[if r["verdict"] == "better" { "p_better_ppm" } else { "p_worse_ppm" }].as_u64();
+    let by = kept.iter().rev().find(|r| {
+        let d = r["delta_milli"].as_i64().unwrap_or(0);
+        r["registered"] == true && (r["verdict"] == "better" || r["verdict"] == "worse") && (if le { d < 0 } else { d > 0 })
+            && preds.iter().any(|p| r["prediction"] == p.id.as_str() && r["verdict"] == p.expect.as_str())
+            && p_of(r).is_some_and(|p| u128::from(p) * u128::from(g.rounds.max(1)) <= u128::from(MET_ALPHA_PPM))
+    }).map(|r| json!({"alpha_ppm": alpha_ppm, "p_ppm": p_of(r), "prediction": r["prediction"], "sha": r["sha"], "verdict": r["verdict"], "z_permille": r["z_permille"]}));
+    (json!(reached && by.is_some()), if reached { by.or(Some(Value::Null)) } else { None })
+}
+
+/// Whether a completed reading fails its measure: the agent's own gate (`card:<id> gate`) unless the reading is `better`;
+/// an owner guardrail on a `worse` reading beyond the owner's tolerance (‰ of the baseline mean). Pure (`complete`, and
+/// the null simulations in goal/sim.rs).
+fn fails(c: &Card, m: &Measure, r: &Value) -> bool {
+    let tol_ok = |tol: i64| {
+        let (d, mb) = (r["delta_milli"].as_i64().unwrap_or(0), r["mean_before_milli"].as_i64().unwrap_or(0).abs());
+        (if c.lower_better { d } else { -d }) * 1000 <= mb * tol
+    };
+    (m.gate && m.guard.is_none() && r["verdict"] != "better") || m.guard.is_some_and(|tol| r["verdict"] == "worse" && !tol_ok(tol))
 }
 
 /// `card.read{card}`: the noise floor of a card on the current tuple's newest owner turns (n, mean, sd).
@@ -838,6 +986,7 @@ pub fn turn_closed(root: &Root, t: &Turn) {
         if t.kind != "owner" {
             return Ok(());
         }
+        spend_live(st, &recs);
         let o = Obs::of(t);
         let new_tuple = !o.tuple.is_empty() && !st.obs.iter().any(|x| x.tuple == o.tuple);
         if new_tuple && st.obs.last().is_some() && let Some(sha) = crate::tuple::load(&root.p.rh, &o.tuple).and_then(|v| v["body"]["sha"].as_str().map(String::from)) {
@@ -845,6 +994,12 @@ pub fn turn_closed(root: &Root, t: &Turn) {
             for (c, tol) in guard {
                 measure(st, &c, &sha, None, true, Some(tol))?;
             }
+        }
+        // L3 D3: the change's commit from its `tuple` record, as `anchor` reads it
+        if new_tuple && st.obs.last().is_some()
+            && let Some(sha) = recs.iter().rev().find(|r| r["kind"] == "tuple" && r["data"]["id"] == o.tuple.as_str()).and_then(|r| r["data"]["tuple"]["body"]["sha"].as_str())
+        {
+            unforecast(st, &recs, sha, &o.tuple)?;
         }
         st.obs.push(o);
         let over = st.obs.len().saturating_sub(OBS_MAX);
@@ -855,6 +1010,98 @@ pub fn turn_closed(root: &Root, t: &Turn) {
     if let Err((_, m, _)) = r {
         util::log(&root.p.rh, "error", &format!("goal: turn {}: {m}", t.seq));
     }
+}
+
+/// L3 D3: every live change in a card goal is forecast. A change that goes live (its first tuple, `tid`) in the active
+/// card goal with no prediction of that goal gets the goal card's reading, scored at the Root's abstention forecast
+/// (`complete`). Without it the agent chose which changes its Brier score covered: proper scores stay proper only
+/// over every question (the research note on GBAL's scoring). Owner and exemplar goals have no Root-observable outcome
+/// for an unforecast change; their outcomes stay the owner's.
+fn unforecast(st: &mut State, recs: &[Value], sha: &str, tid: &str) -> Result<(), Err3> {
+    let Some((gid, gc)) = st.goals.iter().find(|g| g.state == "active" && g.done["kind"] == "card").map(|g| (g.id.clone(), g.done["card"].as_str().unwrap_or("").to_string())) else {
+        return Ok(());
+    };
+    let first = anchor(recs, sha).is_some_and(|(_, _, t)| t == tid);
+    if !first || st.preds.iter().any(|p| p.goal == gid && p.sha == sha && p.superseded_by.is_none()) {
+        return Ok(());
+    }
+    measure(st, &gc, sha, None, false, None)?;
+    if let Some(m) = st.measures.iter_mut().find(|m| m.card == gc && m.sha == sha) {
+        (m.unforecast, m.goal) = (true, Some(gid));
+    }
+    Ok(())
+}
+
+/// The newest seq in the records (0 for none).
+fn top_seq(recs: &[Value]) -> u64 {
+    recs.iter().filter_map(|r| r["seq"].as_u64()).max().unwrap_or(0)
+}
+
+/// v0.5.3 (the budget gap): every change that goes live while a goal is active spends one of its rounds and one
+/// check-in step, predicted or not. A prediction spends its round when it is filed (`predict`); a change with none
+/// used to spend nothing, so the owner's rounds and check-ins bounded only the changes the agent chose to forecast.
+/// Here each `tuple` record after the goal's `from_seq` that is the first tuple of its body commit (not a rollback, a
+/// re-admission or an owner upgrade, which reuse a commit), and that no prediction of this goal names, spends a round;
+/// D3 scores it at the abstention forecast. A kernel change keeps the body commit and cannot be predicted, so it spends
+/// nothing. Called before a prediction is checked against the budget, and at every owner turn.
+fn spend_live(st: &mut State, recs: &[Value]) {
+    let (goals, preds) = (&mut st.goals, &st.preds);
+    let Some(g) = goals.iter_mut().find(|g| g.state == "active") else { return };
+    let top = top_seq(recs);
+    let Some(from) = g.from_seq else {
+        g.from_seq = Some(top); // a goal from before v0.5.3: charge from now on, never its past
+        return;
+    };
+    for r in recs.iter().filter(|r| r["kind"] == "tuple" && r["seq"].as_u64().is_some_and(|q| q > from)) {
+        let Some(sha) = r["data"]["tuple"]["body"]["sha"].as_str() else { continue };
+        let first = anchor(recs, sha).is_some_and(|(q, _, _)| r["seq"].as_u64() == Some(q));
+        if first && !preds.iter().any(|p| p.goal == g.id && p.sha == sha && p.superseded_by.is_none()) {
+            (g.used_rounds, g.since_checkin) = (g.used_rounds + 1, g.since_checkin + 1);
+        }
+    }
+    g.from_seq = Some(from.max(top));
+}
+
+/// v0.5.3: the commits whose change the sentinel undid and did not re-admit: a change whose newest `change_open` is in
+/// a group the sentinel closed `rolled_back` or `collateral`, or whose tuple a whole-system `rollback` left after that
+/// `change_open` (gated: there is no group). Their pending readings end (`complete`), and none of their readings
+/// counts for `met` (`met_check`), as a guardrail's own rollback never did.
+fn undone(recs: &[Value]) -> std::collections::BTreeSet<String> {
+    let root = |r: &&Value| r["by"] == "root";
+    let groups: std::collections::BTreeSet<u64> = recs.iter().filter(root).filter(|r| r["kind"] == "change_close"
+        && matches!(r["data"]["outcome"].as_str(), Some("rolled_back" | "collateral"))).filter_map(|r| r["data"]["group"].as_u64()).collect();
+    // sha → (seq, group) of its newest change_open; tuple id → sha
+    let mut open: BTreeMap<&str, (u64, Option<u64>)> = BTreeMap::new();
+    let mut sha_of: BTreeMap<&str, &str> = BTreeMap::new();
+    for r in recs.iter().filter(root) {
+        let (d, seq) = (&r["data"], r["seq"].as_u64().unwrap_or(0));
+        match r["kind"].as_str() {
+            Some("change_open") => {
+                if let Some(sha) = d["sha"].as_str() {
+                    open.insert(sha, (seq, d["group"].as_u64()));
+                }
+            }
+            Some("tuple") => {
+                if let (Some(t), Some(sha)) = (d["id"].as_str(), d["tuple"]["body"]["sha"].as_str()) {
+                    sha_of.entry(t).or_insert(sha);
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out: std::collections::BTreeSet<String> = open.iter().filter(|(_, (_, g))| g.is_some_and(|g| groups.contains(&g))).map(|(s, _)| s.to_string()).collect();
+    for r in recs.iter().filter(root).filter(|r| r["kind"] == "rollback") {
+        let seq = r["seq"].as_u64().unwrap_or(0);
+        if let Some(sha) = r["data"]["from"].as_str().and_then(|t| sha_of.get(t)) && open.get(sha).is_none_or(|(q, _)| *q < seq) {
+            out.insert(sha.to_string());
+        }
+    }
+    out
+}
+
+/// The verdict that moves card `c` toward goal `g`'s threshold (`<=`: lower; `>=`: higher).
+fn toward(g: &Goal, c: &Card) -> &'static str {
+    if (g.done["op"] == "<=") == c.lower_better { "better" } else { "worse" }
 }
 
 /// The newest owner upgrade's commit (`lkg{upgrade}`, upgrade.rs; root.md §3.7.2): (seq, time, upgrade id). No reading
@@ -916,11 +1163,41 @@ fn complete(st: &mut State, recs: &[Value], out: &mut Vec<Out>) {
     ms.sort_by_key(|m| m.guard.is_none() && !m.gate);
     let mut rolled: Vec<String> = recs.iter().filter(|r| r["kind"] == "card_reading" && r["data"]["action"] == "rollback")
         .filter_map(|r| r["data"]["sha"].as_str().map(String::from)).collect();
+    let gone = undone(recs);
+    // tuple id → the seq of its first `tuple` record (which change came later)
+    let mut newer: BTreeMap<&str, u64> = BTreeMap::new();
+    for r in recs.iter().filter(|r| r["kind"] == "tuple") {
+        if let (Some(t), Some(q)) = (r["data"]["id"].as_str(), r["seq"].as_u64()) {
+            newer.entry(t).or_insert(q);
+        }
+    }
     for m in &ms {
         let Some((seq, at, tid)) = anchor(recs, &m.sha) else { continue };
         let c = card(&m.card).expect("checked at registration");
         let after: Vec<i64> = st.obs.iter().filter(|o| o.tuple == tid && o.end >= at).filter_map(c.value).take(m.n).collect();
-        if after.len() < m.n && !(rolled.contains(&m.sha) && after.len() >= AFTER_MIN) {
+        // v0.5.3: a newer change went live and served an owner turn: this change's tuple gets no more turns either
+        let replaced = st.obs.iter().any(|o| o.end > at && newer.get(o.tuple.as_str()).is_some_and(|&q| q > seq));
+        let ended = rolled.contains(&m.sha) || gone.contains(&m.sha) || replaced;
+        if after.len() < m.n && ended && after.len() < AFTER_MIN {
+            // v0.5.3: the change was rolled back (or replaced by a newer change) before it had the turns a reading needs;
+            // no more will come. The reading ends with no verdict (`closed`, `rolled_back` or `replaced`), and its
+            // prediction resolves with no outcome
+            let verdict = if rolled.contains(&m.sha) || gone.contains(&m.sha) { "rolled_back" } else { "replaced" };
+            out.push(Out::Append("card_reading", json!({"action": "closed", "card": m.card, "gate": m.gate && m.guard.is_none(), "goal": m.goal,
+                "guard": m.guard, "measure": m.id, "n_after": after.len(), "sha": m.sha, "tuple": tid, "verdict": verdict})));
+            if m.guard.is_some() {
+                out.push(Out::Alert("goal_guard_unchecked", unchecked(m, &format!("its reading closed with no verdict ({verdict} after {} owner \
+                    turns; a reading needs {AFTER_MIN})", after.len()))));
+            }
+            if let Some(p) = st.preds.iter_mut().find(|p| p.sha == m.sha && p.superseded_by.is_none() && p.card.as_deref() == Some(m.card.as_str())
+                && m.goal.as_deref().is_none_or(|g| g == p.goal))
+            {
+                p.resolved = true;
+            }
+            done.push(m.id.clone());
+            continue;
+        }
+        if after.len() < m.n && !(ended && after.len() >= AFTER_MIN) {
             continue;
         }
         let prior: Vec<&Obs> = st.obs.iter().filter(|o| o.end <= at && o.end >= since && o.tuple != tid).collect();
@@ -928,15 +1205,24 @@ fn complete(st: &mut State, recs: &[Value], out: &mut Vec<Out>) {
         let before: Vec<i64> = prior.iter().rev().filter(|o| o.tuple == parent).filter_map(|o| (c.value)(o)).take(BASE_MAX).collect::<Vec<_>>().into_iter().rev().collect();
         let mut r = reading(c, &before, &after);
         let pred = st.preds.iter_mut().find(|p| p.sha == m.sha && p.seq > 0 && p.seq < seq && p.superseded_by.is_none() && m.goal.as_deref().is_none_or(|g| g == p.goal));
-        let tol_ok = |r: &Value, tol: i64| {
-            let (d, mb) = (r["delta_milli"].as_i64().unwrap_or(0), r["mean_before_milli"].as_i64().unwrap_or(0).abs());
-            (if c.lower_better { d } else { -d }) * 1000 <= mb * tol
-        };
-        let fail = (m.gate && m.guard.is_none() && r["verdict"] != "better") || m.guard.is_some_and(|tol| r["verdict"] == "worse" && !tol_ok(&r, tol));
+        let fail = fails(c, m, &r);
         (r["sha"], r["tuple"], r["parent_tuple"], r["goal"], r["measure"]) = (json!(m.sha), json!(tid), json!(parent), json!(m.goal), json!(m.id));
         (r["registered"], r["prediction"], r["gate"], r["guard"]) = (json!(pred.is_some()), json!(pred.as_ref().map(|p| p.id.clone())), json!(m.gate && m.guard.is_none()), json!(m.guard));
         r["action"] = json!(if fail { "rollback" } else { "none" });
         out.push(Out::Append("card_reading", r.clone()));
+        if m.guard.is_some() && r["verdict"] == "no_noise_floor" {
+            out.push(Out::Alert("goal_guard_unchecked", unchecked(m, &format!("its parent tuple {} had {} owner turns, under the {BASE_MIN} \
+                a noise floor needs", if parent.is_empty() { "(none)" } else { parent.as_str() }, before.len()))));
+        }
+        // L3 D3: an unforecast change in a card goal is scored at the Root's abstention forecast
+        if pred.is_none() && m.unforecast && r["verdict"] != "no_noise_floor"
+            && let Some(g) = st.goals.iter().find(|g| m.goal.as_deref() == Some(g.id.as_str()))
+        {
+            let expect = toward(g, c);
+            let f = Forecast { id: None, goal: &g.id, kind: &g.kind, sha: &m.sha, expect, p: ABSTAIN_PERMILLE };
+            out.push(Out::Append("goal_outcome", outcome(recs, &f, u64::from(r["verdict"] == expect), "unforecast",
+                json!({"card": m.card, "verdict": r["verdict"], "z_permille": r["z_permille"]}))));
+        }
         if let Some(p) = pred.filter(|p| !p.resolved) {
             if fail {
                 p.harm.push(format!("{}:{}", if m.guard.is_some() { "guard" } else { "gate" }, m.card));
@@ -945,7 +1231,7 @@ fn complete(st: &mut State, recs: &[Value], out: &mut Vec<Out>) {
                 p.resolved = true;
                 let hit = match p.expect.as_str() { "better" => r["verdict"] == "better", "worse" => r["verdict"] == "worse", _ => r["verdict"] == "noise" };
                 if r["verdict"] != "no_noise_floor" {
-                    let mut rec = outcome(recs, p, u64::from(hit), "card", json!({"card": m.card, "verdict": r["verdict"], "z_permille": r["z_permille"]}));
+                    let mut rec = outcome(recs, &p.forecast(), u64::from(hit), "card", json!({"card": m.card, "verdict": r["verdict"], "z_permille": r["z_permille"]}));
                     if !p.harm.is_empty() {
                         rec["harm"] = json!(p.harm);
                     }
@@ -968,6 +1254,14 @@ fn complete(st: &mut State, recs: &[Value], out: &mut Vec<Out>) {
     st.measures.retain(|m| !done.contains(&m.id));
 }
 
+/// V11 (v0.5.3): the owner alert for an owner guardrail that ended without checking its change: the reading closed with no
+/// verdict (the change was replaced, or rolled back, before 3 owner turns) or read `no_noise_floor` (its parent tuple had
+/// under 5 owner turns), which never rolls back. Changes stacked fast end every guardrail this way (ADR-013, open risks).
+fn unchecked(m: &Measure, why: &str) -> String {
+    format!("[root] the owner guardrail card:{} did not check change {}: {why}, so it could not roll that change back",
+        m.card, &m.sha[..m.sha.len().min(12)])
+}
+
 /// A failed gate or guardrail: the change's open group is vetoed (H12's path: honoured, never counted); a change with
 /// no open group (gated mode, or a closed window) is rolled back to the parent tuple through the kernel.
 fn rollback(root: &Root, sha: &str, to: &str, reason: &str) {
@@ -985,5 +1279,10 @@ fn rollback(root: &Root, sha: &str, to: &str, reason: &str) {
     util::log(&root.p.rh, "info", &format!("goal: {reason}: change {sha} → {to} at {}", rfc3339(now_ms())));
 }
 
+#[cfg(test)]
+mod l3_tests;
+mod perm;
+#[cfg(test)]
+pub(crate) mod sim;
 #[cfg(test)]
 mod tests;

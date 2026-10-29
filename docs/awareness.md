@@ -371,13 +371,14 @@ The `autonomy` and `ceilings` lines render `boot.json.env.root` (§3.5.1, §4.5)
 | `INIT_ACCESS` | Line |
 |---|---|
 | `workspace` | `- access: write the workspace <path> and INIT_HOME (your tools start in the workspace) · read the owner's home, secret stores denied` |
+| `workspace_only` (v0.5.3: the charter's `sandbox.read_home = false`) | `- access: write the workspace <path> and INIT_HOME (your tools start in the workspace) · no other part of the owner's home is readable (charter sandbox.read_home = false)` |
 | `read_home` | `- access: no workspace (init-agent was launched outside a project): write INIT_HOME only · read the owner's home, secret stores denied` |
 | `full` (the default from v0.3.1, ADR-012) | `- access: FULL: read and write anywhere the owner can, network allowed · ~ is the owner's home · denied: the Root's files (~/.init-root, its service, INIT's launchers) · only the workspace has /undo · workspace <path or none>` |
 | `none` | `- access: INIT_HOME only (no home access; the v0.1 sandbox)` |
 | absent (an older kernel) | no line |
 | anything else | `- access: <value> · workspace <path or none>` |
 
-When the workspace is not a directory at boot, the `workspace` line's parenthesis says `it is not a directory now: your tools start in <cwd>` instead. The texts are lane WIRE-009's (`seed/src/boot/awareness.rs`); T-AW-6's goldens pin them.
+Until v0.5.3 the Root sent `workspace` with or without the home read, so with `read_home = false` the line told the model it could read the owner's home. When the workspace is not a directory at boot, the `workspace` and `workspace_only` lines' parenthesis says `it is not a directory now: your tools start in <cwd>` instead. The texts are lane WIRE-009's (`seed/src/boot/awareness.rs`); T-AW-6's goldens pin them.
 
 Reason lines (`<x7>` = first 7 hex digits of a sha; braces mark optional parts):
 

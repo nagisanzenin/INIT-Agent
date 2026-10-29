@@ -1,32 +1,32 @@
 {
  "audit_verify_full": "0 before, after the upgrade, after the sandbox check, after the rollback",
  "broken_bundle": "probe failed, rolled back to the old binaries and tuple; the old install answered",
- "bundle": "init-v0.5.2-preview-macos-arm64.tar.gz",
- "commit": "c605020127c43c2bdade730335284b62023e5d59",
+ "bundle": "init-v0.5.3-preview-macos-arm64.tar.gz",
+ "commit": "c045d65228d3a1cc4a969179781bbdd05cf8d5d1",
  "drives": {
   "full": {
    "idle": true,
    "rc": 0,
    "reply": "sandbox check done",
-   "wall_ms": 1481
+   "wall_ms": 1364
   },
   "hello1": {
    "idle": true,
    "rc": 0,
    "reply": "hello from the mock",
-   "wall_ms": 580
+   "wall_ms": 512
   },
   "hello2": {
    "idle": true,
    "rc": 0,
    "reply": "hello from the mock",
-   "wall_ms": 713
+   "wall_ms": 1037
   },
   "ws": {
    "idle": true,
    "rc": 0,
    "reply": "sandbox check done",
-   "wall_ms": 1360
+   "wall_ms": 2146
   }
  },
  "incompatible_body": "refused (stdio-jsonl/1 vs stdio-jsonl/2); lineage, journal, binaries unchanged",
@@ -71,14 +71,14 @@
  },
  "test_bundle": null,
  "times_ms": {
-  "broken_upgrade_and_rollback": 14877,
-  "total": 1566524,
-  "upgrade": 11130
+  "broken_upgrade_and_rollback": 15219,
+  "total": 85126,
+  "upgrade": 12364
  },
  "tuples": {
   "after_broken": {
-   "body": "3ba7702a90457acfad3750f8dfeaa62276882296b1eb4f2d5724dec801f46abb",
-   "current": "t8114469ff91b",
+   "body": "e6008d4deaac6a69c44c1bd6ce832860d52363ef83bb821530cf12fd4937ce6a",
+   "current": "ta97d1ff71097",
    "ext": {
     "components": [
      {
@@ -92,7 +92,7 @@
     ],
     "set": "c6f0f0d4a745"
    },
-   "kernel": "64f68baca05917537ddc4b166c9ce90688e055a590d43361cd069482d923cd40",
+   "kernel": "f9aaac8950b11e410590b1780f803672eb320eae5642f8cbb6db5939fdc74332",
    "kinds_tail": [
     "zone_exit",
     "crash_loop",
@@ -101,40 +101,12 @@
     "zone_exit",
     "stop"
    ],
-   "lkg": "t8114469ff91b",
-   "seq": 33
+   "lkg": "ta97d1ff71097",
+   "seq": 36
   },
   "before": {
-   "body": "3ba7702a90457acfad3750f8dfeaa62276882296b1eb4f2d5724dec801f46abb",
-   "current": "tc88368cd304a",
-   "ext": {
-    "components": [
-     {
-      "name": "count-lines",
-      "sha256": "434626009ce5585af740fab72c7d924b9b5c41617b64d75216bf0807332327ed"
-     },
-     {
-      "name": "upgrade-probe",
-      "sha256": "47f158a3890743cf61ade4d63192efb1a36164fab3701911c87db1c844a17218"
-     }
-    ],
-    "set": "c6f0f0d4a745"
-   },
-   "kernel": "dbb283cfae566e624f8f8603e3a76a19dd574e2ad7de230263308c0e5d0c19bc",
-   "kinds_tail": [
-    "promotion",
-    "gate",
-    "gate",
-    "promotion",
-    "tuple",
-    "lkg"
-   ],
-   "lkg": "tc88368cd304a",
-   "seq": 13
-  },
-  "upgraded": {
-   "body": "3ba7702a90457acfad3750f8dfeaa62276882296b1eb4f2d5724dec801f46abb",
-   "current": "t8114469ff91b",
+   "body": "e6008d4deaac6a69c44c1bd6ce832860d52363ef83bb821530cf12fd4937ce6a",
+   "current": "t31a9eacc536f",
    "ext": {
     "components": [
      {
@@ -150,6 +122,34 @@
    },
    "kernel": "64f68baca05917537ddc4b166c9ce90688e055a590d43361cd069482d923cd40",
    "kinds_tail": [
+    "promotion",
+    "gate",
+    "gate",
+    "promotion",
+    "tuple",
+    "lkg"
+   ],
+   "lkg": "t31a9eacc536f",
+   "seq": 13
+  },
+  "upgraded": {
+   "body": "e6008d4deaac6a69c44c1bd6ce832860d52363ef83bb821530cf12fd4937ce6a",
+   "current": "ta97d1ff71097",
+   "ext": {
+    "components": [
+     {
+      "name": "count-lines",
+      "sha256": "434626009ce5585af740fab72c7d924b9b5c41617b64d75216bf0807332327ed"
+     },
+     {
+      "name": "upgrade-probe",
+      "sha256": "47f158a3890743cf61ade4d63192efb1a36164fab3701911c87db1c844a17218"
+     }
+    ],
+    "set": "c6f0f0d4a745"
+   },
+   "kernel": "f9aaac8950b11e410590b1780f803672eb320eae5642f8cbb6db5939fdc74332",
+   "kinds_tail": [
     "kernel_start",
     "zone_start",
     "zone_exit",
@@ -157,9 +157,9 @@
     "lkg",
     "audited"
    ],
-   "lkg": "t8114469ff91b",
-   "seq": 20
+   "lkg": "ta97d1ff71097",
+   "seq": 21
   }
  },
- "version": "0.5.2-preview"
+ "version": "0.5.3-preview"
 }

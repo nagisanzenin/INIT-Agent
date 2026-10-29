@@ -1292,6 +1292,8 @@ pub struct Info {
     pub access: Option<Value>,
     /// `$HOME`, to show the workspace as `~/…` (display only).
     pub home: Option<String>,
+    /// v0.5.3: `init-agent` as the owner types it to come back ([`crate::app::agent_cmd`]).
+    pub agent: String,
     /// Tokens of the current (or last) turn, and of everything this TUI has seen.
     pub turn: Tally,
     pub session: Tally,
@@ -1323,10 +1325,6 @@ pub struct Info {
     kernel_inst: Option<String>,
     /// TUI-FIX (v0.5.1): the ledger's spend while self-changes were in flight, as this TUI saw it.
     pub gates: GateSpend,
-    /// When the kernel's last `state` frame came, and when the gate track last took a notice: the
-    /// state's `evolution_checks_today_musd` is older than a self-change that came after it.
-    pub state_at: Option<Instant>,
-    pub gate_notice_at: Option<Instant>,
 }
 
 /// v0.5.2: the cost of a turn that ran before this TUI attached (it is in the Root's total).
@@ -1371,6 +1369,7 @@ impl Default for Info {
             ceilings_noticed: Vec::new(),
             access: None,
             home: None,
+            agent: crate::app::DEFAULT_AGENT.to_string(),
             turn: Tally::default(),
             session: Tally::default(),
             turn_start_musd: None,
@@ -1383,8 +1382,6 @@ impl Default for Info {
             body_stale: false,
             kernel_inst: None,
             gates: GateSpend::default(),
-            state_at: None,
-            gate_notice_at: None,
         }
     }
 }
@@ -1478,8 +1475,7 @@ impl Info {
     /// the caller asks for at once) when the last one ends.
     /// v0.5.2: `spending` is whether a step that makes model requests (G2, G3, G4) is in flight now;
     /// only that marks the running turn's cost `incl. checks`.
-    pub fn on_gate(&mut self, live: bool, spending: bool, now: Instant) {
-        self.gate_notice_at = Some(now);
+    pub fn on_gate(&mut self, live: bool, spending: bool, _now: Instant) {
         self.gate_spending = live && spending;
         if self.replaying {
             // v0.5.2: the ledger does not move while a replay is read: no window measures it
@@ -1522,10 +1518,12 @@ impl Info {
         Some(g.done_musd + open)
     }
 
-    /// The kernel's `evolution_checks_today_musd` is from a `state` frame older than the last
-    /// self-change notice (the kernel sends `state` only when a run starts or ends, and after a turn).
-    pub fn evolution_stale(&self) -> bool {
-        matches!((self.gate_notice_at, self.state_at), (Some(g), Some(s)) if g > s) || (self.gate_notice_at.is_some() && self.state_at.is_none())
+    /// v0.5.3 L6: today's self-change checks at the Root's price: the Root's ledger split by the kernel's scope label
+    /// (`money.day_spent_by_scope_musd.gate`, root/egress.md §4.2). `Some(0)` when the Root splits spend and no
+    /// request was a check today; `None` from a Root without the split, or while no ledger answer is known.
+    pub fn gate_day_musd(&self) -> Option<i64> {
+        let split = self.egress.as_ref().filter(|_| !self.egress_failed)?["money"].get("day_spent_by_scope_musd")?.as_object()?;
+        split.get("gate").map_or(Some(0), |v| v.as_i64().filter(|m| *m >= 0))
     }
 
     pub fn on_state(&mut self, v: Value, now: Instant) {
@@ -1544,7 +1542,6 @@ impl Info {
             _ => {}
         }
         self.state = Some(v);
-        self.state_at = Some(now);
     }
 
     pub fn busy(&self) -> bool {

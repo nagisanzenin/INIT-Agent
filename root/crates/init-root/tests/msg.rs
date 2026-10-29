@@ -13,6 +13,8 @@
 //! (the fake kernel); the test signals only its own children, by handle. `HOME` is a fake home under
 //! `root/target/test-homes/rmsg/`; nothing outside it is read or written.
 
+#[path = "common/shown.rs"]
+mod shown;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -465,15 +467,18 @@ mod live {
                 break v["text"].as_str().unwrap_or("").to_string();
             }
         };
+        // v0.5.3 (REL-052 §7.5 finding 4): the launcher by its path (install.json bin_dir, default ~/.local/bin): a fresh
+        // Mac has no ~/.local/bin on PATH, so a bare `init-agent` is "command not found"
+        let run_there = format!("run {} there", crate::shown::agent(&h.dir.join(".local/bin"), ""));
         for want in ["[root] no workspace: /usr/bin is outside your home folder.", rule.as_str(), "the agent works in ~/ih/work",
-            "/undo has nothing to restore", "run init-agent there"] {
+            "/undo has nothing to restore", run_there.as_str()] {
             assert!(notice.contains(want), "{want:?} in {notice}");
         }
         let u = h.req("undo", json!({}));
         assert_eq!((u["error"]["code"].as_str(), u["error"]["data"]["reason"].as_str()), (Some("root.mode"), Some("no_workspace")), "{u}");
         let m = u["error"]["message"].as_str().unwrap();
         assert!(m.starts_with("/undo has nothing to restore: this session has no workspace (/usr/bin is outside your home folder).")
-            && m.contains(&rule) && m.contains("cd into a project folder inside your home"), "{m}");
+            && m.contains(&rule) && m.contains("cd into a project folder inside your home") && m.contains(&run_there), "{m}");
         // `/full off` says it holds for this session only (a plain relaunch was back to FULL in the returning session)
         h.req("full.set", json!({"on": false}));
         let off = loop {
@@ -485,6 +490,7 @@ mod live {
             }
         };
         assert!(off.contains("for this session") && off.contains("A new init-agent launch starts with the charter's default"), "{off}");
+        assert!(off.contains(&format!("launch with {}", crate::shown::agent(&h.dir.join(".local/bin"), "--workspace"))), "{off}");
         // the rule is unchanged: a folder inside the home is a workspace
         let ok = h.req("workspace.set", json!({"cwd": h.dir.join("proj")}));
         assert_eq!(ok["result"]["refused"], Value::Null, "{ok}");

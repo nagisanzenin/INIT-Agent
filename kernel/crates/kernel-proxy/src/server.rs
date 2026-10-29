@@ -972,6 +972,7 @@ async fn upstream(
     let (mult, _) = pricing::multiplier_ppm(&pcfg, &req_mods);
     let max_out = parsed.max_out.unwrap_or(table.reserve_output_tokens);
     let r = pricing::reserve_pusd(req_bytes, bpt, max_out, &prices, mult);
+    let r_out = pricing::reserve_pusd(0, bpt, max_out, &prices, mult); // D11: the output term alone
     let r_root = match root.as_ref().and_then(|rv| rv.model(&provider, &model)) {
         Some(m) => req_bytes
             .div_ceil(3)
@@ -1003,6 +1004,7 @@ async fn upstream(
             job_id: scope.job_id.as_deref(),
             task: task.as_deref(),
             r,
+            r_out,
             r_root,
             now_ms: now,
         })

@@ -2,7 +2,7 @@
 //! driven through the real `App` on one end of a socket pair: the frames it sends are read back from
 //! the other end, and nothing reaches a Root (the Root home does not exist).
 
-use crate::app::{App, Opts, PANIC_ASK, PANIC_HINT};
+use crate::app::{App, Opts, PANIC_ASK, PANIC_HINT, panic_ask_text};
 use crate::app::pick::DISMISSED_HINT;
 use crate::conn::Ev;
 use crate::model::Kind;
@@ -354,7 +354,8 @@ fn unknown_commands_are_refused_locally() {
     enter(&mut a, "/undo-list");
     assert!(sent(&mut r).is_empty(), "nothing reaches the model");
     assert_eq!(a.ed.text(), "/undo-list", "the line stays in the box");
-    assert_eq!(blocks(&a).last().unwrap(), &format!("· /undo-list: {} (nothing was sent)", crate::proto::UNKNOWN_HINT));
+    assert_eq!(blocks(&a).last().unwrap(), "· /undo-list: did you mean /undo list? — /help lists the commands; start the line with // to send \
+        it as a message (nothing was sent)");
     a.ed.clear();
     enter(&mut a, "/help");
     assert!(sent(&mut r).is_empty());
@@ -452,4 +453,159 @@ fn a_replayed_turn_is_never_free_and_checks_are_only_named_when_they_ran() {
     frame(&mut a, json!({"t": "display", "kind": "turn_end", "text": "tokens: in 1000 (cached 0), out 10", "boot_seq": 1, "src": "kernel"}));
     a.handle(money(60_000));
     assert!(bar_text(&a).contains("$0.006 incl. checks"), "{}", bar_text(&a));
+}
+
+// ---------------------------------------------------------------------------------------------
+// v0.5.3 (lane B): build/status/REL-052.md §7.5, the v0.5.2 post-release review, findings 4 and 10
+// ---------------------------------------------------------------------------------------------
+
+/// Finding 10: the fixed command list refused `/tmp is full` (a one-segment path) and every command an
+/// evolved body adds, while a built-in with a wrong argument (`/stop now`, `/panic now`) went to the
+/// model. Now a path goes out at once; a built-in with an argument its fixed grammar refuses, or in
+/// another case, or joined with `-`, is refused with the right form; any other `/word` is held once
+/// ("did you mean …?") and the same line again sends it. A first Enter never sends what the owner
+/// may not have meant.
+#[test]
+fn slash_lines_paths_typos_and_the_bodys_own_commands() {
+    let (mut a, mut r, _rx) = live();
+    // a path, one segment or more, goes out at once
+    for l in ["/tmp is full", "/Users/x/file.go:12 panics"] {
+        enter(&mut a, l);
+        assert_eq!(sent(&mut r), vec![json!({"t": "line", "text": l})], "{l}");
+    }
+    // a built-in with an argument its grammar refuses: never sent, the line stays, the right form named
+    for (l, want) in [("/stop now", "/stop takes no argument"), ("/panic now", "/panic takes no argument"), ("/help me", "/help takes no argument"),
+        ("/full of", "did you mean /full off?"), ("/root stauts", "did you mean /root status?"), ("/undo lst", "did you mean /undo list?"),
+        ("/accept", "/accept takes"), ("/later", "/later takes"), ("/undo-list", "did you mean /undo list?"), ("/Help", "did you mean /help?")] {
+        enter(&mut a, l);
+        assert!(sent(&mut r).is_empty(), "{l}: nothing is sent");
+        assert_eq!(a.ed.text(), l, "{l}: the line stays in the box");
+        let b = blocks(&a).last().unwrap().clone();
+        assert!(b.contains(want) && b.contains("start the line with // to send it as a message") && b.ends_with("(nothing was sent)"), "{l}: {b}");
+        key(&mut a, KeyCode::Enter);
+        assert!(sent(&mut r).is_empty(), "{l}: a second Enter does not send a refused line either");
+        a.ed.clear();
+    }
+    // a `/word` the TUI does not know: held once, with the nearest built-in; the second Enter sends it
+    enter(&mut a, "/hepl");
+    assert!(sent(&mut r).is_empty(), "the first Enter sends nothing");
+    assert_eq!(a.ed.text(), "/hepl", "the line stays in the box");
+    let b = blocks(&a).last().unwrap().clone();
+    assert!(b.contains("did you mean /help?") && b.contains("Enter again to send it to the model as text") && b.ends_with("(nothing was sent)"), "{b}");
+    key(&mut a, KeyCode::Enter);
+    assert_eq!(sent(&mut r), vec![json!({"t": "line", "text": "/hepl"})], "the second Enter sends it as it is");
+    // a command an evolved body added, next to a built-in or not: the same
+    for (l, near) in [("/stats", Some("/status")), ("/labels e1", Some("/label")), ("/myskill run", None)] {
+        enter(&mut a, l);
+        assert!(sent(&mut r).is_empty(), "{l}");
+        let b = blocks(&a).last().unwrap().clone();
+        assert_eq!(b.contains("did you mean"), near.is_some(), "{l}: {b}");
+        assert!(near.is_none_or(|n| b.contains(&format!("did you mean {n}?"))), "{l}: {b}");
+        key(&mut a, KeyCode::Enter);
+        assert_eq!(sent(&mut r), vec![json!({"t": "line", "text": l})], "{l}");
+    }
+    // an edited line is asked again, and so is one after any other line
+    enter(&mut a, "/stats");
+    typed(&mut a, " now");
+    key(&mut a, KeyCode::Enter);
+    assert!(sent(&mut r).is_empty(), "an edited line is asked again");
+    key(&mut a, KeyCode::Enter);
+    assert_eq!(sent(&mut r), vec![json!({"t": "line", "text": "/stats now"})]);
+    enter(&mut a, "/stats");
+    a.ed.clear();
+    enter(&mut a, "hello");
+    assert_eq!(sent(&mut r), vec![json!({"t": "line", "text": "hello"})]);
+    enter(&mut a, "/stats");
+    assert!(sent(&mut r).is_empty(), "another line in between: asked again");
+    // the body's own words and the Root's claim-all ones still go out at once, arguments and all
+    a.ed.clear();
+    for l in ["/new", "/compact the tests", "/branch e1 try again", "/goal stop", "/twin", "/undo list", "/root status", "/full on confirm", "//stop now"] {
+        enter(&mut a, l);
+        assert_eq!(sent(&mut r), vec![json!({"t": "line", "text": l})], "{l}");
+    }
+}
+
+/// Finding 4: `init-agent` as the owner types it in a new terminal. The launcher's path (`~/…` under
+/// HOME, quoted when it needs it), INIT_ROOT_HOME= in front for a Root elsewhere; an INIT_AGENT_LAUNCHER
+/// that is relative or unprintable falls back to the TUI's own directory, then to ~/.local/bin.
+#[test]
+fn agent_cmd_names_the_launcher_by_its_path() {
+    use crate::app::agent_cmd;
+    use std::path::Path;
+    let (h, rh) = (Some("/Users/o"), Path::new("/Users/o/.init-root"));
+    assert_eq!(agent_cmd(Some("/Users/o/.local/bin/init-agent"), None, h, rh), "~/.local/bin/init-agent");
+    assert_eq!(agent_cmd(Some("/Users/o/my bin/init-agent"), None, h, rh), "~/'my bin/init-agent'");
+    assert_eq!(agent_cmd(Some("/Users/o/.local/bin/init-agent"), None, Some("/Users/o/"), rh), "~/.local/bin/init-agent");
+    assert_eq!(agent_cmd(Some("/Users/other/bin/init-agent"), None, h, rh), "/Users/other/bin/init-agent", "not under HOME");
+    assert_eq!(agent_cmd(Some("/Users/oo/bin/init-agent"), None, h, rh), "/Users/oo/bin/init-agent", "a longer name is not under HOME");
+    assert_eq!(agent_cmd(Some("/opt/it's/init-agent"), None, h, rh), "'/opt/it'\\''s/init-agent'");
+    assert_eq!(agent_cmd(Some("/Users/o/.local/bin/init-agent"), None, h, Path::new("/Users/o/r h")),
+        "INIT_ROOT_HOME='/Users/o/r h' ~/.local/bin/init-agent", "a Root elsewhere");
+    assert_eq!(agent_cmd(Some("/Users/o/.local/bin/init-agent"), None, None, rh),
+        "INIT_ROOT_HOME=/Users/o/.init-root /Users/o/.local/bin/init-agent", "no HOME: the long form");
+    assert_eq!(agent_cmd(Some("/b/init-agent"), None, Some("/"), Path::new("/.init-root")), "/b/init-agent", "HOME / is no prefix");
+    // a bad INIT_AGENT_LAUNCHER: the TUI's own directory, then the default
+    let exe = Path::new("/Users/o/.local/bin/init-tui");
+    for bad in ["init-agent", "", "./init-agent", "/x/\u{1b}[2Jinit-agent", "/x/a\nb"] {
+        assert_eq!(agent_cmd(Some(bad), Some(exe), h, rh), "~/.local/bin/init-agent", "{bad:?}");
+    }
+    assert_eq!(agent_cmd(None, Some(Path::new("/opt/i5/init-tui")), h, rh), "/opt/i5/init-agent");
+    assert_eq!(agent_cmd(Some("rel"), Some(Path::new("rel/init-tui")), h, rh), "~/.local/bin/init-agent");
+    assert_eq!(agent_cmd(None, None, h, rh), "~/.local/bin/init-agent");
+}
+
+/// The coordinator's shared rule (v0.5.3): a TUI started without the launcher takes its own directory,
+/// except ROOT_HOME/bin (no launcher there), then INIT_BIN_DIR's launcher, then ~/.local/bin's.
+#[test]
+fn agent_sources_without_the_launcher() {
+    use crate::app::{agent_cmd, agent_sources};
+    use std::path::{Path, PathBuf};
+    let (h, rh) = (Some("/Users/o"), Path::new("/Users/o/.init-root"));
+    let cmd = |l: Option<&str>, b: Option<&str>, e: Option<&str>| {
+        let (l, e) = agent_sources(l.map(Into::into), b.map(Into::into), || e.map(PathBuf::from), rh);
+        agent_cmd(l.as_deref(), e.as_deref(), h, rh)
+    };
+    assert_eq!(cmd(Some("/Users/o/apps/init-agent"), Some("/opt/b"), Some("/Users/o/.local/bin/init-tui")), "~/apps/init-agent");
+    assert_eq!(cmd(None, Some("/opt/b"), Some("/Users/o/x/init-tui")), "~/x/init-agent", "beside init-tui");
+    assert_eq!(cmd(None, Some("/opt/b/"), Some("/Users/o/.init-root/bin/init-tui")), "/opt/b/init-agent", "not ROOT_HOME/bin");
+    assert_eq!(cmd(Some("rel/init-agent"), Some("bin"), Some("/Users/o/.init-root/bin/init-tui")), "~/.local/bin/init-agent");
+    assert_eq!(cmd(None, None, None), "~/.local/bin/init-agent");
+}
+
+/// Finding 4: the quit line and the no-workspace notice name the launcher by its path, never a bare
+/// `init-agent`; the App passes its own (`Info::agent`) to the access flow.
+#[test]
+fn quit_and_no_workspace_lines_name_the_launcher() {
+    let (mut a, _r, _rx) = live();
+    assert!(a.info.agent.contains("/init-agent"), "the path, never a bare init-agent: {}", a.info.agent);
+    a.handle(Ev::Access { op: crate::access::Op::Workspace, result: Ok(json!({"access": {"access": "full", "full": true, "workspace": null,
+        "mode": "full", "read_home": true, "allow_full": true, "restart_pending": false, "snapshot": null}})) });
+    let notice = blocks(&a).into_iter().find(|b| b.contains("To let it edit a project")).unwrap_or_else(|| panic!("{:?}", blocks(&a)));
+    assert!(notice.contains(&format!("cd into one and run {} again.", a.info.agent)), "{notice}");
+    a.info.agent = crate::app::agent_cmd(Some("/Users/o/.local/bin/init-agent"), None, Some("/Users/o"), std::path::Path::new("/Users/o/.init-root"));
+    let rows = live::goodbye(&a.info, 400, true);
+    let text: String = rows.iter().map(|l| l.text()).collect::<Vec<_>>().join(" ");
+    assert!(text.contains("run ~/.local/bin/init-agent to come back;") && !text.contains("run init-agent"), "{text}");
+}
+
+/// v0.5.3 (REL-052 §7.5 finding 3): `/panic`'s warning names what `/resume` drops by the Root's own pick of the resume
+/// target (`status.resume`), not by audited-good. On the free path that is `settled`, then LKG: with LKG the running
+/// tuple, nothing is dropped and the warning says nothing of a loss (v0.5.2 compared with audited-good and did).
+#[test]
+fn panic_names_what_the_resume_really_drops() {
+    let ask = |resume: Value| {
+        let mut st = status("running", "k1", "t06f78dd675f4", "tb75a7fb288b4");
+        st["resume"] = resume;
+        panic_ask_text(Some(&st))
+    };
+    let none = ask(json!({"pointer": "lkg", "tuple": "t06f78dd675f4"}));
+    assert_eq!(none, PANIC_ASK, "the running tuple: nothing is lost");
+    assert!(PANIC_ASK.contains("in free mode: the settled one, else the last known-good"), "where /resume goes on the free path: {PANIC_ASK}");
+    let settled = ask(json!({"pointer": "settled", "tuple": "t5e77ed000001"}));
+    assert!(settled.contains("What you lose: this agent runs version t06f78dd675f4, newer than the settled t5e77ed000001, so after /resume the \
+        self-changes kept since t5e77ed000001 no longer run"), "{settled}");
+    assert!(!settled.contains("audited-good tb75a7fb288b4"), "{settled}");
+    // a Root before v0.5.3 (no `resume` block): audited-good, as before
+    let old = panic_ask_text(Some(&status("running", "k1", "t06f78dd675f4", "tb75a7fb288b4")));
+    assert!(old.contains("newer than the audited-good tb75a7fb288b4"), "{old}");
 }

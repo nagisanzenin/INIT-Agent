@@ -57,26 +57,23 @@ pub fn usage_rows(info: &Info) -> (String, Vec<(String, String)>) {
     ("usage (USD estimated from usage and tariffs, not an invoice)".to_string(), rows.into_iter().map(|(k, v)| (k.to_string(), v)).collect())
 }
 
-/// `/usage`'s self-change row (TUI-FIX, v0.5.1: it said "evolution checks today $0.00" while the gate's
-/// probe and G3 requests were two thirds of the Root's ledger). The Root's ledger has no per-purpose
-/// split yet (docs/tui.md §9 Q5), so the row gives what this TUI measured, labelled as what it is: the
-/// ledger's change while self-changes were in flight. The kernel's own gate-budget counter comes from
-/// its last `state` frame; it is shown only beside that, and never as the checks' cost when it is older
-/// than the last self-change or below what the ledger moved.
+/// `/usage`'s self-change row, at one price: the Root's (v0.5.3 L6). The Root's ledger prices every request; from
+/// v0.5.3 it also splits today's spend by the kernel's scope label, so the row gives the self-changes' checks today
+/// from the ledger, the same figure before and after a relaunch. From an older Root without the split it gives what
+/// this TUI measured, labelled as what it is: the ledger's change while self-changes were in flight (TUI-FIX,
+/// v0.5.1). The kernel's own gate-budget counter is not shown: it prices the same requests from the kernel's config
+/// (DeepSeek's off-peak window included), a second price for one request (v0.5.2's known limit).
 fn self_change_cost(info: &Info) -> String {
-    let kernel = info.state.as_ref().and_then(|s| s["evolution_checks_today_musd"].as_i64()).filter(|n| *n >= 0);
-    let measured = info.gate_musd();
-    let mut out = match (info.gates.seen, measured) {
+    if let Some(g) = info.gate_day_musd() {
+        return format!("{} today, from the Root's ledger at its prices (the requests the kernel sent for self-change checks)", usd(g));
+    }
+    let mut out = match (info.gates.seen, info.gate_musd()) {
         // v0.5.2: one that ran before this TUI attached was not measured here
         (false, _) if info.gates.seen_replayed => "a self-change ran before this TUI attached: its cost is in the Root's total, not measured here".to_string(),
         (false, _) => "none seen by this TUI".to_string(),
         (true, Some(m)) => format!("{} metered by the Root while self-changes ran (seen by this TUI; any other spend in that time is included)", usd(m)),
         (true, None) => "a self-change ran, but its cost is unknown (no ledger total from the Root)".to_string(),
     };
-    // older than the last self-change, or lower than what the ledger moved: not shown
-    if let Some(k) = kernel.filter(|k| !info.evolution_stale() && measured.is_none_or(|m| *k >= m)) {
-        out.push_str(&format!(" · the kernel's gate-budget counter today: {}", usd(k)));
-    }
     out.push_str(". The Root does not split spend by purpose yet.");
     out
 }
@@ -217,17 +214,17 @@ pub fn bar(info: &Info, width: usize, now: Instant, now_ms: i64, _spin: usize, n
             .and_then(|e| e["money"]["total_input_tokens"].as_u64()?.checked_add(e["money"]["total_output_tokens"].as_u64()?))
             .map(|n| format!("{n} live tokens")).unwrap_or_else(|| "live tokens ?".into());
         left.push(Field { drop: 8, line: Line::from_span(tokens, Style::dim()) });
-        // TUI-FIX (v0.5.1): the self-changes' measured spend, once one was seen (never a `$?` or a
-        // stale kernel figure; `/usage` says what it is)
-        if let Some(m) = info.gate_musd() {
+        // TUI-FIX (v0.5.1): the self-changes' spend, once one was seen (never a `$?` or a kernel
+        // figure; `/usage` says what it is): the Root's figure for today when it splits spend (v0.5.3 L6)
+        if let Some(m) = info.gate_day_musd().filter(|m| *m > 0).or_else(|| info.gate_musd()) {
             left.push(Field { drop: 8, line: Line::from_span(format!("checks {} est", usd(m)), Style::dim()) });
         }
         left.push(Field { drop: 9, line: Line::from_span("/usage · /stop", Style::mute()) });
     } else {
-        // run cost (drop 5)
-        if let Some(m) = state.and_then(|s| s["task_musd"].as_i64()) {
-            left.push(Field { drop: 5, line: Line::from_span(format!("{} run", usd(m)), Style::PLAIN) });
-        } else if let (Some(now_spent), Some(at)) = (egress.and_then(|e| money(e, "day_spent_musd")), info.day_spent_at_attach) {
+        // spend since attach (drop 5), from the Root's ledger. v0.5.3 (the release review): not the kernel's
+        // `state.task_musd` ("$0.040 run"), which prices the run at the kernel's own prices (root/egress.md §3.4:
+        // one price per request, the Root's); the ledger has no per-run figure
+        if let (Some(now_spent), Some(at)) = (egress.and_then(|e| money(e, "day_spent_musd")), info.day_spent_at_attach) {
             left.push(Field { drop: 5, line: Line::from_span(format!("+{} since attach", usd((now_spent - at).max(0))), Style::dim()) });
         }
         // today against the ceiling (drop 2): the figure the Root's hard ceiling governs
@@ -389,6 +386,22 @@ mod usage_tests {
         assert!(!bar.contains("ceiling") && !bar.contains("/$"), "{bar}");
     }
 
+    /// v0.5.3 (the release review): under an enforced policy the bar showed the kernel's `state.task_musd` as
+    /// "$0.040 run", the run at the kernel's own prices, beside the Root's figures. Every figure it shows is the
+    /// ledger's now (root/egress.md §3.4): the spend since this TUI attached, and today against the ceiling.
+    #[test]
+    fn enforced_bar_shows_no_kernel_price() {
+        let mut info = Info::default();
+        let money = |spent: i64| json!({"money": {"enforced": true, "policy": "enforce", "day_spent_musd": spent,
+            "total_spent_musd": spent, "day_limit_musd": 5_000_000, "total_limit_musd": 25_000_000}});
+        info.on_egress(money(1_230_000));
+        info.on_state(json!({"busy": true, "mode": "normal", "sha12": "3f9c0a1b2c4d", "task_musd": 40_000}), Instant::now());
+        info.on_egress(money(1_242_000));
+        let b = bar(&info, 240, Instant::now(), 0, 0, false).text();
+        assert!(b.contains("+$0.012 since attach") && b.contains("$1.24/$5.00 today"), "{b}");
+        assert!(!b.contains("$0.040") && !b.contains(" run"), "the kernel's price: {b}");
+    }
+
     #[test]
     fn usage_summary_distinguishes_unknown_zero_and_partial_attribution() {
         let mut info = Info::default();
@@ -399,8 +412,8 @@ mod usage_tests {
         info.on_state(json!({"evolution_checks_today_musd": 0}), Instant::now());
         let known = usage_summary(&info);
         assert!(known.contains("input 1000, output 250"), "{known}");
-        assert!(known.contains("self-changes none seen by this TUI · the kernel's gate-budget counter today: $0.000"), "{known}");
-        assert!(known.contains("The Root does not split spend by purpose yet"));
+        assert!(known.contains("self-changes none seen by this TUI. The Root does not split spend by purpose yet."), "{known}");
+        assert!(!known.contains("gate-budget counter"), "the kernel's figure is never shown: {known}");
         assert!(known.contains("Spending is metered, not capped"));
         info.egress_failed = true;
         assert!(usage_summary(&info).contains("unknown total"));
@@ -432,9 +445,47 @@ mod usage_tests {
         assert!(s.contains("$0.046 total settled estimate"), "{s}");
         let bar = bar(&info, 240, t0, 0, 0, false).text();
         assert!(bar.contains("$0.046 live total est") && bar.contains("checks $0.031 est"), "{bar}");
-        // a fresh kernel figure at least as large as the measured one is shown beside it
+        // v0.5.3 L6: a fresh kernel figure is not shown either (it priced the same requests at its own prices)
         info.on_state(json!({"busy": false, "evolution_checks_today_musd": 31_000}), t0 + Duration::from_secs(700));
-        assert!(usage_summary(&info).contains("the kernel's gate-budget counter today: $0.031"));
+        assert!(!usage_summary(&info).contains("gate-budget counter"), "{}", usage_summary(&info));
+    }
+
+    /// v0.5.3 L6 (v0.5.2's known limit, user session finding 2): the same 15 checks showed as $0.039 metered by
+    /// the Root before a relaunch and as the kernel's off-peak $0.018 after it. With the Root's split the row
+    /// shows the Root's figure on both sides of the relaunch, and the kernel's never.
+    #[test]
+    fn self_changes_show_at_the_roots_price_across_a_relaunch() {
+        let t0 = Instant::now();
+        let money = |m: i64, gate: i64| json!({"money": {"enforced": false, "policy": "observe", "total_spent_musd": m, "day_spent_musd": m,
+            "day_spent_by_scope_musd": {"gate": gate, "live": m - gate}}});
+        // before the relaunch: this TUI watched the checks run
+        let mut before = Info::default();
+        before.on_egress(money(10_000, 0));
+        before.on_gate(true, false, t0);
+        before.on_egress(money(40_000, 36_102));
+        before.on_gate(false, false, t0 + Duration::from_secs(600));
+        before.on_egress(money(49_000, 36_102));
+        before.on_state(json!({"busy": false, "evolution_checks_today_musd": 18_049}), t0 + Duration::from_secs(700));
+        // after it: a new TUI that saw the checks only in the replay
+        let mut after = Info::default();
+        after.replaying = true;
+        after.on_gate(true, true, t0);
+        after.on_gate(false, false, t0);
+        after.replaying = false;
+        after.on_egress(money(50_275, 36_102));
+        after.on_state(json!({"busy": false, "evolution_checks_today_musd": 18_049}), t0 + Duration::from_secs(5));
+        for (when, info) in [("before", &before), ("after", &after)] {
+            let s = usage_summary(info);
+            assert!(s.contains("self-changes $0.036 today, from the Root's ledger at its prices"), "{when}: {s}");
+            assert!(!s.contains("$0.018") && !s.contains("gate-budget counter"), "{when}: the kernel's off-peak figure: {s}");
+            let b = bar(info, 240, t0, 0, 0, false).text();
+            assert!(b.contains("checks $0.036 est"), "{when}: {b}");
+        }
+        // the Root splits spend and nothing was a check today: $0.00, and no checks field in the bar
+        let mut none = Info::default();
+        none.on_egress(json!({"money": {"enforced": false, "total_spent_musd": 5, "day_spent_musd": 5, "day_spent_by_scope_musd": {"live": 5}}}));
+        assert!(usage_summary(&none).contains("self-changes $0.000 today"), "{}", usage_summary(&none));
+        assert!(!bar(&none, 240, t0, 0, 0, false).text().contains("checks"));
     }
 
     /// TUI-FIX (v0.5.1): the agent's slot in words a stranger reads, beside `root ok`.

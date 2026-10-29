@@ -170,6 +170,8 @@ pub struct AdmitReq<'a> {
     pub task: Option<&'a str>,
     /// Reservation at the chosen model's window prices.
     pub r: u64,
+    /// The output term of `r` (the request's output cap at the window's output price): D11's floor.
+    pub r_out: u64,
     /// The same reservation at the Root's peak prices.
     pub r_root: u64,
     pub now_ms: u64,
@@ -443,7 +445,12 @@ impl Accounts {
         }
         if q.kind.is_gate() {
             if let Some((c, cap)) = self.scopes.get(q.scope_id) {
-                if enforce && c.used().saturating_add(r) > *cap {
+                // D11 (v0.5.3 L6): a G4 run whose cap covers one request's output can always reserve its first
+                // request. G4 checks each task's cap against that output term before it starts (kernel-gate
+                // `task_cap_problem`), and the input estimate (`bytes / 3` tokens, an over-count) would otherwise
+                // refuse the run's only request and leave a run that never ran.
+                let first = *q.kind == ScopeKind::Run && c.used() == 0 && q.r_out <= *cap;
+                if enforce && !first && c.used().saturating_add(r) > *cap {
                     return Err(self.cap_error("budget.scope", "scope", *cap, *c, false, q, &[]));
                 }
                 keys.push(LimitKey::Scope(q.scope_id.to_string()));
@@ -836,6 +843,7 @@ pub(crate) mod tests {
             job_id: None,
             task: None,
             r,
+            r_out: r,
             r_root: r,
             now_ms: NOW,
         }
@@ -872,6 +880,36 @@ pub(crate) mod tests {
             }
         }
         assert_eq!(admitted, 4);
+    }
+
+    /// D11 (v0.5.3 L6; S-REAL's 13 G4 runs `cost_capped` with no request): a G4 run whose cap covers one request's
+    /// output reserves its first request even when the input estimate puts the whole reservation over the cap; after
+    /// that the cap holds. A cap below the output term, a second request, and the other gate scopes are refused as
+    /// before.
+    #[test]
+    fn d11_a_g4_run_can_always_reserve_its_first_request() {
+        let mut a = Accounts::new(budgets(), 20, 900, NOW);
+        a.set_root(RootView::parse(&root_json(10_000_000, 0, 25_000_000, 0, 1), NOW).unwrap()); // money enforced (no `enforced` key)
+        a.open_gate("j-000001", GateKind::Promote, 3_000_000, Level::L0, BTreeSet::new()).unwrap();
+        a.open_gate_scope("j-000001/run/p-t1-1", "j-000001", 100_000).unwrap();
+        a.open_gate_scope("j-000001/probe-c", "j-000001", 100_000).unwrap();
+        let (run, probe) = (ScopeKind::Run, ScopeKind::Probe);
+        // gpt-6.1-sol-like: 32,768 output tokens at $1/Mtok (32,768 µUSD) and a 300 KB request (+100,000 µUSD estimate)
+        let first = AdmitReq { scope_id: "j-000001/run/p-t1-1", kind: &run, job_id: Some("j-000001"), task: None,
+            r: musd_to_pusd(132_768), r_out: musd_to_pusd(32_768), r_root: 0, now_ms: NOW };
+        let res = a.admit(&first).expect("the run's first request is reserved");
+        assert_eq!(a.admit(&first).unwrap_err().code, "budget.scope", "one request in flight: the cap holds again");
+        a.settle(&res, musd_to_pusd(20_000), 0, 0, NOW);
+        assert_eq!(a.admit(&first).unwrap_err().code, "budget.scope", "the run spent: its next request is checked in full");
+        let small = AdmitReq { r: musd_to_pusd(70_000), r_out: musd_to_pusd(10_000), ..first.clone() };
+        assert!(a.admit(&small).is_ok(), "within the cap");
+        // a cap below one request's output is still refused (G4 refuses such a task before it starts)
+        a.open_gate_scope("j-000001/run/p-t2-1", "j-000001", 30_000).unwrap();
+        let low = AdmitReq { scope_id: "j-000001/run/p-t2-1", ..first.clone() };
+        assert_eq!(a.admit(&low).unwrap_err().code, "budget.scope");
+        // only G4 runs: a probe scope's cap is a hard per-lane cap, as before
+        let p = AdmitReq { scope_id: "j-000001/probe-c", kind: &probe, ..first.clone() };
+        assert_eq!(a.admit(&p).unwrap_err().code, "budget.scope");
     }
 
     /// P-08 (a): concurrent reservations never exceed the soft day.
@@ -963,6 +1001,7 @@ pub(crate) mod tests {
             job_id: Some("j-000001"),
             task: None,
             r: musd_to_pusd(300_000),
+            r_out: musd_to_pusd(300_000),
             r_root: 0,
             now_ms: NOW,
         };
@@ -990,6 +1029,7 @@ pub(crate) mod tests {
             job_id: None,
             task: Some("x"),
             r: musd_to_pusd(450_000),
+            r_out: musd_to_pusd(450_000),
             r_root: 0,
             now_ms: NOW,
         };

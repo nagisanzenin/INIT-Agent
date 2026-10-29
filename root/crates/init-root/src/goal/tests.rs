@@ -58,13 +58,19 @@ fn brier_calibration_and_checkin_freedom() {
     let recs = vec![out("card:cost_turn", 900, 1, "root"), out("card:cost_turn", 800, 1, "root"), out("owner", 600, 0, "root"),
         out("card:cost_turn", 0, 1, "kernel:abc"), json!({"by": "root", "kind": "goal_predict", "data": {"goal_kind": "owner", "p_permille": 1, "o": 1}})];
     let cal = calibration(&recs);
-    assert_eq!(cal["card:cost_turn"], (2, (10_000 + 40_000) / 2), "Root records only: the kernel's forged outcome is ignored");
-    assert_eq!(cal["owner"], (1, 360_000));
+    // both cost outcomes came true: the class's base rate is 1 and the reference scores 0 (L3 D3)
+    assert_eq!(cal["card:cost_turn"], Cal { n: 2, brier_ppm: (10_000 + 40_000) / 2, ref_ppm: 0 }, "Root records only: the kernel's forged outcome is ignored");
+    assert_eq!(cal["owner"], Cal { n: 1, brier_ppm: 360_000, ref_ppm: 0 });
+    let c = |n, brier_ppm, ref_ppm| Some(Cal { n, brier_ppm, ref_ppm });
     assert_eq!(checkin_rounds(None), 3);
-    assert_eq!(checkin_rounds(Some((4, 0))), 3, "too few outcomes to earn anything");
-    assert_eq!(checkin_rounds(Some((5, 150_000))), 6);
-    assert_eq!(checkin_rounds(Some((10, 80_000))), 12);
-    assert_eq!(checkin_rounds(Some((5, 300_000))), 1, "badly calibrated: a short leash");
+    assert_eq!(checkin_rounds(c(4, 0, 250_000)), 3, "too few outcomes to earn anything");
+    assert_eq!(checkin_rounds(c(5, 150_000, 250_000)), 6);
+    assert_eq!(checkin_rounds(c(10, 80_000, 250_000)), 12);
+    assert_eq!(checkin_rounds(c(5, 300_000, 250_000)), 1, "badly calibrated: a short leash");
+    // L3 D3: no skill against the base-rate reference, no freedom, whatever the Brier score
+    assert_eq!(checkin_rounds(c(10, 80_000, 80_000)), 3, "a tie with the reference is no skill");
+    assert_eq!(checkin_rounds(c(5, 150_000, 100_000)), 3);
+    assert_eq!(checkin_rounds(c(10, 70_000, 75_000)), 12);
 }
 
 #[test]
@@ -97,7 +103,7 @@ fn predict_measure_outcome_guardrail_budget_and_stop() {
     assert_eq!(k("goal.predict", json!({"sha": "a".repeat(40), "mode": "A", "card": "cost_turn", "expect": "better", "p_permille": 700})).unwrap_err().0, "goal.none");
     assert_eq!(k("goal.set", json!({})).unwrap_err().0, "root.unknown_cmd");
     assert!(k("goal.propose", json!({"intent": "use fewer tokens"})).unwrap()["id"] == "gp-000001");
-    assert!(line(&root, r#"/goal "cheaper turns" done=card:cost_turn<=60 usd=0.50 rounds=4 guard=requests_turn"#));
+    assert!(line(&root, r#"/goal "cheaper turns" done=card:cost_turn<=60 usd=0.50 rounds=6 guard=requests_turn"#));
     let set = &recs("goal")[0];
     assert_eq!((set["op"].as_str(), set["by"].as_str(), set["kind"].as_str()), (Some("set"), Some("owner"), Some("card:cost_turn")));
     assert_eq!(set["intent_sha256"], sha256_hex(b"cheaper turns"));
@@ -123,25 +129,27 @@ fn predict_measure_outcome_guardrail_budget_and_stop() {
     assert_eq!(k("goal.predict", json!({"sha": "c".repeat(12), "mode": "A", "card": "cost_turn", "expect": "better", "p_permille": 800})).unwrap_err().0, "root.args");
     assert_eq!(k("goal.status", json!({})).unwrap()["goal"]["spent"]["rounds"], 1, "the refused predictions spent no round");
     let end0 = crate::util::parse_rfc3339(ra["at"].as_str().unwrap()).unwrap();
-    for (i, c) in [50, 52, 48, 51, 49].iter().enumerate() {
+    // v0.5.3: the owner's guardrail is on a discrete card (requests), so it reads 15 turns, and the forecast's own
+    // reading waits for it
+    for (i, c) in [50, 52, 48, 51, 49].iter().cycle().take(15).enumerate() {
         turn_closed(&root, &Turn { seq: 20 + i as u64, kind: "owner".into(), end: end0 + 1 + i as i64, tuple: Some("tA".into()), cost_musd: *c, requests: 2, ..Turn::default() });
     }
     let rd = recs("card_reading");
     let cost = rd.iter().find(|r| r["card"] == "cost_turn" && r["sha"] == sa.as_str()).expect("the cost reading");
     assert_eq!((cost["verdict"].as_str(), cost["registered"].as_bool(), cost["prediction"].as_str()), (Some("better"), Some(true), Some("P-000001")), "{cost}");
-    assert_eq!((cost["n_before"].as_u64(), cost["n_after"].as_u64(), cost["parent_tuple"].as_str()), (Some(6), Some(5), Some("t0")));
+    assert_eq!((cost["n_before"].as_u64(), cost["n_after"].as_u64(), cost["parent_tuple"].as_str()), (Some(6), Some(15), Some("t0")));
     assert!(cost["sd_milli"].as_i64().unwrap() > 0 && cost["se_milli"].as_i64().unwrap() > 0);
     let guard = rd.iter().find(|r| r["card"] == "requests_turn" && r["sha"] == sa.as_str()).expect("the guardrail reading");
     assert_eq!((guard["action"].as_str(), guard["guard"].as_i64()), (Some("none"), Some(0)), "requests unchanged: the guard holds");
     let oc = &recs("goal_outcome")[0];
     assert_eq!((oc["o"].as_u64(), oc["source"].as_str(), oc["n"].as_u64(), oc["brier_ppm"].as_u64()), (Some(1), Some("card"), Some(1), Some(40_000)));
-    assert_eq!(k("goal.status", json!({})).unwrap()["calibration"]["card:cost_turn"], json!({"brier_ppm": 40_000, "n": 1}));
+    assert_eq!(k("goal.status", json!({})).unwrap()["calibration"]["card:cost_turn"], json!({"brier_ppm": 40_000, "n": 1, "ref_brier_ppm": 0, "skill": false}));
 
     // change B: predicted, but it doubles the requests per turn: the owner's guardrail rolls it back
     k("goal.predict", json!({"sha": sb, "mode": "hybrid", "card": "cost_turn", "expect": "better", "p_permille": 600})).unwrap();
     let rb = at(&sb, "tB");
     let end1 = crate::util::parse_rfc3339(rb["at"].as_str().unwrap()).unwrap();
-    for i in 0..5 {
+    for i in 0..15 {
         turn_closed(&root, &Turn { seq: 40 + i, kind: "owner".into(), end: end1 + 1 + i as i64, tuple: Some("tB".into()), cost_musd: 50, requests: 5, ..Turn::default() });
     }
     let rd = recs("card_reading");
@@ -169,8 +177,14 @@ fn predict_measure_outcome_guardrail_budget_and_stop() {
     let rdd = at(&sd, "tD");
     assert_eq!(k("goal.predict", json!({"sha": sd, "mode": "A", "card": "cost_turn", "expect": "better", "p_permille": 500})).unwrap_err().0, "goal.late");
     k("card.measure", json!({"card": "cost_turn", "sha": sd, "n": 5})).unwrap();
-    // round 3: a prediction for a change not yet live, which then goes live (a later prediction is a new round)
-    k("goal.predict", json!({"sha": "9".repeat(40), "mode": "A", "card": "cost_turn", "expect": "better", "p_permille": 500})).unwrap();
+    // v0.5.3: C and D went live unpredicted and each spent a round and a check-in step (4 of 6 used, 4 since the
+    // check-in): the check-in comes first (3 rounds at no calibration), then /goal continue
+    let p9 = json!({"sha": "9".repeat(40), "mode": "A", "card": "cost_turn", "expect": "better", "p_permille": 500});
+    assert_eq!(k("goal.predict", p9.clone()).unwrap_err().0, "goal.checkin");
+    assert_eq!(k("goal.status", json!({})).unwrap()["goal"]["spent"]["rounds"], 4);
+    assert!(line(&root, "/goal continue"));
+    // round 5: a prediction for a change not yet live, which then goes live (a later prediction is a new round)
+    assert_eq!(k("goal.predict", p9).unwrap()["round"], 5);
     at(&"9".repeat(40), "t9");
     let end3 = crate::util::parse_rfc3339(rdd["at"].as_str().unwrap()).unwrap();
     for i in 0..5 {
@@ -179,10 +193,8 @@ fn predict_measure_outcome_guardrail_budget_and_stop() {
     let late = recs("card_reading").into_iter().find(|r| r["card"] == "cost_turn" && r["sha"] == sd.as_str()).expect("D's reading");
     assert_eq!(late["registered"], false, "a prediction after the change is not a prediction: {late}");
 
-    // the budget: 4 rounds, 3 used; the check-in comes first (3 rounds at no calibration), then /goal continue
-    assert_eq!(k("goal.predict", json!({"sha": "e".repeat(40), "mode": "B", "expect": "better", "p_permille": 500})).unwrap_err().0, "goal.checkin");
-    assert!(line(&root, "/goal continue"));
-    k("goal.predict", json!({"sha": "e".repeat(40), "mode": "B", "expect": "better", "p_permille": 500})).unwrap();
+    // the budget: 6 rounds, 5 used; a predicted change spends no second round when it goes live (t9)
+    assert_eq!(k("goal.predict", json!({"sha": "e".repeat(40), "mode": "B", "expect": "better", "p_permille": 500})).unwrap()["round"], 6);
     at(&"e".repeat(40), "tE");
     assert_eq!(k("goal.predict", json!({"sha": "f".repeat(40), "mode": "B", "expect": "better", "p_permille": 500})).unwrap_err().0, "goal.budget");
     // the owner judges the mode-B change
@@ -195,7 +207,7 @@ fn predict_measure_outcome_guardrail_budget_and_stop() {
     let s = k("goal.stop", json!({"reason": "met"})).unwrap();
     assert_eq!((s["verified"].as_bool(), s["reason"].as_str(), s["attributed"]["prediction"].as_str()), (Some(true), Some("met"), Some("P-000001")), "{s}");
     let last = recs("goal").pop().unwrap();
-    assert_eq!((last["op"].as_str(), last["reason"].as_str(), last["by"].as_str(), last["spent"]["rounds"].as_u64()), (Some("stop"), Some("met"), Some("agent"), Some(4)));
+    assert_eq!((last["op"].as_str(), last["reason"].as_str(), last["by"].as_str(), last["spent"]["rounds"].as_u64()), (Some("stop"), Some("met"), Some("agent"), Some(6)));
     assert_eq!(k("goal.stop", json!({"reason": "bored"})).unwrap_err().0, "root.args");
     let _ = std::fs::remove_dir_all(&dir); // exact path, made by test_home
 }
@@ -331,7 +343,12 @@ fn g7_a_refile_before_live_supersedes_and_spends_no_round() {
     }
     let r = recs("card_reading").into_iter().find(|r| r["sha"] == s1.as_str() && r["card"] == "requests_turn").expect("s1's reading");
     assert_eq!((r["registered"].as_bool(), r["prediction"].clone()), (Some(false), Value::Null), "{r}");
-    assert!(recs("goal_outcome").is_empty(), "a superseded prediction scores nothing");
+    // a superseded prediction scores nothing; the change, live in the card goal with no forecast, is scored at the
+    // Root's abstention forecast (L3 D3)
+    let oc = recs("goal_outcome");
+    assert!(oc.iter().all(|o| o["prediction"].is_null()), "{oc:?}");
+    assert_eq!(oc.iter().map(|o| (o["source"].as_str(), o["p_permille"].as_u64(), o["expect"].as_str(), o["sha"].as_str())).collect::<Vec<_>>(),
+        [(Some("unforecast"), Some(500), Some("better"), Some(s1.as_str()))]);
     let _ = std::fs::remove_dir_all(&dir); // exact path, made by test_home
 }
 

@@ -47,6 +47,16 @@ impl Chain {
     fn clean(&mut self, day: f64, n: usize) -> &mut Chain {
         self.groups(day, n, "clean", None, 5)
     }
+    /// `n` exercised groups that are not clean groups (5 window turns, but the tuple did not change): they count for
+    /// the harm-rate bound (v0.5.3), not for `clean_groups`, and do not restart the baseline ring.
+    fn exercised(&mut self, day: f64, n: usize) -> &mut Chain {
+        for _ in 0..n {
+            let g = self.0.len() as u64;
+            self.add(day, "change_open", json!({"group": g, "parent_tuple": "same", "tuple": "same", "caps": []}));
+            self.add(day, "change_close", json!({"attribution": null, "group": g, "outcome": "clean", "turns": 5}));
+        }
+        self
+    }
     fn direct(&mut self, day: f64, n: usize) -> &mut Chain {
         self.groups(day, n, "rolled_back", Some("direct"), 3)
     }
@@ -67,13 +77,14 @@ fn up(s: &Step) -> bool {
 }
 
 /// The L1 record at L0 on the free path: 7 days, 40 owner turns (in days that started after the entry), 10 clean
-/// groups, the baseline ring, no demotion in 7 days.
+/// groups, the baseline ring, no demotion in 7 days, and 15 exercised groups with no direct harm (the harm-rate bound
+/// below 25 %, v0.5.3).
 fn l1_record() -> Chain {
     let mut c = Chain::free(0);
     for d in 0..5 {
         c.turns(f64::from(d), 10);
     }
-    c.clean(5.5, 10);
+    c.clean(5.5, 10).exercised(5.5, 5);
     c
 }
 
@@ -110,7 +121,7 @@ fn rf26_l1_needs_the_whole_record() {
     for d in 0..5 {
         c.turns(f64::from(d), 10);
     }
-    c.clean(5.5, 9);
+    c.clean(5.5, 9).exercised(5.5, 6);
     assert_eq!(c.unmet(8.0), ["clean_groups"]);
     c.groups(5.6, 1, "clean", None, 4).add(5.6, "change_open", json!({"group": 900, "parent_tuple": "same", "tuple": "same"}));
     c.add(5.6, "change_close", json!({"group": 900, "outcome": "clean", "turns": 9}));
@@ -124,32 +135,37 @@ fn rf26_l1_needs_the_whole_record() {
     for d in 0..5 {
         c.turns(f64::from(d), 10);
     }
-    c.clean(5.5, 10);
+    c.clean(5.5, 10).exercised(5.5, 5);
     assert_eq!(c.crit(20.0, "owner_turns")["have"], 20, "the days of 2030-01-04 and -05 only");
     c.turns(5.0, 19);
     assert_eq!(c.unmet(20.0), ["owner_turns"]);
     c.turns(6.0, 1);
     assert!(up(&c.step(20.0, 4)));
 
-    // a demotion in the last 7 days; then 7 direct harm rollbacks in the last 30 closed groups
+    // a demotion in the last 7 days; then direct harm rollbacks against the harm-rate bound (v0.5.3)
     let mut c = l1_record();
     c.add(6.0, "ladder", json!({"cause": "demotion", "direction": "down", "from": 0, "to": 0, "trigger": {"kind": "ceiling_hit", "seq": 3}}));
     assert!(c.unmet(12.0).contains(&"demotions_last_7_days".to_string()));
-    let with_direct = |n: usize| {
+    let with_direct = |direct: usize, exercised: usize| {
         let mut c = Chain::free(0);
-        c.direct(0.5, n);
+        c.direct(0.5, direct);
         for d in 1..6 {
             c.turns(f64::from(d), 10);
         }
-        c.clean(6.5, 10);
+        c.clean(6.5, 10).exercised(6.6, exercised);
         c
     };
-    assert!(up(&with_direct(6).step(8.0, 4)), "6 of the last 30 is the L1 limit");
-    let mut c = with_direct(7);
-    assert_eq!(c.unmet(8.0), ["direct_rollbacks_last_30_groups"]);
-    c.clean(6.6, 14);
-    assert_eq!(c.crit(8.0, "direct_rollbacks_last_30_groups")["have"], 6, "the oldest direct left the last 30 closes");
-    assert!(up(&c.step(8.0, 4)));
+    // one direct harm: 25 exercised groups certify a rate below 25 %, 24 do not
+    assert!(up(&with_direct(1, 14).step(8.0, 4)), "{:?}", with_direct(1, 14).unmet(8.0));
+    let c = with_direct(1, 13);
+    assert_eq!(c.unmet(8.0), ["harm_rate_bound"]);
+    let b = c.crit(8.0, "harm_rate_bound");
+    assert_eq!((b["groups"].as_u64(), b["direct"].as_u64(), b["need"].as_u64()), (Some(24), Some(1), Some(250)), "{b}");
+    assert!(b["have"].as_u64().unwrap() > 250, "{b}");
+    // the old "≤ 6 in the last 30" let 6 harms in 16 groups through; the bound needs 58 exercised groups for them
+    assert_eq!(with_direct(6, 0).unmet(8.0), ["harm_rate_bound"]);
+    assert_eq!(with_direct(6, 41).unmet(8.0), ["harm_rate_bound"]);
+    assert!(up(&with_direct(6, 42).step(8.0, 4)));
 }
 
 /// RF-26: the baseline ring counts owner turns in days that started after the newest group close that was not clean.
@@ -159,7 +175,7 @@ fn rf26_the_baseline_ring_restarts_after_a_harmful_close() {
     for d in 0..3 {
         c.turns(f64::from(d), 20);
     }
-    c.groups(3.5, 1, "rolled_back", Some("suspect"), 2).clean(3.6, 10);
+    c.groups(3.5, 1, "rolled_back", Some("suspect"), 2).clean(3.6, 10).exercised(3.6, 5);
     assert_eq!(c.crit(10.0, "baseline_ring")["have"], 0, "the 60 turns before the rollback do not count");
     c.turns(4.0, 39);
     assert_eq!(c.unmet(10.0), ["baseline_ring"]);
@@ -176,7 +192,7 @@ fn rf26_l2_l3_l4_records() {
     for d in 0..20 {
         c.turns(f64::from(d), 8);
     }
-    c.clean(2.0, 40).direct(2.5, 4);
+    c.clean(2.0, 40).direct(2.5, 2);
     c.add(10.0, "twin_report", twin(true)).add(17.0, "twin_report", twin(true));
     assert!(up(&c.step(21.0, 4)), "{:?}", c.unmet(21.0));
     assert_eq!(c.unmet(20.5), ["days_at_level"]);
@@ -188,7 +204,7 @@ fn rf26_l2_l3_l4_records() {
     c.add(19.0, "twin_report", json!({"regression": false})).add(20.0, "twin_report", json!({"regression": false}));
     assert!(up(&c.step(29.1, 4)), "X9's own flag counts, and the newest two are clean");
     c.direct(20.5, 1);
-    assert_eq!(c.unmet(29.1), ["direct_rollbacks_last_30_groups"]);
+    assert_eq!(c.unmet(29.1), ["harm_rate_bound"], "3 direct harms in 43 exercised groups certify no rate below 20 %");
 
     let mut c = Chain::free(2);
     for d in 0..29 {
@@ -402,7 +418,7 @@ fn the_corrections_trend_blocks_level_ups_and_never_demotes() {
     for d in 0..14 {
         day(&mut c, d, 32, 3);
     }
-    c.clean(14.5, 10);
+    c.clean(14.5, 10).exercised(14.5, 5);
     for d in 14..20 {
         day(&mut c, d, 32, 3);
     }
@@ -465,4 +481,19 @@ fn the_corrections_trend_null_rate_and_power() {
     assert!(days.iter().all(|d| *d < 42), "fired within 6 weeks: {days:?}");
     assert!(days[10] <= 21, "median {} days: {days:?}", days[10]);
     println!("corrections trend: null 0 episodes in 20 years; 10%→35% over 42 days fired on days {days:?}");
+}
+
+/// L2b (INV-3): a free-path promotion matches a closed group by the tuple (content) its change admitted, so a second tuple
+/// with the same commit sha, or the admitted content under another sha, matches nothing.
+#[test]
+fn a_promotion_matches_a_closed_group_by_its_admitted_tuple() {
+    let r = |kind: &str, data: Value| json!({"by": "root", "data": data, "kind": kind});
+    let s = "b".repeat(40);
+    let recs = vec![r("change_open", json!({"group": 1, "sha": s, "tuple": "tWatched"})), r("change_open", json!({"group": 2, "sha": s, "tuple": "tOther"})),
+        r("change_close", json!({"group": 1, "outcome": "clean"})), r("change_close", json!({"group": 2, "outcome": "rolled_back"}))];
+    assert!(promotion_closed(&recs, "tWatched"));
+    assert!(!promotion_closed(&recs, "tOther"), "the same sha, a group rolled back");
+    assert!(!promotion_closed(&recs, &s), "a commit sha is not a tuple");
+    assert!(!promotion_closed(&recs, "tNever"));
+    assert!(!promotion_closed(&recs, ""));
 }

@@ -120,6 +120,8 @@ pub struct Flow {
     catalog: Vec<Value>,
     /// TUI-PICKER: list choices are pickers (TTY mode), not numbered prompts (line mode).
     pickers: bool,
+    /// v0.5.3: `init-agent` as the owner types it ([`crate::app::agent_cmd`]): it may not be on PATH.
+    agent: String,
 }
 
 fn err_text(e: &ReqErr) -> String {
@@ -134,15 +136,32 @@ fn exp(tested: &str) -> &'static str {
     if tested == "live" { "live-tested" } else { "experimental (not live-tested)" }
 }
 
+/// A catalog preset's model ids. v0.5.3: a live-tested provider can list a model that is not (OpenAI's gpt-6-astra
+/// beside the qualified gpt-6.1-sol), so such a model is marked.
+fn model_ids(c: &Value) -> Vec<String> {
+    let live = c["tested"] == "live";
+    c["models"].as_array().into_iter().flatten().filter_map(|m| {
+        let id = m["id"].as_str()?;
+        let experimental = m.get("tested").and_then(Value::as_str).is_some_and(|t| t != "live");
+        Some(if live && experimental { format!("{id} (experimental)") } else { id.to_string() })
+    }).collect()
+}
+
 impl Flow {
     /// `root_home` and `home` (HOME): which `init-root` the key-setup texts name ([`crate::app::root_cmd`]).
     pub fn new(can_hide: bool, root_home: &std::path::Path, home: Option<&str>) -> Flow {
-        Flow { can_hide, root: crate::app::root_cmd(root_home, home, ""), checked: false, step: Step::Idle, inflight: None, why: Why::FirstRun, arg: None, ch: Choice::default(), key_only: None, catalog: vec![], pickers: false }
+        Flow { can_hide, root: crate::app::root_cmd(root_home, home, ""), checked: false, step: Step::Idle, inflight: None, why: Why::FirstRun, arg: None, ch: Choice::default(), key_only: None, catalog: vec![], pickers: false, agent: crate::app::DEFAULT_AGENT.into() }
     }
 
     /// TTY mode: list choices are pickers ([`Out::Pick`]).
     pub fn with_pickers(mut self) -> Flow {
         self.pickers = true;
+        self
+    }
+
+    /// `init-agent` as the owner types it, for the text that tells them to run it (v0.5.3).
+    pub fn with_agent(mut self, agent: &str) -> Flow {
+        self.agent = agent.to_string();
         self
     }
 
@@ -255,7 +274,7 @@ impl Flow {
             // the first live-tested provider is the recommended one, listed first
             let rec = self.catalog.iter().position(|c| c["tested"] == "live");
             let mut opts: Vec<Opt> = self.catalog.iter().enumerate().map(|(i, c)| {
-                let ms: Vec<&str> = c["models"].as_array().into_iter().flatten().filter_map(|m| m["id"].as_str()).collect();
+                let ms = model_ids(c);
                 let ms = if ms.is_empty() { String::new() } else { format!("{} · ", ms.join(", ")) };
                 let o = Opt::new(i, c["display"].as_str().unwrap_or("")).desc(format!("{ms}{}", exp(c["tested"].as_str().unwrap_or(""))));
                 if Some(i) == rec { o.tag("recommended") } else { o }
@@ -268,7 +287,7 @@ impl Flow {
         }
         let mut o = vec![Out::Info("Choose a model provider (type a number and press Enter; Enter = 1):".into())];
         for (i, c) in self.catalog.iter().enumerate() {
-            let ms: Vec<&str> = c["models"].as_array().into_iter().flatten().filter_map(|m| m["id"].as_str()).collect();
+            let ms = model_ids(c);
             let ms = if ms.is_empty() { String::new() } else { format!(" · {}", ms.join(", ")) };
             o.push(Out::Info(format!("  {}  {}{ms} · {}", i + 1, c["display"].as_str().unwrap_or(""), exp(c["tested"].as_str().unwrap_or("")))));
         }
@@ -280,7 +299,7 @@ impl Flow {
         if !self.can_hide {
             self.step = Step::Idle;
             let a = self.key_only.take().unwrap_or_else(|| self.ch.alias.clone());
-            let mut o = vec![Out::Warn(format!("this terminal would show the key: store it with `{} keys set {a}` (hidden input) in a terminal, or run init-agent without --plain", self.root))];
+            let mut o = vec![Out::Warn(format!("this terminal would show the key: store it with `{} keys set {a}` (hidden input) in a terminal, or run {} without --plain", self.root, self.agent))];
             if self.why != Why::Key {
                 o.extend(self.ask_model());
             }
@@ -666,6 +685,22 @@ mod tests {
         assert!(!f.holds_lines());
     }
 
+    /// v0.5.3: OpenAI's preset is live-tested (gpt-6.1-sol, 2026-10-29) while gpt-6-astra is not: the menu marks that
+    /// model, and a live provider whose models are all live (DeepSeek) is listed as before.
+    #[test]
+    fn a_live_provider_marks_its_experimental_models() {
+        let mut l = list(false);
+        l["catalog"].as_array_mut().unwrap().insert(1, json!({"preset": "openai", "display": "OpenAI (Responses API)", "tested": "live",
+            "needs_url": false, "needs_key": true, "default_url": null,
+            "models": [{"id": "gpt-6.1-sol", "tested": "live"}, {"id": "gpt-6-astra", "tested": "experimental"}]}));
+        l["catalog"][0]["models"] = json!([{"id": "deepseek-flash", "tested": "live"}, {"id": "deepseek-v4-pro", "tested": "live"}]);
+        let mut f = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
+        f.on_attached();
+        let o = texts(&f.on_answer(Op::List, Ok(l)));
+        assert!(o.contains("1  DeepSeek · deepseek-flash, deepseek-v4-pro · live-tested"), "{o}");
+        assert!(o.contains("2  OpenAI (Responses API) · gpt-6.1-sol, gpt-6-astra (experimental) · live-tested"), "{o}");
+    }
+
     #[test]
     fn gateway_and_local_ask_for_url_model_and_price() {
         let mut f = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
@@ -723,6 +758,12 @@ mod tests {
         assert!(texts(&o).contains("Choose a model"), "the setup goes on with the model");
         let mut g = Flow::new(false, std::path::Path::new(RH), Some("/Users/o"));
         assert!(texts(&g.on_line("/key").map(|_| g.on_answer(Op::List, Ok(list(true)))).unwrap()).contains("`~/.init-root/bin/init-root keys set deepseek`"));
+        // v0.5.3 (finding 4): the other way names the launcher by its path, not a bare `init-agent`
+        assert!(texts(&o).contains("or run ~/.local/bin/init-agent without --plain") && !texts(&o).contains("run init-agent"), "{}", texts(&o));
+        let mut h = Flow::new(false, std::path::Path::new(RH), Some("/Users/o")).with_agent("'/opt/my bin/init-agent'");
+        h.on_attached();
+        h.on_answer(Op::List, Ok(list(false)));
+        assert!(texts(&h.on_line("1").unwrap()).contains("or run '/opt/my bin/init-agent' without --plain"));
     }
 
     /// The `init-root …` commands in `t` that a terminal would not find: `init-root` with no path before it.

@@ -376,7 +376,8 @@ fn layout_violation_halts_the_root() {
     assert_eq!((st["slot"].as_str(), st["halted"].as_str()), (Some("halted"), Some("layout")));
     assert!(fs::read_to_string(h.rh.join("alerts.jsonl")).unwrap().contains("\"code\":\"halted\""));
     assert_eq!(h.run(&["resume"]).status.code(), Some(77), "an integrity halt needs a fix, not a resume");
-    assert_eq!(h.kinds().last().map(String::as_str), Some("halt"));
+    // the boot's `halt`, then the daemon's `root_start` (L2b: every daemon start records its binary, halted or not)
+    assert_eq!(h.kinds()[h.kinds().len() - 2..], ["halt", "root_start"]);
 }
 
 #[test]

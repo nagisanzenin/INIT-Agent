@@ -34,10 +34,52 @@ pub const MAX_OUT_TOKENS: u64 = 1 << 20;
 /// call; defense in depth saturates both figures if that precondition is violated (F1). Cache writes (v0.5.0 L3)
 /// bill at up to 2× the input price (every write price in Table A, and the fallback): the hold at the input price
 /// per byte still covers them for any request of 2 or more bytes per input token, which every tokenizer's text and
-/// the JSON framing give, so the input price stays the hold's price and DeepSeek's holds are unchanged.
+/// the JSON framing give, so the input price stays the hold's price and DeepSeek's holds are unchanged. v0.5.3 L6:
+/// a charter whose cache price is above 2× its input price raises the hold's price per byte to half that price, so
+/// the hold covers every input class under the same 2-bytes-per-token rule (`hold_price`); no catalog model has one.
 pub fn reservation(body_len: u64, max_out: Option<u64>, md: &Model) -> (u64, u64) {
     let Some(out) = max_out.filter(|n| (1..=MAX_OUT_TOKENS).contains(n)) else { return (u64::MAX, u64::MAX) };
-    (tap::musd(&[(body_len, md.input), (out, md.output)]), tap::musd(&[(body_len.div_ceil(3), md.input), (out, md.output)]))
+    (tap::musd(&[(body_len, hold_price(md)), (out, md.output)]), tap::musd(&[(body_len.div_ceil(3), md.input), (out, md.output)]))
+}
+
+/// The hold's input price per request byte: the input price (a token is at least one byte), or half the dearest cache
+/// price when that is higher (at least two bytes per token, as `reservation` says).
+fn hold_price(md: &Model) -> u64 {
+    md.input.max(md.cache_read.max(md.cache_write).max(md.cache_write_1h).div_ceil(2))
+}
+
+/// The model's dearest price per token (µUSD per 1M tokens), at which a usage class without a price is booked.
+pub fn dearest(md: &Model) -> u64 {
+    md.input.max(md.cache_read).max(md.cache_write).max(md.cache_write_1h).max(md.output)
+}
+
+/// v0.5.3 L6: what one settled metered request books, and its ledger flags (root/egress.md §3.4). `hold` is its
+/// reservation, `max_out` its wire output cap and `ok` a 2xx answer.
+/// - Usage with every class priced: its list price (`Usage::cost`). It is never clamped to the hold, so a provider
+///   that bills more than the Root held is still booked in full: the meter never under-counts.
+/// - A stream cut before its final usage (`partial`): the input classes as reported and the output at the wire cap,
+///   which the provider may have generated in full (`usage_partial`).
+/// - Usage in a class the Root has no price for (`unknown`): those tokens at the model's dearest price, at most the
+///   hold, which is what the Root books when a request reports no usage at all, and never below the priced classes
+///   (`price_drift`; the egress also raises an alert).
+/// - No usage: the hold on a 2xx answer (`usage_estimated`, RT-C7); 0 when the provider refused the request.
+pub fn book(usage: Option<&tap::Usage>, md: &Model, hold: u64, max_out: u64, ok: bool) -> (u64, Vec<&'static str>) {
+    let Some(u) = usage else {
+        return if ok { (hold, vec!["usage_estimated"]) } else { (0, Vec::new()) };
+    };
+    let mut flags = Vec::new();
+    let mut priced = *u;
+    if u.partial {
+        priced.output = u.output.max(max_out);
+        flags.push("usage_partial");
+    }
+    let known = priced.cost(md);
+    if u.unknown == 0 {
+        return (known, flags);
+    }
+    flags.push("price_drift");
+    let with = priced.cost_with(md, &[(u.unknown, dearest(md))]);
+    (known.max(with.min(hold)), flags)
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -109,6 +151,8 @@ impl TokenTotals {
     pub fn observe(&mut self, usage: Option<tap::Usage>) {
         match usage {
             Some(u) => {
+                // v0.5.3 L6: a cut stream's output, or tokens in a class the Root does not price, are not known counts
+                if u.partial || u.unknown > 0 { self.complete = false; }
                 if self.input.checked_add(u.input).is_none() || self.output.checked_add(u.output).is_none() { self.complete = false; }
                 self.input = self.input.saturating_add(u.input);
                 self.output = self.output.saturating_add(u.output);
@@ -122,6 +166,7 @@ impl TokenTotals {
             input: e["usage"]["input"].as_u64()?, output: e["usage"]["output"].as_u64()?,
             cache_read: e["usage"]["cache_read"].as_u64().unwrap_or(0),
             cache_write: e["usage"]["cache_write"].as_u64().unwrap_or(0), cache_write_1h: e["usage"]["cache_write_1h"].as_u64().unwrap_or(0),
+            unknown: e["usage"]["unknown"].as_u64().unwrap_or(0), partial: e["usage"]["partial"] == true,
         }));
         self.observe(usage);
     }
@@ -136,6 +181,9 @@ pub struct Money {
     pub day_reserved: u64,
     pub total_spent: u64,
     pub total_reserved: u64,
+    /// v0.5.3 L6: today's settled live spend by the kernel's `x-egress-scope` label (`scope_label`), so `/usage` shows a
+    /// self-change's checks at the Root's price (the label is attribution only, never an input to admission).
+    pub day_scope: BTreeMap<&'static str, u64>,
     ring: VecDeque<Snap>,
     pub vol: BTreeMap<String, Vol>,
     hits: BTreeSet<String>,
@@ -150,7 +198,7 @@ impl Money {
     pub fn new(lim: Limits, now: i64) -> Money {
         let ds = day_start(now, lim.offset_ms);
         Money { tokens: TokenTotals::default(), lim, epoch: 0, day_start: ds, day_spent: 0, day_reserved: 0, total_spent: 0, total_reserved: 0,
-            ring: VecDeque::new(), vol: BTreeMap::new(), hits: BTreeSet::new(), usage: None }
+            day_scope: BTreeMap::new(), ring: VecDeque::new(), vol: BTreeMap::new(), hits: BTreeSet::new(), usage: None }
     }
 
     /// A new owner day clears the day counters (only forward: a clock stepping back changes nothing).
@@ -158,6 +206,7 @@ impl Money {
         let ds = day_start(now, self.lim.offset_ms);
         if ds > self.day_start {
             (self.day_start, self.day_spent, self.day_reserved) = (ds, 0, 0);
+            self.day_scope.clear();
             self.vol.values_mut().for_each(|v| (v.requests, v.bytes) = (0, 0));
             self.hits.clear();
         }
@@ -200,6 +249,14 @@ impl Money {
         with_pool(self.usage.as_deref(), |p| p.map(|p| p.zone = used));
         self.epoch += 1;
         self.snap(now);
+    }
+
+    /// Attributes a settled cost to its scope label, for the owner day it was admitted in (as `settle` counts it).
+    pub fn book_scope(&mut self, scope: &'static str, cost: u64, admitted_day: i64) {
+        if admitted_day == self.day_start {
+            let s = self.day_scope.entry(scope).or_default();
+            *s = s.saturating_add(cost);
+        }
     }
 
     fn snap(&mut self, now: i64) {
@@ -265,6 +322,18 @@ fn refill(v: &mut Vol, rate: u64, now: i64) -> u64 {
     };
     v.refill_at = now;
     u
+}
+
+/// The `x-egress-scope` label of a live request (root/egress.md §4.1: `live`, `gate`, `member`), as a fixed key:
+/// anything else is `other`, and a request without one `none`.
+pub fn scope_label(s: Option<&str>) -> &'static str {
+    match s {
+        Some("live") => "live",
+        Some("gate") => "gate",
+        Some("member") => "member",
+        Some(_) => "other",
+        None => "none",
+    }
 }
 
 /// The append-only usage ledger: no content, no URLs, no keys (§3.4).
@@ -498,6 +567,10 @@ fn rebuild_counts(dir: &Path, lim: Limits, now: i64) -> Money {
             let at = s["at"].as_str().and_then(util::parse_rfc3339).unwrap_or(0);
             if s["lane"] == "live" && at >= m.day_start {
                 m.day_spent = m.day_spent.saturating_add(c);
+                if s["model"].is_string() { // metered requests, as the egress books them (`book_scope`)
+                    let sc = m.day_scope.entry(scope_label(s["scope"].as_str())).or_default();
+                    *sc = sc.saturating_add(c);
+                }
                 let v = m.vol.entry(s["class"].as_str().unwrap_or("").to_string()).or_default();
                 v.requests += 1;
                 v.bytes += s["req_bytes"].as_u64().unwrap_or(0) + e.as_ref().and_then(|e| e["bytes"].as_u64()).unwrap_or(0);
@@ -597,6 +670,83 @@ mod tests {
         assert_eq!((hold, guard), (912, 312));
         let billed = tap::Usage { input: 2500, cache_read: 0, output: 10, ..tap::Usage::default() }.cost(&md);
         assert!(guard < billed && billed <= hold, "{guard} < {billed} ≤ {hold}");
+    }
+
+    fn sonnet() -> Model {
+        Model { min_level: 0, input: 2_000_000, cache_read: 100_000, cache_write: 2_500_000, cache_write_1h: 4_000_000, output: 10_000_000, reserve_out: 32_768 }
+    }
+
+    /// v0.5.3 L6, money.rs `book`: priced usage at its list price, never clamped to the hold; a cut stream's output at
+    /// its wire cap; a class without a price at the dearest price, up to the hold and never below the priced classes;
+    /// no usage: the hold on a 2xx, 0 on a refusal.
+    #[test]
+    fn the_booking_rule() {
+        let md = sonnet();
+        let u = tap::Usage { input: 1_000, cache_read: 600, cache_write: 100, output: 50, ..tap::Usage::default() };
+        let list = tap::musd(&[(300, 2_000_000), (600, 100_000), (100, 2_500_000), (50, 10_000_000)]);
+        assert_eq!(book(Some(&u), &md, 1_000_000, 4_096, true), (list, vec![]));
+        assert_eq!(book(Some(&u), &md, 1, 4_096, true), (list, vec![]), "a bill above the hold is booked in full");
+        let cut = tap::Usage { partial: true, ..u };
+        assert_eq!(book(Some(&cut), &md, 1_000_000, 4_096, true).0, tap::musd(&[(300, 2_000_000), (600, 100_000), (100, 2_500_000), (4_096, 10_000_000)]));
+        assert_eq!(book(Some(&cut), &md, 1_000_000, 4_096, true).1, vec!["usage_partial"]);
+        assert_eq!(book(Some(&tap::Usage { output: 9_000, ..cut }), &md, 1_000_000, 4_096, true).0, tap::musd(&[(300, 2_000_000), (600, 100_000),
+            (100, 2_500_000), (9_000, 10_000_000)]), "never below what was reported");
+        let drift = tap::Usage { unknown: 20, ..u };
+        let with = tap::musd(&[(300, 2_000_000), (600, 100_000), (100, 2_500_000), (50, 10_000_000), (20, 10_000_000)]);
+        assert_eq!(dearest(&md), 10_000_000);
+        assert_eq!(book(Some(&drift), &md, 1_000_000, 4_096, true), (with, vec!["price_drift"]));
+        assert_eq!(book(Some(&drift), &md, list + 3, 4_096, true).0, list + 3, "at most the hold");
+        assert_eq!(book(Some(&drift), &md, 1, 4_096, true).0, list, "never below the priced classes");
+        assert_eq!(book(None, &md, 777, 4_096, true), (777, vec!["usage_estimated"]));
+        assert_eq!(book(None, &md, 777, 4_096, false), (0, vec![]));
+        assert_eq!(book(Some(&tap::Usage { unknown: 5, ..cut }), &md, u64::MAX, 4_096, true).1, vec!["usage_partial", "price_drift"]);
+    }
+
+    /// v0.5.3 L6: the hold's price per byte covers a charter whose cache price is above 2× its input price; the
+    /// catalog's models (all at or below 2×) keep the input price, so their holds are unchanged.
+    #[test]
+    fn the_hold_covers_every_input_class() {
+        let md = sonnet();
+        assert_eq!(reservation(1_000, Some(10), &md).0, tap::musd(&[(1_000, 2_000_000), (10, 10_000_000)]), "1 h writes at 2×: unchanged");
+        let odd = Model { cache_write_1h: 9_000_001, ..md.clone() };
+        assert_eq!(reservation(1_000, Some(10), &odd).0, tap::musd(&[(1_000, 4_500_001), (10, 10_000_000)]));
+        // 500 tokens (2 bytes each) all in that class still fit the hold
+        let u = tap::Usage { input: 500, cache_write_1h: 500, output: 10, ..tap::Usage::default() };
+        assert!(u.cost(&odd) <= reservation(1_000, Some(10), &odd).0);
+        assert_eq!(reservation(1_000, Some(10), &md).1, reservation(1_000, Some(10), &odd).1, "the legacy guard figure is unchanged");
+    }
+
+    /// v0.5.3 L6: today's settled live spend by scope label, booked for the day it was admitted, rebuilt from the
+    /// `start` records' `scope`, cleared by a new owner day.
+    #[test]
+    fn spend_by_scope_today() {
+        let d = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(format!("../../target/test-homes/wp22/unit-scope-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&d); // exact path, created by this test
+        std::fs::create_dir_all(d.join("usage")).unwrap();
+        let l = Ledger { dir: d.join("usage") };
+        let rec = |t: &str, id: &str, at: i64, x: Value| {
+            let mut v = json!({"at": rfc3339(at), "id": id, "lane": "live", "t": t, "v": 1});
+            v.as_object_mut().unwrap().extend(x.as_object().unwrap().clone());
+            l.write(&date(at), &v, true).unwrap();
+        };
+        rec("start", "a", T0, json!({"class": "providers", "model": "m", "reserved_musd": 900, "scope": "gate"}));
+        rec("end", "a", T0, json!({"cost_musd": 70}));
+        rec("start", "b", T0, json!({"class": "providers", "model": "m", "reserved_musd": 900, "scope": "live"}));
+        rec("end", "b", T0, json!({"cost_musd": 30}));
+        rec("start", "c", T0, json!({"class": "providers", "model": "m", "reserved_musd": 400, "scope": "gate"})); // died: its reservation
+        rec("start", "d", T0 - DAY_MS, json!({"class": "providers", "model": "m", "reserved_musd": 900, "scope": "gate"}));
+        rec("end", "d", T0 - DAY_MS, json!({"cost_musd": 5}));
+        let mut m = rebuild(&l.dir, lim(0, 0), T0 + 1000);
+        assert_eq!(m.day_scope, BTreeMap::from([("gate", 470), ("live", 30)]));
+        let ds = m.day_start;
+        m.book_scope(scope_label(Some("gate")), 11, ds);
+        m.book_scope(scope_label(Some("evil")), 2, ds);
+        m.book_scope(scope_label(None), 3, ds);
+        m.book_scope(scope_label(Some("gate")), 99, ds - DAY_MS); // admitted yesterday
+        assert_eq!(m.day_scope, BTreeMap::from([("gate", 481), ("live", 30), ("none", 3), ("other", 2)]));
+        m.roll(T0 + DAY_MS);
+        assert!(m.day_scope.is_empty());
+        std::fs::remove_dir_all(&d).unwrap();
     }
 
     #[test]
@@ -729,6 +879,12 @@ mod tests {
         tokens.observe(None);
         tokens.observe(Some(tap::Usage { input: 5, output: 2, cache_read: 0, ..tap::Usage::default() }));
         assert_eq!((tokens.input, tokens.output, tokens.complete), (17, 5, false));
+        // v0.5.3 L6: a cut stream's output and a class without a price are not known counts
+        for u in [tap::Usage { input: 1, partial: true, ..tap::Usage::default() }, tap::Usage { input: 1, unknown: 1, ..tap::Usage::default() }] {
+            let mut t = TokenTotals::default();
+            t.observe(Some(u));
+            assert!(!t.complete, "{u:?}");
+        }
     }
 
     #[test]

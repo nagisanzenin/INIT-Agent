@@ -437,6 +437,12 @@ impl ProxyHandle {
         self.st.cfg().model(provider, model).map(|m| money::pusd_to_musd(pricing::request_reservation_pusd(m)))
     }
 
+    /// Whether this proxy refuses requests for money: the Root's `money.enforced` (false under the observe-only
+    /// policy of 2026-10-23, so no budget or cap refuses a request; true for a Root that says nothing).
+    pub fn money_enforced(&self) -> bool {
+        lock(&self.st.acct).money_enforced()
+    }
+
     pub fn status(&self) -> ProxyStatus {
         let a = lock(&self.st.acct).clone();
         let gate = a.gates.values().next();

@@ -650,7 +650,7 @@ fn quarantine(env: &Env, sha: &str, jid: &str) {
 }
 
 /// Build the G4 plan: the frozen sets, selection, budget and history.
-fn plan(env: &Env, gate_id: &str, v: &kernel_gate::evo::Validated, body_tokens_c: u64, body_tokens_p: u64, repeats: u32, all_tasks: bool) -> G4Plan {
+pub(super) fn plan(env: &Env, gate_id: &str, v: &kernel_gate::evo::Validated, body_tokens_c: u64, body_tokens_p: u64, repeats: u32, all_tasks: bool) -> G4Plan {
     let pool = g4run::load_set(env, "vault/gate/pool", RunSet::Pool);
     let holdout = g4run::load_set(env, "vault/holdout", RunSet::Holdout);
     let canaries = g4run::load_set(env, "vault/canaries", RunSet::Canary);
@@ -686,7 +686,10 @@ fn plan(env: &Env, gate_id: &str, v: &kernel_gate::evo::Validated, body_tokens_c
         now_unix: now_ms / 1000,
         now_rfc3339: crate::clock::now_rfc3339(),
         wall_s: env.gate.wall_s,
-        request_reservation_musd: env.proxy.request_reservation_musd(),
+        // D11 (v0.5.3 L6): the task-cap check only where the cap refuses requests. Under the Root's observe-only money
+        // a run can always make its requests, and the check would refuse G4 on every model whose one-request
+        // reservation is above the tasks' caps (gpt-6.1-sol: 327,680 µUSD against pool-v1's 100,000)
+        request_reservation_musd: env.proxy.request_reservation_musd().filter(|_| env.proxy.money_enforced()),
     }
 }
 

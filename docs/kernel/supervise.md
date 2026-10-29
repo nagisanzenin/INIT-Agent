@@ -802,7 +802,7 @@ The Root starts the kernel only after it has swept every zone instance, and neve
 7. **bin/ repair**:
    - `init-body` missing, `init-body.prev` present → `rename(prev → init-body)` (spec §7.1).
    - `init-body` missing, `.prev` missing → `hard_link(init-body.lkg → .tmp)` + `rename(.tmp → init-body)`.
-   - `init-body.lkg` still missing or wrong after step 6 → rebuild LKG from `lineage` at `lkg.sha` through §3.6.2 (no gate), and check the hash against `T.binary`. Failure → `Halted{no_lkg}`, alerted. root/root.md allows 1,200 s before `ready` for this rebuild.
+   - `init-body` and `init-body.lkg` both still missing after step 6 → `Halted{no_lkg}`, alerted. The kernel still sends `ready` (step 12). *Not built:* the rebuild of the LKG from `lineage` at `lkg.sha` through §3.6.2 (no gate) that v0.3 specified here. A rebuild before `ready` would have to fit the Root's `kernel_ready_timeout_s` (1,200 s, root/root.md §3.6.3), and a cold build, bounded at `build_timeout_cold_s` (3,600 s), does not.
 8. *(v0.1's orphan sweep is the Root's now; see step 5.)*
 9. **Interrupted handoff** (`supervisor.json.handoff != null`):
 

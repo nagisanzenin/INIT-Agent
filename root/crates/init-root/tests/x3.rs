@@ -10,7 +10,7 @@
 
 use serde_json::{Value, json};
 use std::fs;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixStream;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
@@ -64,8 +64,12 @@ impl Home {
         serde_json::from_slice(&o.stdout).unwrap_or(Value::Null)
     }
     fn install(&self) {
+        self.install_mode("free");
+    }
+    /// `install` with the charter's `extend.mode` set to `mode` (`free` or `gated`).
+    fn install_mode(&self, mode: &str) {
         fs::create_dir_all(&self.rh).unwrap();
-        fs::write(self.rh.join("charter.toml"), CHARTER).unwrap();
+        fs::write(self.rh.join("charter.toml"), CHARTER.replace("mode = \"free\"", &format!("mode = \"{mode}\""))).unwrap();
         let spec = self.dir.join("spec.json");
         fs::write(&spec, json!({"start_at": "2030-01-01T00:00:00Z", "start_level": 0, "records": []}).to_string()).unwrap();
         self.ok(&["test", "ledger", "--spec", spec.to_str().unwrap()]);
@@ -260,4 +264,60 @@ fn rf12_owner_rollback_and_kernel_confirmation() {
     let r = h.kernel_call("change.open", json!({"sha": sha, "from_sha": "", "scope": "t0", "prefix_change": false,
         "candidate": {"body": {"binary": "", "sha": sha}, "ext": {"components": [], "set": null}}, "caps": []}));
     assert_eq!((r["ok"].as_bool(), r["error"]["code"].as_str()), (Some(false), Some("extend.readmit")), "{r}");
+}
+
+/// v0.5.3 (lane H, the cancelled demo's setup): on the gated path a kept change is LKG at once (G4 had nothing to score)
+/// and opens no change group, so `/rollback` found nothing to act on and only `/panic` then `/resume` reverted it. Plain
+/// `/rollback` now undoes the newest kept change: LKG moves back to the tuple it replaced (`lkg{undo}`, INV-5's owner
+/// rollback), the zone restarts there (`rollback{target:"parent"}`, boot `rollback_system`), and the lineage verifies.
+/// With no older kept tuple it says so and rolls nothing back.
+#[test]
+fn the_gated_rollback_undoes_the_newest_kept_change() {
+    let h = home("gr");
+    h.install_mode("gated");
+    {
+        let _d = h.daemon("2030-01-02T00:00:00Z", "body");
+        let genesis = h.status()["tuples"]["current"].as_str().unwrap().to_string();
+        let mut a = UnixStream::connect(h.rh.join("run/owner.sock")).unwrap();
+        writeln!(a, "{}", json!({"client": "x3-test", "replay": false, "t": "attach"})).unwrap();
+        a.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let mut rd = BufReader::new(a.try_clone().unwrap());
+        writeln!(a, "{}", json!({"t": "line", "text": "/rollback"})).unwrap();
+        let notice = loop {
+            let mut l = String::new();
+            assert!(rd.read_line(&mut l).unwrap() > 0, "the attach connection closed");
+            let v: Value = serde_json::from_str(&l).unwrap_or_default();
+            if v["t"] == "notice" && v["text"].as_str().is_some_and(|t| t.starts_with("[root] /rollback")) {
+                break v["text"].as_str().unwrap().to_string();
+            }
+        };
+        assert!(notice.contains("nothing was rolled back") && notice.contains("first kept tuple") && notice.contains(&genesis), "{notice}");
+        std::thread::sleep(Duration::from_millis(500));
+        assert!(h.of("rollback").is_empty() && h.of("lkg").iter().all(|r| r["data"]["undo"].is_null()), "nothing moved");
+    }
+    // the kernel's gated promotion forms a kept tuple, LKG at once
+    let _d = h.daemon("2030-01-02T00:00:00Z", "body,promote");
+    let genesis = h.of("tuple")[0]["data"]["id"].as_str().unwrap().to_string();
+    wait(20, "the kept change", || h.status()["tuples"]["lkg"].as_str().is_some_and(|l| l != genesis));
+    let kept = h.status()["tuples"]["lkg"].as_str().unwrap().to_string();
+    assert_eq!(h.status()["tuples"]["current"], kept.as_str(), "the kept change runs");
+    let boots = h.fk("boot").len();
+    h.say("/rollback");
+    wait(20, "the whole-system rollback", || !h.of("rollback").is_empty());
+    let undo: Vec<Value> = h.of("lkg").into_iter().filter(|r| !r["data"]["undo"].is_null()).collect();
+    assert_eq!(undo.len(), 1, "{undo:?}");
+    assert_eq!(undo[0]["data"], json!({"reason": "owner_rollback", "tuple": genesis, "undo": kept}), "LKG moves back, as the owner's");
+    let rb = &h.of("rollback")[0]["data"];
+    assert_eq!((rb["to"].as_str(), rb["from"].as_str(), rb["target"].as_str(), rb["reason"].as_str()),
+        (Some(genesis.as_str()), Some(kept.as_str()), Some("parent"), Some("rollback_system")), "{rb}");
+    let harm = &h.of("harm")[0]["data"];
+    assert_eq!((harm["signal"].as_str(), harm["action"].as_str(), harm["scope"].as_str()), (Some("H3"), Some("rollback_kept"), Some("system")));
+    wait(20, "the kernel restarted", || h.fk("boot").len() > boots);
+    assert_eq!(h.fk("boot")[boots]["result"]["boot"]["reason"], "rollback_system", "the kernel restores the target's body");
+    let tb = &h.fk("boot")[boots]["result"]["boot"]["tuple_body"];
+    assert_eq!((tb["binary"].as_str(), tb["sha"].as_str()), (Some(""), Some("")), "the seedless genesis body: {tb}");
+    // the lineage is verified once the daemon has stopped: `audit verify` reads the chain, then head.json, and the fake
+    // kernel's promotion after the restart may be appending in between (head.json ahead of the chain read: INVALID)
+    drop(_d);
+    h.ok(&["audit", "verify", "--full"]);
 }

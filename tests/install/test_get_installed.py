@@ -6,7 +6,8 @@ ROOT_HOME with install.json and a stand-in bin/init-root that prints "init-root 
 get.sh with and without --upgrade, and checks the message: before 0.4.1 the uninstall command (and --upgrade refuses
 before any download); 0.4.1 and 0.5.0 the upgrade that runs the current get.sh with the system's curl and sh (0.5.0's
 own `init-agent upgrade` runs 0.5.0's get.sh, which 0.5.1 fixed; v0.5.1, lane SCRIPTS-FIX2); 0.5.1 or later
-`init-agent upgrade`. Each line carries INIT_ROOT_HOME= (on the sh side of a pipe) when ROOT_HOME is not the passwd
+`init-agent upgrade`, with its path (v0.5.3: `~/.local/bin/init-agent upgrade`, since a fresh Mac's PATH lacks
+~/.local/bin). Each line carries INIT_ROOT_HOME= (on the sh side of a pipe) when ROOT_HOME is not the passwd
 home's ~/.init-root, which a scratch HOME never is, and runs as printed (run_pipe). get.sh must stop before it
 downloads anything: `curl` on PATH is a stand-in that records what it was asked for and fails. Before 0.4.1 it must not
 run at all; from 0.4.1 get.sh may ask for the release's latest.json only, to check that it has a bundle for this machine
@@ -104,7 +105,7 @@ class InstalledRelease(unittest.TestCase):
             p = self.run_get(version)
             self.assertEqual(p.returncode, 1, (version, p.stderr))
             self.assertIn("INIT %s is already installed" % version, p.stderr)
-            self.assertIn("\n  INIT_ROOT_HOME=%s init-agent upgrade\n" % shq(self.rh), p.stderr)
+            self.assertIn("\n  INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade\n" % shq(self.rh), p.stderr)
             self.assertNotIn("/usr/bin/curl", p.stderr)
             self.assertNotIn("curl ran", p.stderr)
 
@@ -117,12 +118,13 @@ class InstalledRelease(unittest.TestCase):
             self.assertEqual(run_pipe(self, line, DIST + "/get.sh", self.home), "home=%s|args=--upgrade" % self.rh)
         p = self.run_get("0.5.1", rh_name=name)
         line = p.stderr.splitlines()[-1].strip()
-        self.assertEqual(line, "INIT_ROOT_HOME=%s init-agent upgrade" % shq(self.rh))
-        with tempfile.TemporaryDirectory() as fake:  # a stand-in init-agent on PATH, as the owner's ~/.local/bin has it
-            with open(os.path.join(fake, "init-agent"), "w") as f:
+        self.assertEqual(line, "INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade" % shq(self.rh))
+        with tempfile.TemporaryDirectory() as home:  # a stand-in init-agent in ~/.local/bin, which is not on PATH
+            os.makedirs(os.path.join(home, ".local", "bin"))
+            with open(os.path.join(home, ".local", "bin", "init-agent"), "w") as f:
                 f.write('#!/bin/sh\necho "home=${INIT_ROOT_HOME-unset}|args=$*"\n')
-            os.chmod(os.path.join(fake, "init-agent"), 0o755)
-            q = subprocess.run(["/bin/sh", "-c", line], env={"PATH": fake + ":/usr/bin:/bin", "HOME": "/nonexistent"},
+            os.chmod(os.path.join(home, ".local", "bin", "init-agent"), 0o755)
+            q = subprocess.run(["/bin/sh", "-c", line], env={"PATH": "/usr/bin:/bin", "HOME": home},
                                capture_output=True, text=True, timeout=30)
             self.assertEqual(q.stdout.strip(), "home=%s|args=upgrade" % self.rh, line + q.stderr)
         p = self.run_get("0.3.1", rh_name=name)
@@ -132,7 +134,7 @@ class InstalledRelease(unittest.TestCase):
         p = self.run_get(None)
         self.assertEqual(p.returncode, 1, p.stderr)
         self.assertIn("its version could not be read", p.stderr)
-        for s in ("From 0.5.1: INIT_ROOT_HOME=%s init-agent upgrade." % shq(self.rh),
+        for s in ("From 0.5.1: INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade." % shq(self.rh),
                   "From 0.4.1 or 0.5.0: %s." % pipe(self.rh), UNINSTALL):
             self.assertIn(s, p.stderr)
 

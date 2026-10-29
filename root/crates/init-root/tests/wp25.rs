@@ -70,6 +70,15 @@ fn clean_groups(at: &str, from: u64, n: u64) -> Vec<Value> {
     ]).collect()
 }
 
+/// `n` exercised groups that are not clean groups (5 window turns, an unchanged tuple): they count for the
+/// harm-rate bound (v0.5.3: L1 needs 15 exercised groups with no direct harm), not for `clean_groups`.
+fn exercised_groups(at: &str, from: u64, n: u64) -> Vec<Value> {
+    (from..from + n).flat_map(|g| [
+        json!({"at": at, "kind": "change_open", "data": {"caps": [], "group": g, "parent_tuple": "same", "scope": "t0", "sha": format!("{g:040x}"), "tuple": "same"}}),
+        json!({"at": at, "kind": "change_close", "data": {"attribution": null, "group": g, "outcome": "clean", "trigger": null, "turns": 5}}),
+    ]).collect()
+}
+
 impl Home {
     fn cmd(&self) -> Command {
         let mut c = Command::new(BIN);
@@ -204,6 +213,7 @@ fn rt_l1_l2_the_record_unlocks_l1_without_a_restart() {
     let h = home("l12");
     let mut recs = turn_days("2030-01-01", 5, 10);
     recs.extend(clean_groups("2030-01-07T00:00:00Z", 0, 9));
+    recs.extend(exercised_groups("2030-01-07T00:00:00Z", 100, 6));
     h.install(4, 0, json!(recs), true);
     let l = h.ledger(); // offline: folded from the files
     assert_eq!((l["level"].as_i64(), l["next"]["level"].as_i64()), (Some(0), Some(1)));
@@ -249,7 +259,7 @@ fn rt_l3_l4_l5_l6_criteria_on_the_fake_clock() {
     let mut recs = vec![json!({"at": "2030-01-02T00:00:00Z", "kind": "ladder", "data": {"cause": "demotion", "direction": "down", "from": 0, "to": 0,
         "trigger": {"kind": "ceiling_hit", "seq": 1}}})];
     recs.extend(turn_days("2030-01-02", 5, 10));
-    recs.extend(clean_groups("2030-01-07T00:00:00Z", 0, 10));
+    recs.extend(clean_groups("2030-01-07T00:00:00Z", 0, 15));
     h.install(4, 0, json!(recs), false);
     let d = h.daemon("2030-01-08T12:00:00Z");
     h.clock(0); // one evaluation, synchronously
@@ -265,7 +275,7 @@ fn rt_l3_l4_l5_l6_criteria_on_the_fake_clock() {
     // RT-L4: the record holds, but the charter's max is L0; raising it unlocks at the next evaluation
     let h = home("l4");
     let mut recs = turn_days("2030-01-01", 5, 10);
-    recs.extend(clean_groups("2030-01-06T00:00:00Z", 0, 10));
+    recs.extend(clean_groups("2030-01-06T00:00:00Z", 0, 15));
     h.install(0, 0, json!(recs), false);
     let _d = h.daemon("2030-01-09T00:00:00Z");
     h.clock(0);

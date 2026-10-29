@@ -266,7 +266,7 @@ pub fn run(home: &Path, ctl: OwnedFd, fdpass: OwnedFd, on_start: impl FnOnce(Han
 pub fn run_with_proxy(home: &Path, ctl: OwnedFd, fdpass: OwnedFd, proxy: Arc<dyn crate::proxyctl::ProxyCtl>, on_start: impl FnOnce(Handle)) -> i32 {
     // §3.9 step 1 (FD_CLOEXEC is the caller's): the single-instance lock comes before `on_start`,
     // so whatever it binds (initctl's `run/kernel.sock`, FIX6) belongs to the only kernel. Everything
-    // slow (hello, restores, a possible LKG rebuild) comes after it.
+    // slow (hello, the restores from the Root's store) comes after it.
     let lock = match take_lock(home) {
         Ok(l) => l,
         Err(code) => return code,
@@ -423,9 +423,12 @@ pub fn notice_text(kind: &str, d: &Value) -> String {
             let scope = d["scope"].as_str().map(|s| format!(" ({s})")).unwrap_or_default();
             return format!("[kernel] gate started for {}: {}{scope}", sha12("sha"), steps.join(" "));
         }
-        // v0.5.2 (R-TUI): G0's dependency build began (a cache miss)
+        // v0.5.2 (R-TUI): G0's dependency build began (a cache miss). v0.5.3 (lane F): the measured range, as in the
+        // TUI's `DEPS_ESTIMATE` (v0.5.2's "usually 10-20 min" had no receipt): 907 s, 17 min 16 s and 21 min 13 s on
+        // an M2 at load 10-23 or beside a release job (docs/guide.md "Time": MERGE-T2CACHE, user sessions v0.5.1-new
+        // and v0.5.2-new).
         "gate_deps" => {
-            return format!("[kernel] building the dependencies for {} (not cached yet): usually 10-20 min on an M2, once", sha12("sha"));
+            return format!("[kernel] building the dependencies for {} (not cached yet): 15–21 min on a busy M2, once", sha12("sha"));
         }
         "rolled_back" => {
             let to = if d["to_lkg"] == true { " (LKG)" } else { "" };
@@ -523,9 +526,9 @@ mod notice_tests {
         );
         assert_eq!(notice_text("gate", &json!({"stage": "G2", "pass": true})), "[kernel] gate G2 pass");
         assert_eq!(notice_text("promoted", &json!({})), "[kernel] promoted");
-        // v0.5.2 (R-TUI): the dependency build says what it is and how long it usually takes
+        // v0.5.2 (R-TUI): the dependency build says what it is and how long it takes (v0.5.3: as measured)
         assert_eq!(notice_text("gate_deps", &json!({"gate_id": "j-1", "sha": "9aa7d39624ce0011"})),
-            "[kernel] building the dependencies for 9aa7d39624ce (not cached yet): usually 10-20 min on an M2, once");
+            "[kernel] building the dependencies for 9aa7d39624ce (not cached yet): 15–21 min on a busy M2, once");
     }
 
     /// The body's stage notice as `kernel_gate::record::stage_notice` builds it.

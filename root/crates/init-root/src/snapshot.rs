@@ -37,6 +37,7 @@ use crate::zone::Err3;
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::os::fd::{AsFd, BorrowedFd, OwnedFd};
 use std::os::unix::fs::{DirBuilderExt, MetadataExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -79,6 +80,143 @@ pub(crate) fn remove(p: &Path) -> std::io::Result<()> {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e),
     }
+}
+
+// ---------------------------------------------------------------------------------------------
+// R-UNDO (v0.5.3, REL-052 §7.5 findings 1 and 2, fix 7): removing a clone, and swapping a tree's entries all or
+// nothing. Shared by the workspace's `/undo` (access.rs) and R2 (`restore_at`).
+
+/// Removes a tree under ROOT_HOME/snapshots by its exact path: a workspace or system snapshot, a probe clone, a
+/// staging tree. A clone keeps the modes and lock flags of what it copied, so a read-only folder or a locked file in
+/// it made [`remove`] (`remove_dir_all`) fail: in v0.5.2 such snapshots were never pruned and a probe stayed for good.
+/// Here each folder is made owner-writable and each owner lock flag (`uchg`, `uappnd`) is cleared, never following a
+/// link, before its entries go. Paths are used as found, so this is only for trees the zone can never reach (tail
+/// Z1): nothing can swap a link in under it. Missing is fine.
+pub(crate) fn remove_tree(p: &Path) -> std::io::Result<()> {
+    let md = match fs::symlink_metadata(p) {
+        Ok(m) => m,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(()),
+        Err(e) => return Err(e),
+    };
+    crate::sys::unlock(p, &md)?;
+    if !md.is_dir() {
+        return fs::remove_file(p); // a file or a link, never followed
+    }
+    if md.mode() & 0o700 != 0o700 {
+        fs::set_permissions(p, fs::Permissions::from_mode(md.mode() & 0o7777 | 0o700))?;
+    }
+    for e in fs::read_dir(p)? {
+        remove_tree(&e?.path())?;
+    }
+    fs::remove_dir(p)
+}
+
+/// Why a swap of entries did not complete (the workspace's `/undo` in access.rs, and R2's [`swap_sa`]).
+pub(crate) enum Unrestored {
+    /// Found before anything moved: nothing changed. Why, and what the owner can do.
+    Refused(String),
+    /// A step failed, and every step done was put back: nothing changed.
+    RolledBack(String),
+    /// A step failed, and putting the steps back failed too: what failed, and what was not put back.
+    Stuck(String),
+}
+
+/// One end of a step of a [`swap`] (lane U, v0.5.3): a path under ROOT_HOME, which the zone can never reach (tail
+/// Z1), or the entry `rel` (a name, or `<tree>/<name>`) under `base`, a directory the Root holds open: the workspace
+/// for `/undo`, INIT_HOME for R2 ([`crate::sys::open_dir_nofollow`]). Each use opens `rel`'s directories from `base`
+/// with O_NOFOLLOW and names the entry relative to the last, so a link the zone swaps in at the workspace's path, at a
+/// folder above it, or for a tree of INIT_HOME, is never followed: a move fails instead, and is put back. `shown`:
+/// its path, for messages.
+pub(crate) enum End<'a> {
+    Path(PathBuf),
+    Under { base: BorrowedFd<'a>, rel: PathBuf, shown: PathBuf },
+}
+
+impl End<'_> {
+    pub(crate) fn shown(&self) -> &Path {
+        match self {
+            End::Path(p) | End::Under { shown: p, .. } => p,
+        }
+    }
+
+    /// The directory to name this end in (None: as a path) and its name there.
+    fn spot(&self) -> std::io::Result<(Option<OwnedFd>, &Path)> {
+        match self {
+            End::Path(p) => Ok((None, p)),
+            End::Under { base, rel, .. } => {
+                let name = rel.file_name().map(Path::new).ok_or_else(|| std::io::Error::other("an entry without a name"))?;
+                Ok((Some(crate::sys::open_dir_nofollow(Some(*base), rel.parent().unwrap_or(Path::new("")))?), name))
+            }
+        }
+    }
+}
+
+/// One step of a [`swap`]: a move of one entry ([`move_entry`]; `point` is its fault point in test builds), or a new
+/// empty directory.
+pub(crate) enum Op<'a> {
+    Move { from: End<'a>, to: End<'a>, point: &'static str },
+    MkDir(End<'a>),
+}
+
+/// Runs `ops` in order, `guard` before each (a fault point, a liveness check), and when one fails undoes every op
+/// done ([`undo_ops`]). Err: the failed op's index, its error, and what could not be undone (empty: every op was put
+/// back, so nothing changed).
+pub(crate) fn swap(ops: &[Op], force: bool, guard: &mut dyn FnMut(&Op) -> std::io::Result<()>) -> Result<(), (usize, std::io::Error, Vec<String>)> {
+    for (i, op) in ops.iter().enumerate() {
+        let r = guard(op).and_then(|()| match op {
+            Op::Move { from, to, .. } => move_entry(from, to, force),
+            Op::MkDir(d) => d.spot().and_then(|(fd, n)| crate::sys::mkdir_at(fd.as_ref().map(AsFd::as_fd), n, 0o700)),
+        });
+        if let Err(e) = r {
+            return Err((i, e, undo_ops(&ops[..i], force)));
+        }
+    }
+    Ok(())
+}
+
+/// Puts back `done` (ops that ran), newest first: a move moves back, a new directory is removed (it is empty again by
+/// then). Returns what could not be put back; every later step is still tried.
+pub(crate) fn undo_ops(done: &[Op], force: bool) -> Vec<String> {
+    done.iter().rev().filter_map(|op| match op {
+        Op::Move { from, to, .. } => move_entry(to, from, force).err().map(|e| format!("{} ({e})", to.shown().display())),
+        Op::MkDir(d) => d.spot().and_then(|(fd, n)| crate::sys::rmdir_at(fd.as_ref().map(AsFd::as_fd), n)).err()
+            .map(|e| format!("{} ({e})", d.shown().display())),
+    }).collect()
+}
+
+/// One move: a rename that never replaces an entry and never follows a link ([`crate::sys::rename_excl_at`]), each end
+/// named in its directory ([`End`]). A real folder without owner write permission (macOS and Linux need it to move a
+/// folder to another parent) is opened with O_NOFOLLOW, made owner-writable for the move and given its mode back
+/// through that descriptor, so nothing swapped in at its path meanwhile is ever chmodded. `force` (R2, on the agent's
+/// own state): an owner lock flag on the entry (`uchg`, `uappnd`, which the agent can set and which refuses a rename)
+/// is cleared for the move and set again after, never following a link; without it a locked entry's move fails.
+pub(crate) fn move_entry(from: &End, to: &End, force: bool) -> std::io::Result<()> {
+    let ((fd, name), (tfd, tname)) = (from.spot()?, to.spot()?);
+    let (fd, tfd) = (fd.as_ref().map(AsFd::as_fd), tfd.as_ref().map(AsFd::as_fd));
+    let st = crate::sys::stat_at(fd, name)?;
+    let locked = force && crate::sys::locked_flags(st.flags);
+    if locked {
+        crate::sys::set_flags_at(fd, name, st.flags, true)?;
+    }
+    let r = (|| {
+        let ro = if st.is_dir() && st.mode & 0o200 == 0 {
+            let d = fs::File::from(crate::sys::open_dir_at(fd, name)?);
+            let mode = d.metadata()?.mode() & 0o7777;
+            d.set_permissions(fs::Permissions::from_mode(mode | 0o200))?;
+            Some((d, mode))
+        } else {
+            None
+        };
+        let r = crate::sys::rename_excl_at(fd, name, tfd, tname);
+        if let Some((d, mode)) = ro {
+            let _ = d.set_permissions(fs::Permissions::from_mode(mode)); // the mode it had, moved or not
+        }
+        r
+    })();
+    if locked {
+        let _ = if r.is_ok() { crate::sys::set_flags_at(tfd, tname, st.flags, false) } else { crate::sys::set_flags_at(fd, name, st.flags, false) };
+    }
+    r
 }
 
 /// Sum of the regular files' sizes under `p`, never following links.
@@ -125,7 +263,7 @@ fn clone_sa(ih: &Path, dst: &Path, max: u64) -> Result<(), (&'static str, String
             return Err(internal(format!("INIT_HOME/{tree} is not a directory (a link?); it is never followed")));
         }
         for s in skip {
-            remove(&to.join(s)).map_err(|e| internal(format!("{tree}/{s}: {e}")))?;
+            remove_tree(&to.join(s)).map_err(|e| internal(format!("{tree}/{s}: {e}")))?; // in this Root's own clone
         }
     }
     Ok(())
@@ -162,17 +300,17 @@ pub fn take_at(rh: &Path, ih: &Path, id: &str, kind: &str, group: Option<u64>, m
     }
     let at = now_ms();
     if let Err((code, message)) = clone_sa(ih, &dst, max) {
-        let _ = remove(&dst); // exact path, created by clone_sa
+        let _ = remove_tree(&dst); // exact path, created by clone_sa
         return Err((code, message));
     }
     let bytes = logical(&dst);
     if bytes > max {
-        let _ = remove(&dst); // exact path, created above
+        let _ = remove_tree(&dst); // exact path, created above
         return Err(big(format!("agent state is {} MiB, over snap_max_gib = {} GiB", bytes >> 20, max >> 30)));
     }
     let meta = json!({"at": rfc3339(at), "at_ms": at, "group": group, "id": id, "kind": kind, "logical_bytes": bytes, "v": 1});
     if let Err(e) = write_atomic(&d.join(format!("{id}.json")), format!("{meta}\n").as_bytes(), 0o600) {
-        let _ = remove(&dst); // exact path, created above
+        let _ = remove_tree(&dst); // exact path, created above
         return Err(int(format!("{id}.json: {e}")));
     }
     Ok(meta)
@@ -240,8 +378,9 @@ fn prune_at(rh: &Path, records: &[Value], now: i64) -> Vec<String> {
     let mut gone = Vec::new();
     for m in &all {
         let id = m["id"].as_str().unwrap_or("");
-        if safe_id(id) && !keep.contains(id) {
-            let _ = remove(&d.join(id)); // exact path: a snapshot this Root made
+        // v0.5.3 (fix 7): `remove_tree`, so a snapshot of agent state with a read-only folder in it is pruned too (with
+        // `remove` it stayed on disk with its record gone); one that still cannot be removed keeps its record
+        if safe_id(id) && !keep.contains(id) && remove_tree(&d.join(id)).is_ok() {
             let _ = fs::remove_file(d.join(format!("{id}.json")));
             gone.push(id.to_string());
         }
@@ -260,18 +399,31 @@ fn snap_max(root: &Root) -> u64 {
     crate::grant::snap_max_gib(root) << 30
 }
 
+/// A5's disk room (ADR-011 §2.1): free disk on INIT_HOME at least the workload floor plus 2 GiB, else `root.quota`.
+fn room(root: &Root) -> Result<(), Err3> {
+    let floor = lock(&root.st).charter.as_ref().map_or(0, |l| Limits::of(&l.ch).floor);
+    room_of(crate::sys::free_bytes(&root.p.ih), floor)
+}
+
+/// [`room`] on a statvfs reading (the twin's nightly gate uses it too). v0.5.3 (lane F; A_res, INV-4): a reading that
+/// failed refuses as well. v0.5.2 took it for `u64::MAX` free, so a change was admitted with its room unknown.
+pub fn room_of(free: std::io::Result<u64>, floor: u64) -> Result<(), Err3> {
+    let free = free.map_err(|e| ("root.quota", format!("free disk on INIT_HOME cannot be read ({e}): no system snapshot, no change"),
+        json!({"reason": "disk"})))?;
+    if free < floor + ROOM {
+        return Err(("root.quota", format!("free disk {} MiB is below the workload floor plus 2 GiB: no system snapshot, no change", free >> 20),
+            json!({"reason": "disk"})));
+    }
+    Ok(())
+}
+
 /// §4.2: the system snapshot at a group's first `change_open`, after A4 and before the change goes live. Ok:
 /// `{"id","kind":"sys","group","logical_mib"}`, recorded as `snapshot`. Refusals (A5): `extend.snapshot_too_large`
 /// (with an alert), `root.quota` (no room: 16 snapshots pinned, or free disk below the floor plus 2 GiB).
 pub fn take(root: &Root, group: Option<u64>) -> Result<Value, Err3> {
     let _g = lock(&OP);
     let (rh, ih) = (&root.p.rh, &root.p.ih);
-    let floor = lock(&root.st).charter.as_ref().map_or(0, |l| Limits::of(&l.ch).floor);
-    let free = crate::sys::free_bytes(ih).unwrap_or(u64::MAX);
-    if free < floor + ROOM {
-        return Err(("root.quota", format!("free disk {} MiB is below the workload floor plus 2 GiB: no system snapshot, no change", free >> 20),
-            json!({"reason": "disk"})));
-    }
+    room(root)?;
     let records = crate::lineage::records(rh).unwrap_or_default();
     prune_at(rh, &records, now_ms());
     let all = metas(rh);
@@ -285,7 +437,7 @@ pub fn take(root: &Root, group: Option<u64>) -> Result<Value, Err3> {
             json!({"reason": "snapshots"})));
     }
     if all.iter().any(|m| m["id"] == id.as_str()) && !keep.contains(&id) {
-        let _ = remove(&dir(rh).join(&id)); // an orphan of a refused change: exact path
+        let _ = remove_tree(&dir(rh).join(&id)); // an orphan of a refused change: exact path
         let _ = fs::remove_file(dir(rh).join(format!("{id}.json")));
     }
     match take_at(rh, ih, &id, "sys", group, snap_max(root)) {
@@ -305,7 +457,12 @@ pub fn take(root: &Root, group: Option<u64>) -> Result<Value, Err3> {
 }
 
 /// R2 on paths: restores snapshot `id` into `ih` while `live()` stays false. The current `S_A` is first cloned to
-/// `pre-restore-<n>`. Ok: `{"restored","saved","saved_bytes"}`.
+/// `pre-restore-<n>`. Ok: `{"restored","saved","saved_bytes"}`. v0.5.3 (fix 7, REL-052 §7.5's sibling of finding 1,
+/// FG-1): all or nothing ([`swap_sa`]). v0.5.2 removed each live entry and then cloned the snapshot's, so a read-only
+/// folder the agent made (`mkdir state/x; touch state/x/f; chmod 555 state/x`) stopped it with EACCES after earlier
+/// entries were gone: the agent could make the Root's own rollback fail. Now a restore that cannot complete puts
+/// every entry back, so the zone's state is exactly as before, and drops the save; only one that cannot put
+/// everything back keeps both the save and its staging tree, and says where they are.
 pub fn restore_at(rh: &Path, ih: &Path, id: &str, live: &dyn Fn() -> bool) -> Result<Value, Err3> {
     let busy = |m: String| ("root.busy", m, json!({"reason": "zone_live"}));
     let int = |m: String| ("root.internal", m, Value::Null);
@@ -320,39 +477,134 @@ pub fn restore_at(rh: &Path, ih: &Path, id: &str, live: &dyn Fn() -> bool) -> Re
     let n = metas(rh).iter().filter_map(|m| m["id"].as_str()?.strip_prefix("pre-restore-")?.parse::<u64>().ok()).max().unwrap_or(0) + 1;
     let saved = format!("pre-restore-{n}");
     let sm = take_at(rh, ih, &saved, "pre_restore", None, u64::MAX).map_err(|(_, m)| int(format!("could not save the current state ({m}); nothing changed")))?;
-    let partial = |m: String| format!("{m}; the state before the restore is snapshot {saved}");
-    for (tree, skip) in TREES {
-        if live() {
-            return Err(busy(partial(format!("a zone process started during the restore (before {tree}/)"))));
+    let stage = d.join(format!(".restore-{n}-{}", now_ms()));
+    let drop_save = || { // exact paths, made above: nothing changed, so nothing to save (a tree that stays keeps its record)
+        if remove_tree(&d.join(&saved)).is_ok() {
+            let _ = fs::remove_file(d.join(format!("{saved}.json")));
         }
-        let (t, s) = (ih.join(tree), src.join(tree));
+    };
+    match swap_sa(&src, ih, &stage, live) {
+        Ok(()) => {
+            let _ = remove_tree(&stage); // exact path: the replaced entries, which `saved` holds too
+            Ok(json!({"restored": id, "saved": saved, "saved_bytes": sm["logical_bytes"]}))
+        }
+        Err(Unrestored::Refused(m)) => {
+            drop_save();
+            let _ = remove_tree(&stage);
+            Err(if m.starts_with(ZONE_STARTED) { busy(format!("{m}; nothing changed")) } else { int(format!("{m}; nothing changed")) })
+        }
+        Err(Unrestored::RolledBack(m)) => {
+            drop_save();
+            let _ = remove_tree(&stage);
+            let tail = "so every entry was put back and the agent state is exactly as it was before the restore";
+            Err(if m.starts_with(ZONE_STARTED) { busy(format!("{m}, {tail}")) } else { int(format!("{m}, {tail}")) })
+        }
+        Err(Unrestored::Stuck(m)) => Err(int(format!("{m}; the state before the restore is snapshot {saved}, and what was not put back is in {}",
+            stage.display()))),
+    }
+}
+
+/// The guard's error when a zone process starts during R2 ([`swap_sa`]): the restore answers `root.busy`.
+const ZONE_STARTED: &str = "a zone process started during the restore";
+
+/// R2's moves (v0.5.3, fix 7): `S_A` in `ih` becomes snapshot `src`'s, all or nothing. In `stage` (a new directory
+/// under ROOT_HOME/snapshots/sys, so on INIT_HOME's volume, which `take_at` checked), `new/<tree>` is a clone of the
+/// snapshot's tree, and `old/<tree>` receives the live tree's entries. Per tree: the live entries move to `old` and
+/// the snapshot's into the live tree, except the tree's never-restored entries (`TREES`), which stay where they are;
+/// a live tree that is not a real directory (a link, a file) moves aside whole and an empty directory takes its
+/// place, as one missing does when the snapshot has the tree. Every move is a rename that never replaces and never
+/// follows a link ([`move_entry`], `force`: the agent's own read-only folders and lock flags never stop it). Before
+/// each step the zone must still be stopped. A failed step puts back every step done. After the last, each tree must
+/// hold exactly the snapshot's entries besides the never-restored ones; otherwise (a process outside the Root's hold
+/// wrote meanwhile) every step is put back too, so a success always means `S_A` is the snapshot's.
+///
+/// Never restored, so never moved (each is excluded from every snapshot by `clone_sa`, so the snapshot has none to
+/// compare): `state/sessions` and `state/spill`, the conversation and its spill files, which a rollback keeps by
+/// design (§4.4, FG-1 "keeps the conversation"); `vault/traces`, the proxy's request traces, which the agent cannot
+/// read or write. They are matched by name at the top of their tree only.
+///
+/// Descriptors, not paths (lane U, v0.5.3): the zone can rename `body/`, `state/` and `vault/` in both modes (tail
+/// Z3 lets it write inside INIT_HOME; Z4 freezes only INIT_HOME itself, `run/`, `kernel/`, `root/`, `run/mark/` and
+/// `kernel.git`), and a `setsid` escapee outside the Root's hold (root.md §3.5.4) can still run while `live()` says
+/// the zone is stopped. So INIT_HOME is opened once, never following a link at any component, and every live entry is
+/// named under it ([`End::Under`]): a tree swapped for a link during the restore makes a move fail and every step be
+/// put back; the Root never moves entries out of, or the snapshot's into, a folder a link names.
+fn swap_sa(src: &Path, ih: &Path, stage: &Path, live: &dyn Fn() -> bool) -> Result<(), Unrestored> {
+    use Unrestored::{Refused, RolledBack, Stuck};
+    let (new, old) = (stage.join("new"), stage.join("old"));
+    let mk = |p: &Path| fs::DirBuilder::new().recursive(true).mode(0o700).create(p);
+    let ihd = crate::sys::open_dir_nofollow(None, ih).map_err(|e| Refused(format!("INIT_HOME cannot be opened without following a link: {e}")))?;
+    let base = ihd.as_fd();
+    mk(&new).and_then(|()| mk(&old)).map_err(|e| Refused(format!("{}: {e}", stage.display())))?;
+    let keep = |v: Vec<std::ffi::OsString>, skip: &[&str]| {
+        let mut v: Vec<_> = v.into_iter().filter(|n| !skip.iter().any(|x| n == *x)).collect();
+        v.sort();
+        v
+    };
+    let names = |d: &Path, skip: &[&str]| -> std::io::Result<Vec<std::ffi::OsString>> {
+        Ok(keep(fs::read_dir(d)?.map(|e| e.map(|e| e.file_name())).collect::<std::io::Result<_>>()?, skip))
+    };
+    // a live tree's names, read from its descriptor (under INIT_HOME's, never following a link)
+    let live_names = |tree: &str, skip: &[&str]| -> std::io::Result<Vec<std::ffi::OsString>> {
+        Ok(keep(crate::sys::list_at(crate::sys::open_dir_nofollow(Some(base), Path::new(tree))?.as_fd())?, skip))
+    };
+    let under = |rel: PathBuf| End::Under { base, shown: ih.join(&rel), rel };
+    let (mut ops, mut want) = (Vec::new(), Vec::new());
+    for (tree, skip) in TREES {
+        let (s, n) = (src.join(tree), new.join(tree));
         let has = fs::symlink_metadata(&s).is_ok_and(|m| m.is_dir());
-        match fs::symlink_metadata(&t) {
+        if has {
+            crate::sys::clonefile(&s, &n).map_err(|e| Refused(format!("clone {tree}/ from the snapshot: {e}")))?;
+        }
+        let ins = if has { names(&n, skip).map_err(|e| Refused(format!("{tree}/ in the snapshot: {e}")))? } else { Vec::new() };
+        match crate::sys::stat_at(Some(base), Path::new(tree)) {
             Ok(m) if m.is_dir() => {
-                for e in fs::read_dir(&t).map_err(|e| int(partial(format!("{tree}/: {e}"))))? {
-                    let e = e.map_err(|e| int(partial(e.to_string())))?;
-                    if !skip.iter().any(|x| e.file_name() == *x) {
-                        remove(&e.path()).map_err(|x| int(partial(format!("{tree}/{}: {x}", e.file_name().to_string_lossy()))))?;
-                    }
+                mk(&old.join(tree)).map_err(|e| Refused(format!("{}: {e}", old.display())))?;
+                for x in live_names(tree, skip).map_err(|e| Refused(format!("{tree}/: {e}")))? {
+                    ops.push(Op::Move { from: under(Path::new(tree).join(&x)), to: End::Path(old.join(tree).join(&x)), point: "root.restore.out" });
                 }
             }
             Ok(_) => {
-                fs::remove_file(&t).map_err(|e| int(partial(format!("{tree}: {e}"))))?; // a link or a file in its place
-                fs::DirBuilder::new().mode(0o700).create(&t).map_err(|e| int(partial(format!("{tree}: {e}"))))?;
+                // a link or a file in its place
+                ops.push(Op::Move { from: under(tree.into()), to: End::Path(old.join(tree)), point: "root.restore.out" });
+                ops.push(Op::MkDir(under(tree.into())));
             }
-            Err(_) if has => fs::DirBuilder::new().mode(0o700).create(&t).map_err(|e| int(partial(format!("{tree}: {e}"))))?,
+            Err(_) if has => ops.push(Op::MkDir(under(tree.into()))),
             Err(_) => continue,
         }
-        if has {
-            for e in fs::read_dir(&s).map_err(|e| int(partial(e.to_string())))? {
-                let e = e.map_err(|e| int(partial(e.to_string())))?;
-                if !skip.iter().any(|x| e.file_name() == *x) {
-                    crate::sys::clonefile(&e.path(), &t.join(e.file_name())).map_err(|x| int(partial(format!("clone {tree}/{}: {x}", e.file_name().to_string_lossy()))))?;
-                }
-            }
+        for x in &ins {
+            ops.push(Op::Move { from: End::Path(n.join(x)), to: under(Path::new(tree).join(x)), point: "root.restore.in" });
+        }
+        want.push((tree, skip, ins));
+    }
+    let mut guard = |op: &Op| {
+        if live() {
+            return Err(std::io::Error::other(ZONE_STARTED));
+        }
+        match op {
+            Op::Move { point, .. } => crate::lineage::env_fault(point),
+            Op::MkDir(_) => Ok(()),
+        }
+    };
+    if let Err((i, e, left)) = swap(&ops, true, &mut guard) {
+        let at = match &ops[i] {
+            Op::Move { from, .. } => from.shown(),
+            Op::MkDir(d) => d.shown(),
+        };
+        let what = if e.to_string() == ZONE_STARTED { format!("{ZONE_STARTED} (before {})", at.display()) } else { format!("{}: {e}", at.display()) };
+        return Err(if left.is_empty() { RolledBack(what) } else { Stuck(format!("{what}, and putting back {} failed", left.join(", "))) });
+    }
+    for (tree, skip, ins) in &want {
+        let now = live_names(tree, skip).unwrap_or_default();
+        if now != *ins {
+            let extra: Vec<String> = now.iter().filter(|x| !ins.contains(x)).map(|x| format!("{tree}/{}", x.to_string_lossy())).collect();
+            let what = format!("INIT_HOME/{tree} does not hold exactly the snapshot's entries after the moves (also: {}): a process outside the \
+                Root's hold wrote during the restore", extra.join(", "));
+            let left = undo_ops(&ops, true);
+            return Err(if left.is_empty() { RolledBack(what) } else { Stuck(format!("{what}, and putting back {} failed", left.join(", "))) });
         }
     }
-    Ok(json!({"restored": id, "saved": saved, "saved_bytes": sm["logical_bytes"]}))
+    Ok(())
 }
 
 /// R2 (§4.2): restore snapshot `id` with the zone stopped; refused `root.busy` while any zone instance lives. The
@@ -558,7 +810,8 @@ pub fn admit(root: &Root, a: &Value, first: bool) -> Result<Value, Err3> {
     } else {
         "skip"
     };
-    let snap = if first { take(root, a["group"].as_u64())?["id"].clone() } else { Value::Null };
+    // A5's disk room on every change (L2b): a change joining a group takes no snapshot, but its `checks.A5` claims it too
+    let snap = if first { take(root, a["group"].as_u64())?["id"].clone() } else { room(root).map(|()| Value::Null)? };
     Ok(json!({"A4": a4v, "snapshot": snap}))
 }
 
@@ -578,7 +831,8 @@ pub fn register() {
 /// `settled`, pure: the newest tuple that became `lkg` at least 7 days before `now` with no `direct` rollback
 /// (`change_close{attribution:"direct"}`) of one of its groups and no quarantine (`cap_state{to:"quarantined"}`) of a
 /// cap version one of its groups added or modified. A tuple's groups are those whose `change_open` named it. Only the
-/// `lkg` moves since the last owner upgrade's commit (`lkg{upgrade}`) count; that commit re-anchored `settled` itself.
+/// `lkg` moves since the last owner upgrade's commit (`lkg{upgrade}`) count; that commit re-anchored `settled` itself. An
+/// owner's undo (`lkg{undo}`, v0.5.3) drops the moves after its target.
 pub fn settled_of(records: &[Value], now: i64) -> Option<String> {
     let mut groups: BTreeMap<String, BTreeSet<u64>> = BTreeMap::new();
     let mut caps: BTreeMap<u64, BTreeSet<(String, String)>> = BTreeMap::new();
@@ -600,6 +854,16 @@ pub fn settled_of(records: &[Value], now: i64) -> Option<String> {
             Some("lkg") => {
                 if d["upgrade"].is_string() {
                     lkg.clear(); // an owner upgrade's commit: no tuple of the kernel before it settles later (tuple::reanchor)
+                }
+                if d["undo"].is_string() {
+                    // v0.5.3: the owner's `/rollback` of the newest kept change (tuple::undo_kept): the moves after its
+                    // target never settle, and the target keeps the time it became LKG
+                    let t = d["tuple"].as_str();
+                    match lkg.iter().rposition(|(x, _)| Some(x.as_str()) == t) {
+                        Some(i) => lkg.truncate(i + 1),
+                        None => lkg.retain(|(x, _)| Some(x.as_str()) != d["undo"].as_str()),
+                    }
+                    continue;
                 }
                 if let (Some(t), Some(at)) = (d["tuple"].as_str(), r["at"].as_str().and_then(util::parse_rfc3339)) {
                     lkg.push((t.to_string(), at));

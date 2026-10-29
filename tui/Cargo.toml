@@ -6,6 +6,6 @@ resolver = "3"
 members = ["crates/init-tui"]
 
 [workspace.package]
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 publish = false

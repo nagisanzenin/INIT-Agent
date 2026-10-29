@@ -11,6 +11,8 @@ mod http;
 mod lane;
 mod money;
 mod tap;
+#[cfg(test)]
+mod meter_tests; // v0.5.3 L6: the meter's property test and golden fixtures
 
 pub use classes::effective_actions;
 #[cfg(test)] // providers/tests.rs prices the seed's cache fixtures through the tap (v0.5.0 L3)
@@ -187,6 +189,8 @@ struct Admit {
     auth: Option<(Auth, Arc<Secret>)>,
     price: Option<classes::Model>,
     reserved: u64,
+    /// The request's wire output cap (0 for an unmetered request): a cut stream's output is booked at it (L6).
+    max_out: u64,
     day: i64,
     epoch: u64,
     response_max: u64,
@@ -353,7 +357,7 @@ impl Egress {
                 "reported_input_tokens": m.tokens.input, "reported_output_tokens": m.tokens.output,
                 "token_totals_complete": m.tokens.complete,
                 "total_input_tokens": m.tokens.complete.then_some(m.tokens.input), "total_output_tokens": m.tokens.complete.then_some(m.tokens.output), "total_reserved_musd": m.total_reserved, "day_limit_musd": m.lim.day, "day_reserved_musd": m.day_reserved, "day_resets_at": rfc3339(m.resets_at()),
-                "day_spent_musd": m.day_spent, "day_starts_at": rfc3339(m.day_start), "sealed_reserve_musd": m.lim.reserve,
+                "day_spent_musd": m.day_spent, "day_spent_by_scope_musd": m.day_scope, "day_starts_at": rfc3339(m.day_start), "sealed_reserve_musd": m.lim.reserve,
                 "total_limit_musd": m.lim.total, "total_spent_musd": m.total_spent}})
     }
 
@@ -477,7 +481,7 @@ impl Egress {
             return Err(no("class.level", format!("class {} needs L{}; the system is at L{level}", c.id, c.min_level)));
         }
         let metered = r.metered; // F2: `route` refused every model-class route without a metering rule
-        let (mut model, mut price, mut reserved) = (None, None, 0);
+        let (mut model, mut price, mut reserved, mut max_out) = (None, None, 0, 0);
         if metered {
             let ins = classes::inspect(family, c, r.provider, body).map_err(|r| (family, r))?;
             let md = c.models.get(&ins.model).ok_or_else(|| no("class.model", format!("model {:?} is not listed in class {}", ins.model, c.id)))?;
@@ -485,6 +489,7 @@ impl Egress {
                 return Err(no("class.level", format!("model {} needs L{}; the system is at L{level}{}", ins.model, md.min_level, if safe { " (safe mode)" } else { "" })));
             }
             reserved = money::reservation(body.len() as u64, ins.max_out, md).0; // review F1, F4
+            max_out = ins.max_out.unwrap_or(money::MAX_OUT_TOKENS);
             (model, price) = (Some(ins.model), Some(md.clone()));
         }
         if !c.enabled || (safe && c.id != "providers") {
@@ -515,7 +520,7 @@ impl Egress {
         };
         Ok(Admit { id: format!("{}-{}", self.boot, self.seq.fetch_add(1, SeqCst)), class: c.id.clone(), effectful: c.effectful(),
             provider: r.provider.map(|p| p.0.to_string()), model, family, url: format!("{scheme}://{host}{}", r.path), dest: r.dest.clone(),
-            auth, price, reserved, day: m.day_start, epoch: m.epoch, response_max: c.response_max, date: money::date(now) })
+            auth, price, reserved, max_out, day: m.day_start, epoch: m.epoch, response_max: c.response_max, date: money::date(now) })
     }
 
     /// Records a refusal (ledger, and lineage for hits) and answers it.
@@ -669,16 +674,25 @@ impl Egress {
         if ok && !head_only {
             ok = w.write_all(b"0\r\n\r\n").is_ok();
         }
+        let drift = tap.drift();
         let (usage, finish, calls) = tap.finish_calls();
-        let cost = match (usage, &a.price) {
-            (Some(u), Some(md)) => u.cost(md),
-            (None, Some(_)) if (200..300).contains(&status) => {
-                flags.push("usage_estimated"); // RT-C7: never zero for a stream without usage
-                a.reserved
+        // L6 (money.rs `book`): never zero for a stream without usage (RT-C7), a cut stream's output at its cap, a class
+        // without a price at the model's dearest price; unmetered requests cost 0
+        let cost = match &a.price {
+            Some(md) => {
+                let (c, f) = money::book(usage.as_ref(), md, a.reserved, a.max_out, (200..300).contains(&status));
+                flags.extend(f);
+                if usage.is_some_and(|u| u.unknown > 0) {
+                    self.alert("price_drift", &format!("[egress] price drift: {} reported usage the Root has no price for on {} ({}). \
+                        Those tokens are booked at the model's dearest price ({} µUSD per 1M tokens), at most the request's reservation, \
+                        until a Root release reads the field (docs/provider-configuration.md, \"Price drift\").",
+                        a.provider.as_deref().unwrap_or("?"), a.model.as_deref().unwrap_or("?"), drift.join(", "), money::dearest(md)));
+                }
+                c
             }
-            _ => 0, // unmetered, or the provider refused the request
+            None => 0,
         };
-        self.finish_with(&a, h, body.len(), cost, bytes, status, (usage, finish), flags, calls);
+        self.finish_with(&a, h, body.len(), cost, bytes, status, (usage, finish), flags, calls, drift);
         ok
     }
 
@@ -710,13 +724,13 @@ impl Egress {
     /// external effects, the `egress_action` lineage record (§3.6).
     #[allow(clippy::too_many_arguments)]
     fn finish(&self, a: &Admit, h: &Head, req: usize, cost: u64, bytes: u64, status: u16, tap: (Option<tap::Usage>, Option<&str>), flags: Vec<&str>) {
-        self.finish_with(a, h, req, cost, bytes, status, tap, flags, BTreeMap::new());
+        self.finish_with(a, h, req, cost, bytes, status, tap, flags, BTreeMap::new(), Vec::new());
     }
 
     /// `finish` with the caps the tap read from the response (ADR-011 §5.2, X5).
     #[allow(clippy::too_many_arguments)]
     fn finish_with(&self, a: &Admit, h: &Head, req: usize, cost: u64, bytes: u64, status: u16, tap: (Option<tap::Usage>, Option<&str>), flags: Vec<&str>,
-        calls: BTreeMap<String, u32>) {
+        calls: BTreeMap<String, u32>, drift: Vec<String>) {
         // X5: the request's caps reach the sentinel before its end (X3 attributes them to the request's turn)
         if let Some(root) = self.root.upgrade() {
             crate::extend::request(&root, &a.id, calls, h.get("x-egress-caps"));
@@ -727,19 +741,25 @@ impl Egress {
             if a.price.is_some() {
                 g.1.tokens.observe(tap.0);
                 g.1.settle(a.reserved, cost, a.day, now);
+                // L6: /usage's per-purpose figure, from the label as the `start` record keeps it (the rebuild reads that)
+                let scope = h.get("x-egress-scope").map(|v| v.chars().filter(char::is_ascii_graphic).take(64).collect::<String>());
+                g.1.book_scope(money::scope_label(scope.as_deref()), cost, a.day);
             }
             if a.day == g.1.day_start && let Some(v) = g.1.vol.get_mut(&a.class) {
                 v.bytes += bytes;
             }
         }
-        let end = json!({"at": rfc3339(now), "bytes": bytes, "cost_musd": cost, "finish": tap.1, "flags": flags, "id": a.id, "status": status,
+        let mut end = json!({"at": rfc3339(now), "bytes": bytes, "cost_musd": cost, "finish": tap.1, "flags": flags, "id": a.id, "status": status,
             "t": "end", "usage": tap.0.map(|u| u.json()), "v": 1});
+        if !drift.is_empty() {
+            end["drift"] = json!(drift); // L6: the usage fields the Root had no price for
+        }
         if let Err(e) = self.ledger.write(&a.date, &end, false) {
             util::log(&self.rh, "error", &format!("egress ledger end {}: {e}", a.id));
         }
         if let Some(root) = self.root.upgrade() {
-            if let Some(u) = tap.0 {
-                crate::sentinel::egress_usage(&root, &a.id, u.input, u.cache_read); // ADR-013: the cache-read card
+            if let Some((input, cache_read)) = tap.0.as_ref().and_then(|u| cache_card(a.provider.as_deref(), a.model.as_deref(), u)) {
+                crate::sentinel::egress_usage(&root, &a.id, input, cache_read); // ADR-013: the cache-read card
             }
             crate::sentinel::egress_end(&root, &a.id, cost, status, tap.1); // X3: cost, H5a, H9
             crate::goal::egress_spent(&root, cost); // ADR-013: the active goal's meter, the same cost as the `end` record
@@ -751,6 +771,14 @@ impl Egress {
                 "destination": a.dest, "open_groups": groups, "outcome": status, "verb": h.method}));
         }
     }
+}
+
+/// What a request gives the cache-read card (ADR-013): its input and cache-read tokens, or nothing when its prompt is
+/// shorter than the model's minimum cacheable length (v0.5.3 L6, providers.rs `min_cacheable`). The provider caches
+/// no such prompt, so counting it as a miss would read as a cache regression.
+fn cache_card(provider: Option<&str>, model: Option<&str>, u: &tap::Usage) -> Option<(u64, u64)> {
+    let min = crate::providers::min_cacheable(provider.unwrap_or(""), model.unwrap_or(""));
+    (u.input >= min).then_some((u.input, u.cache_read))
 }
 
 /// DNS, TCP or TLS failures before any request byte was written: the only failures the Root retries (§3.4).
@@ -891,6 +919,20 @@ mod tests {
             assert_eq!(check(m, p, chat), Err(("class.unmetered", false, false)), "{m} {p}: refused, not a hit");
         }
         assert_eq!(status("class.unmetered"), 403);
+    }
+
+    /// v0.5.3 L6: a prompt shorter than the model's minimum cacheable length stays out of the cache-read card; a model
+    /// the catalog does not list counts every request, as before.
+    #[test]
+    fn short_prompts_stay_out_of_the_cache_card() {
+        let u = |input| tap::Usage { input, cache_read: input / 2, ..tap::Usage::default() };
+        assert_eq!(cache_card(Some("anthropic"), Some("claude-sonnet-5-5"), &u(511)), None);
+        assert_eq!(cache_card(Some("anthropic"), Some("claude-sonnet-5-5"), &u(512)), Some((512, 256)));
+        assert_eq!(cache_card(Some("openai"), Some("gpt-6.1-sol"), &u(1_023)), None);
+        assert_eq!(cache_card(Some("openai"), Some("gpt-6.1-sol"), &u(1_024)), Some((1_024, 512)));
+        assert_eq!(cache_card(Some("deepseek"), Some("deepseek-flash"), &u(1)), Some((1, 0)));
+        assert_eq!(cache_card(Some("gw"), Some("custom-model"), &u(3)), Some((3, 1)));
+        assert_eq!(cache_card(None, None, &u(3)), Some((3, 1)));
     }
 
     /// F7: the local answers count against the in-flight bound.

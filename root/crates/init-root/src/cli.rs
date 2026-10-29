@@ -21,6 +21,7 @@ const USAGE: &str = "usage: init-root [--root-home DIR] <command>
           [--prebuilt-body FILE --prebuilt-sha256 HEX [--prebuilt-commit SHA]]
   toolchain [--set [DIR]]   (show, or record the Rust toolchain self-evolution T1/T2 builds with; Root stopped)
   upgrade --release DIR [--bin-dir DIR] [--by-installer] | --probe [--timeout S] | --commit | --rollback | --status [--json]   (Root stopped)
+  release keys [--json] · release verify --sums FILE --sig FILE [--file BUNDLE] [--allow-expired]   (a release's signature)
   start [--foreground] · attach [--no-replay] [--raw] · panic · resume · stop
   providers list · providers add <preset> [--base-url URL] [--model ID] [--name ALIAS] [--price IN,CACHED,OUT] [--json]
   models [--provider P] [--json] · model use <provider>/<model>
@@ -79,6 +80,7 @@ pub fn run(mut a: Vec<String>) -> u8 {
             install::install_with(&p, &o, &bo).map_or_else(|(c, m)| fail(c, &m), |()| 0)
         }
         ["upgrade", ..] => crate::upgrade::cli(&p, a), // lane UPGRADE: the owner's stop-then-replace upgrade (upgrade.rs)
+        ["release", ..] => crate::release::cli(&p, a), // v0.5.3: the pinned release key; get.sh --upgrade's signature check
         ["toolchain", ..] => {
             let set = flag(&mut a, "--set");
             let dir = a.iter().skip(1).find(|x| !x.starts_with("--")).map(Into::into);
@@ -250,7 +252,7 @@ pub(crate) fn take_lock(p: &Paths) -> io::Result<Option<File>> {
 
 /// `start`: the daemon, in this process (launchd and systemd run it). `--foreground` also logs to stderr.
 fn start(p: &Paths, fg: bool) -> u8 {
-    if let Some(code) = crate::upgrade::at_start(p) { // R-UNDO (v0.5.2): never the zone on a half-finished upgrade
+    if let Some(code) = crate::upgrade::at_start(p, !fg) { // R-UNDO (v0.5.2): never the zone on a half-finished upgrade
         return code;
     }
     let lock = match take_lock(p) {
@@ -287,7 +289,7 @@ fn start(p: &Paths, fg: bool) -> u8 {
     // ROOT-MSG (v0.5.1): a person who started the daemon by hand learns that this terminal is now the Root's
     if sys::isatty(2) {
         eprintln!("init-root: the Root is running in this terminal. Leave it open (Ctrl-C stops the Root and the agent), \
-            and open INIT from another terminal: init-agent");
+            and open INIT from another terminal: {}", p.agent_cmd(""));
     }
     crate::sup::start(&root);
     crate::memwatch::spawn_zone(root.clone()); // MEM-RUNAWAY: every held instance, every second
@@ -537,7 +539,7 @@ fn status(p: &Paths, json_out: bool, proposals: bool, selftest: bool) -> u8 {
         println!("tuples {} · kernel {} · now {}", icj(&v["tuples"]).unwrap_or_default(),
             if k.is_null() { "not running".into() } else { format!("pid {} ({})", k["pid"], s("slot")) },
             v["root"]["now"].as_str().map_or_else(|| rfc3339(now_ms()), String::from));
-        if let Some(line) = access_line(&v["access"], &p.r("charter.toml")) {
+        if let Some(line) = access_line(&v["access"], &p.r("charter.toml"), &p.agent_cmd("")) {
             println!("{line}");
         }
         let ev = &v["evolution"]; // from install.json (install::evolution)
@@ -560,15 +562,16 @@ fn status(p: &Paths, json_out: bool, proposals: bool, selftest: bool) -> u8 {
 
 /// ADR-012: the human `status` line for the access mode (`status.access`, an AccessView), with how to change it. None
 /// when the Root is down (no view).
-fn access_line(a: &Value, charter: &std::path::Path) -> Option<String> {
+/// `agent`: the launcher as the owner runs it (v0.5.3, [`Paths::agent_cmd`]).
+fn access_line(a: &Value, charter: &std::path::Path, agent: &str) -> Option<String> {
     let mode = a["mode"].as_str()?;
     let ws = a["workspace"].as_str().unwrap_or("none");
     let ch = charter.display();
     Some(match (a["full"] == true, mode, a["allow_full"] == true) {
-        (true, "full", _) => format!("access: FULL (default) · workspace {ws} · to confine it: init-agent --workspace, /full off, or sandbox.mode = \"workspace\" in {ch}"),
+        (true, "full", _) => format!("access: FULL (default) · workspace {ws} · to confine it: {agent} --workspace, /full off, or sandbox.mode = \"workspace\" in {ch}"),
         (true, _, _) => format!("access: FULL (this session) · workspace {ws} · /full off or a new init-agent launch ends it"),
         (false, _, false) => format!("access: WORKSPACE · workspace {ws} · full access is off in the charter (sandbox.allow_full = false in {ch})"),
-        (false, "full", _) => format!("access: WORKSPACE (this session) · workspace {ws} · /full on, or init-agent without --workspace, gives full access"),
+        (false, "full", _) => format!("access: WORKSPACE (this session) · workspace {ws} · /full on, or {agent} without --workspace, gives full access"),
         (false, _, _) => format!("access: WORKSPACE (default) · workspace {ws} · full access: /full on, or sandbox.mode = \"full\" in {ch}"),
     })
 }
@@ -579,14 +582,15 @@ mod access_line_tests {
     #[test]
     fn status_shows_the_access_mode_and_how_to_change_it() {
         let ch = std::path::Path::new("/h/.init-root/charter.toml");
-        let l = |v: Value| access_line(&v, ch).unwrap();
+        let l = |v: Value| access_line(&v, ch, "~/.local/bin/init-agent").unwrap();
         assert_eq!(l(json!({"full": true, "mode": "full", "allow_full": true, "workspace": "/h/p"})),
-            "access: FULL (default) · workspace /h/p · to confine it: init-agent --workspace, /full off, or sandbox.mode = \"workspace\" in /h/.init-root/charter.toml");
+            "access: FULL (default) · workspace /h/p · to confine it: ~/.local/bin/init-agent --workspace, /full off, or sandbox.mode = \"workspace\" in /h/.init-root/charter.toml");
         assert!(l(json!({"full": true, "mode": "workspace", "allow_full": true})).starts_with("access: FULL (this session) · workspace none"));
         assert!(l(json!({"full": false, "mode": "full", "allow_full": true})).starts_with("access: WORKSPACE (this session)"));
         assert!(l(json!({"full": false, "mode": "workspace", "allow_full": true})).starts_with("access: WORKSPACE (default)"));
         assert!(l(json!({"full": false, "mode": "full", "allow_full": false})).contains("sandbox.allow_full = false"));
-        assert_eq!(access_line(&Value::Null, ch), None, "the Root is down: no line");
+        assert!(l(json!({"full": false, "mode": "full", "allow_full": true})).contains("/full on, or ~/.local/bin/init-agent without --workspace"));
+        assert_eq!(access_line(&Value::Null, ch, "x"), None, "the Root is down: no line");
     }
 }
 

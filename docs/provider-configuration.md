@@ -1,11 +1,13 @@
 # Configure an API gateway or local model
 
-> **Status: experimental (v0.2.0-preview).** DeepSeek through the installer is the only
-> provider used against a live API. Every configuration below (Chat-compatible gateways,
-> Responses, Messages, local no-auth servers) is implemented and covered by offline tests
-> only; none has been run against a live endpoint. Set them up in the app (`init-agent`'s first
-> run, `/setup`, `/model`, `/key`) or with `init-root providers add`; the app marks them
-> "experimental (not live-tested)".
+> **Status: experimental (v0.2.0-preview).** Live-tested: DeepSeek through the installer
+> (deepseek-flash, deepseek-v4-pro), and OpenAI's gpt-6.1-sol on OpenAI's own host
+> (`scripts/qualify-provider.sh` PASS 7/7 on a v0.5.2 install, 2026-10-29:
+> build/status/qualify/openai-gpt-6.1-sol-v0.5.2.json). Every other configuration below
+> (Chat-compatible gateways, OpenAI's gpt-6-astra, Responses or Messages at a gateway's URL,
+> Anthropic, local no-auth servers) is implemented and covered by offline tests only. Set them
+> up in the app (`init-agent`'s first run, `/setup`, `/model`, `/key`) or with
+> `init-root providers add`; the app marks them "experimental (not live-tested)".
 
 ## In the app (v0.2.0-preview, UX-KEYMODEL)
 
@@ -23,8 +25,9 @@ init-root model use gateway/custom-model     # rewrites [model] in kernel/config
 
 `providers add` writes the same values as the fragments below: the charter's `[actions.providers]` (µUSD per
 1M tokens) through the charter check and apply path, and the kernel's `[providers.<id>]` table (decimal USD per
-1M tokens). Presets: `deepseek` (live-tested), `gateway`, `anthropic`, `openai`, `local` (all experimental,
-not live-tested). `anthropic` and `openai` with `--base-url` configure a Messages or Responses gateway.
+1M tokens). Presets: `deepseek` (live-tested), `openai` (gpt-6.1-sol live-tested, gpt-6-astra experimental),
+`gateway`, `anthropic`, `local` (experimental, not live-tested). `anthropic` and `openai` with `--base-url`
+configure a Messages or Responses gateway, which is experimental: the live test was of OpenAI's own host.
 
 Implementation guide, 2026-10-23. These examples describe configurable wire compatibility;
 they are not live certification of a vendor or model. Native isolation and the release A/B
@@ -201,9 +204,19 @@ not a complete solution for provider-specific sealed pricing. Root prices cache 
 at the model's `cache_write_musd_per_mtok` (5-minute or single-class writes) and
 `cache_write_1h_musd_per_mtok`; `providers add` writes the catalog's write prices, and a
 model without them bills writes at twice its input price, so the Root never under-counts
-(v0.5.0). Kernel proxy schedules/tiers can still give a different estimate. Root
-settled-live totals exclude sealed/twin totals, which stay
-in their own ledgers. Product USD fields are observe-only; manual stop remains available.
+(v0.5.0). Kernel proxy schedules/tiers give the kernel's own estimate, which no
+owner-facing figure shows since v0.5.3: the Root's ledger prices every request (DeepSeek at
+its peak price around the clock, an upper bound). Root settled-live totals exclude
+sealed/twin totals, which stay in their own ledgers.
+
+**Price drift (v0.5.3).** When a provider reports a usage class the charter has no price
+for (a new cache TTL, audio tokens on a gateway), the Root books those tokens at the
+model's dearest price, at most the request's reservation and never at 0, flags the
+request `price_drift` (its `end` record lists the fields under `drift`) and raises an
+alert naming the provider, model and fields. The charter cannot price a field the Root's
+usage reader does not know: a Root release that reads it prices it exactly, and until then
+the dearest price is its bound. A stream cut before its final usage (Anthropic's `message_start`
+carries only the input) is booked with its output at the request's `max_tokens`. Product USD fields are observe-only; manual stop remains available.
 External benchmark spending caps are enforced by the benchmark harness separately.
 
 ## Compatibility boundaries

@@ -56,8 +56,6 @@ const REFREEZE_MS: i64 = 90 * DAY;
 const TICK_MS: i64 = 30_000;
 /// The lineage-reading work (retention, the re-freeze suggestion, the weekly report) runs every 10 minutes.
 const SLOW_MS: i64 = 600_000;
-/// A night is skipped below the workload disk floor plus 2 GiB.
-const ROOM: u64 = 2 << 30;
 
 static LAST_TICK: AtomicI64 = AtomicI64::new(i64::MIN);
 static LAST_SLOW: AtomicI64 = AtomicI64::new(i64::MIN);
@@ -971,7 +969,7 @@ fn night(root: &Arc<Root>, n: &str, end: i64) {
             Some("cancelled")
         } else if now_ms() + need > end {
             Some("window")
-        } else if crate::sys::free_bytes(&rh).unwrap_or(u64::MAX) < floor + ROOM {
+        } else if crate::snapshot::room_of(crate::sys::free_bytes(&rh), floor).is_err() { // A5's room (v0.5.3: unreadable is none)
             Some("disk")
         } else {
             None

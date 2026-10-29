@@ -819,7 +819,7 @@ pub struct SwapData {
 /// Unknown fields are kept.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AccessData {
-    /// `none` | `read_home` | `workspace` | `full`.
+    /// `none` | `read_home` | `workspace` | `workspace_only` (v0.5.3) | `full`; relayed verbatim.
     pub access: String,
     #[serde(default)]
     pub full: bool,

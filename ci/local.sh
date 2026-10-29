@@ -62,7 +62,9 @@ step "kernel build" "$repo/kernel" "$kernel_target" cargo build --offline
 # checkout (or a fresh Linux container) passes without leftovers from an earlier run.
 step "root build" "$repo/root" "$root_target" cargo build --offline
 step "seed build" "$repo/seed" "$seed_target" cargo build --offline
-step "kernel test" "$repo/kernel" "$kernel_target" env WP15_BODY_BIN="$seed_target/debug/init-body" \
+# INITCTL_BIN: the kernel-serve tests use the initctl that "kernel build" made, instead of a nested `cargo build` inside
+# a 30 s watchdog, which waited on the target dir's lock while a bundle build ran beside CI (REL-053).
+step "kernel test" "$repo/kernel" "$kernel_target" env INITCTL_BIN="$kernel_target/debug/initctl" WP15_BODY_BIN="$seed_target/debug/init-body" \
   WP15_ROOT_BIN="$root_target/debug/init-root" cargo test --offline --no-fail-fast
 step "root test" "$repo/root" "$root_target" cargo test --offline --no-fail-fast
 # The Root's integration tests are gated on `test-fixtures` (fake clock, test ledgers; root/root.md §3.16).
@@ -138,7 +140,9 @@ fi
 
 # The installer's system bin-dir guard (nagisanzenin/INIT-Agent#1; stdlib Python, about 1 s): install.sh refuses
 # /sbin, /usr/sbin, /bin, /usr/bin (any spelling or symlink) and a relative INIT_BIN_DIR before it writes anything.
-step "install.sh bin-dir guard" "$repo" "$root_target" python3 -m unittest discover -s tests/install
+# The whole tests/install suite runs here; INIT_ROOT_FX_BIN gives test_release_signature.py the test-fixtures Root frozen
+# for the TUI e2e above, so get.sh's upgrade check also runs against the real `init-root release verify` (v0.5.3).
+step "install.sh bin-dir guard" "$repo" "$root_target" env INIT_ROOT_FX_BIN="$e2e/init-root" python3 -m unittest discover -s tests/install
 
 # Sealed pack s1 (M7 S1-CORE, docs/m7-design.md §3.1; Python >= 3.9, stdlib only): the pack lint (M7-P07 licences,
 # M7-P08 disjointness and no pack copies under seed/ or fixtures/), the runner/validator/lint tests (M7-P01..P09

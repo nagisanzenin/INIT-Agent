@@ -271,6 +271,17 @@ const DIRS: &[&str] = &[
     "ws/renamerepo/.git",
     "ws/gitdirfile",
     "other/.git/hooks",
+    // v0.5.3 (lane H): the credential stores added to the deny list, and another INIT install's default homes and a
+    // `.init-root*` one (access::other_installs)
+    ".config/gh",
+    ".config/cloudflare",
+    ".cloudflared",
+    ".cargo",
+    ".init-root/keys",
+    ".init-root/bin",
+    ".init-root-demo/keys",
+    ".init/kernel/bin",
+    ".init-release",
 ];
 
 const FILES: &[(&str, &str)] = &[
@@ -305,6 +316,16 @@ const FILES: &[(&str, &str)] = &[
     ("tax/2025.txt", "a charter read_deny entry\n"),
     ("ws/src/a.txt", "workspace file\n"),
     ("other/readme", "elsewhere in the fake home\n"),
+    (".git-credentials", "fake git credentials, not a real one\n"),
+    (".config/gh/hosts.yml", "fake gh hosts file, not a real one\n"),
+    (".cargo/credentials.toml", "fake cargo credentials, not a real one\n"),
+    (".config/cloudflare/token", "fake cloudflare file, not a real one\n"),
+    (".cloudflared/cert.pem", "fake cloudflared file, not a real one\n"),
+    (".init-root/keys/lineage.key", "fake key of another install, not a real one\n"),
+    (".init-root/bin/init-root", "#!/bin/sh\n"),
+    (".init-root-demo/keys/lineage.key", "fake key of another install, not a real one\n"),
+    (".init/kernel/bin/init-kernel", "#!/bin/sh\n"),
+    (".init-release/release.key", "fake release signing key, not a real one\n"),
     (".zshrc", "# fake\n"),
     (".bash_profile", "# fake\n"),
     (".profile", "# fake\n"),
@@ -459,8 +480,9 @@ impl<'a> Runner<'a> {
             home_real: cfg.home_real.clone(),
             extra_read: vec![],
         };
-        // ADR-009: the run directory stands in for the owner's home, with `tax/` as a charter read_deny entry.
-        let read_deny = access::read_deny(&h.run, &[h.run.join("tax")]);
+        // ADR-009: the run directory stands in for the owner's home, with `tax/` as a charter read_deny entry; v0.5.3: the
+        // other INIT installs come between, as the Root's `access::deny` puts them.
+        let read_deny = access::read_deny(&h.run, &[access::other_installs(&h.run, &h.r, &h.i), vec![h.run.join("tax")]].concat());
         let write_deny = access::write_deny(&h.run, &[]);
         let layout = ZoneLayout {
             root_home: h.r.clone(),
@@ -1177,7 +1199,7 @@ impl<'a> Runner<'a> {
     fn layout_for(&self, g: &Grant) -> ZoneLayout {
         let mut layout = self.layout.clone();
         if g.full {
-            layout.read_deny = access::full_read_deny(&self.h.run, &[self.h.run.join("tax")]);
+            layout.read_deny = access::full_read_deny(&self.h.run, &[access::other_installs(&self.h.run, &self.h.r, &self.h.i), vec![self.h.run.join("tax")]].concat());
             layout.write_deny = access::full_write_deny(&self.h.run, None);
         }
         layout
@@ -1230,6 +1252,16 @@ impl<'a> Runner<'a> {
                 ("S-A2b", "read_home: list the fake ~/.ssh (deny list)", ops(&["list", &hm(".ssh")]), Expect::Deny),
                 ("S-A2c", "read_home: read ~/.config/init-agent/ (the key dir, deny list)", ops(&["read", &hm(".config/init-agent/deepseek.key")]), Expect::Deny),
                 ("S-A2d", "read_home: read a charter read_deny path", ops(&["read", &hm("tax/2025.txt")]), Expect::Deny),
+                // v0.5.3 (lane H): credential stores the v0.5.2 list missed, and another INIT install's homes
+                ("S-A2e", "read_home: read the fake ~/.git-credentials (deny list, v0.5.3)", ops(&["read", &hm(".git-credentials")]), Expect::Deny),
+                ("S-A2f", "read_home: read the fake ~/.config/gh/hosts.yml (deny list, v0.5.3)", ops(&["read", &hm(".config/gh/hosts.yml")]), Expect::Deny),
+                ("S-A2g", "read_home: read the fake ~/.cargo/credentials.toml (deny list, v0.5.3)", ops(&["read", &hm(".cargo/credentials.toml")]), Expect::Deny),
+                ("S-A2h", "read_home: read the fake ~/.config/cloudflare/token (deny list, v0.5.3)", ops(&["read", &hm(".config/cloudflare/token")]), Expect::Deny),
+                ("S-A2m", "read_home: read the fake ~/.cloudflared/cert.pem (deny list, v0.5.3)", ops(&["read", &hm(".cloudflared/cert.pem")]), Expect::Deny),
+                ("S-A2i", "read_home: read another install's ~/.init-root/keys/ (other_installs, v0.5.3)", ops(&["read", &hm(".init-root/keys/lineage.key")]), Expect::Deny),
+                ("S-A2j", "read_home: list another install's ~/.init-root-demo/keys (other_installs, v0.5.3)", ops(&["list", &hm(".init-root-demo/keys")]), Expect::Deny),
+                ("S-A2k", "read_home: read another install's ~/.init/kernel/ (other_installs, v0.5.3)", ops(&["read", &hm(".init/kernel/bin/init-kernel")]), Expect::Deny),
+                ("S-A2l", "read_home: read the fake release signing key ~/.init-release/ (deny list, v0.5.3)", ops(&["read", &hm(".init-release/release.key")]), Expect::Deny),
                 ("S-A3", "read_home: write ~/Documents (no write grant)", ops(&["write", &hm("Documents/w")]), Expect::Deny),
                 ("S-A4", "read_home: read ROOT_HOME (Z1)", ops(&["read", &r("secret")]), Expect::Deny),
                 ("S-A5", "read_home: read vault/ (INIT_HOME keeps its own rules)", ops(&["read", &li("vault/secret")]), Expect::Deny),
@@ -1361,6 +1393,16 @@ impl<'a> Runner<'a> {
                 ("S-A12d", "full: write a charter read_deny path (still honoured)", ops(&["write", &hm("tax/x")]), Expect::Deny),
                 ("S-A12e", "full: read ~/.config/init-agent/deepseek.key (INIT's key dir)", ops(&["read", &hm(".config/init-agent/deepseek.key")]), Expect::Deny),
                 ("S-A12f", "full: read a charter read_deny path", ops(&["read", &hm("tax/2025.txt")]), Expect::Deny),
+                // v0.5.3 (lane H): another INIT install's homes are the Root-protected set too; the secrets list stays
+                // workspace mode's
+                ("S-A12g", "full: read another install's ~/.init-root/keys/ (other_installs, v0.5.3)", ops(&["read", &hm(".init-root/keys/lineage.key")]), Expect::Deny),
+                ("S-A12h", "full: replace another install's Root binary ~/.init-root/bin/init-root (v0.5.3)", ops(&["write", &hm(".init-root/bin/init-root")]), Expect::Deny),
+                ("S-A12i", "full: read another install's ~/.init-root-demo/keys/ (v0.5.3)", ops(&["read", &hm(".init-root-demo/keys/lineage.key")]), Expect::Deny),
+                ("S-A12j", "full: write another install's ~/.init/kernel/ (v0.5.3)", ops(&["write", &hm(".init/kernel/bin/init-kernel")]), Expect::Deny),
+                ("S-A12k", "full: read the fake ~/.git-credentials (ADR-012: the secrets list is workspace mode's)", ops(&["read", &hm(".git-credentials")]), Expect::Allow),
+                ("S-A12l", "full: read the fake release signing key ~/.init-release/ (FULL_READ_DENY, v0.5.3)", ops(&["read", &hm(".init-release/release.key")]), Expect::Deny),
+                ("S-A12m", "full: list ~/.init-release (FULL_READ_DENY, v0.5.3)", ops(&["list", &hm(".init-release")]), Expect::Deny),
+                ("S-A12n", "full: write into ~/.init-release (FULL_READ_DENY, v0.5.3)", ops(&["write", &hm(".init-release/x")]), Expect::Deny),
                 ("S-A13", "full: write INIT_HOME/kernel/ (Z4)", ops(&["write", &li("kernel/f")]), Expect::Deny),
                 ("S-A13b", "full: write vault/", ops(&["write", &li("vault/f")]), Expect::Deny),
                 ("S-A13c", "full: write state/kernel/", ops(&["write", &li("state/kernel/f")]), Expect::Deny),

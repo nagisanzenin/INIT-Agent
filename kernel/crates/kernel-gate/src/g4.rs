@@ -378,7 +378,8 @@ pub struct G4Plan {
     /// One model request's reservation for the routed model, in µUSD (the proxy's
     /// `reserve_output_tokens` at the dearest window's output price, no input). A task whose
     /// `limits.max_cost_musd` is below it can never make a request: G4 refuses to start
-    /// (`error: task_cost_cap`). `None`: unknown, not checked.
+    /// (`error: task_cost_cap`). `None`: unknown, or no cap refuses a request (the Root's
+    /// observe-only money, D11): not checked.
     pub request_reservation_musd: Option<u64>,
 }
 

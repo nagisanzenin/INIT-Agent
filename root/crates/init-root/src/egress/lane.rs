@@ -300,12 +300,11 @@ fn forward(cx: &Ctx, st: &St, h: &http::Head, body: &[u8], w: &mut &UnixStream) 
     let data = if matches!(code, 401 | 403) { br#"{"error":{"code":"upstream.auth","message":"body withheld"}}"#.to_vec() } else { data };
     let mut t = Tap::new(r.family, ctype.contains("event-stream"));
     t.feed(&data);
+    let drift = t.drift();
     let (usage, finish) = t.finish();
-    let cost = match usage {
-        Some(u) => u.cost(md),
-        None if (200..300).contains(&code) => reserved,
-        None => 0,
-    };
+    // v0.5.3 L6: the live forwarder's booking rule (a cut body's output at its cap, a class without a price at the
+    // model's dearest price, no usage on a 2xx at the reservation)
+    let (cost, flags) = money::book(usage.as_ref(), md, reserved, ins.max_out.unwrap_or(money::MAX_OUT_TOKENS), (200..300).contains(&code));
     let _ = st.held.fetch_update(SeqCst, SeqCst, |h| Some(h.saturating_sub(reserved)));
     let _ = st.spent.fetch_update(SeqCst, SeqCst, |s| Some(s.saturating_add(cost)));
     settle(cx, reserved, cost);
@@ -319,6 +318,12 @@ fn forward(cx: &Ctx, st: &St, h: &http::Head, body: &[u8], w: &mut &UnixStream) 
     let now = now_ms();
     let mut line = json!({"at": rfc3339(now), "cost_musd": cost, "id": id, "lane": "sealed", "model": ins.model, "provider": pid, "run": cx.run,
         "status": code, "t": "sealed", "usage": usage.map(|u| u.json()), "v": 1});
+    if !flags.is_empty() {
+        line["flags"] = json!(flags);
+    }
+    if !drift.is_empty() {
+        line["drift"] = json!(drift);
+    }
     tag(cx, &mut line);
     let _ = (money::Ledger { dir: cx.usage.clone() }).write(&money::date(now), &line, false);
     http::full(w, code, vec![("content-type".into(), ctype)], &data)

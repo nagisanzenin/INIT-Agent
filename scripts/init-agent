@@ -6,7 +6,7 @@
 #   init-agent --full        full access (ADR-012: the default; ADR-009's flag): passed through to the TUI like every other flag
 #   init-agent --workspace   confine this session to the workspace (ADR-012): passed through the same way
 #   init-agent --which       print what would run, and run nothing (the launcher's own flag)
-#   init-agent upgrade [--version V | --bundle FILE.tar.gz --sha256 HEX] [-- <install.sh args>]
+#   init-agent upgrade [--version V | --bundle FILE.tar.gz --sha256 HEX] [--allow-unsigned] [--allow-expired] [-- <install.sh args>]
 #                            upgrade INIT to the latest release (or release V: 0.5.0 finds the tag v0.5.0-preview; or a
 #                            local bundle, with the sha256 the release page lists for it), keeping what it has become:
 #                            its body, extensions, sessions, lineage, keys and charter (docs/guide.md "Upgrade"). It runs
@@ -14,8 +14,10 @@
 #                            downloads the bundle, or copies the local one, into ROOT_HOME/cache/upgrade/, checks that
 #                            copy's sha256, unpacks it there and runs its install.sh --upgrade (system tools only): stop,
 #                            replace, health probe, then commit or roll back. A .sha256 file beside a local bundle is not
-#                            used (with full access the agent can write it). Run it from your own shell; inside an INIT
-#                            session it fails, because the agent can reach none of those paths.
+#                            used (with full access the agent can write it). From 0.5.3 a download is installed only when
+#                            the release's signed SHA256SUMS verifies under the key this install's Root pins (the
+#                            --allow-* flags lift that check, and get.sh prints the risk). Run it from your own shell;
+#                            inside an INIT session it fails, because the agent can reach none of those paths.
 #
 # The directory `init-agent` is launched in becomes the agent's workspace (ADR-009): `exec` keeps the cwd, and the TUI
 # sends it to the Root, which validates it (launched in ~ or outside the home: no workspace).
@@ -48,6 +50,11 @@ pw_home() { /usr/bin/python3 -I -c 'import os,pwd;print(pwd.getpwuid(os.getuid()
 SQ="'\''"
 shq() { if [[ -n "$1" && "$1" != *[!A-Za-z0-9/._+,:@%=-]* ]]; then printf '%s' "$1"; else printf "'%s'" "${1//\'/$SQ}"; fi; }
 rh_env() { local pw; pw="$(pw_home)"; [ -n "$pw" ] && [ "$RH" = "$pw/.init-root" ] || printf 'INIT_ROOT_HOME=%s ' "$(shq "$RH")"; }
+# v0.5.3 (the post-release review of v0.5.2): this command is printed with its path, `~/…` under HOME (install.sh's
+# tilde), never as a bare `init-agent`: a fresh Mac's PATH lacks ~/.local/bin. The TUI gets the same path in
+# INIT_AGENT_LAUNCHER for the lines it prints (its quit line).
+SELF="$HERE/${0##*/}"
+tilde() { local h="${HOME%/}"; if [ -n "$h" ] && [[ "$1" == "$h"/?* ]]; then printf '~/%s' "$(shq "${1#"$h"/}")"; else shq "$1"; fi; }
 # The upgrade that runs the current get.sh with the system's curl and sh (docs/guide.md "Upgrade"; get.sh's up_pipe)
 up_pipe() { # [get.sh args]
   printf '/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | %s/bin/sh' "$(rh_env)"
@@ -91,8 +98,9 @@ if [ "${1:-}" = upgrade ]; then
       --bundle) [ $# -ge 2 ] || { echo "init-agent upgrade: --bundle needs a file" >&2; exit 64; }; args+=(--from "$2"); shift 2 ;;
       --sha256|--version) [ $# -ge 2 ] || { echo "init-agent upgrade: $1 needs a value" >&2; exit 64; }; args+=("$1" "$2"); shift 2 ;;
       --) shift; args+=(-- "$@"); break ;;
-      -h|--help) sed -n '9,18p' "$0"; exit 0 ;;
-      *) echo "init-agent upgrade: unknown argument $1 (see init-agent upgrade --help)" >&2; exit 64 ;;
+      --allow-unsigned|--allow-expired) args+=("$1"); shift ;;
+      -h|--help) sed -n '9,20p' "$0"; exit 0 ;;
+      *) echo "init-agent upgrade: unknown argument $1 (see $(tilde "$SELF") upgrade --help)" >&2; exit 64 ;;
     esac
   done
   exec /bin/sh "$GET" "${args[@]}"
@@ -101,7 +109,7 @@ if [ "${1:-}" = --which ]; then
   if [ -n "$TUI" ]; then echo "$TUI"; else echo "$ROOT_BIN attach"; fi
   exit 0
 fi
-if [ -n "$TUI" ]; then exec "$TUI" "$@"; fi
+if [ -n "$TUI" ]; then INIT_AGENT_LAUNCHER="$SELF" exec "$TUI" "$@"; fi
 if [ ! -x "$ROOT_BIN" ]; then
   echo "init-agent: $ROOT_BIN is missing. Is INIT installed? (scripts/install.sh)" >&2
   exit 69

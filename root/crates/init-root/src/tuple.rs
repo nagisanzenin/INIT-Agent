@@ -47,6 +47,11 @@ impl Ptrs {
     pub fn json(&self) -> Value {
         json!({"audited": self.audited, "current": self.current, "lkg": self.lkg, "settled": self.settled, "twin": self.twin})
     }
+    /// A pointer by its rollback name (`lkg`, `settled`, `audited`, `genesis`; anything else is `current`).
+    fn get(&self, w: &str) -> Option<String> {
+        match w { "lkg" => self.lkg.clone(), "settled" => self.settled.clone(), "audited" => self.audited.clone(),
+            "genesis" => self.genesis.clone(), _ => self.current.clone() }
+    }
 }
 
 fn hex64(s: &str) -> bool {
@@ -222,34 +227,163 @@ pub fn store_max(root: &Root) -> u64 {
 
 /// §3.7.3 steps 2–3: the first of `want`, LKG, settled (ADR-011 §4.1), audited-good, genesis whose blobs verify, with its kernel
 /// installed. Returns the id and the `rollback` record data; the caller appends it (and so moves `current`).
+/// L2b (D9, INV-10): after an owner upgrade, genesis is taken with the newest upgrade's kernel ([`genesis_on`]).
 pub fn rollback(root: &Root, want: &'static str, reason: &str) -> Result<(String, Value), String> {
     let p = lock(&root.sup.ptrs).clone();
-    let get = |w: &str| match w { "lkg" => p.lkg.clone(), "settled" => p.settled.clone(), "audited" => p.audited.clone(),
-        "genesis" => p.genesis.clone(), _ => p.current.clone() };
-    for target in ORDER.map(|t| if t.is_empty() { want } else { t }) {
-        let Some(id) = get(target) else { continue };
+    for target in order(want) {
+        let Some(id) = p.get(target) else { continue };
+        let (id, upgrade) = match target {
+            "genesis" => genesis_on(root, &id)?,
+            _ => (id, Value::Null),
+        };
         let Some(t) = load(&root.p.rh, &id).filter(|t| verify(&root.p.rh, t)) else { continue };
         install_kernel(&root.p, &t).map_err(|e| format!("install {id}: {e}"))?;
-        return Ok((id.clone(), json!({"from": p.current, "reason": reason, "target": target, "to": id})));
+        let mut d = json!({"from": p.current, "reason": reason, "target": target, "to": id});
+        if !upgrade.is_null() {
+            d["upgrade"] = upgrade; // the upgrade whose kernel this genesis runs
+        }
+        return Ok((id.clone(), d));
     }
     Err(none_usable(want))
+}
+
+/// L2b (D9, INV-10): the kernel half of the newest owner upgrade that was not rolled back: the `tuple` record of its replace
+/// step (`upgrade.rs`, which carries the tuple and `upgrade{id}`), unless a later `rollback{target:"pre_upgrade"}` names
+/// that upgrade. Returns (kernel, upgrade id). None: no upgrade since install, so genesis's kernel is the install's.
+fn upgraded_kernel(recs: &[Value]) -> Option<(Value, Value)> {
+    let mut ups: Vec<(Value, Value)> = Vec::new();
+    for r in recs.iter().filter(|r| r["by"] == "root") {
+        let d = &r["data"];
+        match r["kind"].as_str() {
+            Some("tuple") if d["upgrade"]["id"].is_string() => ups.push((d["tuple"]["kernel"].clone(), d["upgrade"]["id"].clone())),
+            Some("rollback") if d["target"] == "pre_upgrade" => ups.retain(|u| u.1 != d["upgrade"]),
+            _ => {}
+        }
+    }
+    ups.pop()
+}
+
+/// The genesis fallback: genesis itself, or after an owner upgrade {that upgrade's kernel, genesis's own body and ext},
+/// stored like the anchors `reanchor` moves (the upgrade commit re-anchors `audited`, `settled` and the twin, but genesis
+/// is the first tuple formed and is never re-pointed). So the last resort never reinstalls the install's kernel under a
+/// newer Root; when that kernel's blobs are gone too, the caller's verify fails it and no tuple is usable (`no_tuple`).
+/// Returns (id, the upgrade's id or null).
+fn genesis_on(root: &Root, genesis: &str) -> Result<(String, Value), String> {
+    let recs = crate::lineage::records(&root.p.rh).map_err(|e| format!("lineage: {e}"))?;
+    let (Some((kernel, upgrade)), Some(mut g)) = (upgraded_kernel(&recs), load(&root.p.rh, genesis)) else {
+        return Ok((genesis.to_string(), Value::Null));
+    };
+    if g["kernel"] == kernel {
+        return Ok((genesis.to_string(), Value::Null));
+    }
+    g["kernel"] = kernel;
+    Ok((save(&root.p.rh, &g).map_err(|e| format!("tuple: {e}"))?, upgrade))
 }
 
 /// The rollback order after the wanted pointer (`""`).
 const ORDER: [&str; 5] = ["", "lkg", "settled", "audited", "genesis"];
 
+/// The pointers [`rollback`] tries for `want`, in its order.
+fn order(want: &'static str) -> [&'static str; 5] {
+    ORDER.map(|t| if t.is_empty() { want } else { t })
+}
+
+/// v0.5.3 (REL-052 §7.5 finding 3): where [`rollback`] to `want` goes, as (pointer, tuple): the first pointer in its
+/// order that is set. A panic resume rolls back to `ledger::anchor` (`settled` on the free path, else `audited`), so
+/// the status names this for `/panic`'s warning. `rollback` also passes over a tuple whose blobs fail to verify; this
+/// does not hash them (the status is asked every 2 s), so it is the pick of an intact store.
+pub fn rollback_target(p: &Ptrs, want: &'static str) -> Option<(&'static str, String)> {
+    order(want).into_iter().find_map(|t| p.get(t).map(|id| (t, id)))
+}
+
+/// A pointer as the owner reads it: `LKG`, `audited-good`, `settled`, `genesis`, `current`.
+pub fn pointer_name(t: &str) -> &str {
+    match t { "lkg" => "LKG", "audited" => "audited-good", "" | "current" => "current", other => other }
+}
+
 /// R-UNDO (v0.5.2, the post-release review of v0.5.1): the refusal names every pointer `rollback` tried, `settled`
 /// included, in its order.
-fn none_usable(want: &str) -> String {
-    let name = |t: &str| match t { "lkg" => "LKG", "audited" => "audited-good", "" | "current" => "current", other => other }.to_string();
+fn none_usable(want: &'static str) -> String {
+    let name = |t: &str| pointer_name(t).to_string();
     let mut tried: Vec<String> = Vec::new();
-    for t in ORDER.map(|t| if t.is_empty() { want } else { t }) {
+    for t in order(want) {
         if !tried.contains(&name(t)) {
             tried.push(name(t));
         }
     }
     let last = tried.pop().unwrap_or_default();
     format!("no usable tuple ({} and {last} all fail to verify)", tried.join(", "))
+}
+
+/// v0.5.3 (lane H, the cancelled demo's setup): where the owner's `/rollback` goes on the gated path, where a kept change
+/// is LKG at once when G4 has nothing to score (no pool, holdout or sealed S), so no change group and no provisional
+/// window are left to act on. Pure: `recs` the lineage, `p` the pointers, `kernel` a tuple's kernel half. The newest
+/// kept change is `current`, which must be `lkg`. The target is the LKG it replaced: the `lkg` records fold into a
+/// stack, where each move pushes its tuple, an owner undo (`lkg{undo}`) cuts the stack back to its own tuple, and an
+/// owner upgrade's commit or rollback (`lkg{upgrade}`) starts it over, so no undo crosses an upgrade (INV-10). The
+/// target must have current's kernel: a kernel change has its own probation and rollback (§3.8), and its state may
+/// have been migrated. `current` must not be audited-good, which a demotion or a panic resume would bring back.
+/// Ok((target, undone)), else the owner's notice.
+pub fn kept_parent(recs: &[Value], p: &Ptrs, kernel: impl Fn(&str) -> Option<Value>) -> Result<(String, String), String> {
+    let cur = p.current.clone().ok_or("there is no tuple yet")?;
+    if p.lkg.as_deref() != Some(cur.as_str()) {
+        return Err(format!("the system runs {cur}, not its last-known-good tuple {}: a rollback already took it back from the \
+            newest kept change; /rollback lkg returns to that change", p.lkg.as_deref().unwrap_or("(none)")));
+    }
+    let mut kept: Vec<&str> = Vec::new();
+    for d in recs.iter().filter(|r| r["by"] == "root" && r["kind"] == "lkg").map(|r| &r["data"]) {
+        if d["upgrade"].is_string() {
+            kept.clear();
+        }
+        let Some(t) = d["tuple"].as_str() else { continue };
+        if d["undo"].is_string() {
+            match kept.iter().rposition(|x| *x == t) {
+                Some(i) => kept.truncate(i + 1),
+                None => kept = vec![t],
+            }
+        } else if kept.last() != Some(&t) {
+            kept.push(t);
+        }
+    }
+    let to = match kept.as_slice() {
+        [.., to, last] if *last == cur => to.to_string(),
+        _ => return Err(format!("{cur} is the first kept tuple since the install or the last upgrade, so there is no older one to \
+            return to; /panic then /resume returns to audited-good")),
+    };
+    if p.audited.as_deref() == Some(cur.as_str()) {
+        return Err(format!("{cur} passed the Root's sealed audit (it is audited-good, which a demotion or /panic then /resume \
+            would return to); /rollback settled returns to the settled tuple"));
+    }
+    match (kernel(&to), kernel(&cur)) {
+        (Some(a), Some(b)) if a == b => Ok((to, cur)),
+        (Some(_), Some(_)) => Err(format!("the change from {to} to {cur} replaced the kernel, which /rollback does not undo; \
+            /panic then /resume returns to audited-good")),
+        _ => Err(format!("the tuple {to} or {cur} is no longer in the store")),
+    }
+}
+
+/// The owner's `/rollback` on the gated path ([`kept_parent`]): moves `lkg` back to the target with
+/// `lkg{tuple, undo, reason:"owner_rollback"}` (INV-5: an owner rollback of the newest kept change), after the target's
+/// blobs verify and under the lineage lock with the pointers re-checked, so nothing moves `current` or `lkg` in between.
+/// The caller then restarts the zone on the target (§3.7.3), as for `/rollback lkg`. Only the owner's line reaches this
+/// (`sentinel::owner_text`, from `owner.sock`, which no zone can reach: tails Z1 and Z6). Ok((target, undone)).
+pub fn undo_kept(root: &Root) -> Result<(String, String), String> {
+    let lin = |e: io::Error| format!("lineage: {e}");
+    let kernel = |id: &str| load(&root.p.rh, id).map(|t| t["kernel"].clone());
+    let ptrs = lock(&root.sup.ptrs).clone();
+    let (to, undone) = kept_parent(&crate::lineage::records(&root.p.rh).map_err(lin)?, &ptrs, kernel)?;
+    if !load(&root.p.rh, &to).is_some_and(|t| verify(&root.p.rh, &t)) {
+        return Err(format!("the tuple {to} fails to verify in the store (a blob is missing or damaged)"));
+    }
+    let mut lg = lock(&root.lin);
+    let again = kept_parent(&crate::lineage::records(&root.p.rh).map_err(lin)?, &lock(&root.sup.ptrs).clone(), kernel)?;
+    if again != (to.clone(), undone.clone()) {
+        return Err("the tuples moved while the rollback was being prepared; type /rollback again".into());
+    }
+    let rec = root.append_locked(&mut lg, "root", "lkg", json!({"reason": "owner_rollback", "tuple": to, "undo": undone})).map_err(lin)?;
+    drop(lg);
+    root.after(&rec);
+    Ok((to, undone))
 }
 
 /// An owner upgrade's commit (upgrade.rs; §3.7.2): the rollback anchors of a demotion and a panic resume (`audited`, and
@@ -311,27 +445,65 @@ pub fn check_promotion(rh: &Path, d: &Value) -> Result<(), String> {
     }
 }
 
-/// After the record: forms {current kernel, new body, new ext} and appends `tuple`, then `lkg`. At install
-/// (§4.3 step 8) there is no current tuple yet: the seed's promotion forms the **genesis** tuple from the
-/// installed maintainer kernel (`sup.install`), and the Root appends `tuple`, `lkg` and `audited`.
-pub fn on_promotion(root: &Root, d: &Value) {
+/// The tuple a `promotion{lkg:true}` forms: {current kernel, its body, its ext}; at install (no current tuple) the
+/// installed maintainer kernel (`sup.install`), and `true` (genesis). None: no kernel to form it with.
+pub fn promoted(root: &Root, d: &Value) -> Option<(Value, bool)> {
     let cur = lock(&root.sup.ptrs).current.clone();
     let (kernel, genesis) = match cur.and_then(|c| load(&root.p.rh, &c)) {
         Some(base) => (base["kernel"].clone(), false),
-        None => match lock(&root.sup.install).clone() {
-            Some(k) => (k, true),
-            None => return,
-        },
+        None => (lock(&root.sup.install).clone()?, true),
     };
     let t = json!({"body": {"binary": d["body_binary"], "sha": d["sha"]}, "ext": {"components": d["components"], "set": d["ext_set"]},
         "kernel": kernel, "v": 1});
-    if let Ok(id) = save(&root.p.rh, &t) {
-        root.append("tuple", json!({"id": id, "tuple": t}));
-        root.append("lkg", json!({"tuple": id}));
-        if genesis {
-            root.append("audited", json!({"tuple": id}));
+    Some((t, genesis))
+}
+
+/// V10 (v0.5.3): an owner `/rollback` of a kept change ([`undo_kept`]) moved `lkg` back, and the zone has not restarted
+/// on it yet: the newest Root `lkg` record is `owner_rollback` and no `rollback` record has moved `current` to its
+/// tuple since, nor a `root_start` (the restart is queued in the Root that took the line, and ends with it). A promotion
+/// finishing then was built on the change being undone, so it must not form a tuple or move `lkg` (sup.rs
+/// `kernel_append` refuses it; [`on_promotion`] re-checks under the lineage lock).
+pub fn owner_rollback_pending(recs: &[Value]) -> bool {
+    let mut pending: Option<&Value> = None;
+    for r in recs.iter().filter(|r| r["by"] == "root") {
+        match r["kind"].as_str() {
+            Some("lkg") => pending = (r["data"]["reason"] == "owner_rollback").then_some(&r["data"]["tuple"]),
+            Some("rollback") if pending.is_some_and(|t| *t == r["data"]["to"]) => pending = None,
+            Some("root_start") => pending = None,
+            _ => {}
         }
     }
+    pending.is_some()
+}
+
+/// After the record: forms {current kernel, new body, new ext} ([`promoted`]) and appends `tuple`, then `lkg`. At install
+/// (§4.3 step 8) there is no current tuple yet: the seed's promotion forms the **genesis** tuple from the
+/// installed maintainer kernel (`sup.install`), and the Root appends `tuple`, `lkg` and `audited`.
+/// V10: the records go in under one lineage lock, re-checked against a pending owner `/rollback` restart
+/// ([`owner_rollback_pending`]), so the owner's `lkg` move and a promotion never interleave.
+pub fn on_promotion(root: &Root, d: &Value) {
+    let Some((t, genesis)) = promoted(root, d) else { return };
+    let Ok(id) = save(&root.p.rh, &t) else { return };
+    let mut lg = lock(&root.lin);
+    if !genesis && crate::lineage::records(&root.p.rh).is_ok_and(|r| owner_rollback_pending(&r)) {
+        drop(lg);
+        util::log(&root.p.rh, "warn", &format!("promotion of {id} refused: an owner /rollback restart is pending"));
+        return root.alert("promotion_refused", &format!("[root] a promotion that finished during the owner's /rollback formed no tuple: \
+            it was built on the change being undone (tuple {id})"));
+    }
+    let mut recs = Vec::new();
+    let audited = genesis.then(|| ("audited", json!({"tuple": id})));
+    for (kind, data) in [("tuple", json!({"id": id, "tuple": t})), ("lkg", json!({"tuple": id}))].into_iter().chain(audited) {
+        match root.append_locked(&mut lg, "root", kind, data) {
+            Ok(r) => recs.push(r),
+            Err(e) => {
+                util::log(&root.p.rh, "error", &format!("lineage append {kind}: {e}"));
+                break;
+            }
+        }
+    }
+    drop(lg);
+    recs.iter().for_each(|r| root.after(r));
 }
 
 /// ADR-011 §2.3: check the executable against Root-held admission records. Lane labels are not
@@ -387,12 +559,128 @@ pub fn get(root: &Root) -> Value {
 mod tests {
     use super::*;
 
+    /// V10 (fails on c4797cc, which had no such state): from the owner's `lkg{owner_rollback}` until the zone restarts
+    /// on its tuple (`rollback{to}`), or the Root that queued that restart exits (`root_start`), a promotion is refused.
+    #[test]
+    fn an_owner_rollback_is_pending_until_the_zone_restarts_on_it() {
+        let r = |kind: &str, data: Value| json!({"by": "root", "data": data, "kind": kind});
+        let mut recs = vec![r("tuple", json!({"id": "t0"})), r("lkg", json!({"tuple": "t0"})), r("tuple", json!({"id": "t1"})), r("lkg", json!({"tuple": "t1"}))];
+        assert!(!owner_rollback_pending(&recs));
+        recs.push(r("lkg", json!({"reason": "owner_rollback", "tuple": "t0", "undo": "t1"})));
+        assert!(owner_rollback_pending(&recs), "LKG moved back; the zone still runs t1");
+        let mut kernel = recs.clone();
+        kernel.push(json!({"by": "kernel:000000000000", "data": {"to": "t0"}, "kind": "rollback"}));
+        assert!(owner_rollback_pending(&kernel), "only the Root's records count");
+        let mut other = recs.clone();
+        other.push(r("rollback", json!({"to": "t9"})));
+        assert!(owner_rollback_pending(&other), "a rollback elsewhere is not the restart on t0");
+        let mut done = recs.clone();
+        done.push(r("rollback", json!({"from": "t1", "target": "parent", "to": "t0"})));
+        assert!(!owner_rollback_pending(&done), "the zone restarted on t0");
+        let mut restarted = recs.clone();
+        restarted.push(r("root_start", json!({})));
+        assert!(!owner_rollback_pending(&restarted), "the Root that queued the restart is gone");
+        let mut moved = recs;
+        moved.push(r("lkg", json!({"tuple": "t2"})));
+        assert!(!owner_rollback_pending(&moved));
+    }
+
+    /// V10: a promotion that finishes while the owner's `/rollback` restart is pending forms no tuple and leaves `lkg`
+    /// on the rollback's target, also when it got past `kernel_append`'s check (the re-check under the lineage lock).
+    #[cfg_attr(not(feature = "test-fixtures"), ignore = "a test home needs the test-fixtures ROOT_HOME bound (80 bytes)")]
+    #[test]
+    fn a_promotion_during_an_owner_rollback_forms_no_tuple() {
+        let (dir, root) = crate::grant::tests::test_home("v10p", "");
+        let t = |sha: &str| json!({"body": {"binary": "", "sha": sha}, "ext": {"components": [], "set": null}, "kernel": {"init_kernel": "k"}, "v": 1});
+        let (t0, t1) = (save(&root.p.rh, &t("")).unwrap(), save(&root.p.rh, &t(&"1".repeat(40))).unwrap());
+        for (kind, data) in [("tuple", json!({"id": t0, "tuple": t("")})), ("lkg", json!({"tuple": t0})),
+            ("tuple", json!({"id": t1, "tuple": t(&"1".repeat(40))})), ("lkg", json!({"tuple": t1})),
+            ("lkg", json!({"reason": "owner_rollback", "tuple": t0, "undo": t1}))]
+        {
+            root.append(kind, data).expect("appended");
+        }
+        let tuples = || crate::lineage::records(&root.p.rh).unwrap().iter().filter(|r| r["kind"] == "tuple").count();
+        let n = tuples();
+        let promo = json!({"body_binary": "", "components": [], "ext_set": null, "lkg": true, "sha": "2".repeat(40)});
+        on_promotion(&root, &promo);
+        assert_eq!((tuples(), lock(&root.sup.ptrs).lkg.clone()), (n, Some(t0.clone())), "no tuple, LKG stays on the target");
+        assert!(fs::read_to_string(root.p.r("alerts.jsonl")).unwrap_or_default().contains("promotion_refused"));
+        root.append("rollback", json!({"from": t1, "target": "parent", "to": t0})).expect("appended");
+        on_promotion(&root, &promo);
+        assert_eq!(tuples(), n + 1, "after the restart a promotion forms its tuple");
+        assert_ne!(lock(&root.sup.ptrs).lkg.clone(), Some(t0));
+        let _ = fs::remove_dir_all(&dir); // exact path, made by test_home
+    }
+
+    /// v0.5.3 (lane H): the gated `/rollback` goes to the LKG the newest kept change replaced, one change per line,
+    /// never across an owner upgrade, never across a kernel change, and never away from an audited-good tuple.
+    #[test]
+    fn the_gated_rollback_goes_to_the_lkg_the_newest_kept_change_replaced() {
+        let r = |by: &str, kind: &str, d: Value| json!({"by": by, "data": d, "kind": kind});
+        let lkg = |t: &str| r("root", "lkg", json!({"tuple": t}));
+        let undo = |t: &str, u: &str| r("root", "lkg", json!({"reason": "owner_rollback", "tuple": t, "undo": u}));
+        let ptrs = |cur: &str, lk: &str, au: &str| Ptrs { current: Some(cur.into()), lkg: Some(lk.into()), audited: Some(au.into()), ..Ptrs::default() };
+        let same = |_: &str| Some(json!({"init_kernel": "k1"}));
+        let mut recs = vec![lkg("tG"), r("kernel:000000000000", "lkg", json!({"tuple": "tX"})), lkg("tA"), lkg("tB")];
+        assert_eq!(kept_parent(&recs, &ptrs("tB", "tB", "tG"), same), Ok(("tA".into(), "tB".into())), "a kernel-signed record is not a move");
+        recs.push(undo("tA", "tB"));
+        assert_eq!(kept_parent(&recs, &ptrs("tA", "tA", "tG"), same), Ok(("tG".into(), "tA".into())), "a second /rollback goes one further");
+        recs.push(undo("tG", "tA"));
+        assert!(kept_parent(&recs, &ptrs("tG", "tG", "tG"), same).unwrap_err().contains("first kept tuple"), "nothing before genesis");
+        recs.push(lkg("tB"));
+        assert_eq!(kept_parent(&recs, &ptrs("tB", "tB", "tG"), same), Ok(("tG".into(), "tB".into())), "re-promoted, it is undone again");
+        // current is not LKG: a rollback already ran (to settled, by a crash loop) or a swap is in probation
+        assert!(kept_parent(&recs, &ptrs("tG", "tB", "tG"), same).unwrap_err().contains("/rollback lkg"));
+        // an owner upgrade's commit starts over: no undo crosses it (INV-10)
+        recs.push(r("root", "lkg", json!({"tuple": "tU", "upgrade": "u-1"})));
+        assert!(kept_parent(&recs, &ptrs("tU", "tU", "tG"), same).unwrap_err().contains("last upgrade"));
+        recs.push(lkg("tV"));
+        assert_eq!(kept_parent(&recs, &ptrs("tV", "tV", "tG"), same), Ok(("tU".into(), "tV".into())));
+        // audited-good is never undone (a demotion or a panic resume would bring it back), nor a kernel change
+        assert!(kept_parent(&recs, &ptrs("tV", "tV", "tV"), same).unwrap_err().contains("sealed audit"));
+        let other = |id: &str| Some(json!({"init_kernel": if id == "tV" { "k2" } else { "k1" }}));
+        assert!(kept_parent(&recs, &ptrs("tV", "tV", "tG"), other).unwrap_err().contains("replaced the kernel"));
+        assert!(kept_parent(&recs, &ptrs("tV", "tV", "tG"), |_| None).unwrap_err().contains("no longer in the store"));
+        assert!(kept_parent(&[], &Ptrs::default(), same).is_err());
+    }
+
     /// R-UNDO (v0.5.2): the refusal names what `rollback` tried, `settled` included (the v0.5.1 text left it out).
     #[test]
     fn the_rollback_refusal_names_every_pointer_it_tried() {
         assert_eq!(none_usable("current"), "no usable tuple (current, LKG, settled, audited-good and genesis all fail to verify)");
         assert_eq!(none_usable("lkg"), "no usable tuple (LKG, settled, audited-good and genesis all fail to verify)");
         assert_eq!(none_usable("settled"), "no usable tuple (settled, LKG, audited-good and genesis all fail to verify)");
+    }
+
+    /// v0.5.3 (REL-052 §7.5 finding 3): where a rollback goes, in `rollback`'s own order: the wanted pointer when set, else
+    /// LKG, settled, audited-good, genesis.
+    #[test]
+    fn the_rollback_target_follows_the_rollback_order() {
+        let p = |lkg: Option<&str>, settled: Option<&str>, audited: Option<&str>| Ptrs { current: Some("tC".into()), lkg: lkg.map(Into::into),
+            audited: audited.map(Into::into), genesis: Some("tG".into()), settled: settled.map(Into::into), twin: None };
+        let t = |p: &Ptrs, want| rollback_target(p, want);
+        assert_eq!(t(&p(Some("tL"), None, Some("tA")), "settled"), Some(("lkg", "tL".into())), "free path, nothing settled yet");
+        assert_eq!(t(&p(Some("tL"), Some("tS"), Some("tA")), "settled"), Some(("settled", "tS".into())));
+        assert_eq!(t(&p(Some("tL"), Some("tS"), Some("tA")), "audited"), Some(("audited", "tA".into())), "the gated path");
+        assert_eq!(t(&p(None, None, None), "audited"), Some(("genesis", "tG".into())));
+        assert_eq!([pointer_name("lkg"), pointer_name("audited"), pointer_name("settled")], ["LKG", "audited-good", "settled"]);
+    }
+
+    /// L2b (D9): the newest owner upgrade's kernel, skipping one its rollback undid.
+    #[test]
+    fn the_genesis_fallback_follows_the_newest_upgrade_kernel() {
+        let r = |kind: &str, data: Value| json!({"by": "root", "data": data, "kind": kind});
+        let up = |k: &str, u: &str| r("tuple", json!({"id": "t", "tuple": {"kernel": {"init_kernel": k}}, "upgrade": {"from": "0", "id": u, "to": "1"}}));
+        let k = |s: &str| json!({"init_kernel": s});
+        assert_eq!(upgraded_kernel(&[r("tuple", json!({"id": "g", "tuple": {"kernel": k("k0")}}))]), None, "no upgrade since install");
+        let recs = vec![up("k1", "u-1"), r("lkg", json!({"tuple": "t", "upgrade": "u-1"})), up("k2", "u-2")];
+        assert_eq!(upgraded_kernel(&recs), Some((k("k2"), json!("u-2"))));
+        let mut back = recs.clone();
+        back.push(r("rollback", json!({"target": "pre_upgrade", "to": "t", "upgrade": "u-2"})));
+        assert_eq!(upgraded_kernel(&back), Some((k("k1"), json!("u-1"))), "the rolled-back upgrade's kernel is not the release's");
+        let mut kernel_said = vec![up("k1", "u-1")];
+        kernel_said.push(json!({"by": "kernel:000000000000", "data": {"id": "t", "tuple": {"kernel": k("kx")}, "upgrade": {"id": "u-x"}}, "kind": "tuple"}));
+        assert_eq!(upgraded_kernel(&kernel_said), Some((k("k1"), json!("u-1"))), "only the Root's own records");
     }
 
     #[test]

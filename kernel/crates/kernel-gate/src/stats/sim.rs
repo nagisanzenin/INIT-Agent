@@ -102,6 +102,63 @@ fn bernoulli(rng: &mut SplitMix64, p: f64) -> u32 {
     if u < p { 1000 } else { 0 }
 }
 
+/// Synthetic gate `g` of `params`: its id and its tasks (both arms' repeats), in the design's task order.
+fn gate_tasks(params: &SimParams, ps: &[f64], g: usize) -> (String, Vec<TaskRuns>) {
+    let gate_id = format!(
+        "{}-n{}-r{}-e{:+.4}-{g}",
+        params.label, params.n, params.repeats, params.effect
+    );
+    let mut rng = SplitMix64::for_gate(&gate_id, "sim-scores");
+    let tasks: Vec<TaskRuns> = ps
+        .iter()
+        .enumerate()
+        .map(|(i, &p)| {
+            let q = (p + params.effect).clamp(0.0, 1.0);
+            let c = (0..params.repeats)
+                .map(|_| RunValues::score(bernoulli(&mut rng, q)))
+                .collect();
+            let lkg = (0..params.repeats)
+                .map(|_| RunValues::score(bernoulli(&mut rng, p)))
+                .collect();
+            TaskRuns {
+                id: format!("t{i}"),
+                set: TaskSet::Pool,
+                source: Source::Maintainer,
+                family: None,
+                c,
+                p: lkg,
+            }
+        })
+        .collect();
+    (gate_id, tasks)
+}
+
+/// The gate's δ_used as `params.history` forms it (§3.8.2), from its own LKG repeats and the previous gate's.
+fn gate_delta(params: &SimParams, gate_id: &str, tasks: &[TaskRuns], prev: Option<f64>) -> f64 {
+    let refs: Vec<&TaskRuns> = tasks.iter().collect();
+    let gate_delta = noise(
+        gate_id,
+        "pass_rate",
+        Metric::PassRate,
+        &refs,
+        params.noise_b,
+    );
+    match (params.history, prev) {
+        (SimHistory::Carried, Some(h)) => {
+            // noise.json stores δ in integer permille; n is unchanged between gates.
+            let e = NoiseEntry {
+                delta_permille: Some((h * 1000.0).round() as i64),
+                n: params.n as u64,
+                ..entry0()
+            };
+            smooth(gate_delta, Some(&e), params.n)
+        }
+        (SimHistory::Oracle, _) => Some(analytic_delta(params.n, params.repeats)),
+        _ => gate_delta,
+    }
+    .unwrap_or(0.0)
+}
+
 /// Runs `params.gates` synthetic gates and reports the accept (non-inferior) rate.
 pub fn simulate(params: &SimParams) -> SimResult {
     let ps = design(params.n);
@@ -109,54 +166,8 @@ pub fn simulate(params: &SimParams) -> SimResult {
     let mut delta_sum = 0.0;
     let mut prev: Option<f64> = None;
     for g in 0..params.gates {
-        let gate_id = format!(
-            "{}-n{}-r{}-e{:+.4}-{g}",
-            params.label, params.n, params.repeats, params.effect
-        );
-        let mut rng = SplitMix64::for_gate(&gate_id, "sim-scores");
-        let tasks: Vec<TaskRuns> = ps
-            .iter()
-            .enumerate()
-            .map(|(i, &p)| {
-                let q = (p + params.effect).clamp(0.0, 1.0);
-                let c = (0..params.repeats)
-                    .map(|_| RunValues::score(bernoulli(&mut rng, q)))
-                    .collect();
-                let lkg = (0..params.repeats)
-                    .map(|_| RunValues::score(bernoulli(&mut rng, p)))
-                    .collect();
-                TaskRuns {
-                    id: format!("t{i}"),
-                    set: TaskSet::Pool,
-                    source: Source::Maintainer,
-                    family: None,
-                    c,
-                    p: lkg,
-                }
-            })
-            .collect();
-        let refs: Vec<&TaskRuns> = tasks.iter().collect();
-        let gate_delta = noise(
-            &gate_id,
-            "pass_rate",
-            Metric::PassRate,
-            &refs,
-            params.noise_b,
-        );
-        let delta = match (params.history, prev) {
-            (SimHistory::Carried, Some(h)) => {
-                // noise.json stores δ in integer permille; n is unchanged between gates.
-                let e = NoiseEntry {
-                    delta_permille: Some((h * 1000.0).round() as i64),
-                    n: params.n as u64,
-                    ..entry0()
-                };
-                smooth(gate_delta, Some(&e), params.n)
-            }
-            (SimHistory::Oracle, _) => Some(analytic_delta(params.n, params.repeats)),
-            _ => gate_delta,
-        }
-        .unwrap_or(0.0);
+        let (gate_id, tasks) = gate_tasks(params, &ps, g);
+        let delta = gate_delta(params, &gate_id, &tasks, prev);
         prev = Some(delta);
         delta_sum += delta;
         let m = margin(delta, params.n, params.margin_factor);
@@ -172,6 +183,60 @@ pub fn simulate(params: &SimParams) -> SimResult {
         accept_rate: accepted as f64 / params.gates.max(1) as f64,
         mean_delta: delta_sum / params.gates.max(1) as f64,
         analytic_delta: analytic_delta(params.n, params.repeats),
+    }
+}
+
+/// Lane M #4 (G-21): one cell of the bootstrap-versus-betting comparison. Both lower bounds at level α on the same
+/// synthetic gates: the mean one-sided width D − L, the coverage P(L ≤ true effect), and the non-inferiority accept
+/// rate L > −m with the gate's own margin. The betting bound sees the tasks in a seeded random order (G4's schedule is
+/// random; the design lists the flaky tasks first) and is tuned for the cell's n.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+pub struct WidthResult {
+    pub n: usize,
+    pub repeats: usize,
+    pub effect: f64,
+    pub gates: usize,
+    pub bootstrap_width: f64,
+    pub betting_width: f64,
+    pub bootstrap_coverage: f64,
+    pub betting_coverage: f64,
+    pub bootstrap_accept: f64,
+    pub betting_accept: f64,
+}
+
+pub fn widths(params: &SimParams) -> WidthResult {
+    let ps = design(params.n);
+    let (mut wb, mut we, mut cb, mut ce, mut ab, mut ae) = (0.0, 0.0, 0usize, 0usize, 0usize, 0usize);
+    let mut prev: Option<f64> = None;
+    for g in 0..params.gates {
+        let (gate_id, tasks) = gate_tasks(params, &ps, g);
+        let delta = gate_delta(params, &gate_id, &tasks, prev);
+        prev = Some(delta);
+        let m = margin(delta, params.n, params.margin_factor);
+        let mut d: Vec<f64> = tasks.iter().map(TaskRuns::d).collect();
+        let iv = bootstrap_ni(&gate_id, &d, params.bootstrap_b, params.alpha);
+        SplitMix64::for_gate(&gate_id, "sim-order").shuffle(&mut d);
+        let lb = super::betting::lower_bound(&d, params.alpha, params.n);
+        wb += iv.mean - iv.lower;
+        we += iv.mean - lb;
+        // the true mean effect is exactly `effect` in this design for −0.5 ≤ effect ≤ 0 (module head)
+        cb += usize::from(iv.lower <= params.effect + 1e-12);
+        ce += usize::from(lb <= params.effect + 1e-12);
+        ab += usize::from(iv.lower > -m);
+        ae += usize::from(lb > -m);
+    }
+    let k = params.gates.max(1) as f64;
+    WidthResult {
+        n: params.n,
+        repeats: params.repeats,
+        effect: params.effect,
+        gates: params.gates,
+        bootstrap_width: wb / k,
+        betting_width: we / k,
+        bootstrap_coverage: cb as f64 / k,
+        betting_coverage: ce as f64 / k,
+        bootstrap_accept: ab as f64 / k,
+        betting_accept: ae as f64 / k,
     }
 }
 
@@ -252,6 +317,51 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    fn cmd(bin: &str, args: &[&str]) -> Option<String> {
+        let o = std::process::Command::new(bin)
+            .args(args)
+            .current_dir(env!("CARGO_MANIFEST_DIR"))
+            .output()
+            .ok()?;
+        o.status
+            .success()
+            .then(|| String::from_utf8_lossy(&o.stdout).trim().to_string())
+    }
+
+    /// Lane M #4 (G-21): betting vs bootstrap one-sided widths at n = 16–40 on G-21's design, effect 0 and −2δ,
+    /// R = 2 and 3, 1,000 gates per cell, B = 2,000 (the reduced G-21's). `INIT_STATS_OUT=<dir>` writes
+    /// `<dir>/g21-widths.json` (build/status/STATS-053.md).
+    #[test]
+    #[ignore = "lane M #4: cargo test --offline -p kernel-gate --lib stats::sim::tests::g21_widths -- --ignored --nocapture"]
+    fn g21_widths() {
+        let mut rows = Vec::new();
+        for r in [2, 3] {
+            for n in [16, 24, 32, 40] {
+                for k in [0.0, 2.0] {
+                    let mut p = SimParams::new(n, r, -k * analytic_delta(n, r), 1_000);
+                    p.bootstrap_b = 2_000;
+                    p.noise_b = 400;
+                    p.label = "g21w".into();
+                    let w = widths(&p);
+                    eprintln!("G21W n={n} R={r} effect=-{k}δ {w:?}");
+                    rows.push(serde_json::json!({"effect_in_delta": -k, "result": w}));
+                }
+            }
+        }
+        let v = serde_json::json!({"provenance": {"commit": cmd("git", &["rev-parse", "HEAD"]),
+            "dirty": cmd("git", &["status", "--porcelain", "--untracked-files=no"]).map(|s| !s.is_empty()),
+            "machine": cmd("sysctl", &["-n", "hw.model"]).or_else(|| cmd("uname", &["-m"])), "model": "none (pure simulation)",
+            "seed": "SplitMix64::for_gate(\"g21w-n<n>-r<R>-e<effect>-<g>\", \"sim-scores\" | \"sim-order\" | \"ni\")",
+            "iterations": {"gates_per_cell": 1000, "bootstrap_b": 2000, "noise_b": 400},
+            "command": "cargo test --offline -p kernel-gate --lib stats::sim::tests::g21_widths -- --ignored --nocapture"},
+            "alpha": 0.05, "design": "G-21: ceil(n/4) flaky tasks at LKG pass 0.5, the rest at 1.0; candidate = LKG + effect", "cells": rows});
+        let s = serde_json::to_string_pretty(&v).unwrap();
+        eprintln!("{s}");
+        if let Ok(dir) = std::env::var("INIT_STATS_OUT") {
+            std::fs::write(std::path::Path::new(&dir).join("g21-widths.json"), s + "\n").unwrap();
         }
     }
 }

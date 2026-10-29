@@ -33,8 +33,13 @@
 //! manifest format must be equal and the WIT majors must overlap. Otherwise the upgrade is refused: INIT never migrates
 //! a body and never guesses.
 //!
+//! **The signature (v0.5.3, docs/release-signing.md)** is checked before this runs, by the installed Root: get.sh
+//! `--upgrade` asks `ROOT_HOME/bin/init-root release verify` (release.rs), with the key compiled into that binary,
+//! before it unpacks the download. This verb runs as the new release's own binary, which cannot vouch for itself, so it
+//! checks nothing about the signature; a local bundle (`--bundle FILE --sha256 HEX`) is the owner's own check.
+//!
 //! **Not here (deferred, docs/guide.md):** offering the release's new seed to the agent (its `seed/` bundle is not
-//! imported); a live kernel swap (`system.swap`); signed releases (a release is checked by sha256 only).
+//! imported); a live kernel swap (`system.swap`).
 
 use crate::install::{self, Paths};
 use crate::link::{self, Root, lock};
@@ -161,7 +166,7 @@ struct Release {
     body: Option<PathBuf>,
 }
 
-fn plain(v: &str) -> bool {
+pub(crate) fn plain(v: &str) -> bool {
     (1..=64).contains(&v.len()) && !v.starts_with('.') && !v.contains("..") && v.bytes().all(|c| c.is_ascii_alphanumeric() || b"._-+".contains(&c))
 }
 
@@ -202,11 +207,25 @@ fn release(dir: &Path, test_mode: bool) -> Res<Release> {
 }
 
 /// The `MAJOR.MINOR.PATCH` of a version string (`0.5.0-preview` → (0, 5, 0)).
-fn core(v: &str) -> Option<(u64, u64, u64)> {
+pub(crate) fn core(v: &str) -> Option<(u64, u64, u64)> {
     let c = v.split(['-', '+']).next()?;
     let mut it = c.split('.').map(|x| x.parse::<u64>().ok());
     let r = (it.next()??, it.next()??, it.next()??);
     it.next().is_none().then_some(r)
+}
+
+/// V4 (v0.5.3): SemVer 2.0 precedence (§11) of two versions with a [`core`]: the core, then a version with a pre-release
+/// label below the same core without one, then the labels field by field (numeric fields numerically and below
+/// alphanumeric ones, which compare in ASCII; a longer label wins a tie); build metadata (`+…`) is ignored. None when
+/// either has no core. Equal precedence is not the same release: only the same version string is (release.rs `check`).
+/// get.sh's `ver_older` is the same rule.
+pub(crate) fn precedence(a: &str, b: &str) -> Option<std::cmp::Ordering> {
+    fn label(v: &str) -> Option<Vec<(bool, usize, &str)>> {
+        let (_, l) = v.split('+').next()?.split_once('-')?;
+        Some(l.split('.').map(|x| if !x.is_empty() && x.bytes().all(|c| c.is_ascii_digit()) { (false, x.len(), x) } else { (true, 0, x) }).collect())
+    }
+    let (ka, kb) = ((core(a)?, label(a).is_none()), (core(b)?, label(b).is_none()));
+    Some(ka.cmp(&kb).then_with(|| label(a).cmp(&label(b))))
 }
 
 // ------------------------------------------------------------------------------------------------ the body check
@@ -292,7 +311,7 @@ fn upgrade(p: &Paths, dir: &Path, bin_dir: Option<PathBuf>) -> Res<Value> {
         return Err((1, format!("{}; finish it first: {} (or {} after a passing --probe)", describe(&j), p.cmd("upgrade --rollback"), p.cmd("upgrade --commit"))));
     }
     let _lock = crate::cli::take_lock(p).map_err(|e| (1, format!("run/root.lock: {e}")))?
-        .ok_or_else(|| (1, "the Root is running: stop it first (init-agent upgrade and install.sh --upgrade stop it for you)".to_string()))?;
+        .ok_or_else(|| (1, format!("the Root is running: stop it first ({} and install.sh --upgrade stop it for you)", p.agent_cmd("upgrade"))))?;
     let active = crate::charter::load(&p.r("state/charter.active.toml"), &p.ctx()).map_err(|_| (1, "the active charter is invalid".to_string()))?;
     let rel = release(dir, active.ch.root.test_mode)?;
     let me = std::env::current_exe().and_then(fs::read).map_err(err)?;
@@ -331,8 +350,8 @@ fn upgrade(p: &Paths, dir: &Path, bin_dir: Option<PathBuf>) -> Res<Value> {
     let main = crate::lineage::kgit::get(p, &git, "refs/heads/main");
     // the version: never down, and the same release again is a no-op
     let old_version = info["release"]["version"].as_str().or(cur["kernel"]["version"].as_str()).unwrap_or("0.0.0").to_string();
-    let (old_core, new_core) = (core(&old_version), core(&rel.version));
-    if new_core.is_some() && old_core.is_some() && new_core < old_core {
+    // V4: by SemVer precedence, so a lower pre-release label of the same core is a downgrade too (release.rs `check`)
+    if precedence(&rel.version, &old_version) == Some(std::cmp::Ordering::Less) {
         return Err(refuse(format!("{} is older than the installed {old_version}: INIT does not downgrade", rel.version)));
     }
     let src_sha = match &rel.src {
@@ -688,9 +707,12 @@ fn commit(p: &Paths) -> Res<Value> {
 /// finishes the upgrade the one way that is sound: `committing` (the probe passed and the snapshot is going) is
 /// committed, and the start goes on; `replacing` or `replaced` (no passing probe on record) is rolled back to the
 /// install from before, and this process (the new binary) exits so the service starts the old one. If that step
-/// fails, it exits and says what to run. The probe's own Root (`PROBE_ENV` = the upgrade's id) and a Root that already
-/// holds `run/root.lock` are left alone. Some(code): `start` exits with it.
-pub fn at_start(p: &Paths) -> Option<u8> {
+/// fails, it says what to run: `start --foreground` (`service` false, the owner at a terminal) then exits 1. v0.5.3
+/// (REL-052 §7.5): the service's `start` instead waits ([`wait_for_owner`]), because launchd's `KeepAlive` and
+/// systemd's `Restart=always` start an exited Root again, and v0.5.2's exit 1 repeated the failed step, its alert and
+/// its log line every 10 s for as long as the service was loaded. The probe's own Root (`PROBE_ENV` = the upgrade's
+/// id) and a Root that already holds `run/root.lock` are left alone. Some(code): `start` exits with it.
+pub fn at_start(p: &Paths, service: bool) -> Option<u8> {
     let j = journal(p).filter(pending)?;
     if std::env::var(PROBE_ENV).is_ok_and(|v| j["id"] == v.as_str()) {
         return None;
@@ -702,15 +724,26 @@ pub fn at_start(p: &Paths) -> Option<u8> {
     let (what, finish) = (describe(&j), j["phase"] == "committing");
     let r = if finish { commit(p) } else { rollback(p) };
     let v = |s: &str| j[s]["version"].as_str().unwrap_or("?").to_string();
+    let has_service = install::service_path(p).is_file();
     let msg = match &r {
         Ok(_) if finish => format!("{what}: its commit had begun, so this start finished it; INIT runs {} with its anchors on the new kernel.", v("to")),
         Ok(_) => format!("{what}: it was cut off after its replace step, before its health probe and commit, so this start rolled it back \
-            and INIT is {} again, as before the upgrade. {} To upgrade, run the upgrade again: init-agent upgrade.", v("from"),
-            if install::service_path(p).is_file() { "Its service starts the Root again by itself.".to_string() }
-            else { format!("Start the Root again: {}.", install::start_hint(p)) }),
-        Err((_, m)) => format!("{what} is not finished, and this start could not {} it ({m}). The agent is not started on a half-upgraded \
-            install. With the Root stopped ({}), run {} (or {} after a passing {}), then start the Root: {}.", if finish { "finish" } else { "roll back" },
-            install::stop_hint(p), p.cmd("upgrade --rollback"), p.cmd("upgrade --commit"), p.cmd("upgrade --probe"), install::start_hint(p)),
+            and INIT is {} again, as before the upgrade. {} To upgrade, run the upgrade again: {}.", v("from"),
+            if has_service { "Its service starts the Root again by itself.".to_string() } else { format!("Start the Root again: {}.", install::start_hint(p)) },
+            p.agent_cmd("upgrade")),
+        Err((_, m)) => {
+            let step = if finish { "finish" } else { "roll back" };
+            let run = format!("{} (or {} after a passing {})", p.cmd("upgrade --rollback"), p.cmd("upgrade --commit"), p.cmd("upgrade --probe"));
+            if service {
+                format!("{what} is not finished, and this start could not {step} it ({m}). The agent is not started on a half-upgraded install. \
+                    A service starts an exited Root again, so this start waits instead of exiting: run {run} in a terminal, and it then exits \
+                    by itself{}.", if has_service { " and its service starts the Root again".to_string() }
+                    else { format!("; then start the Root again: {}", install::start_hint(p)) })
+            } else {
+                format!("{what} is not finished, and this start could not {step} it ({m}). The agent is not started on a half-upgraded \
+                    install. With the Root stopped ({}), run {run}, then start the Root: {}.", install::stop_hint(p), install::start_hint(p))
+            }
+        }
     };
     util::log(&p.rh, if r.is_ok() { "warn" } else { "error" }, &msg);
     let _ = util::append_line(&p.r("alerts.jsonl"), &json!({"code": "kernel_upgrade", "message": msg, "source": "root", "ts": rfc3339(now_ms()), "v": 1}));
@@ -718,8 +751,21 @@ pub fn at_start(p: &Paths) -> Option<u8> {
     match r {
         Ok(_) if finish => None,
         Ok(_) => Some(75), // bin/init-root is the old Root again; this process is the new one
+        Err(_) if service => Some(wait_for_owner(p)),
         Err(_) => Some(1),
     }
+}
+
+/// v0.5.3 (REL-052 §7.5): the service's `start` after it could not finish a pending upgrade ([`at_start`]). It holds no
+/// lock (the owner's `upgrade --rollback`, `--probe` and `--commit` take `run/root.lock`) and runs no zone. It waits
+/// until the journal shows the upgrade finished, then exits 75, so the service starts the Root again on what the
+/// owner chose. A stop of the service (SIGTERM, whose default action ends it) ends it before that.
+fn wait_for_owner(p: &Paths) -> u8 {
+    while journal(p).filter(pending).is_some() {
+        std::thread::sleep(Duration::from_secs(1));
+    }
+    util::log(&p.rh, "info", "the pending upgrade was finished by hand: this start exits, so its service starts the Root again");
+    75
 }
 
 // ------------------------------------------------------------------------------------------------ the health probe
@@ -822,6 +868,19 @@ fn probe(p: &Paths, wait: Duration) -> Res<Value> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn versions_compare_by_semver_precedence() {
+        use std::cmp::Ordering::{Equal, Greater, Less};
+        // V4 (fails on c4797cc, which compared the core alone): the label counts
+        for (a, b) in [("0.5.3-preview", "0.5.3"), ("0.5.3-alpha", "0.5.3-preview"), ("0.5.3-preview", "0.5.3-preview.1"),
+            ("0.5.3-preview.2", "0.5.3-preview.10"), ("0.5.3-1", "0.5.3-preview"), ("0.5.2", "0.5.3-preview"), ("0.9.12", "0.10.0-a")]
+        {
+            assert_eq!((precedence(a, b), precedence(b, a)), (Some(Less), Some(Greater)), "{a} < {b}");
+        }
+        assert_eq!(precedence("0.5.3-preview+a", "0.5.3-preview+b"), Some(Equal), "build metadata is ignored");
+        assert_eq!(precedence("0.5.3", "x.y"), None);
+    }
 
     #[test]
     fn versions_compare_by_their_core() {

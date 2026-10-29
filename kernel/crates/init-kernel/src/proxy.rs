@@ -119,6 +119,9 @@ impl GateProxy for KernelGate {
     fn request_reservation_musd(&self) -> Option<u64> {
         self.proxy.handle()?.request_reservation_musd(&self.provider, &self.model)
     }
+    fn money_enforced(&self) -> bool {
+        self.proxy.handle().is_none_or(|h| h.money_enforced())
+    }
     fn set_run_caps(&self, id: &str, c: kernel_gate::caps::RunCaps) -> Result<(), String> {
         let h = self.proxy.handle().ok_or("the proxy is not running")?;
         let caps = kernel_proxy::RunCaps { max_turns: Some(c.max_turns), max_output_tokens: Some(c.max_output_tokens), max_input_tokens: Some(c.max_input_tokens) };

@@ -152,8 +152,8 @@ fn rf15_snapshot_restore_round_trip() {
 }
 
 /// RF-17: a restore is refused while a zone process lives (here: a child this test spawned and holds), before it
-/// changes anything; a zone process appearing mid-restore stops it with the state saved; once the process is gone
-/// the restore runs.
+/// changes anything; a zone process appearing mid-restore stops it, and (v0.5.3, fix 7) every entry is put back, so
+/// the state is as it was and no save is kept; once the process is gone the restore runs.
 #[test]
 fn rf17_restore_refused_while_a_zone_process_lives() {
     let b = base("rf17");
@@ -167,21 +167,204 @@ fn rf17_restore_refused_while_a_zone_process_lives() {
     assert_eq!(r(&ih.join("state/mem/data")), "v2", "nothing changed");
     assert!(!dir(&rh).join("pre-restore-1").exists(), "not even the pre-restore save");
 
-    // a zone process that starts during the restore (the 3rd liveness check, before state/)
+    // a zone process that starts during the restore (the 3rd liveness check: after the first move)
     let n = AtomicU32::new(0);
     let late = || n.fetch_add(1, Ordering::SeqCst) >= 2;
     let e = restore_at(&rh, &ih, "1", &late).unwrap_err();
-    assert!(e.0 == "root.busy" && e.1.contains("before state/") && e.1.contains("pre-restore-1"), "{e:?}");
-    assert_eq!(r(&dir(&rh).join("pre-restore-1/state/mem/data")), "v2", "the state before it was saved");
+    assert!(e.0 == "root.busy" && e.1.contains("a zone process started during the restore")
+        && e.1.contains("every entry was put back and the agent state is exactly as it was before the restore"), "{e:?}");
+    assert_eq!(r(&ih.join("state/mem/data")), "v2", "nothing changed");
+    assert!(!dir(&rh).join("pre-restore-1").exists(), "nothing changed, so nothing is saved");
 
     let mut c = child.into_inner().unwrap();
     c.kill().unwrap(); // our own child, by handle
     c.wait().unwrap();
     let out = restore_at(&rh, &ih, "1", &|| false).unwrap();
-    assert_eq!(out["saved"].as_str(), Some("pre-restore-2"));
+    assert_eq!(out["saved"].as_str(), Some("pre-restore-1"));
     assert_eq!(r(&ih.join("state/mem/data")), "v1");
     fs::remove_dir_all(&b).unwrap();
 }
+
+/// Every entry below `dir`, sorted, never following a link: path, mode and a file's bytes or a link's target.
+fn listing(dir: &Path) -> Vec<String> {
+    let (mut out, mut stack) = (Vec::new(), vec![PathBuf::new()]);
+    while let Some(rel) = stack.pop() {
+        for e in fs::read_dir(dir.join(&rel)).unwrap() {
+            let x = rel.join(e.unwrap().file_name());
+            let (p, md) = (dir.join(&x), fs::symlink_metadata(dir.join(&x)).unwrap());
+            let what = if md.file_type().is_symlink() {
+                format!("link {}", fs::read_link(&p).unwrap().display())
+            } else if md.is_dir() {
+                stack.push(x.clone());
+                "dir".into()
+            } else {
+                format!("file {}", r(&p))
+            };
+            out.push(format!("{} {:o} {what}", x.display(), md.mode() & 0o7777));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Makes a test home removable again: the owner's write on every folder, lock flags off (macOS), under `b` only.
+fn unlock_home(b: &Path) {
+    if cfg!(target_os = "macos") {
+        let _ = Command::new("/usr/bin/chflags").args(["-R", "nouchg"]).arg(b).status();
+        let _ = Command::new("/bin/chmod").args(["-R", "-N"]).arg(b).status(); // and every ACL
+    }
+    let _ = Command::new("/bin/chmod").args(["-R", "u+rwX"]).arg(b).status();
+}
+
+/// The agent's own state as an agent can leave it to stop a rollback: a read-only folder with a file in it, in
+/// `state/` and in `body/` (nested, and at the top of the tree), and (macOS) a locked file.
+fn agent_locks(ih: &Path) {
+    for (d, f) in [("state/x", "f"), ("body/ro/y", "g"), ("body/top", "h")] {
+        w(&ih.join(d).join(f), "agent");
+        fs::set_permissions(ih.join(d).join(f), fs::Permissions::from_mode(0o444)).unwrap();
+    }
+    for d in ["state/x", "body/ro/y", "body/ro", "body/top"] {
+        fs::set_permissions(ih.join(d), fs::Permissions::from_mode(0o555)).unwrap();
+    }
+    if cfg!(target_os = "macos") {
+        w(&ih.join("state/locked"), "l");
+        assert!(Command::new("/usr/bin/chflags").args(["uchg"]).arg(ih.join("state/locked")).status().unwrap().success());
+    }
+}
+
+/// v0.5.3 (fix 7, REL-052 §7.5's sibling of finding 1; FG-1): R2 restores through the read-only folders and lock flags
+/// the agent made in its own state. v0.5.2 removed each live entry first, so `state/x` (0555, a file inside) stopped
+/// it with EACCES after other entries were gone. Also: the saves of such state are pruned (v0.5.2's `remove_dir_all`
+/// failed on them, so prune_at dropped the record and left the tree), and the never-restored entries stay put.
+#[test]
+fn r2_restores_through_the_agents_read_only_folders() {
+    let b = base("r2ro");
+    let (ih, rh) = fixture(&b);
+    take_at(&rh, &ih, "1", "sys", Some(1), 1 << 30).unwrap();
+    let want = |ih: &Path| listing(ih).into_iter().filter(|l| !l.starts_with("state/sessions") && !l.starts_with("state/spill")
+        && !l.starts_with("vault/traces") && !l.starts_with("kernel")).collect::<Vec<_>>();
+    let s1 = want(&ih);
+    agent_locks(&ih);
+    w(&ih.join("state/sessions/S.jsonl"), "line1\nline2\n");
+    let locked = want(&ih);
+    let out = restore_at(&rh, &ih, "1", &|| false).unwrap();
+    assert_eq!(out["saved"].as_str(), Some("pre-restore-1"));
+    assert_eq!(want(&ih), s1, "S_A is the snapshot's");
+    assert_eq!(r(&ih.join("state/sessions/S.jsonl")), "line1\nline2\n", "the conversation is kept");
+    assert_eq!(want(&dir(&rh).join("pre-restore-1")), locked, "the state it replaced is saved, modes and all");
+    assert!(fs::read_dir(dir(&rh)).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with('.')), "no staging tree is left");
+    // the save of locked state can itself be restored, and pruned
+    restore_at(&rh, &ih, "pre-restore-1", &|| false).unwrap();
+    assert_eq!(want(&ih), locked);
+    restore_at(&rh, &ih, "1", &|| false).unwrap();
+    let gone = prune_at(&rh, &[], now_ms() + FRESH_MS + 1);
+    assert!(gone.contains(&"pre-restore-1".to_string()) && !dir(&rh).join("pre-restore-1").exists(), "pruned, tree and all: {gone:?}");
+    assert!(dir(&rh).join("pre-restore-3").is_dir(), "the newest pre-restore stays");
+    // the residual (ADR-011 §4.2): an ACL the agent sets that denies the delete stops a move; R2 then puts everything
+    // back and says which entry, never leaving the state half-removed
+    if cfg!(target_os = "macos") {
+        w(&ih.join("state/zacl"), "acl");
+        assert!(Command::new("/bin/chmod").args(["+a", "everyone deny delete"]).arg(ih.join("state/zacl")).status().unwrap().success());
+        let before = listing(&ih);
+        let e = restore_at(&rh, &ih, "pre-restore-3", &|| false).unwrap_err();
+        assert!(e.0 == "root.internal" && e.1.contains("state/zacl") && e.1.contains("exactly as it was before the restore"), "{e:?}");
+        assert_eq!(listing(&ih), before);
+    }
+    unlock_home(&b);
+    fs::remove_dir_all(&b).unwrap();
+}
+
+/// v0.5.3 (fix 7): an R2 that cannot finish leaves the agent state exactly as it was, at every point it can stop: a
+/// zone process starting before any one of its steps (the liveness check before each), and a process outside the
+/// Root's hold writing during it (the check after the last step). The save is dropped and no staging tree is left.
+#[test]
+fn r2_stopped_at_any_step_changes_nothing() {
+    let b = base("r2mid");
+    let (ih, rh) = fixture(&b);
+    take_at(&rh, &ih, "1", "sys", Some(1), 1 << 30).unwrap();
+    agent_locks(&ih);
+    w(&ih.join("state/new"), "n");
+    fs::remove_file(ih.join("body/GENESIS.md")).unwrap();
+    let before = listing(&ih);
+    let clean = |why: &str| {
+        assert_eq!(listing(&ih), before, "{why}: the agent state is exactly as it was");
+        assert!(!dir(&rh).join("pre-restore-1").exists(), "{why}: no save is kept");
+        assert!(fs::read_dir(dir(&rh)).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with('.')), "{why}: no staging tree");
+    };
+    let mut stopped = 0;
+    for k in 1..200u32 {
+        let n = AtomicU32::new(0);
+        let late = || n.fetch_add(1, Ordering::SeqCst) >= k; // the start check passes; the k-th step's does not
+        match restore_at(&rh, &ih, "1", &late) {
+            Err(e) => {
+                assert_eq!(e.0, "root.busy", "{k}: {e:?}");
+                clean(&format!("stopped before step {k}"));
+                stopped += 1;
+            }
+            Ok(_) => break, // k is past the last step
+        }
+    }
+    assert!(stopped > 10, "every step was tried: {stopped}");
+    // that last run restored; put the locked state back for the outsider's write
+    let back = restore_at(&rh, &ih, "pre-restore-1", &|| false).unwrap();
+    assert_eq!(back["saved"].as_str(), Some("pre-restore-2"));
+    for id in ["pre-restore-1", "pre-restore-2"] {
+        unlock_home(&dir(&rh).join(id));
+        fs::remove_dir_all(dir(&rh).join(id)).unwrap(); // exact paths, made by the restores above
+        fs::remove_file(dir(&rh).join(format!("{id}.json"))).unwrap();
+    }
+    assert_eq!(listing(&ih), before);
+    // a process outside the Root's hold writes a new entry while the steps run: after the last, S_A is not the
+    // snapshot's, so every step is put back and the restore is not reported done
+    let n = AtomicU32::new(0);
+    let outsider = || {
+        if n.fetch_add(1, Ordering::SeqCst) == 3 {
+            w(&ih.join("state/intruder"), "x");
+        }
+        false
+    };
+    let e = restore_at(&rh, &ih, "1", &outsider).unwrap_err();
+    assert!(e.0 == "root.internal" && e.1.contains("state/intruder") && e.1.contains("exactly as it was before the restore"), "{e:?}");
+    fs::remove_file(ih.join("state/intruder")).unwrap(); // exact path, written above
+    clean("an outsider's write");
+    unlock_home(&b);
+    fs::remove_dir_all(&b).unwrap();
+}
+
+/// Lane U (v0.5.3): R2 names every live entry under INIT_HOME's descriptor, never by path. The zone can rename
+/// `state/` (tail Z4 freezes only INIT_HOME itself and the Root's parts of it), and a `setsid` escapee outside the
+/// Root's hold can do it while R2 runs: here it swaps `state/` for a link to a folder holding the same names, before
+/// the first step. c4797cc moved `ih.join("state/<x>")`: the folder's entries went to the staging tree (removed with
+/// it) and the snapshot's took their place. Now the first move in `state/` fails without following the link, every
+/// step is put back, and the folder is untouched.
+#[test]
+fn r2_never_follows_a_tree_swapped_for_a_link() {
+    let b = base("r2link");
+    let (ih, rh) = fixture(&b);
+    take_at(&rh, &ih, "1", "sys", Some(1), 1 << 30).unwrap();
+    w(&ih.join("state/mem/data"), "v2");
+    for x in ["mem/data", "session", "run/ready"] {
+        w(&b.join("canary").join(x), "canary"); // the names at the top of state/, outside the zone's reach
+    }
+    let canary0 = listing(&b.join("canary"));
+    let n = AtomicU32::new(0);
+    let escapee = || {
+        if n.fetch_add(1, Ordering::SeqCst) == 1 {
+            // the check before the first step (the first is R2's own, before the save)
+            fs::rename(ih.join("state"), b.join("state-real")).unwrap();
+            symlink(b.join("canary"), ih.join("state")).unwrap();
+        }
+        false
+    };
+    let e = restore_at(&rh, &ih, "1", &escapee).unwrap_err();
+    assert!(e.0 == "root.internal" && e.1.contains("/state/") && e.1.contains("exactly as it was before the restore"), "{e:?}");
+    assert!(n.load(Ordering::SeqCst) > 1, "the escapee ran");
+    assert_eq!(listing(&b.join("canary")), canary0, "the folder the link names is untouched");
+    assert_eq!(r(&b.join("state-real/mem/data")), "v2");
+    assert!(!dir(&rh).join("pre-restore-1").exists(), "nothing changed, so nothing is saved");
+    fs::remove_dir_all(&b).unwrap();
+}
+
 
 /// §4.2 retention, pure: open groups (by `change_open.snapshot` or by the snapshot's group), the newest snapshot at
 /// or before each pointer move, the newest pre-restore, and fresh snapshots are kept.
@@ -238,6 +421,22 @@ fn no_tuple_from_before_an_upgrade_settles_after_its_commit() {
     assert_eq!(settled_of(&recs, t0 + 8 * day), None, "tOld is 8 days lkg, but from before the upgrade");
     assert_eq!(settled_of(&recs, t0 + 10 * day).as_deref(), Some("tNew"));
     assert_eq!(settled_of(&recs[..1], t0 + 8 * day).as_deref(), Some("tOld"), "without the upgrade it would settle");
+}
+
+/// v0.5.3 (lane H): the owner's `/rollback` of the newest kept change (`lkg{undo}`, tuple::undo_kept): the undone tuple
+/// never settles, even when it was LKG for 7 days, and the target settles on the time it first became LKG.
+#[test]
+fn an_owner_undone_tuple_never_settles() {
+    let day = 86_400_000i64;
+    let t0 = 1_800_000_000_000i64;
+    let rec = |kind: &str, at: i64, d: Value| json!({"at": rfc3339(at), "data": d, "kind": kind});
+    let mut recs = vec![rec("lkg", t0, json!({"tuple": "tA"})), rec("lkg", t0 + day, json!({"tuple": "tB"}))];
+    assert_eq!(settled_of(&recs, t0 + 9 * day).as_deref(), Some("tB"), "without the undo tB settles");
+    recs.push(rec("lkg", t0 + 9 * day, json!({"reason": "owner_rollback", "tuple": "tA", "undo": "tB"})));
+    assert_eq!(settled_of(&recs, t0 + 9 * day).as_deref(), Some("tA"), "tB is undone; tA keeps its time");
+    recs.push(rec("lkg", t0 + 9 * day + 1, json!({"tuple": "tC"})));
+    assert_eq!(settled_of(&recs, t0 + 10 * day).as_deref(), Some("tA"));
+    assert_eq!(settled_of(&recs, t0 + 17 * day).as_deref(), Some("tC"));
 }
 
 /// A fixture body for A4: a `/bin/sh` script; `@CHECKS@` is replaced by the common checks of mode `check`.
@@ -348,6 +547,17 @@ fn root_wrappers_admit_take_and_restore_record_their_lineage() {
     let out = admit(&root, &json!({"scope": "t1", "group": 5, "candidate": a["candidate"]}), true).unwrap_or_else(|e| panic!("{e:?}"));
     assert_eq!(out, json!({"A4": "skip", "snapshot": "5"}));
     assert_eq!(admit(&root, &json!({"scope": "t0", "group": 5}), false).unwrap(), json!({"A4": "skip", "snapshot": null}));
+    // L2b: a change joining a group takes no snapshot, but still needs A5's disk room (the floor plus 2 GiB)
+    lock(&root.st).charter.as_mut().unwrap().ch.sandbox.disk_floor_gib = 1 << 30;
+    assert_eq!(admit(&root, &json!({"scope": "t0", "group": 5}), false).unwrap_err().0, "root.quota");
+    lock(&root.st).charter.as_mut().unwrap().ch.sandbox.disk_floor_gib = 1;
+    // v0.5.3 (lane F, A_res, INV-4): free disk that cannot be read refuses too (statvfs on a missing INIT_HOME here);
+    // v0.5.2 read the failure as u64::MAX free and admitted the change
+    fs::rename(&ih, dir.join("ih-away")).unwrap(); // our own test home, renamed back before any assertion
+    let unread = admit(&root, &json!({"scope": "t0", "group": 5}), false);
+    fs::rename(dir.join("ih-away"), &ih).unwrap();
+    let e = unread.unwrap_err();
+    assert!(e.0 == "root.quota" && e.1.contains("cannot be read"), "{e:?}");
     assert!(dir_of(&rh, "5").join("state/mem/data").is_file());
 
     w(&ih.join("state/mem/data"), "v2");
@@ -373,4 +583,15 @@ fn root_wrappers_admit_take_and_restore_record_their_lineage() {
 
 fn dir_of(rh: &Path, id: &str) -> PathBuf {
     dir(rh).join(id)
+}
+
+/// v0.5.3 (lane F; A_res, INV-4): A5's room on a statvfs reading, on every platform. Below the floor plus 2 GiB
+/// refuses, and so does a reading that failed (v0.5.2 took it for `u64::MAX` free and admitted the change).
+#[test]
+fn a5_room_refuses_when_free_disk_cannot_be_read() {
+    let floor = 1 << 30;
+    assert!(room_of(Ok(floor + ROOM), floor).is_ok());
+    assert_eq!(room_of(Ok(floor + ROOM - 1), floor).unwrap_err().0, "root.quota");
+    let e = room_of(Err(std::io::Error::other("statvfs failed")), floor).unwrap_err();
+    assert!(e.0 == "root.quota" && e.1.contains("cannot be read") && e.2["reason"] == "disk", "{e:?}");
 }

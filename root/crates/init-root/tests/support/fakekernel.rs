@@ -346,12 +346,16 @@ fn main() {
     let (_, r) = fk.call("instances", json!({}), None);
     fk.log(json!({"ev": "instances", "ok": ok(&r), "result": res(&r)}));
     if fk.flag("fk-crash-before-ready") { exit(70) }
-    let (_, r) = fk.call("ready", json!({}), None);
-    fk.log(json!({"ev": "ready", "ok": ok(&r)}));
+    // `no_ready`: a start that never ends, heartbeating as the real kernel does from its boot block on
+    if !has("no_ready") {
+        let (_, r) = fk.call("ready", json!({}), None);
+        fk.log(json!({"ev": "ready", "ok": ok(&r)}));
+    }
     // 7–8. Heartbeats (the first one now), then the crash-after-ready fault.
     if !has("no_hb") {
         let every = Duration::from_secs(boot["limits"]["hb_interval_s"].as_u64().unwrap_or(5).max(1));
-        let mut data = json!({"busy": false, "mode": boot["boot"]["mode"], "sha12": "000000000000", "slot": "running"});
+        let slot = if has("no_ready") { "cold_start" } else { "running" };
+        let mut data = json!({"busy": false, "mode": boot["boot"]["mode"], "sha12": "000000000000", "slot": slot});
         let f = fk.clone();
         thread::spawn(move || loop {
             data["busy"] = json!(f.flag("fk-busy")); // SBX-009: a test marks the body busy (`/undo` waits for idle)

@@ -47,6 +47,12 @@ pub trait GateProxy: Send + Sync {
     fn request_reservation_musd(&self) -> Option<u64> {
         None
     }
+    /// Whether the proxy refuses requests for money (`ProxyHandle::money_enforced`). Under the Root's observe-only
+    /// policy a task's cost cap refuses nothing, so G4's task-cap check does not apply (D11). The default (test
+    /// proxies) enforces.
+    fn money_enforced(&self) -> bool {
+        true
+    }
     /// Per-run caps on actuals on a `Run` lane (m7-design.md §3.1.3, §3.2.8; GATE-V2b), set right
     /// after `open_scope`, before the run's body spawns. The default (test proxies) enforces nothing.
     fn set_run_caps(&self, scope_id: &str, caps: kernel_gate::caps::RunCaps) -> Result<(), String> {

@@ -247,7 +247,7 @@ fn slice1_kernel_in_zone_owner_round_trip_and_stop_start() {
     assert_eq!(boot["boot"]["tuple_kernel"]["init_kernel"], json!(sha));
     assert_eq!((boot["boot"]["tuple_body"]["binary"].as_str(), boot["limits"]["parallel_bodies"].as_i64()), (Some(""), Some(1)));
     assert_eq!(st["tuples"], *t);
-    assert_eq!(h.kinds()[2..], ["tuple", "lkg", "audited", "zone_start"]);
+    assert_eq!(h.kinds()[2..], ["root_start", "tuple", "lkg", "audited", "zone_start"], "L2b: the daemon's root_start comes first");
     // both instances are sandboxed; the kernel may not read the Root's canary but may read its own mark
     // the body is the kernel's first step after `ready`: wait for its answer
     let spawn = &h.fk_wait(10, "spawn", 1)[0];
@@ -324,6 +324,8 @@ fn panic_channels_resume_and_latch_survives_restart() {
     let (genesis, t1) = (tg["audited"]["id"].clone(), tg["current"]["id"].clone());
     assert!(t1 != genesis && tg["lkg"]["id"] == t1, "{tg}");
     assert_eq!(h.last("promotion")["by"].as_str().unwrap().len(), "kernel:".len() + 12);
+    // v0.5.3: the status names where a resume goes (the gated path: audited-good), for `/panic`'s warning
+    assert_eq!(h.status()["resume"], json!({"pointer": "audited", "tuple": genesis}));
     let bpid = h.fk("spawn")[0]["result"]["pid"].as_i64().unwrap();
     // RT-P1: /panic in attach
     let mut a = Attach::new(&h);
@@ -478,6 +480,21 @@ fn stale_heartbeat_is_a_crash() {
     assert!(fs::read_to_string(h.rh.join("logs/root.jsonl")).unwrap().contains("heartbeat stale"));
 }
 
+/// §3.6.3 (v0.5.3 lane F): heartbeats do not stretch the ready wait. A kernel that sends `hello` and its heartbeats
+/// but never `ready` is a crash at `kernel_ready_timeout_s` (3 s here, 1,200 s by default), so a start that hangs is
+/// found in bounded time. The shipped kernel builds nothing before `ready` (kernel-supervise tests/recovery.rs).
+#[test]
+fn a_kernel_that_heartbeats_but_is_never_ready_is_a_crash_at_the_ready_timeout() {
+    let h = home("nr");
+    h.install("kernel_ready_timeout_s = 3\n", 0);
+    let _d = h.daemon("no_ready", &[]);
+    wait(30, "two crashes", || h.records().iter().filter(|r| r["kind"] == "zone_exit" && r["data"]["class"] == "crash").count() >= 2);
+    let log = fs::read_to_string(h.rh.join("logs/root.jsonl")).unwrap();
+    let first = log.lines().find(|l| l.contains(" in time")).unwrap_or_default();
+    assert!(first.contains("no ready in time"), "the first kill is the ready bound's, not the heartbeat's: {log}");
+    assert!(h.fk("ready").is_empty() && h.fk("boot").len() >= 2, "it booted twice and was never ready");
+}
+
 /// Compatibility with WP3's `init-fakekernel` (typed `BootBlock` from init-proto), when its binary is given.
 #[test]
 fn wp3_fakekernel_reaches_ready_when_available() {
@@ -489,4 +506,58 @@ fn wp3_fakekernel_reaches_ready_when_available() {
     h.running();
     std::thread::sleep(Duration::from_secs(2));
     assert_eq!(h.status()["slot"], "running", "hb keeps it alive");
+}
+
+/// v0.5.3 (REL-052 §7.5 finding 3): `status.resume` is the tuple a panic resume rolls back to, picked by the resume's
+/// own function (`tuple::rollback_target`: `ledger::anchor`, then the rollback order), so `/panic`'s warning in the TUI
+/// names exactly the kept changes a resume drops. On the free path the anchor is `settled`, then LKG. v0.5.2's warning
+/// compared the running tuple with audited-good, so here it warned of a loss the resume never made: with no settled
+/// tuple yet, the resume keeps the promoted tuple (LKG). With a settled one, the resume goes there, as the status said.
+/// (The promotion is made on the gated path, which the fake kernel's `promote` takes; then the owner switches to free.)
+#[test]
+fn status_names_the_tuple_a_resume_rolls_back_to() {
+    let h = home("rs");
+    h.install("", 3);
+    let _d = h.daemon("body,promote", &[]);
+    h.running();
+    wait(10, "tuple.get", || !h.fk("tuple.get").is_empty());
+    let tg = &h.fk("tuple.get")[0]["result"];
+    let (genesis, t1) = (tg["audited"]["id"].clone(), tg["current"]["id"].clone());
+    assert!(t1 != genesis && tg["lkg"]["id"] == t1, "{tg}");
+    assert_eq!(h.status()["resume"], json!({"pointer": "audited", "tuple": genesis}), "the gated path");
+    fs::write(h.rh.join("charter.toml"), charter("[extend]\nmode = \"free\"\n")).unwrap();
+    h.ok(&["charter", "check", "--apply", "--yes"]);
+    let st = h.status();
+    assert_eq!(st["resume"], json!({"pointer": "lkg", "tuple": t1}), "no settled tuple yet: LKG, the running tuple; nothing is dropped: {st}");
+    assert_eq!(st["tuples"]["audited"], genesis, "which v0.5.2's warning compared with");
+    let mut a = Attach::new(&h);
+    a.expect("attached");
+    a.line("/panic");
+    a.expect("PANIC at");
+    assert_eq!(h.status()["resume"], json!({"pointer": "lkg", "tuple": t1}), "the same while panicked");
+    h.ok(&["resume"]);
+    h.running();
+    let rb = h.last("rollback");
+    assert_eq!((rb["data"]["target"].as_str(), &rb["data"]["to"]), (Some("lkg"), &t1), "the resume went where the status said: {rb}");
+    let resumed = fs::read_to_string(h.rh.join("alerts.jsonl")).unwrap();
+    assert!(resumed.contains("the zone restarts on the LKG tuple"), "the resume names its own target, not audited-good: {resumed}");
+    // a settled tuple: the resume's first choice on the free path
+    let r = req(&h, "test.append", json!({"records": [{"kind": "settled", "data": {"tuple": genesis}}]}));
+    assert_eq!(r["ok"], true, "{r}");
+    assert_eq!(h.status()["resume"], json!({"pointer": "settled", "tuple": genesis}));
+    a.line("/panic");
+    h.slot_is(10, "panicked");
+    h.ok(&["resume"]);
+    h.running();
+    let rb = h.last("rollback");
+    assert_eq!((rb["data"]["target"].as_str(), &rb["data"]["to"]), (Some("settled"), &genesis), "{rb}");
+}
+
+/// One owner-socket request: the whole answer.
+fn req(h: &Home, cmd: &str, args: Value) -> Value {
+    let mut s = std::os::unix::net::UnixStream::connect(h.rh.join("run/owner.sock")).unwrap();
+    writeln!(s, "{}", json!({"args": args, "cmd": cmd, "id": "t-1", "v": 1})).unwrap();
+    let mut line = String::new();
+    BufReader::new(&s).read_line(&mut line).unwrap();
+    serde_json::from_str(&line).unwrap()
 }

@@ -2,7 +2,7 @@
 
 **The order of a release and its gates are in [release-protocol.md](release-protocol.md); this file is how each script works.**
 
-*Owner: the maintainer (lane REL; the prebuilt bundle: lane UX-BUNDLE). Scripts: `scripts/release.sh`, `scripts/bundle.sh`, `scripts/get.sh`, `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/release-e2e.sh`, `scripts/init-agent`. The install path itself is root/root.md §4.3.*
+*Owner: the maintainer (lane REL; the prebuilt bundle: lane UX-BUNDLE; signing: PLAN-052 L4). Scripts: `scripts/release.sh`, `scripts/bundle.sh`, `scripts/sign-release.sh`, `scripts/get.sh`, `scripts/install.sh`, `scripts/uninstall.sh`, `scripts/release-e2e.sh`, `scripts/init-agent`. The install path itself is root/root.md §4.3; signed releases are [release-signing.md](release-signing.md).*
 
 A release is a directory of binaries and bundles built from one commit, plus a git tag. There are two ways to install it:
 - **From source** (maintainers, and owners with Rust): `scripts/install.sh` builds the same directory on their Mac (or reuses a fresh one), and the install-mode kernel builds the body.
@@ -11,10 +11,10 @@ A release is a directory of binaries and bundles built from one commit, plus a g
 ## 1. Preconditions
 
 1. `main` is clean: `git status --porcelain -- kernel root seed wit` prints nothing.
-2. The version is the same in the four workspaces: `[workspace.package] version` in `kernel/Cargo.toml`, `root/Cargo.toml` and `tui/Cargo.toml`, and `[package] version` in `seed/Cargo.toml` (0.2.0 since 2026-10-23); refresh the lock files (`cargo metadata --offline` in each workspace) and regenerate `seed/self.json`, which records the body version (G1 fails on drift; `scripts/bundle.sh` checks it). Regenerate it on the packaged seed tree, as G1 sees it, not in the repository: `scripts/bundle.sh --bless` does it (on a G1 mismatch it writes the regenerated file to `seed/self.json` and stops; commit it and run bundle.sh again). By hand: `scripts/slice1/seedpack.py --repo . --dst <dir> --kind repo --rev HEAD`, remove `<dir>/.git`, then `init-kernel selfmap --root <dir> --binary <release body> --components <ext dir> --out <file>` and copy the result to `seed/self.json` (seedpack rewrites `.cargo/config.toml`'s vendor path, so an in-repo `--write` differs by a few bytes; REL-050). The TUI's golden `brand_identity` shows the version too: `UPDATE_GOLDEN=1 cargo test --offline --bin init-tui brand_identity_line` in `tui/`. `release.sh` refuses a mismatch. The seed tag is `seed-v<version>`, always plain semver: a pre-release label such as `preview` names the bundle (`v0.2.0-preview`), never the seed tag, because the Root and the kernel pick seed tags by `seed-v<a>.<b>.<c>`.
-3. CI is green: `ci/local.sh` three times in a row with no flake (RELEASE_PLAN.md item 5), and the GitHub `fast-linux` job.
+2. The version is the same in the four workspaces: `[workspace.package] version` in `kernel/Cargo.toml`, `root/Cargo.toml` and `tui/Cargo.toml`, and `[package] version` in `seed/Cargo.toml` (release-protocol.md §2 lists every other place the version is written); refresh the lock files (`cargo metadata --offline` in each workspace) and regenerate `seed/self.json`, which records the body version (G1 fails on drift; `scripts/bundle.sh` checks it). Regenerate it on the packaged seed tree, as G1 sees it, not in the repository: `scripts/bundle.sh --bless` does it (on a G1 mismatch it writes the regenerated file to `seed/self.json` and stops; commit it and run bundle.sh again). By hand: `scripts/slice1/seedpack.py --repo . --dst <dir> --kind repo --rev HEAD`, remove `<dir>/.git`, then `init-kernel selfmap --root <dir> --binary <release body> --components <ext dir> --out <file>` and copy the result to `seed/self.json` (seedpack rewrites `.cargo/config.toml`'s vendor path, so an in-repo `--write` differs by a few bytes; REL-050). The TUI's golden `brand_identity` shows the version too: `UPDATE_GOLDEN=1 cargo test --offline --bin init-tui brand_identity_line` in `tui/`. `release.sh` refuses a mismatch. The seed tag is `seed-v<version>`, always plain semver: a pre-release label such as `preview` names the bundle (`v0.2.0-preview`), never the seed tag, because the Root and the kernel pick seed tags by `seed-v<a>.<b>.<c>`.
+3. CI is green as release-protocol.md §4 sets it: `ci/local.sh` once, then the body suite five more times under load, and the GitHub `fast-linux` job.
 4. `CHANGELOG.md` has the version's entry.
-5. Disk: at least 9 GB free (the release target dirs grow by about 4 GB; the floor is 5 GB).
+5. Disk: release.sh checks 8,000 MB free for a cold build and 6,000 MB for a warm one (`NEED_MB` in scripts/release.sh; the three release target dirs grew by 2.35 GB, measured), and `--min-free` overrides it.
 
 ## 2. Build: `scripts/release.sh`
 
@@ -38,7 +38,7 @@ What it does:
 2. Snapshots `root/crates/init-root/assets/{charter-template.toml,CONSTITUTION.md}`, the files `init-root` embeds, so install.sh writes a charter in exactly this binary's dialect.
 3. Builds in parallel, `--release --offline --locked`, each workspace in its default target dir: `init-kernel`, `initctl` and `init-mockllm` (kernel/; the $0 mock the gate's G0 runs the seed's provider tests against, inside every T2 gate; it makes no network calls), `init-root` (root/), `init-body` (seed/). Then the template extension `count-lines` (seed/ext, `wasm32-wasip2`, dev profile: ext/authoring.md §3.4 says the dev profile is the only one used for extensions).
 4. **Quality guard:** `cargo test --release --offline --locked` in `root/` and in `seed/`, as ci/local.sh runs them (no features). Both must be green.
-5. Bundles, from HEAD, with a fixed identity and date so they are reproducible:
+5. Bundles, from HEAD, with a fixed identity and date, so that a rebuild from the same commit can give the same bytes (the release process does not check that it does):
    - `src/<version>.bundle`: the kernel source (`kernel/` and `wit/`; kernel-selfmap reads `../../../wit`), one ref `refs/heads/release` (root.md §3.8.1). It holds no `vendor/`.
    - `seed/seed-v<version>.bundle`: the seed repository, branch `seed`, tag `seed-v<version>`. This answers WP21b's open question of who produces the seed repository from the monorepo: `release.sh` does, with `scripts/slice1/seedpack.py --kind repo --rev HEAD`. The tree is `seed/` at HEAD plus its own `vendor/`, cut to the crates in `seed/Cargo.lock` and `seed/ext/Cargo.lock` (APFS clones). Crates that build only on Windows or Linux (`windows*`, `winapi*`, `linux-raw-sys`) are stubbed, as cargo-vendor-filterer does; FIX4 checked that none of them is in the host build graph, and a build that needed one would fail loudly.
 6. Assembles `target/dist/v<version>/`:
@@ -54,7 +54,7 @@ What it does:
 | `assets/` | the charter template and the constitution (step 2) |
 | `MANIFEST.json` | version, commit, dirty flag, rustc, host, the bundles' shas, build and test times, and the sha256 and size of every file |
 
-`init-root install --release <dir>` copies `init-kernel`, `initctl`, `docs/`, `wit/` and `src/` into `INIT_HOME/kernel/` (root.md §4.3 step 5) and imports `src/<version>.bundle` into `lineage/kernel.git` (step 6). It ignores the release-profile `init-body`: the install-mode kernel builds the body from the seed bundle itself, in the dev profile (kernel/supervise.md §3.6.2), so the agent's body is always built from its own source. The one exception is a bundle's prebuilt body (§2b), which is that same build, made once by the maintainer and checked bit for bit.
+`init-root install --release <dir>` copies `init-kernel`, `initctl`, `docs/`, `wit/` and `src/` into `INIT_HOME/kernel/` (root.md §4.3 step 5) and imports `src/<version>.bundle` into `lineage/kernel.git` (step 6). It ignores the release-profile `init-body`: the install-mode kernel builds the body from the seed bundle itself, in the dev profile (kernel/supervise.md §3.6.2), so the agent's body is always built from its own source. The one exception is a bundle's prebuilt body (§2b), which is that same build, made once by the maintainer. The install checks that it is hash-equal to the maintainer's build (its sha256 is the one `BODY.json` records), which proves the file is the one shipped, not that the owner's machine would build the same bytes.
 
 ## 2b. The prebuilt bundle: `scripts/bundle.sh`
 
@@ -68,11 +68,11 @@ It writes `target/dist/v<version>-<label>/` (label `preview` by default, `--labe
 1. **The release directory** of §2, built from HEAD (`--from-head`); `--reuse-release` takes an existing one that names HEAD and is clean.
 2. **The prebuilt body.** It installs the release into scratch homes `target/ub/{r,h}` with `install.sh --reuse --yes --no-service --mock-upstream` (nothing outside `target/`; no model call), so the body is the one the install-mode kernel builds with the G0 build command from the seed tag, as on an owner's Mac. It checks that `bin/init-body`'s sha256 equals `lkg.json`'s and the genesis tuple's body blob, and that its commit is the seed tag's.
 3. **G1.** `init-kernel selfmap` in gate mode on the seed tag's tree, with that body and the release's components, must reproduce the committed `self.json`; otherwise the agent's first gate would fail `gate.g1.self_json_drift`.
-4. **The bundle.** The release directory, plus `body/init-body` and `body/BODY.json` (`sha256`, `commit`, `tag`, `profile: "dev"`, `rustc`), `scripts/{install.sh,init-agent,uninstall.sh,get.sh}` (v0.5.0 ships no `init-shim`), `VERSION` (`0.2.0-preview`), `README.md`, and `SHA256SUMS` over every other file. It is packed without macOS metadata.
+4. **The bundle.** The release directory, plus `body/init-body` and `body/BODY.json` (`sha256`, `commit`, `tag`, `profile: "dev"`, `rustc`), `scripts/{install.sh,init-agent,uninstall.sh,get.sh}` (v0.5.0 ships no `init-shim`), `VERSION` (for example `0.5.2-preview`), `README.md`, and `SHA256SUMS` over every other file. It is packed without macOS metadata.
 
 Measured on 2026-10-23 for v0.2.0-preview: see build/status/UX-BUNDLE.md.
 
-`install.sh` run from an unpacked bundle (it detects `SHA256SUMS` and `body/BODY.json` next to `scripts/`) verifies `SHA256SUMS`, needs no Rust, and passes `--prebuilt-body body/init-body --prebuilt-sha256 <BODY.json sha256> --prebuilt-commit <commit>` to `init-root install`. The Root checks the file's sha256, stages it in `INIT_HOME/kernel/prebuilt/` (Root-written, read-only to the zone), and the install-mode kernel installs it instead of building: the commit must be the seed tag's and the staged copy's sha256 the recorded one. After the install the Root checks that the genesis tuple's body blob is the prebuilt one, bit for bit, and removes the staging copy. The agent's later self-changes are built from its own source (`~/.init/body`, cloned from the seed bundle), as with a source install.
+`install.sh` run from an unpacked bundle (it detects `SHA256SUMS` and `body/BODY.json` next to `scripts/`) verifies `SHA256SUMS`, needs no Rust, and passes `--prebuilt-body body/init-body --prebuilt-sha256 <BODY.json sha256> --prebuilt-commit <commit>` to `init-root install`. The Root checks the file's sha256, stages it in `INIT_HOME/kernel/prebuilt/` (Root-written, read-only to the zone), and the install-mode kernel installs it instead of building: the commit must be the seed tag's and the staged copy's sha256 the recorded one. After the install the Root checks that the genesis tuple's body blob is the prebuilt one, hash-equal to the maintainer's build, and removes the staging copy. install.sh's step line and `init-root install` print this check as "hash-equal to the maintainer's build" (install.rs `install_with`; scripts/install.sh step 4/7; until v0.5.2 they said "verified bit for bit"). The agent's later self-changes are built from its own source (`~/.init/body`, cloned from the seed bundle), as with a source install.
 
 **Without Rust** the install records no toolchain (`--toolchain none`; install.json `toolchain: null`; the kernel config's `[sandbox] toolchain` is `INIT_HOME/kernel`, the same harmless readable directory the broker validates against when install.json has none, so the body spawns and a build finds no cargo and fails cleanly). Chat, tools and T0 self-evolution (skills, prompts, extension source) work; T1/T2 (rebuilding the body or the kernel) need Rust 1.97.1 with `wasm32-wasip2`. `init-root status` says so in its `self-evolution` line and its JSON `evolution` object, the Root publishes the same object in `INIT_HOME/root/status.json` for the agent, and install.sh prints the commands. INIT never installs Rust itself. The owner runs:
 
@@ -93,13 +93,13 @@ Ctrl-C in its terminal and starts again with `~/.init-root/bin/init-root start -
 
 ```sh
 scripts/bundle-e2e.sh [TARBALL]          # $0: get.sh with Rust into a temp home, `init-agent`, one line, the mock's reply
-scripts/bundle-e2e.sh --t2 [TARBALL]     # $0, 20-30 min: plus a no-op T2 promote through the shipped gate (G0-G3)
+scripts/bundle-e2e.sh --t2 [TARBALL]     # $0, 14-32 min measured: plus a no-op T2 promote through the shipped gate (G0-G3)
 scripts/bundle-e2e.sh --pause [TARBALL]  # $0, about 30 s: Esc/Ctrl-C before the first token pauses, the resume is accepted
 UBE_LIVE_KEYFILE=~/.config/init-agent/deepseek.key scripts/bundle-e2e.sh --live [TARBALL]   # COSTS MONEY (about $0.0005)
 scripts/install-matrix.sh --bundle TARBALL [--published]   # $0, about 3 min: get.sh on a clean home and on every older public release (its message, the upgrade or the uninstall, a reinstall); --published: the live assets are the tested files
 ```
 
-Each mode installs the bundle with its own `get.sh` into its own test dir under `target/test-homes/` (`ube`, `ub2`, `ubp`, `rels`), with no Rust on PATH, starts its own Root (`--no-service`), drives the installed `init-agent --raw`, and checks that the owner's `~/.init`, `~/.init-root`, `~/.local/bin`, `~/.local/share/init`, `~/Library/LaunchAgents` and shell rc files did not change. The test dir is removed unless `--keep`. The default TARBALL is the macOS bundle in `target/dist/v<version>-preview/`. For the Linux bundle, run the same script with the Linux tarball in a fresh container (build/status/REL-033.md has the exact `docker run`). The verdicts go to `build/status/bundle-{e2e,e2e-t2,pause,live}.json`. Every mode first plants INIT's pre-v0.4.1 launcher at `~/.local/bin/init` in the test home: the install must remove it and install no `init`, on both platforms since v0.5.0 (issue #1).
+Each mode installs the bundle with its own `get.sh` into its own test dir under `target/test-homes/` (`ube`, `ub2`, `ubp`, `rels`), with no Rust on PATH, starts its own Root (`--no-service`), drives the installed `init-agent --raw`, and checks that the owner's `~/.init`, `~/.init-root`, `~/.local/bin`, `~/.local/share/init`, `~/Library/LaunchAgents` and shell rc files did not change. The test dir is removed unless `--keep`. The default TARBALL is the macOS bundle in `target/dist/v<version>-preview/`. For the Linux bundle, run the same script with the Linux tarball in a fresh container (build/status/REL-033.md has the exact `docker run`). The verdicts go to `build/status/bundle-{e2e,e2e-t2,pause,live}.json`. The `--t2` range is install plus `promote_wait`: 38 s + 788 s for v0.5.0 (bundle-e2e-t2.json, load not recorded) and 71 s + 1,831 s for v0.5.2 beside a CI run (bundle-e2e-t2-v0.5.2-macos.json). Every mode first plants INIT's pre-v0.4.1 launcher at `~/.local/bin/init` in the test home: the install must remove it and install no `init`, on both platforms since v0.5.0 (issue #1).
 
 - **`--pause`** (loop.md §3.5.1, provider.md §3.8.1) runs on the strict DeepSeek mock, whose first turn stalls before any event. 2 s after `busy` the harness sends SIGINT to `init-agent --raw`. It expects `paused · type to continue, or say what to do instead`, no `aborted`, and idle within 1 s. Then "Please continue." must get the mock's second reply. The resume must be exactly one request: no 400 in the strict mock's log, the `[init:paused]` note in it (and not in the first request), and the paused turn sent as `[no visible output]` with `"reasoning_content": ""`.
 - **`--live`** sends one turn, "Reply with the word ok.", to the bundle's charter provider (api.deepseek.com), with no mock. `UBE_LIVE_KEYFILE` names a file holding the key. The harness copies it into the test Root's key file and never prints it. A watchdog stops the turn at `UBE_LIVE_CAP_MUSD` of settled spend (default 10000 µUSD = $0.01) or at 4 provider requests, read from the test install's `INIT_HOME/root/ceilings.json`. The verdict records requests, tokens and µUSD after the Root meters the request (up to 75 s). Before the test dir is removed, the key must be in exactly one of its files. Run it only with the owner's go and a cap.
@@ -160,7 +160,31 @@ The script exports the commit with `git archive` (committed files only), syncs t
 any path the exclude list keeps private, stages the result and scans it: the DeepSeek key's first bytes (never
 printed), GitHub tokens, private-key headers, `sk-`/`sk-ant-`/`AKIA` keys, this repository's git e-mail and its
 origin's name. Any hit stops it. Then the GitHub release gets the assets of §2b (both tarballs, their `.sha256`, the
-merged `latest.json`, `get.sh`), first as a draft whose asset names and sizes are checked, then published.
+merged `latest.json`, `get.sh`) and the two that sign them (§4c), all in a draft whose asset names and sizes are
+checked, then published. With immutable releases (from v0.5.3, release-signing.md §7.1) nothing can be added to or
+replaced in it after that.
+
+## 4c. Sign: `scripts/sign-release.sh`
+
+```sh
+scripts/sign-release.sh sums --version 0.5.3-preview DIR     # DIR/SHA256SUMS over every asset in DIR, valid 180 days
+scripts/sign-release.sh sign --key /Volumes/INITRK/init-release-1 DIR   # the offline step: DIR/SHA256SUMS.sig
+scripts/sign-release.sh check DIR                             # verify it as get.sh and the Root will
+```
+
+DIR holds the release's assets exactly as uploaded. `SHA256SUMS` lists each one's sha256 under
+`# version: <V>` and `# expires: <date>`. `SHA256SUMS.sig` is `ssh-keygen -Y sign -n init-release` of it, made with the
+offline ed25519 release key. `sums` checks latest.json, the bundle names and their `.sha256` against the version,
+and that DIR's get.sh pins a release key. `sign` refuses a key file others can read, a link, a non-ed25519 key or one
+inside a git work tree, shows what it signs, and lets ssh-keygen read the key (and ask its passphrase).
+`check` verifies:
+- the signature, under the key DIR's get.sh pins;
+- every listed sha256, and that every file in DIR is listed;
+- the version, against latest.json;
+- the days left;
+- on a Mac, with the macOS bundle's own `init-root release verify` (its compiled-in key).
+
+The key, the ceremony that makes it, and what to do if it is lost or leaked: release-signing.md §8.
 
 ## 5b. The one-command install: `scripts/get.sh`
 
@@ -172,20 +196,22 @@ curl -fsSL …/get.sh | sh -s -- --upgrade                                      
 
 POSIX `sh` (checked with dash). It refuses root, and any platform except macOS 14+ on arm64 or Linux on x86_64 or aarch64 with `/usr/bin/bwrap` (install.sh then checks it is 0.13.0 or newer) and `/usr/bin/python3`. On macOS it also refuses a machine without the Command Line Tools. It downloads over HTTPS only (curl `-q`: no `~/.curlrc`), or takes `--from` a local file, which it copies into its own directory first and then checks and unpacks only that copy. It checks the archive's sha256 against `--sha256`, `latest.json`, or the `.sha256` file next to the bundle, and refuses without one. An upgrade from a local file takes `--sha256` only, because the agent can write that file's folder. It unpacks into `~/.local/share/init/<version>/` (`INIT_APP_DIR` overrides the parent), checks `SHA256SUMS`, makes the tree read-only, and installs the Rust toolchain unless `--no-rust`. Then it runs the bundle's `scripts/install.sh --yes` plus any arguments after `--`.
 
-The provider, the key and the model are chosen on the first run of `init-agent`. `INIT_DIST_URL` overrides the release URL. `--version V` picks a release: the tag `vV`, else `vV-preview`, so `0.5.0` finds `v0.5.0-preview`. A version with a label is that tag, and with neither tag get.sh names both. A mirror URL, one not ending in `/latest/download`, holds one release, and `--version` leaves it as it is. Trust on first install rests on HTTPS plus the sha256. There is no signature yet.
+The provider, the key and the model are chosen on the first run of `init-agent`. `INIT_DIST_URL` overrides the release URL. `--version V` picks a release: the tag `vV`, else `vV-preview`, so `0.5.0` finds `v0.5.0-preview`. A version with a label is that tag, and with neither tag get.sh names both. A mirror URL, one not ending in `/latest/download`, holds one release, and `--version` leaves it as it is.
+
+**The signature (v0.5.3; release-signing.md).** A downloaded bundle is installed only when the release's `SHA256SUMS`, beside it, verifies under INIT's release key. That key is the `RELEASE_KEYS` line in get.sh, which the Root pins too. `SHA256SUMS` must list the bundle, and latest.json's version and sha256, any `--sha256` and the bundle's `VERSION` must all be the signed ones. A fresh install verifies with `ssh-keygen -Y verify` (OpenSSH 8.1 or newer: every macOS 14+, and Linux's openssh-client). An upgrade asks the installed Root, `init-root release verify`, with the key compiled into it; an install from before 0.5.3 has no such command and is checked with ssh-keygen. A downgrade is refused, and so is an expired `SHA256SUMS` unless `--allow-expired`. A release with no signature, a machine with no verifier, or a get.sh that pins no key is refused unless `--allow-unsigned`. Each opt-out prints its risk. A bad signature has no opt-out. A local bundle (`--from FILE`) is checked by its sha256 only. Trust on a first install still rests on the get.sh you download: release-signing.md §4.4 shows how to check a release by hand first.
 
 **On an existing install** (`ROOT_HOME/install.json`), get.sh reads the installed release with `init-root --version` and prints the way forward instead of installing:
 
 | Installed | Without `--upgrade` | With `--upgrade` |
 |---|---|---|
-| 0.5.0 or later | prints `init-agent upgrade` | upgrades |
-| 0.4.1 | prints the `--upgrade` command | upgrades |
+| 0.5.1 or later | prints `~/.local/bin/init-agent upgrade` (with its path from v0.5.3: the install's bin dir) | upgrades |
+| 0.4.1 or 0.5.0 | prints the `--upgrade` command (the pipe) | upgrades |
 | before 0.4.1 | prints the uninstall command | refuses, before any download, with the same command |
 | unreadable | prints all three | upgrades, and the upgrade's own checks apply |
 
-`install.sh` has the same rule (REL-050, "After the release").
+`install.sh` has the same rule (REL-050, "After the release"). With no install in this `ROOT_HOME` but one in another (its service file or the `init-agent` command names it), both refuse before anything is written and print that install's line with `INIT_ROOT_HOME` filled in: without `--upgrade` from v0.5.2, with `--upgrade` from v0.5.3.
 
-The release's `get.sh` asset is the file users run, so it is checked in its own right: `scripts/install-matrix.sh` runs it against every public release (release-protocol.md §5.5). It may be replaced on a published release, with a record; the bundles may not.
+The release's `get.sh` asset is the file users run, so it is checked in its own right: `scripts/install-matrix.sh` runs it against every public release (release-protocol.md §5.5). No asset of a published release is replaced: from v0.5.3 the releases are immutable, and a fix is a patch release (until v0.5.2, get.sh could be replaced with a record).
 
 ## 5. What the owner runs
 
@@ -207,7 +233,9 @@ and body-protocol checks, a snapshot, the replace, a new tuple with the new kern
 What it trusts (v0.5.1, after the post-release review). With INIT installed, the agent may have written whatever the
 owner can, except ROOT_HOME, the launchers and the service files. So the bundle is checked and unpacked under
 `ROOT_HOME/cache/upgrade/`: the download, or a copy of a local `--bundle`, whose sha256 comes from `--sha256` only.
-`init-agent`, `get.sh --upgrade` and `install.sh --upgrade` from a bundle run the system tools only (PATH
+From v0.5.3 the download is installed only when the installed Root verifies the release's signed `SHA256SUMS`, with the
+key compiled into it (§5b; release-signing.md §4.3): what the page, a mirror or `INIT_DIST_URL` serves cannot choose
+the new Root. `init-agent`, `get.sh --upgrade` and `install.sh --upgrade` from a bundle run the system tools only (PATH
 `/usr/bin:/bin:/usr/sbin:/sbin`), from `/`. install.sh writes its scratch files under `ROOT_HOME/cache/` and runs no
 rustup, since the toolchain stays the one install.json records. Every Root git call runs from `/` with no system,
 global or hook config and `core.fsmonitor=false` (install.rs `git`). Tests: tests/install/test_upgrade_trust.py, and in

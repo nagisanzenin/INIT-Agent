@@ -1,17 +1,17 @@
 {
   "v": 1,
   "id": "GBAL-E2E",
-  "title": "GBAL end to end on the mock model ($0): the real init-root (test mode, fake clock) with init-root-fakekernel as the agent's kernel, a loopback deepseek mock upstream behind the Root's egress. Owner goal -> agent prediction -> self-change through the free-path Root admission (A0-A5) -> live tuple -> owner turns metered by the Root -> card reading (delta, sigma, se, z) -> outcome and calibration -> a second change that regresses the owner's guardrail is rolled back -> the agent stops with a recorded, Root-verified reason. Run by root/crates/init-root/tests/gbal.rs.",
+  "title": "GBAL end to end on the mock model ($0): the real init-root (test mode, fake clock) with init-root-fakekernel as the agent's kernel, a loopback deepseek mock upstream behind the Root's egress. Owner goal -> agent prediction -> self-change through the free-path Root admission (A0-A5) -> live tuple -> owner turns metered by the Root -> card reading (delta, sigma, se, z) -> outcome and calibration -> a second change that regresses the owner's guardrail is rolled back (v0.5.3: a guardrail on a discrete card such as requests_turn reads 15 turns, and the forecast's own reading waits for it, so each change runs 15 owner turns) -> the agent stops with a recorded, Root-verified reason. Run by root/crates/init-root/tests/gbal.rs.",
   "goal_line": "/goal \"cheaper turns on this repo\" done=card:cost_turn<=600 usd=1.00 wall=24h rounds=6 guard=requests_turn",
   "upstream": {"completion_tokens": 100, "cache_permille": 400, "model": "deepseek-flash", "price_musd_per_mtok": {"input": 300000, "output": 1200000}},
   "phases": [
     {"name": "baseline", "tuple": "genesis", "requests_per_turn": 2, "prompt_tokens": [1000, 1040, 960, 1020, 980, 1000]},
     {"name": "change_a", "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
      "predict": {"mode": "A", "card": "cost_turn", "expect": "better", "p_permille": 800},
-     "requests_per_turn": 2, "prompt_tokens": [500, 520, 480, 510, 490]},
+     "requests_per_turn": 2, "prompt_tokens": [500, 520, 480, 510, 490, 500, 520, 480, 510, 490, 500, 520, 480, 510, 490]},
     {"name": "change_b", "sha": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
      "predict": {"mode": "hybrid", "card": "cost_turn", "expect": "better", "p_permille": 600},
-     "requests_per_turn": 4, "prompt_tokens": [100, 104, 96, 102, 98]}
+     "requests_per_turn": 4, "prompt_tokens": [100, 104, 96, 102, 98, 100, 104, 96, 102, 98, 100, 104, 96, 102, 98]}
   ],
   "expect": {
     "change_a": {"card": "cost_turn", "verdict": "better", "registered": true, "outcome": {"o": 1, "source": "card"}},

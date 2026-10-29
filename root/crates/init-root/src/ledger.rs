@@ -25,28 +25,92 @@ const INCIDENT_MS: i64 = 600_000;
 pub const L0_REPEAT: usize = 3;
 pub const L0_REPEAT_MS: i64 = DAY;
 
-/// ADR-011 §7.2: what a climb to L1…L4 needs, counted since the level's entry record. `direct_max` is over the last
-/// 30 closed groups; `twins`: that many newest weekly twin reports with no regression; `quarantine_days`: no
-/// quarantine in that many days (0 = no rule).
+/// ADR-011 §7.2: what a climb to L1…L4 needs, counted since the level's entry record. `harm_permille`: the rate of
+/// harm the level certifies (`harm_certified`; owner decision 2026-10-29, PLAN-052); `direct_max` is no climb
+/// criterion since then, only §7.3's demotion threshold, over the last 30 closed groups; `twins`: that many newest
+/// weekly twin reports with no regression; `quarantine_days`: no quarantine in that many days (0 = no rule).
 struct Need {
     days: i64,
     turns: u64,
     clean: u64,
+    harm_permille: u64,
     direct_max: u64,
     twins: usize,
     quarantine_days: i64,
 }
 const NEED: [Need; 4] = [
-    Need { days: 7, turns: 40, clean: 10, direct_max: 6, twins: 0, quarantine_days: 0 },
-    Need { days: 21, turns: 150, clean: 40, direct_max: 4, twins: 2, quarantine_days: 14 },
-    Need { days: 30, turns: 400, clean: 100, direct_max: 3, twins: 4, quarantine_days: 0 },
-    Need { days: 30, turns: 400, clean: 100, direct_max: 3, twins: 0, quarantine_days: 0 },
+    Need { days: 7, turns: 40, clean: 10, harm_permille: 250, direct_max: 6, twins: 0, quarantine_days: 0 },
+    Need { days: 21, turns: 150, clean: 40, harm_permille: 200, direct_max: 4, twins: 2, quarantine_days: 14 },
+    Need { days: 30, turns: 400, clean: 100, harm_permille: 100, direct_max: 3, twins: 4, quarantine_days: 0 },
+    Need { days: 30, turns: 400, clean: 100, harm_permille: 50, direct_max: 3, twins: 0, quarantine_days: 0 },
 ];
+/// What a level certifies (v0.5.3, the owner's decision of 2026-10-29): at 95 % confidence, valid however often the
+/// ledger re-checks, that the rate of exercised change groups ending in a direct harm rollback is below the level's
+/// `harm_permille`. An exercised group is a closed one whose window saw at least `CLEAN_TURNS` owner turns, or that
+/// ended in a direct harm rollback: groups the owner did not use (a quiet close after 72 h) cannot dilute the rate.
+/// A rollback attributed `suspect`, `collateral` or nothing (`outcome` `rolled_back` or `collateral` without `direct`)
+/// is neither a harm nor an exercise (v0.5.3, V5): with two groups open every crash rollback is `suspect`, so counting
+/// it as a non-harm exercise would let the agent raise n without h ([`exercised`]).
+///
+/// The test of "the rate is at least X" is a betting e-process: a mixture of `HARM_K` likelihood ratios, against the
+/// alternatives q_j = j·X/K (j = 0..K−1, equal weights), after n exercised groups with h direct harms:
+/// E_n = (1/K) Σ_j (q_j/X)^h ((1 − q_j)/(1 − X))^(n−h). If, given everything before it, each exercised group ends in
+/// direct harm with probability p ≥ X, each factor has conditional mean p·q_j/X + (1 − p)(1 − q_j)/(1 − X) ≤ 1 (it is
+/// 1 at p = X and falls in p, since q_j < X), so every ratio, and their mean, is a non-negative supermartingale from
+/// E_0 = 1, and Ville's inequality bounds P(E_n ≥ 1/α for some n) by α = 1/`HARM_E`. The level is certified while
+/// E_n ≥ 20. Multiplying through by K·K^h·(K(1000 − x))^(n−h), with X = x/1000, this is the integer comparison
+/// Σ_j j^h (1000K − jx)^(n−h) ≥ 20·K·K^h·(K(1000 − x))^(n−h), exact in big integers (no float).
+const HARM_K: u64 = 10;
+const HARM_E: u64 = 20;
+
+/// b^e as a big integer (0^0 = 1).
+fn pow_big(b: u64, e: u64) -> crate::sentinel::stats::Big {
+    let mut p = crate::sentinel::stats::Big::from(1);
+    (0..e).for_each(|_| p.mul(b));
+    p
+}
+
+/// `harm_certified`: after n exercised groups with h direct harms, the e-process for "the rate is at least x‰" has
+/// reached 1/α: the rate is below x‰ at 95 %, valid under continuous re-checking.
+pub fn harm_certified(n: u64, h: u64, x: u64) -> bool {
+    if h > n || x == 0 || x > 1000 {
+        return false;
+    }
+    let mut lhs = crate::sentinel::stats::Big::from(0);
+    for j in 0..HARM_K {
+        let mut t = pow_big(j, h);
+        t = crate::sentinel::stats::mul_big(&t, &pow_big(1000 * HARM_K - x * j, n - h));
+        lhs.add(&t);
+    }
+    let mut rhs = pow_big(HARM_K, h + 1);
+    rhs.mul(HARM_E);
+    rhs = crate::sentinel::stats::mul_big(&rhs, &pow_big(HARM_K * (1000 - x), n - h));
+    lhs >= rhs
+}
+
+/// The bound the criteria show: the smallest x‰ that `harm_certified` certifies (1000: none below 100 %). The
+/// e-process grows with x, so the search is a bisection, and a level's criterion is met exactly when this is at most
+/// its `harm_permille`.
+pub fn harm_bound(n: u64, h: u64) -> u64 {
+    let (mut lo, mut hi) = (0u64, 1000u64); // lo is not certified (x = 0 never is); hi is, or is the "none" answer
+    while hi - lo > 1 {
+        let mid = (lo + hi) / 2;
+        if harm_certified(n, h, mid) { hi = mid } else { lo = mid }
+    }
+    hi
+}
 /// "The last 30 closed groups" (§7.2, §7.3).
 const LAST_GROUPS: usize = 30;
 /// The baseline ring (ADR-011 §3.2): 40 owner turns; a clean group needs 5 (§7.1).
 const RING_M: u64 = 40;
 const CLEAN_TURNS: u64 = 5;
+
+/// `harm_certified`'s n: a `change_close` that ended in a direct harm rollback (h), or that ran `CLEAN_TURNS` owner turns
+/// and was not rolled back. A rollback not attributed `direct` (suspect, collateral, unattributed) is left out of n.
+fn exercised(d: &Value) -> bool {
+    let undone = matches!(d["outcome"].as_str(), Some("rolled_back" | "collateral"));
+    d["attribution"] == "direct" || (!undone && d["turns"].as_u64().unwrap_or(0) >= CLEAN_TURNS)
+}
 /// X10 item 5 (orchestrator, 2026-10-22): the owner-corrections trend. The reference is the first 14 free-path owner
 /// days (and at least 40 owner turns); the window is the last 14 owner days after it (at least 40 owner turns). It
 /// fires when the window's correction rate is ≥ 1.5 × r0, with r0 = max(50‰, (c_ref + 1)/(n_ref + 2)), and the exact
@@ -138,6 +202,10 @@ pub struct Level {
     groups: BTreeMap<u64, (String, String)>,
     /// The last 30 closes: was it a `direct` harm rollback.
     closes: VecDeque<bool>,
+    /// Since the entry record: exercised groups closed, and how many of them ended in a direct harm rollback
+    /// (`harm_certified`'s n and h).
+    exercised: u64,
+    direct: u64,
     /// When the newest `ladder down` records and quarantines were appended (bounded).
     downs: VecDeque<i64>,
     quarantines: VecDeque<i64>,
@@ -284,6 +352,9 @@ impl Level {
                     (self.ring, self.ring_from) = (0, at + 1);
                 }
                 bounded(&mut self.closes, d["attribution"] == "direct", LAST_GROUPS);
+                if exercised(d) {
+                    (self.exercised, self.direct) = (self.exercised + 1, self.direct + u64::from(d["attribution"] == "direct"));
+                }
             }
             "cap_state" if root && d["to"] == "quarantined" => bounded(&mut self.quarantines, at, 64),
             "twin_report" if root => bounded(&mut self.twins, twin_ok(d), 4),
@@ -328,7 +399,7 @@ impl Level {
     /// The record restarts at the level's entry record (the newest `ladder`, or genesis).
     fn enter(&mut self, r: &Value, seq: u64, at: i64) {
         (self.entered_seq, self.entered_at, self.entered_ms) = (seq, r["at"].as_str().map(String::from), at);
-        (self.turns, self.clean) = (0, 0);
+        (self.turns, self.clean, self.exercised, self.direct) = (0, 0, 0, 0);
     }
 
     /// §3.9: the newest demotion at L0 is the `L0_REPEAT`-th within `L0_REPEAT_MS` of `now`.
@@ -348,9 +419,12 @@ impl Level {
         let to = (self.level + 1).clamp(1, 4);
         let n = &NEED[(to - 1) as usize];
         let within = |q: &VecDeque<i64>, days: i64| q.iter().filter(|&&t| t <= now && now - t < days * DAY).count() as i64;
-        let direct = self.closes.iter().filter(|x| **x).count() as i64;
+        // the harm-rate bound (v0.5.3): `have` is the certified bound in ‰, `need` the level's rate
+        let mut harm = c("harm_rate_bound", harm_bound(self.exercised, self.direct) as i64, n.harm_permille as i64,
+            harm_certified(self.exercised, self.direct, n.harm_permille));
+        (harm["groups"], harm["direct"]) = (json!(self.exercised), json!(self.direct));
         let mut v = vec![min("days_at_level", (now - self.entered_ms).div_euclid(DAY), n.days), min("owner_turns", self.turns as i64, n.turns as i64),
-            min("clean_groups", self.clean as i64, n.clean as i64), max("direct_rollbacks_last_30_groups", direct, n.direct_max as i64)];
+            min("clean_groups", self.clean as i64, n.clean as i64), harm];
         if to == 1 {
             v.push(min("baseline_ring", self.ring.min(RING_M) as i64, RING_M as i64));
             v.push(max("demotions_last_7_days", within(&self.downs, 7), 0));
@@ -397,14 +471,16 @@ impl Level {
     }
 }
 
-/// ADR-011 §2.3: on the free path a kernel `promotion{lkg:true}` must name the `sha` of a change whose group the Root
-/// closed `clean`, `quiet` or `flagged`, so LKG stays Root-anchored (sup.rs refuses it otherwise).
-pub fn promotion_closed(records: &[Value], sha: &str) -> bool {
+/// ADR-011 §2.3: on the free path a kernel `promotion{lkg:true}` must form the tuple `tuple` (its id, a content hash)
+/// that a `change_open` admitted, in a group the Root closed `clean`, `quiet` or `flagged`, so LKG stays Root-anchored
+/// (sup.rs refuses it otherwise). L2b (INV-3): matched by content, not by the change's commit `sha`, which two tuples can
+/// share and which a promotion can name with other blobs.
+pub fn promotion_closed(records: &[Value], tuple: &str) -> bool {
     let mut groups = std::collections::BTreeSet::new();
     for r in records.iter().filter(|r| r["by"] == "root") {
         let (d, g) = (&r["data"], r["data"]["group"].as_u64());
         match r["kind"].as_str() {
-            Some("change_open") if !sha.is_empty() && d["sha"] == sha => groups.extend(g),
+            Some("change_open") if !tuple.is_empty() && d["tuple"] == tuple => groups.extend(g),
             Some("change_close") if matches!(d["outcome"].as_str(), Some("clean" | "quiet" | "flagged")) && g.is_some_and(|g| groups.contains(&g)) => return true,
             _ => {}
         }
@@ -487,5 +563,9 @@ pub fn tick(root: &Root) {
     }
 }
 
+#[cfg(test)]
+mod harm_tests;
+#[cfg(test)]
+mod level_grants;
 #[cfg(test)]
 mod tests;

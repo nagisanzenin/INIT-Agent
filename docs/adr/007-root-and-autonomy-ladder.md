@@ -16,6 +16,11 @@ INIT's purpose is to let future models, eventually more capable than any human, 
 1. **Separate review from control.** Remove human review everywhere and replace it with mechanical verification. Keep control (stop, rollback, resource ceilings, the boundary on external actions, tamper-proof lineage, the purpose, an honest evaluator) in a small, immutable **Root**: `init-root`, about 1,000–1,500 lines of Rust. That was the design estimate. The build budget is ≈ 7,500 lines as per-module sub-budgets (root/root.md §4.8), a provisional owner decision of 2026-10-20 that the owner may override. It runs as the owner's OS user, outside every sandbox.
 2. **Three trust zones:** the Root, then the agent zone (the kernel, which is agent-evolvable from L3), then the body zone. The only security boundary is the one between the Root and everything else.
 3. **An autonomy ladder from L0 to L4.** The Root unlocks each level mechanically from the track record it holds in lineage and in the sealed audit, with no human approval. The charter caps the maximum level. Demotion is automatic.
+   *As built (v0.5.3, owner decision 2026-10-29):* the record is ADR-011 §7's, and a level states one statistical
+   fact: at 95 % confidence, valid under the ledger's continuous re-checking, the rate of exercised change groups
+   ending in a direct harm rollback is below 25 % (L1), 20 % (L2), 10 % (L3) or 5 % (L4). The other criteria (days,
+   owner turns, clean groups, the baseline ring, demotions, quarantines, twin reports, the corrections trend) stay
+   counting rules. foundations.md P-6 states the guarantee and its assumption; a release Root still supports L0 only.
 4. **The measuring stick stays honest without humans.** The Root holds three things no gate version can see or change:
    - a sealed task set;
    - a mutation suite that any new gate must reject in full (the gate-of-gates);
@@ -37,5 +42,6 @@ INIT's purpose is to let future models, eventually more capable than any human, 
 - Phase 0 adds a `root` lane of about 25–35 agent-hours. Keys, money ceilings, panic, whole-system LKG and lineage move from the kernel docs into the Root docs.
 - The owner's ongoing work drops to zero required actions. The owner still writes the charter at install and keeps optional `/panic`, ceilings and reports.
 - The sealed task set needs sources outside the agent's influence: public benchmark snapshots and maintainer tasks, refreshed by the Root. If those sources dry up, the audit weakens. This is risk R-ROOT-1.
-- The ladder's unlock thresholds are placeholders until Phase 1 calibrates them.
+- The ladder's unlock thresholds are placeholders until Phase 1 calibrates them. The harm-rate rates (v0.5.3) are the
+  owner's choice, not a calibration.
 - The constitution is rewritten around the Root and the ladder.

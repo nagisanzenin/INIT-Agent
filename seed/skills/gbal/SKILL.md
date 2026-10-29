@@ -47,10 +47,14 @@ Mode A needs a Root card; without one the goal is mode B. Write the choice and t
 2. Promote it as usual; add `Measure: card:<id>` (or `card:<id> gate` to have the Root roll it back
    unless it is better) to the commit, or ask later: `initctl goal measure card=<id> sha=<commit> n=5`.
    A `Predicts:` trailer may restate the forecast as `card:<id> < parent`; the kernel does not score it.
-3. Work normally; the Root reads the next owner turns. The reading (`delta`, `sd`, `se`, `z`, verdict
-   better | worse | noise | no_noise_floor) is in the lineage and in `initctl goal status` once done.
-4. **Keep** when the goal card's z ≥ 2 (Δ beyond 2σ of the difference) and no guardrail regressed beyond
-   noise. Confirm a winner once on fresh turns before building on it. A change measured without an
+3. Work normally; the Root reads the next owner turns (15 for a guardrail on a requests, cache-read,
+   provider-error or corrections card; 5 otherwise). The reading (`delta`, `sd`, `se`, `z` for the size,
+   `p_better_ppm` / `p_worse_ppm` from an exact permutation test, verdict better | worse | noise |
+   no_noise_floor) is in the lineage and in `initctl goal status` once done. A verdict needs its one-sided
+   p ≤ 2.275 %; `z` alone decides nothing.
+4. **Keep** when the goal card reads `better` and no guardrail read `worse`. `met` needs p ≤ 5 % divided by
+   the goal's rounds, and every change that goes live during the goal spends a round, predicted or not.
+   Confirm a winner once on fresh turns before building on it. A change measured without an
    earlier prediction is recorded `registered: false` and does not count for calibration.
 5. A reading 5σ or more beyond anything before it is suspicious: look for a measurement artefact
    (fewer turns, less work) before you keep it. Cost per turn falls if you simply do less.

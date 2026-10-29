@@ -599,3 +599,87 @@ fn small_s_is_refused_at_import_and_underpowered_at_the_gog() {
     drop(h); // the mock, by its handle
     fs::remove_dir_all(&dir).unwrap(); // exact path, this test's own home
 }
+
+/// L2b (v0.5.3), INV-5: `chain` with `lkg` on `lkg` (the last record wins) instead of on `current`.
+fn chain_lkg(tuples: &[(&str, &Value)], current: &str, lkg: &str, audited: &str) -> Vec<Value> {
+    let mut v = chain(tuples, current, audited);
+    v.push(json!({"at": "2026-10-20T00:05:00Z", "kind": "lkg", "data": {"tuple": lkg}}));
+    v
+}
+
+/// L2b (v0.5.3), INV-5: a complete clean audit of a tuple that is an open change group's (free path: `current` is the
+/// newest change, still in its watch window) moved `lkg` onto it, past the window. The audit's `lkg` move is a
+/// compare-and-set now: it refuses that, keeps `lkg`, and says so in the `audit` record (`lkg_cas`).
+#[test]
+fn a_sealed_audit_never_moves_lkg_onto_an_open_change_group() {
+    let Some(h) = home("cas1") else { return };
+    h.store();
+    let scratch = h.dir.join("bodies");
+    fs::create_dir_all(&scratch).unwrap();
+    let (ta, t_a) = h.tuple(&fix().join("M/base/init-body"));
+    let (tc, t_c) = h.tuple(&variant(&scratch, "C3"));
+    let mut recs = chain_lkg(&[(&ta, &t_a), (&tc, &t_c)], &tc, &ta, &ta);
+    recs.push(json!({"at": "2026-10-20T00:06:00Z", "kind": "change_open", "data": {"caps": [], "checks": {"A0": "pass", "A4": "skip", "A5": "pass"},
+        "from_sha": "", "group": 1, "level": 0, "open_groups": 1, "parent_tuple": ta, "readmit": false, "scope": "t2", "sha": "c".repeat(40),
+        "snapshot": null, "tuple": tc}}));
+    h.install("audit_usd = \"1.00\"\naudit_repeats = 2", recs);
+    let d = h.ok(&["audit", "run"])["audit"].clone();
+    assert_eq!((d["regression"].as_bool(), d["partial"].as_bool(), d["tuple"].as_str()), (Some(false), Some(false), Some(tc.as_str())), "{d}");
+    assert_eq!(h.kinds("audited").last().unwrap()["tuple"], json!(tc), "the audit vouches for C");
+    assert_eq!(h.kinds("lkg").last().unwrap()["tuple"], json!(ta), "lkg never lands on an open group's tuple");
+    assert_eq!(d["lkg_cas"], "open_group", "{d}");
+    // closed, the same audit moves lkg
+    let close = json!({"attribution": null, "group": 1, "live": {}, "outcome": "clean", "trigger": null, "turns": 0});
+    let info: Value = serde_json::from_str(&fs::read_to_string(h.rh.join("install.json")).unwrap()).unwrap();
+    {
+        let _d = Daemon(h.cmd().arg("start").env("INIT_TEST_FK", "").env("INIT_TEST_TOOLCHAIN", info["toolchain"].as_str().unwrap())
+            .env("INIT_TEST_DEVDIR", info["devdir"].as_str().unwrap()).env("INIT_TEST_HOME_REAL", &h.dir)
+            .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
+        wait(20, "owner.sock", || owner(&h, json!({"args": {}, "cmd": "status", "id": "s", "v": 1})).is_some());
+        let r = owner(&h, json!({"args": {"records": [{"kind": "change_close", "data": close}]}, "cmd": "test.append", "id": "t", "v": 1}));
+        assert_eq!(r.as_ref().map(|v| v["ok"].clone()), Some(json!(true)), "{r:?}");
+        let d = h.ok(&["audit", "run"])["audit"].clone();
+        assert_eq!((d["regression"].as_bool(), d["lkg_cas"].as_str()), (Some(false), Some("moved")), "{d}");
+        assert_eq!(h.kinds("lkg").last().unwrap()["tuple"], json!(tc));
+    }
+}
+
+/// L2b (v0.5.3), INV-5: the audit compared against `lkg` as it read it when it started, so an `lkg` that moved on to a
+/// newer tuple while the audit ran (a window closing, a gated promotion) was moved back onto the audited one. The
+/// compare-and-set reads `lkg` again under the lineage lock at the end, refuses the backwards move and says so.
+#[test]
+fn a_sealed_audit_never_moves_lkg_backwards() {
+    let Some(h) = home("cas2") else { return };
+    h.store();
+    let scratch = h.dir.join("bodies");
+    fs::create_dir_all(&scratch).unwrap();
+    let (ta, t_a) = h.tuple(&fix().join("M/base/init-body"));
+    let (tc, t_c) = h.tuple(&variant(&scratch, "C3"));
+    let (tn, t_n) = h.tuple(&variant(&scratch, "C2"));
+    assert!(tn != ta && tn != tc, "a third tuple");
+    h.install("audit_usd = \"1.00\"\naudit_repeats = 2", chain_lkg(&[(&ta, &t_a), (&tc, &t_c)], &tc, &ta, &ta));
+    let info: Value = serde_json::from_str(&fs::read_to_string(h.rh.join("install.json")).unwrap()).unwrap();
+    let _d = Daemon(h.cmd().arg("start").env("INIT_TEST_FK", "").env("INIT_TEST_TOOLCHAIN", info["toolchain"].as_str().unwrap())
+        .env("INIT_TEST_DEVDIR", info["devdir"].as_str().unwrap()).env("INIT_TEST_HOME_REAL", &h.dir)
+        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap());
+    wait(20, "owner.sock", || owner(&h, json!({"args": {}, "cmd": "status", "id": "s", "v": 1})).is_some());
+    let mut c = h.cmd();
+    c.args(["audit", "run"]).stdin(Stdio::null());
+    let audit = std::thread::spawn(move || c.output().unwrap());
+    // once the audit's first sealed run is listed, a newer tuple forms and lkg moves onto it
+    let runs = h.rh.join("sealed/runs.json");
+    wait(60, "the audit's sealed runs", || fs::read_to_string(&runs).ok().and_then(|s| serde_json::from_str::<Value>(&s).ok())
+        .is_some_and(|v| v["runs"].as_array().is_some_and(|r| !r.is_empty())));
+    let r = owner(&h, json!({"args": {"records": [{"kind": "tuple", "data": {"id": tn, "tuple": t_n}}, {"kind": "lkg", "data": {"tuple": tn}}]},
+        "cmd": "test.append", "id": "t", "v": 1}));
+    assert_eq!(r.as_ref().map(|v| v["ok"].clone()), Some(json!(true)), "{r:?}");
+    let o = audit.join().unwrap();
+    assert_eq!(o.status.code(), Some(0), "audit run: {}", String::from_utf8_lossy(&o.stderr));
+    let d = serde_json::from_slice::<Value>(&o.stdout).unwrap()["audit"].clone();
+    assert_eq!((d["regression"].as_bool(), d["partial"].as_bool(), d["tuple"].as_str()), (Some(false), Some(false), Some(tc.as_str())), "{d}");
+    assert_eq!(h.kinds("lkg").last().unwrap()["tuple"], json!(tn), "lkg stays on the newer tuple");
+    // lane V (v0.5.3 review, V1): `current` moved on to tN too, so the audited tuple is no longer current: the refusal
+    // says so, and `audited` stays where it was as well (it was `behind`, with `audited` moved onto C, before)
+    assert_eq!(d["lkg_cas"], "not_current", "{d}");
+    assert_ne!(h.kinds("audited").last().map(|a| a["tuple"].clone()), Some(json!(tc)), "audited stays off a tuple no longer current");
+}

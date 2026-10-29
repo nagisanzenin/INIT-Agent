@@ -1,10 +1,11 @@
 //! `init-root`: the immutable Root (spec v0.3 Part II, docs/root/root.md).
-//! Budget: about 5,000 non-blank, non-comment lines in src/, tests excluded (root/root.md §4.8 as raised
-//! by the orchestrator on 2026-10-20 from 1,500).
+//! Size: root/root.md §4.8 holds the budget, the counting method (`rootloc.py`) and the measured size, for the
+//! whole Root and for its trusted computing base (docs/foundations.md §10).
 #![deny(unsafe_code)] // only `sys.rs` (FFI) may carry #[allow(unsafe_code)] (root/root.md §4.8)
 
 mod access; // ADR-009 workspace, full mode, snapshots and /undo (SBX-009)
 mod benchmark; // owner-controlled experiment freeze and external gateway binding
+mod boundary; // ADR-011 A0 and INV-2 (L2b, v0.5.3): `root_start` and the Root's re-hash at every admission
 mod charter; // R5 (WP20)
 #[cfg(target_os = "linux")]
 mod cgroup; // LINUX: per-workload cgroup v2 memory.max under a delegated subtree (the memwatch backstop)
@@ -21,6 +22,7 @@ mod link; // the owner channel and the Root state (WP20; owner.in delivery: WP21
 mod memwatch; // MEM-RUNAWAY: the per-workload memory watchdog and the workload disk floor
 mod panic; // R1 panic and resume (WP20; SIGUSR1, held-instance kills, resume rollback: WP21)
 mod providers; // UX-KEYMODEL: the provider catalog, `providers add`, `model use`, `keys.set` over owner.sock
+mod release; // v0.5.3 (PLAN-052 L4): the release key this Root pins and `release verify`, which an upgrade asks first
 mod sealed; // R6 (WP24; C12 validation: WP20)
 #[path = "extend/select.rs"]
 mod select; // ADR-011 §6 selection (X6): decay, archive and quarantine debts, Fisher-tail correlation, bloat

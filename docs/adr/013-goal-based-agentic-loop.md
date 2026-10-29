@@ -26,6 +26,75 @@ over-claiming describe weak models and must not be hard-coded. Goodhart is a pro
 > z ≤ −2 is **≈ 5.1%** per guardrail per measured change (the t tail at 5 df; ≈ 4% with only 5 baseline turns, and
 > higher still with fewer readings, down to the 3 a reading allows). The fix, a threshold from the t distribution at
 > Welch's df, is planned for v0.5.2. The text below is kept as it was decided.
+>
+> **v0.5.3 (2026-10-29, lane L3): the statistics of readings, `met` and calibration.** Measured before and after in
+> build/status/STATS-053.md (null simulations through the Root's own code; model: none). The fix v0.5.1 planned, t at
+> Welch's df, was measured beside the one chosen and rejected (item 1).
+> 1. **A reading's verdict is an exact test (D1).** `better` or `worse` when that direction's one-sided p-value of an
+>    exact two-sample permutation test of the after-sum is at most Φ(−2) = 2.275 % (`NOISE_ALPHA_PPM`, goal.rs;
+>    goal/perm.rs), `noise` otherwise. Under exchangeable turns (foundations.md A_exch, here at the turn level) that is
+>    a bound at every n and on every card, so decision 4's "≈ 2.3 %" per guardrail per measured change now holds
+>    (measured: at most 2.45 % ± 0.24). z against a fixed 2 did not: a null guardrail rolled back up to 9.3 % of
+>    readings (`requests_turn`, 3 turns against 40), and a null reading read `better` up to 42 % (`corrections`). t at
+>    Welch's df fixes the small symmetric cases but not these: `better` stays at 12–17 % on cost and wall time with 40
+>    turns before, and at 27–42 % on the discrete cards, whose 5 after-turns are often all 0 with a sample variance
+>    of 0. The record keeps z as a size and adds `p_better_ppm`, `p_worse_ppm` (rounded up) and `test`
+>    (`permutation`, or `permutation_mc` above 2²¹ splits, a seeded Monte Carlo p that is still valid). The exact
+>    level costs power where z took 5 clean baseline turns as zero noise: with 5 turns against 5, a guardrail on
+>    `provider_errors` or `corrections` now catches a fivefold rise in 0.5–2 % of changes (z: 17–35 %), and one on
+>    `cache_read` with 40 turns before catches halved cache reads in 55 % (z: 99 %); with 40 turns before it catches
+>    more on cost, wall, requests and errors. The sentinel's H7 and H9 still watch those harms on long baselines.
+> 2. **`met` spends 5 % over the goal's rounds (D2).** The attributed reading also needs p ≤ 5 % / R in the
+>    threshold's direction, R the goal's `rounds` (`MET_ALPHA_PPM`). A round has at most one goal-card reading on a
+>    registered prediction, so by the union bound a goal whose changes all do nothing ends `met` at most 5 % of the
+>    time, whenever the agent stops, under any dependence between readings (measured: at most 5.05 % ± 0.35; it was
+>    35–37 % at R = 10 with stacked changes, and up to 98.6 % when the agent waits 40 turns per change). This is
+>    family-wise control over R different changes, not a group-sequential design: Pocock and O'Brien–Fleming spend α
+>    over repeated looks at one accumulating sample. With stacked changes, each reading's baseline is the previous
+>    change's 5 turns and its smallest p is 1/252, so attribution needs R ≤ 12; a longer goal reads more turns
+>    (`card.measure n=…` before the prediction) or ends `met_unattributed`. `attributed` adds `p_ppm` and `alpha_ppm`.
+>    A reading recorded before v0.5.3 has no p and attributes nothing.
+> 3. **Calibration's freedom needs skill (D3).** 6 or 12 rounds between check-ins also need Brier skill against the
+>    climatology of each (goal kind, `expect`) class: BS < BS_ref, with BS_ref the uncertainty term ō(1 − ō) of
+>    Murphy's decomposition (`Cal::skilled`). Filing `same` at 0.9 on changes that do nothing scored 0.09 and earned 6
+>    rounds; it now ties the reference and earns the default 3. Every live change in a card goal is forecast: one with
+>    no prediction gets the goal card's reading, scored at the Root's abstention forecast (500‰ toward the threshold;
+>    `goal_outcome{source: "unforecast", prediction: null}`), so the agent no longer chooses which changes its score
+>    covers. An honest forecast q scores q(1 − q) ≤ 0.25 in expectation, the abstention 0.25 always. Owner and exemplar
+>    goals have no Root-observable outcome for an unforecast change; their outcomes stay the owner's.
+>
+> 4. **Every live change spends a round.** Decision 2.3's rounds were predictions only, so a change that went live
+>    unpredicted spent neither a round nor a check-in step. Now every change that goes live while the goal is active
+>    spends both, predicted or not: a prediction when it is filed, any other change when its first `tuple` record
+>    appears (a rollback, a re-admission or an owner upgrade reuses a commit and spends nothing; changes made while
+>    the goal is paused are not its rounds). The goal state's `from_seq` marks what has been charged.
+> 5. **A reading on a change the sentinel rolled back ends.** It used to stay pending: no more turns come on that
+>    tuple. With fewer than 3 turns it ends `card_reading{action:"closed", verdict:"rolled_back"}` and its
+>    prediction resolves with no outcome; with 3 or more it is read on the turns it had, as after a guardrail's
+>    rollback. `met` never counts a change the sentinel undid (its group closed `rolled_back` or `collateral`, or a
+>    whole-system `rollback` left its tuple, and it was not re-admitted).
+>
+> 6. **Guardrails on discrete cards read 15 turns** (owner decision, 2026-10-29, from STATS-053's discrete-card table).
+>    An owner guardrail on `requests_turn`, `cache_read`, `provider_errors` or `corrections` reads 15 owner turns of
+>    the change (`GUARD_DISCRETE`; `cost_turn` and `wall_turn` keep 5): it holds the 2.3 % level and catches at least
+>    what v0.5.2's 5-turn z caught on every such card and rise, for 10 more owner turns (about 2.5 h at 4 turns an
+>    hour) per change. A forecast's own reading waits for its change's guardrails, so a guardrail's rollback stays on
+>    the outcome as `harm`. A change that stops getting turns sooner (rolled back, or replaced by a newer change that
+>    served an owner turn) is read on the turns it had if it had 3, else ends `closed` (`rolled_back` or `replaced`).
+>    So an agent that replaces its changes faster than 15 turns gets its discrete guardrails read on fewer turns, with
+>    less power; the sentinel's H7 and H9 still watch errors and corrections against long baselines.
+>    *Open risks:* the agent chooses when a change goes live, and so the baseline window its reading compares with
+>    (going live after expensive turns flatters `better` and dulls a guardrail); turns clustered in sessions break the
+>    exchangeability the exact test assumes (2–9 % per reading, 12–24 % per goal under X10's clustering; the fix needs
+>    the session in `Obs`); and above 2²¹ splits the Monte Carlo p-value decides a reading within about 0.1 points of
+>    2.275 % either way, like a randomized test (still valid). STATS-053, "Assumptions and limits". Stacking changes
+>    fast switches owner guardrails off: a change replaced before 3 owner turns closes `replaced` with no verdict, and a
+>    change whose parent tuple had under 5 owner turns reads `no_noise_floor`; neither rolls back. Since v0.5.3 (the
+>    spec review) each such end alerts the owner (`goal_guard_unchecked`, naming the change and the card), but the
+>    change stays live: the baseline does not yet reach back to the newest tuple with 5 turns, which would also have to
+>    move the rollback target past the changes stacked in between. `met` counts only the first completed goal-card
+>    reading of each change (v0.5.3), so re-measuring a live change is not a new round.
+> No record kind changes. The new fields are additive, and existing lineages fold to the same Brier scores.
 
 1. **The model owns the loop (T0, rewritable).** Two seed skills: `goal-loop` (layer 1: frozen yes/no checklist,
    verbatim capture, pairwise judging against the champion with position swap and ≥ 3 runs per judge, a ledger, six stop
@@ -109,21 +178,22 @@ over-claiming describe weak models and must not be hard-coded. Goodhart is a pro
 
 | Kind | Data |
 |---|---|
-| `goal` | `{id, op: set|pause|resume|checkin|stop, by: owner|agent|root, kind, done, budget{usd_musd, wall_s, rounds}, guard[{card, tol_permille}], spent{musd, wall_s, rounds}, intent_sha256?, intent_bytes?, reason?, verified?, claimed?, attributed?, note_sha256?}` (`reason` adds `met_unattributed`, Root-recorded, v0.4) |
+| `goal` | `{id, op: set|pause|resume|checkin|stop, by: owner|agent|root, kind, done, budget{usd_musd, wall_s, rounds}, guard[{card, tol_permille}], spent{musd, wall_s, rounds}, intent_sha256?, intent_bytes?, reason?, verified?, claimed?, attributed?, note_sha256?}` (`reason` adds `met_unattributed`, Root-recorded, v0.4; `attributed` adds `p_ppm, alpha_ppm`, v0.5.3) |
 | `goal_proposal` | `{id: gp-NNNNNN, sha256, bytes}` (text in `state/goals/<id>.md`, 0600) |
 | `goal_predict` | `{id: P-NNNNNN, goal, goal_kind, sha, mode, card, expect, p_permille, round, note_sha256, supersedes?: P-id}` (a re-file keeps the superseded prediction's `round`) |
-| `card_reading` | `{card, unit, sha, tuple, parent_tuple, goal, measure, n_before, n_after, mean_before_milli, mean_after_milli, delta_milli, sd_milli, se_milli, z_permille, verdict, registered, prediction, gate, guard, action: none|rollback}` |
-| `goal_outcome` | `{prediction, goal, goal_kind, sha, p_permille, o: 0|1, source: card|owner_accept|owner_reject, reading, harm?: ["guard:<card>"|"gate:<card>"], n, brier_ppm}` (records before G4 may carry `source: harm`, o = 0) |
+| `card_reading` | `{card, unit, sha, tuple, parent_tuple, goal, measure, n_before, n_after, mean_before_milli, mean_after_milli, delta_milli, sd_milli, se_milli, z_permille, verdict, registered, prediction, gate, guard, action: none|rollback}`; from v0.5.3 also `p_better_ppm, p_worse_ppm, test: permutation|permutation_mc` (the verdict's test) |
+| `goal_outcome` | `{prediction, goal, goal_kind, sha, p_permille, o: 0|1, source: card|owner_accept|owner_reject, reading, harm?: ["guard:<card>"|"gate:<card>"], n, brier_ppm}` (records before G4 may carry `source: harm`, o = 0); from v0.5.3 also `expect, brier_ref_ppm`, and `source: unforecast` with `prediction: null` for the Root's abstention forecast |
 
 ## Consequences
 
 - Root growth: `src/goal.rs` is 644 counted lines (root.md §4.8 method, approximate), plus about 29 elsewhere. That is
   against ADR-007's ≈ 7,500 budget, which the Root already exceeds at this commit by the same approximate count
-  (17,513 → 18,186); the release measurement must set a `goal` sub-budget line, as for SBX-009 and M7.
+  (17,513 → 18,186); the release measurement must set a `goal` sub-budget line, as for SBX-009 and M7. At 67d5172
+  (v0.5.3 candidate) `goal.rs` is 807 lines by that method, outside the TCB (root.md §4.8, foundations.md §10).
 - Phase 0 panels stay tamper-evident, not tamper-proof: the builder writes the judge's task and chooses the capture. That is
   acceptable while verdicts only steer the agent's own choices (they never reach calibration).
-- A goal about INIT itself opens change groups; at L0 the blast-radius budget (4 open groups, 48 changes a day) bounds the
-  round rate.
+- A goal about INIT itself opens change groups; at L0 the blast-radius budget (4 open groups, 48 changes a day: the
+  `[extend]` defaults `open_groups` and `changes_day` in root charter.rs) bounds the round rate.
 
 ## Alternatives considered
 

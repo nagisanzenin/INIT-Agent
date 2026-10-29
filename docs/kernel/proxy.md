@@ -373,7 +373,7 @@ All money is integer **pico-dollars** (`pusd`, 10⁻¹² USD) in `u64` (max ≈ 
 | Task | `budget.task_usd` | one `x-init-task` id (or `_none`) in `live` or a `member` lane | the Root's day | `budget.task` |
 | Member share (L2) | the member's daily share (§3.4); the sum of open members' shares may not exceed the soft day minus the evolution share, and `open_scope` for a member is refused (`budget.member`) beyond it | one fleet member's lane | the Root's day | `budget.member` |
 | Gate | `budget.gate_usd` (promote) / `budget.quick_gate_usd` (quick) | all scopes with one gate job id | gate lifetime | `budget.gate` |
-| Scope | per scope at `open_scope` | one gate scope | scope lifetime | `budget.scope` |
+| Scope | per scope at `open_scope`; D11 (v0.5.3): a G4 run's scope (`run`) admits its first request when the cap covers that request's output term (its output cap at the window's output price), even if the input estimate puts the whole reservation over the cap, so a task whose cap passes G4's check (gate.md §3.11, "Task cap below one reservation") can always reserve one request | one gate scope | scope lifetime | `budget.scope` |
 | Request | `budget.request_max_usd` | one request's reservation | — | `budget.request` |
 
 **Why the guard checks the Root's own number.** The Root settles every request at its coarse **peak** price (root/egress.md §3.4), while the kernel measures at the real window price. On DeepSeek, peak is 2× off-peak, so on an off-peak day the Root's day spend can be about twice the kernel's. A soft day at 0.9 of the ceiling, checked only against the kernel's own ledger, could then let the Root's ceiling be reached and refused, which is a demotion trigger. So the kernel also keeps the Root's figure in view:

@@ -33,6 +33,8 @@ def main():
     master, slave = os.openpty()
     fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", rows, cols, 0, 0))
     env = {"TERM": "xterm-256color", "HOME": os.path.dirname(rh), "PATH": "/usr/bin:/bin"}
+    if "INIT_AGENT_LAUNCHER" in os.environ:  # what scripts/init-agent passes the TUI (v0.5.3)
+        env["INIT_AGENT_LAUNCHER"] = os.environ["INIT_AGENT_LAUNCHER"]
     pid = os.fork()
     if pid == 0:
         os.close(master)

@@ -21,9 +21,18 @@
 #                     0.4.1 or 0.5.0: /usr/bin/curl -q -fsSL <get.sh URL> | /bin/sh -s -- --upgrade
 #   --version V       that release instead of the latest: the tag v<V>, else v<V>-preview (0.5.0 finds v0.5.0-preview;
 #                     0.5.0-preview is taken as it is)
+#   --allow-unsigned  install a download whose signature cannot be checked (no SHA256SUMS.sig, a release before 0.5.3,
+#                     no ssh-keygen): its sha256 is then all that is checked, which proves integrity, not origin
+#   --allow-expired   install a release whose signed SHA256SUMS has expired (what a replayed old release looks like)
 #   -- ARGS           passed to the bundle's scripts/install.sh, after --yes (for example --no-service, --disk-floor 10)
 #
-# Steps: macOS 14+ on Apple silicon or Linux on aarch64/x86_64, not root → download (curl) → sha256 → unpack into
+# The signature (v0.5.3; docs/release-signing.md): a downloaded bundle is installed only when the release's
+# SHA256SUMS, which lists it under the release's version and an expiry date, verifies under INIT's release key
+# (RELEASE_KEYS below). On an upgrade the installed Root checks it (from 0.5.3: `init-root release verify`, with the key
+# compiled into it); otherwise `ssh-keygen -Y verify` does (OpenSSH 8.1 or newer: macOS, and Linux's openssh-client).
+# A local bundle (--from FILE) is checked by its sha256 only, as before 0.5.3.
+#
+# Steps: macOS 14+ on Apple silicon or Linux on aarch64/x86_64, not root → download (curl) → signature → sha256 → unpack into
 # ~/.local/share/init/<version>/ (INIT_APP_DIR overrides ~/.local/share/init) → check every file against the
 # bundle's SHA256SUMS → the bundle's scripts/install.sh --yes, which installs with the defaults (ROOT_HOME
 # ~/.init-root, INIT_HOME ~/.init, the `init-agent` command in ~/.local/bin, the LaunchAgent or the systemd user unit unless
@@ -38,17 +47,24 @@ set -eu
 umask 022
 
 DIST_URL="${INIT_DIST_URL:-https://github.com/nagisanzenin/INIT-Agent/releases/latest/download}"
-FROM=""; WANT=""; UNPACK_ONLY=0; NO_RUST=0; UPGRADE=0; RELEASE=""
+DIST0="$DIST_URL" # as given: --version changes DIST_URL to that release's directory
+# The release key (v0.5.3; docs/release-signing.md): the OpenSSH form of the ed25519 key the maintainer signs each
+# release's SHA256SUMS with, one line per key, the newest first. The installed Root pins the same lines (release.rs
+# RELEASE_KEYS; a test checks that they agree). Empty in a copy made before the key ceremony: it verifies no download.
+RELEASE_KEYS='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMhJt8xvzNDPIJZg1WUaKzOPzqdtZj66Paubkbgqjf+ INIT release key 1 (2026-10)'
+FROM=""; WANT=""; WANT_FROM=""; UNPACK_ONLY=0; NO_RUST=0; UPGRADE=0; RELEASE=""; ALLOW_UNSIGNED=0; ALLOW_EXPIRED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) FROM="$2"; shift 2 ;;
-    --sha256) WANT="$2"; shift 2 ;;
+    --sha256) WANT="$2"; WANT_FROM=owner; shift 2 ;;
     --unpack-only) UNPACK_ONLY=1; shift ;;
     --no-rust) NO_RUST=1; shift ;;
     --upgrade) UPGRADE=1; shift ;;
     --version) RELEASE="$2"; shift 2 ;;
+    --allow-unsigned) ALLOW_UNSIGNED=1; shift ;;
+    --allow-expired) ALLOW_EXPIRED=1; shift ;;
     --) shift; break ;;
-    -h|--help) sed -n '2,36p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
     *) echo "get.sh: unknown argument $1 (see --help)" >&2; exit 64 ;;
   esac
 done
@@ -69,6 +85,20 @@ if [ $UPGRADE = 1 ]; then
   PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH
   cd / || die "cannot change to /"
 fi
+# This run's arguments as the owner gave them, quoted (FROM, WANT and DIST_URL change below), for the line that runs it
+# again with one flag more (again). v0.5.3 (the release review): that line dropped them, so `--version 0.5.2 --
+# --no-service` with its own homes was offered a line that installs the latest release, with the service, in the
+# default homes. AGAIN_P: get.sh's (the pipe's); AGAIN_A: init-agent upgrade's (its --bundle is --from); AGAIN_I: -- and
+# install.sh's.
+AGAIN_P=""; AGAIN_A=""; AGAIN_I=""
+[ -z "$RELEASE" ] || { AGAIN_P="$AGAIN_P --version $(shq "$RELEASE")"; AGAIN_A="$AGAIN_A --version $(shq "$RELEASE")"; }
+[ -z "$FROM" ] || { AGAIN_P="$AGAIN_P --from $(shq "$FROM")"; AGAIN_A="$AGAIN_A --bundle $(shq "$FROM")"; }
+[ -z "$WANT" ] || { AGAIN_P="$AGAIN_P --sha256 $(shq "$WANT")"; AGAIN_A="$AGAIN_A --sha256 $(shq "$WANT")"; }
+[ $UNPACK_ONLY = 0 ] || AGAIN_P="$AGAIN_P --unpack-only"
+[ $NO_RUST = 0 ] || AGAIN_P="$AGAIN_P --no-rust"
+[ $ALLOW_UNSIGNED = 0 ] || { AGAIN_P="$AGAIN_P --allow-unsigned"; AGAIN_A="$AGAIN_A --allow-unsigned"; }
+[ $ALLOW_EXPIRED = 0 ] || { AGAIN_P="$AGAIN_P --allow-expired"; AGAIN_A="$AGAIN_A --allow-expired"; }
+[ $# = 0 ] || { AGAIN_I=" --"; for a in "$@"; do AGAIN_I="$AGAIN_I $(shq "$a")"; done; }
 T0=$(date +%s)
 
 # ---------------------------------------------------------------- who and where
@@ -110,13 +140,29 @@ rh_env() { # "INIT_ROOT_HOME=<ROOT_HOME> " when a new terminal would not find th
   [ -n "$pw" ] && [ "$RH" = "$pw/.init-root" ] || printf 'INIT_ROOT_HOME=%s ' "$(shq "$RH")"
 }
 rcmd() { printf '%s%s' "$(rh_env)" "$(shq "$RH/bin/init-root")"; [ $# = 0 ] || printf ' %s' "$*"; }
+# v0.5.3 (the post-release review of v0.5.2): `init-agent` is printed with its path too. A bare `init-agent …` is
+# "command not found" on a fresh Mac, whose PATH lacks ~/.local/bin. The path is written `~/…` under HOME (the shell
+# expands it there), else as shq prints it; scripts/install.sh, the launcher and the TUI print the same form.
+tilde() { # <path>: as the owner types it
+  h="${HOME%/}"
+  case "$1" in "$h"/?*) [ -n "$h" ] && { printf '~/%s' "$(shq "${1#"$h"/}")"; return; } ;; esac
+  shq "$1"
+}
+agent() { # the init-agent command of the INIT in ROOT_HOME: in the bin_dir its install.json records, else BIN_DIR
+  b="$(/usr/bin/python3 -I -c 'import json,sys
+try: print(json.load(open(sys.argv[1])).get("bin_dir") or "")
+except Exception: pass' "$RH/install.json" 2>/dev/null || true)"
+  [ -n "$b" ] && [ -x "$b/init-agent" ] || b="$BIN_DIR"
+  tilde "$b/init-agent"
+}
 # The upgrade as the owner types it, with get.sh's arguments after --upgrade (already quoted). From 0.5.1:
 # `init-agent upgrade` (up_agent; --from is its --bundle), which runs the get.sh this install kept. From 0.4.1 (no
 # init-agent upgrade) or 0.5.0 (whose init-agent upgrade runs 0.5.0's get.sh, without 0.5.1's fixes): this get.sh,
 # fetched again and run with the system's curl and sh (up_pipe; docs/guide.md "Upgrade"). INIT_ROOT_HOME goes to sh.
-up_agent() { printf '%sinit-agent upgrade' "$(rh_env)"; [ $# = 0 ] || printf ' %s' "$*"; }
-up_pipe() {
-  printf '/usr/bin/curl -q -fsSL %s | %s/bin/sh -s -- --upgrade' "$(shq "$DIST_URL/get.sh")" "$(rh_env)"
+up_agent() { printf '%s%s upgrade' "$(rh_env)" "$(agent)"; [ $# = 0 ] || printf ' %s' "$*"; }
+up_pipe() { # the get.sh this run came from (DIST0: --version points DIST_URL at an older release, whose get.sh may
+  # not take the flags again adds)
+  printf '/usr/bin/curl -q -fsSL %s | %s/bin/sh -s -- --upgrade' "$(shq "$DIST0/get.sh")" "$(rh_env)"
   [ $# = 0 ] || printf ' %s' "$*"
 }
 # --version V: the release's tags carry a label (v0.5.0-preview); `init-root --version` and the site say 0.5.0. So a
@@ -132,6 +178,20 @@ esac
 installed() { "$RH/bin/init-root" --version 2>/dev/null | sed -n 's/^init-root \([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1; }
 ver_lt() { /usr/bin/python3 -I -c 'import sys; v = lambda s: tuple(int(x) for x in s.split("."))
 sys.exit(0 if v(sys.argv[1]) < v(sys.argv[2]) else 1)' "$1" "$2"; }
+# <a> <b>: a is below b by SemVer precedence: the core, then a pre-release label below no label, labels field by field
+# (numeric fields numerically and below alphanumeric ones); build metadata ignored. The Root's upgrade::precedence (v0.5.3)
+ver_older() { /usr/bin/python3 -I -c 'import sys
+def k(s):
+    c, _, l = s.split("+")[0].partition("-")
+    f = tuple((0, len(x), x) if x.isascii() and x.isdigit() else (1, 0, x) for x in l.split(".")) if l else ()
+    return (tuple(int(x) for x in c.split(".")), not l, f)
+sys.exit(0 if k(sys.argv[1]) < k(sys.argv[2]) else 1)' "$1" "$2"; }
+installed_release() { # install.json `release.version` (with its label), else the core `init-root --version` gave (HAVE)
+  /usr/bin/python3 -I -c 'import json, sys
+try: v = json.load(open(sys.argv[1])).get("release", {}).get("version", "")
+except Exception: v = ""
+print(v if isinstance(v, str) else "")' "$RH/install.json" 2>/dev/null | grep -E '^[0-9]+[.][0-9]+[.][0-9]+([-+][0-9A-Za-z.+-]*)?$' || printf '%s\n' "$HAVE"
+}
 tname() { # a bundle target as a platform name
   case "$1" in
     macos-arm64) echo "macOS 14+ on Apple silicon ($1)" ;; linux-arm64) echo "Linux aarch64 ($1)" ;;
@@ -187,13 +247,19 @@ for p in launchers:
 PY
 }
 ELSEWHERE=""; SECOND="" # set when the INIT found is in another ROOT_HOME than this run's
-if [ $UPGRADE = 0 ] && [ $UNPACK_ONLY = 0 ] && [ ! -f "$RH/install.json" ]; then
+# v0.5.3 (the post-release review of v0.5.2): --upgrade looks too. Run without INIT_ROOT_HOME on a custom-home install,
+# it said "not installed … run this without --upgrade", and only that second run printed the line that works.
+if [ $UNPACK_ONLY = 0 ] && [ ! -f "$RH/install.json" ]; then
   OTHER="$(other_home "$(svc_file)")"
   if [ -n "$OTHER" ]; then
     NEW="$RH"; RH="$(printf '%s\n' "$OTHER" | sed -n 1p)" # every line below names that INIT's home
-    ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). A second install, in $NEW, would take that over and leave this one behind"
-    SECOND="
+    if [ $UPGRADE = 1 ]; then
+      ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). It is not in $NEW, the home this upgrade looked in (INIT_ROOT_HOME was not set)"
+    else
+      ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). A second install, in $NEW, would take that over and leave this one behind"
+      SECOND="
 (For a separate, second INIT instead: give it its own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, without the service: sh -s -- -- --no-service.)"
+    fi
   fi
 fi
 # Before it advises an upgrade, get.sh checks that the latest release has a bundle for this machine: a Linux aarch64
@@ -216,6 +282,24 @@ too_old() { # <version>: the upgrade starts at 0.4.1, the oldest release it was 
   $UNINSTALL$SECOND"
 }
 if [ $UPGRADE = 1 ]; then
+  if [ -n "$ELSEWHERE" ]; then # the INIT this upgrade is for, in another ROOT_HOME: its line, with that home filled in
+    HAVE="$(installed)"
+    [ -z "$HAVE" ] || ! ver_lt "$HAVE" 0.4.1 || too_old "$HAVE"
+    UPA=""; UPB="" # this run's arguments after --upgrade, quoted: for the pipe, and for init-agent upgrade (--bundle)
+    [ -z "$RELEASE" ] || { UPA="$UPA --version $(shq "$RELEASE")"; UPB="$UPB --version $(shq "$RELEASE")"; }
+    [ -z "$FROM" ] || { UPA="$UPA --from $(shq "$FROM")"; UPB="$UPB --bundle $(shq "$FROM")"; }
+    [ -z "$WANT" ] || { UPA="$UPA --sha256 $(shq "$WANT")"; UPB="$UPB --sha256 $(shq "$WANT")"; }
+    [ $ALLOW_UNSIGNED = 0 ] || { UPA="$UPA --allow-unsigned"; UPB="$UPB --allow-unsigned"; }
+    [ $ALLOW_EXPIRED = 0 ] || { UPA="$UPA --allow-expired"; UPB="$UPB --allow-expired"; }
+    if [ $# -gt 0 ]; then UPA="$UPA --"; UPB="$UPB --"; for a in "$@"; do UPA="$UPA $(shq "$a")"; UPB="$UPB $(shq "$a")"; done; fi
+    if [ -n "$HAVE" ] && ver_lt "$HAVE" 0.5.1; then # 0.4.1 and 0.5.0: this get.sh, piped, as the owner ran it
+      die "INIT $HAVE is installed $ELSEWHERE. Upgrade it with its home given to sh:
+  $(up_pipe ${UPA:+"${UPA# }"})"
+    fi
+    die "INIT ${HAVE:+$HAVE }is installed $ELSEWHERE. Upgrade it with:
+  $(up_agent ${UPB:+"${UPB# }"})
+(or, as you ran it, with its home given to sh: $(up_pipe ${UPA:+"${UPA# }"}))"
+  fi
   [ -f "$RH/install.json" ] || die "INIT is not installed in $RH (no install.json): run this without --upgrade to install it"
   [ -d "$RH/cache" ] && [ ! -L "$RH/cache" ] || die "$RH/cache is not a directory"
   HAVE="$(installed)"
@@ -302,6 +386,108 @@ no_bundle() { # <url> <http code>: the release has no bundle for this machine (u
   } >&2
   exit 1
 }
+# ---------------------------------------------------------------- the signature (v0.5.3; docs/release-signing.md)
+RISK_UNSIGNED="the bundle is then checked by its sha256 alone, which comes from the same server as the bundle: that proves the download is intact, not that the INIT maintainer made it"
+again() { # <flag>: this run with <flag> added, as the owner types it: its arguments (AGAIN_*), and on a fresh install
+  # the homes it was given (on an upgrade they come from the install)
+  if [ $UPGRADE = 0 ]; then
+    printf '/usr/bin/curl -q -fsSL %s | %s%s%s%s/bin/sh -s -- %s' "$(shq "$DIST0/get.sh")" "$(rh_env)" \
+      "${INIT_HOME:+INIT_HOME=$(shq "$INIT_HOME") }" "${INIT_BIN_DIR:+INIT_BIN_DIR=$(shq "$INIT_BIN_DIR") }" \
+      "${INIT_APP_DIR:+INIT_APP_DIR=$(shq "$INIT_APP_DIR") }" "${AGAIN_P# }${AGAIN_P:+ }$1$AGAIN_I"
+  elif [ -n "${HAVE:-}" ] && ! ver_lt "$HAVE" 0.5.3 && [ $UNPACK_ONLY = 0 ]; then up_agent "${AGAIN_A# }${AGAIN_A:+ }$1$AGAIN_I"
+  else up_pipe "${AGAIN_P# }${AGAIN_P:+ }$1$AGAIN_I"; fi
+}
+no_verifier() { # <why>: get.sh has no way to check the signature here
+  case "$OS" in
+    Darwin) HOW="macOS ships it as /usr/bin/ssh-keygen; put /usr/bin on your PATH" ;;
+    *) HOW="install OpenSSH's client (Debian, Ubuntu: sudo apt install openssh-client; Fedora, RHEL: sudo dnf install openssh-clients; Arch: sudo pacman -S openssh; Alpine: sudo apk add openssh-keygen)" ;;
+  esac
+  die "cannot check this release's signature: $1. get.sh checks it with ssh-keygen -Y verify (OpenSSH 8.1 or newer): $HOW, then run this again. Nothing was installed. To install without the check, knowing that $RISK_UNSIGNED, add --allow-unsigned:
+  $(again --allow-unsigned)"
+}
+sig_fetch() { # <base URL>: the release's SHA256SUMS and SHA256SUMS.sig, from beside the bundle, into TMP
+  for f in SHA256SUMS SHA256SUMS.sig; do
+    CODE=0
+    HTTP="$(curl -q -fsL --proto '=https' --tlsv1.2 --retry 2 -w '%{http_code}' "$1/$f" -o "$TMP/$f")" || CODE=$?
+    case "$CODE/$HTTP" in
+      0/*) ;;
+      22/404|22/410) die "this release${LVER:+ (INIT $LVER)} is not signed: $1/$f answered HTTP $HTTP. INIT releases are signed from 0.5.3 on (SHA256SUMS and SHA256SUMS.sig beside the bundles). Nothing was installed. To install it anyway, knowing that $RISK_UNSIGNED, add --allow-unsigned:
+  $(again --allow-unsigned)" ;;
+      *) die "cannot fetch $1/$f (curl exit $CODE, HTTP ${HTTP:-none}); check the connection" ;;
+    esac
+  done
+}
+expired() { # the message for a signed SHA256SUMS past its expiry date
+  printf 'the signed SHA256SUMS of INIT %s expired on %s (today is %s, UTC). An expired signature is what a replayed old release looks like (a server, or a takeover of the release page, offering an old release with a known flaw as the newest); it is also what a release page with nothing newer since %s looks like. Nothing was installed. Check %s for a newer release; to install this one anyway, add --allow-expired:\n  %s' \
+    "$SIGNED" "$EXP" "$(date -u +%Y-%m-%d)" "$EXP" "$(page)" "$(again --allow-expired)"
+}
+SIGNED=""; EXP=""; SUMSHA=""; KEYFP=""; BY="" # the release, expiry, sha256 and key a verified SHA256SUMS names
+sig_by_root() { # the installed Root (0.5.3 or later) checks SHA256SUMS, its signature and the bundle with the key
+  # compiled into it; false when that Root has no `release` command (an install before 0.5.3)
+  K="$("$RH/bin/init-root" --root-home "$RH" release keys --json 2>/dev/null)" || return 1
+  case "$K" in *'"keys":[]'*) die "the installed INIT pins no release key (a development build, made before the release key existed), so it can verify no release. Nothing was changed. To upgrade anyway, knowing that $RISK_UNSIGNED, add --allow-unsigned:
+  $(again --allow-unsigned)" ;; esac
+  AE=""; [ $ALLOW_EXPIRED = 0 ] || AE=--allow-expired
+  CODE=0
+  OUT="$("$RH/bin/init-root" --root-home "$RH" release verify --sums "$TMP/SHA256SUMS" --sig "$TMP/SHA256SUMS.sig" --file "$TGZ" $AE 2>"$TMP/verify.err")" || CODE=$?
+  WHY="$(sed 's/^init-root release: //' "$TMP/verify.err" | head -n 3 | sed '$ s/\.$//')"
+  case $CODE in
+    0) [ -z "$WHY" ] || printf 'get.sh: %s\n' "$WHY" >&2 ;; # its note: the installed release, expired
+    5) SIGNED="$(sed -n 's/.*of INIT \([0-9A-Za-z.+-]*\) expired on \([0-9-]*\) .*/\1/p' "$TMP/verify.err")"
+       EXP="$(sed -n 's/.* expired on \([0-9-]*\) .*/\1/p' "$TMP/verify.err")"
+       die "$(expired)" ;;
+    *) die "the installed INIT refused this release: $WHY. Nothing was changed." ;;
+  esac
+  SIGNED="$(printf '%s' "$OUT" | sed -n 's/.*"version":"\([0-9A-Za-z.+-]*\)".*/\1/p')"
+  EXP="$(printf '%s' "$OUT" | sed -n 's/.*"expires":"\([0-9-]*\)".*/\1/p')"
+  SUMSHA="$(printf '%s' "$OUT" | sed -n 's/.*"sha256":"\([0-9a-f]\{64\}\)".*/\1/p')"
+  KEYFP="$(printf '%s' "$OUT" | sed -n 's/.*"key":"\(SHA256:[A-Za-z0-9+/]*\)".*/\1/p')"
+  [ -n "$SIGNED" ] && [ -n "$SUMSHA" ] || die "the installed INIT's check printed no release and sha256: $OUT"
+  # only with the flag: the installed release itself, expired, passes without it (its note is printed above)
+  [ $ALLOW_EXPIRED = 0 ] || case "$OUT" in *'"expired":true'*) printf 'get.sh: warning: --allow-expired: the signed SHA256SUMS of INIT %s expired on %s; installing it anyway, as you asked\n' "$SIGNED" "$EXP" >&2 ;; esac
+  BY="the installed INIT's own key"
+}
+sig_by_ssh() { # ssh-keygen -Y verify with this get.sh's RELEASE_KEYS (a fresh install, or an upgrade of an INIT before
+  # 0.5.3, whose Root cannot check it), then the version, the expiry and this bundle's line, read here
+  [ -n "$RELEASE_KEYS" ] || die "this get.sh pins no release key (a copy made before the release key existed), so it can verify no download. Nothing was installed. Use the get.sh of a published release, or, knowing that $RISK_UNSIGNED, add --allow-unsigned:
+  $(again --allow-unsigned)"
+  command -v ssh-keygen >/dev/null 2>&1 || no_verifier "ssh-keygen is not installed"
+  printf '%s\n' "$RELEASE_KEYS" | sed -n 's|^\(ssh-ed25519 [A-Za-z0-9+/=]*\).*|init-release namespaces="init-release" \1|p' >"$TMP/allowed_signers"
+  if ! ssh-keygen -Y verify -f "$TMP/allowed_signers" -I init-release -n init-release -s "$TMP/SHA256SUMS.sig" \
+    <"$TMP/SHA256SUMS" >"$TMP/verify.out" 2>&1; then
+    case "$(cat "$TMP/verify.out")" in
+      *"illegal option"*|*"unknown option"*|*"invalid option"*) no_verifier "this ssh-keygen has no -Y verify (OpenSSH before 8.1)" ;;
+    esac
+    die "the signature of SHA256SUMS does not verify with INIT's release key (ssh-keygen: $(head -n 2 "$TMP/verify.out" | tr '\n' ' ')): the files on the server are not the ones the maintainer signed, or they were signed with another key. Nothing was installed. Please report it: https://github.com/nagisanzenin/INIT-Agent/issues"
+  fi
+  KEYFP="$(sed -n 's/.* key \(SHA256:[A-Za-z0-9+/]*\).*/\1/p' "$TMP/verify.out" | head -n 1)"
+  [ "$(sed -n 1p "$TMP/SHA256SUMS")" = "# INIT release SHA256SUMS v1" ] \
+    || die "SHA256SUMS is in a format this get.sh does not read (from a newer release?): use the current get.sh"
+  SIGNED="$(sed -n '2s/^# version: \([0-9A-Za-z.+-]*\)$/\1/p' "$TMP/SHA256SUMS")"
+  EXP="$(sed -n '3s/^# expires: \([0-9]\{4\}-[0-9][0-9]-[0-9][0-9]\)$/\1/p' "$TMP/SHA256SUMS")"
+  [ -n "$SIGNED" ] && [ -n "$EXP" ] || die "the signed SHA256SUMS has no valid version or expires line"
+  SUMSHA="$(awk -v f="$FILE" 'NR > 3 && NF == 2 && $2 == f && $1 ~ /^[0-9a-f]+$/ && length($1) == 64 { print $1 }' "$TMP/SHA256SUMS")"
+  [ -n "$SUMSHA" ] && [ "$(printf '%s\n' "$SUMSHA" | wc -l | tr -d ' ')" = 1 ] || die "the signed SHA256SUMS of INIT $SIGNED does not list $FILE once"
+  STATE=newer
+  if [ $UPGRADE = 1 ] && [ -n "${HAVE:-}" ]; then # never down; only the installed release itself (the same version
+    # string) installs nothing new, so its expiry does not count; another label of the same core is another release
+    HAVEV="$(installed_release)"
+    if ver_older "$SIGNED" "$HAVEV"; then
+      die "this signed release is INIT $SIGNED, older than the installed $HAVEV: INIT does not downgrade. An older release offered as the newest is what a replayed download looks like. Nothing was changed."
+    elif [ "$SIGNED" = "$HAVEV" ]; then STATE=current; fi
+  fi
+  if [ "$(date -u +%Y%m%d)" -gt "$(printf '%s' "$EXP" | tr -d -)" ] && [ $STATE != current ]; then
+    [ $ALLOW_EXPIRED = 1 ] || die "$(expired)"
+    printf 'get.sh: warning: --allow-expired: the signed SHA256SUMS of INIT %s expired on %s; installing it anyway, as you asked\n' "$SIGNED" "$EXP" >&2
+  fi
+  BY="ssh-keygen"
+}
+signature() { # <base URL>: fetch and verify; sets SIGNED, EXP, SUMSHA, KEYFP, BY
+  sig_fetch "$1"
+  if [ $UPGRADE = 0 ] || ! sig_by_root; then sig_by_ssh; fi
+}
+
+LOCAL=0 # 1: --from a local file, checked by its sha256 only
 case "$FROM" in
   http://*) die "refusing a plain-http URL: $FROM" ;;
   https://*|"")
@@ -335,6 +521,7 @@ case "$FROM" in
       # list takes the checksum from the .sha256 next to the bundle
       [ -n "$WANT" ] || WANT="$(sed -n "s/^ *\"sha256_$TARGET\": \"\([0-9a-f]\{64\}\)\".*/\1/p" "$TMP/latest.json")"
       [ -n "$WANT" ] || [ "$LTARGET" != "$TARGET" ] || WANT="$(sed -n 's/^ *"sha256": "\([0-9a-f]\{64\}\)".*/\1/p' "$TMP/latest.json")"
+      [ -z "$WANT" ] || [ -n "$WANT_FROM" ] || WANT_FROM=latest.json
       FROM="$DIST_URL/$FILE"
     fi
     FILE="$(basename "$FROM")"
@@ -346,10 +533,11 @@ case "$FROM" in
       22/404|22/410) no_bundle "$FROM" "$HTTP" ;;
       *) die "download failed: $FROM (curl exit $CODE, HTTP ${HTTP:-none}); check the connection, or use --from <bundle.tar.gz>" ;;
     esac
-    [ -n "$WANT" ] || { fetch "$FROM.sha256" "$TMP/$FILE.sha256" && WANT="$(cut -d' ' -f1 "$TMP/$FILE.sha256")"; } || true
+    [ -n "$WANT" ] || { fetch "$FROM.sha256" "$TMP/$FILE.sha256" && WANT="$(cut -d' ' -f1 "$TMP/$FILE.sha256")" && WANT_FROM="$FILE.sha256"; } || true
     TGZ="$TMP/$FILE" ;;
   *)
     [ -f "$FROM" ] || die "no such bundle: $FROM"
+    LOCAL=1
     SRC="$(cd "$(dirname "$FROM")" && pwd -P)/$(basename "$FROM")"
     FILE="$(basename "$FROM")"
     # a fresh install (no INIT, so no agent yet) may take the .sha256 beside the bundle; an upgrade stopped above without --sha256
@@ -359,6 +547,19 @@ case "$FROM" in
     cp -- "$SRC" "$TMP/$FILE" || die "cannot copy $SRC into $TMP"
     TGZ="$TMP/$FILE" ;;
 esac
+
+if [ $LOCAL = 0 ] && [ $ALLOW_UNSIGNED = 1 ]; then
+  printf 'get.sh: warning: --allow-unsigned: the signature is not checked; %s (download base: %s).\n' "$RISK_UNSIGNED" "${FROM%/*}" >&2
+elif [ $LOCAL = 0 ]; then
+  signature "${FROM%/*}"
+  [ -z "${LVER:-}" ] || [ "$LVER" = "$SIGNED" ] || die "latest.json names INIT $LVER, and the signed SHA256SUMS beside it INIT $SIGNED: the release page is inconsistent. Nothing was installed."
+  if [ -n "$WANT" ] && [ "$WANT" != "$SUMSHA" ]; then
+    if [ "$WANT_FROM" = owner ]; then die "the sha256 you gave (--sha256 $WANT) is not the one the signed SHA256SUMS lists for $FILE ($SUMSHA). Nothing was installed."; fi
+    die "$WANT_FROM lists sha256 $WANT for $FILE, and the signed SHA256SUMS $SUMSHA: the release page is inconsistent, or the bundle was swapped. Nothing was installed."
+  fi
+  WANT="$SUMSHA"
+  ok "signature: INIT $SIGNED, signed by INIT's release key ${KEYFP:-?}, valid until $EXP (checked with $BY)"
+fi
 
 # ---------------------------------------------------------------- verify
 case "$WANT" in
@@ -378,6 +579,7 @@ TOP="$(ls "$TMP/x")"
 case "$TOP" in *-"$TARGET") ;; *) die "$FILE is not a $TARGET bundle (its top directory is $TOP); download the one for this machine" ;; esac
 VERSION="$(cat "$TMP/x/$TOP/VERSION")"
 case "$VERSION" in *[!0-9A-Za-z.-]*|"") die "bad VERSION in the bundle: $VERSION" ;; esac
+[ -z "$SIGNED" ] || [ "$VERSION" = "$SIGNED" ] || die "$FILE holds INIT $VERSION, but its signed SHA256SUMS is for INIT $SIGNED. Nothing was installed."
 (cd "$TMP/x/$TOP" && sha_check SHA256SUMS) || die "the unpacked files do not match the bundle's SHA256SUMS"
 DEST="$APP/$VERSION"
 if [ -e "$DEST" ]; then
@@ -440,7 +642,7 @@ cat <<EOF
 
 INIT $VERSION installed in $(( $(date +%s) - T0 )) s (after the download).
 Start it:
-  $BIN/init-agent
+  $(tilde "$BIN/init-agent")
 The first run asks for the provider, your key (hidden) and the model, then opens the chat.
 From a shell instead: $(rcmd keys set deepseek)   (the key is never echoed or logged)
 EOF

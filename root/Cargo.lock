@@ -195,8 +195,9 @@ dependencies = [
 
 [[package]]
 name = "init-root"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
+ "base64",
  "ed25519-dalek",
  "httparse",
  "init-sandbox-profiles",
@@ -211,7 +212,7 @@ dependencies = [
 
 [[package]]
 name = "init-sandbox-profiles"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "libc",
  "serde_json",

@@ -512,12 +512,14 @@ After the first turn ends (never before the first reply), when a toolchain is co
 - **Priority.** The Root's broker spawns the build instance at background priority: background QoS on macOS; nice 19, `SCHED_IDLE` and the idle I/O class on Linux; `PROCESS_MODE_BACKGROUND_BEGIN` on Windows. `CARGO_BUILD_JOBS = max(1, cores / 2)`.
 - **Pauses.** While a turn runs (it resumes at idle); on battery power (the Root reads the power source: `pmset -g ps` on macOS, `/sys/class/power_supply/*/online` on Linux, `GetSystemPowerStatus` on Windows); and when free disk would drop below the floor plus 2 GB.
 - It also fills `cache/deps/`, so the first real self-change builds warm.
-- About 4 minutes cold on an idle M2 (README), more at background priority. It is not on the critical path.
+- About 4 minutes cold on an idle M2 by an early README figure that has no receipt, and more at background priority. The measured cold times, with their load, are in docs/guide.md "Time". It is not on the critical path.
 
 #### 3.5.3 The repro check
 
+*Not built (2026-10-29): no `repro` record or `root.repro_pending` refusal exists in the Root. A bundle install checks only that the prebuilt body is hash-equal to the maintainer's build (release.md §5b).*
+
 The kernel reports the built body's sha256 (`repro.report{tuple, sha256}`), and the Root compares it with the genesis tuple's body blob.
-- **Match:** lineage `repro{result:"verified"}`, and one dim notice: `▲ self-improvement ready · this computer rebuilds the shipped agent bit for bit (3f9c0a1b)`.
+- **Match:** lineage `repro{result:"verified"}`, and one dim notice: `▲ self-improvement ready · this computer's build is hash-equal to the shipped agent (3f9c0a1b)`.
 - **Mismatch:** the locally built body goes through the same staging probe the gate uses for a new body (kernel/supervise.md §3.6.3). If it passes, it becomes the LKG, with lineage `repro{result:"rebuilt_local", shipped, local}`, and the notice reads `▲ self-improvement ready · rebuilt from source on this computer (the shipped build differs)`. `init doctor` shows both hashes. If the probe fails, evolution stays off, chat keeps the prebuilt body, and the owner sees `ux.repro_failed`.
 - **The promotion gate.** Until a `repro` record exists, the Root refuses `promotion` with `root.repro_pending`, which holds even against an agent-written kernel, and the kernel starts no evolution job. If the owner asks for a self-change meanwhile: "INIT will start improving itself after its build check (about 3 min). Chat is unaffected."
 

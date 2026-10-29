@@ -396,6 +396,27 @@ fn rollback_line(root: &Root, arg: Option<&str>) {
         });
         return root.notice("info", &format!("[root] rolling the whole system back to the {name} tuple"));
     }
+    // v0.5.3 (lane H): on the gated path a kept change is LKG at once and opens no group, so plain `/rollback` undoes the
+    // newest kept change: LKG moves back to the tuple it replaced (tuple::undo_kept), then the zone restarts there
+    let gated = !lock(&root.st).charter.as_ref().is_some_and(|l| l.ch.extend.free());
+    if arg.is_none() && gated && with(root, |e, _| (e.groups.is_empty(), Vec::new())) {
+        let (to, undone) = match crate::tuple::undo_kept(root) {
+            Ok(x) => x,
+            Err(m) => return root.notice("warn", &format!("[root] /rollback: nothing was rolled back: {m}")),
+        };
+        root.sentinel.closed.store(true, SeqCst); // `tick` re-reads `settled` after this `lkg` move
+        go(root, |e, cx| {
+            e.interrupt(cx);
+            let mut acts = e.trigger(cx, "H3", 1, 1, engine::Pick::Collateral, "rollback_kept");
+            acts.retain(|a| !matches!(a, Act::Event("extend.rollback", _)));
+            e.rollback = None;
+            acts.push(Act::Restart { to: Some(to.clone()), reason: "rollback_system", cause: json!({"to": to, "trigger": "owner", "undo": undone}),
+                restore: None });
+            acts
+        });
+        return root.notice("info", &format!("[root] /rollback: undoing the newest kept change {undone}: the whole system goes back to {to}, \
+            the last-known-good tuple before it, which is last-known-good again. A change still in its gate stops with it."));
+    }
     go(root, |e, cx| {
         e.interrupt(cx);
         e.reversal(cx, arg, "/rollback")
@@ -595,6 +616,12 @@ pub fn change_open(root: &Arc<Root>, a: &Value) -> Result<Value, Err3> {
         root.alert("boundary", &format!("[root] change {}: a candidate blob is missing or does not match its digest (A0)", &sha[..sha.len().min(12)]));
         return Err(no("root.boundary", "A0: a candidate blob is missing from the store or does not match its digest"));
     }
+    // A0 (L2b, INV-2): the Root's binary, compiled-in profiles and active charter are still as `root_start` recorded them
+    if let Err(why) = crate::boundary::check(root) {
+        let why = format!("A0: {why}");
+        crate::sup::boundary_halt(root, &why); // the zone stops: a Root file changed under the running Root
+        return Err(no("root.boundary", why));
+    }
     let caps_hook = lock(hooks()).caps;
     let caps = match caps_hook {
         Some(f) => f(root, a)?,
@@ -610,12 +637,14 @@ pub fn change_open(root: &Arc<Root>, a: &Value) -> Result<Value, Err3> {
     // X4: A4 and the system snapshot (first change of a group only)
     let mut args = a.clone();
     (args["group"], args["parent_tuple"]) = (json!(plan.group), json!(plan.parent));
-    let mut checks = json!({"A0": "pass", "A4": "skip", "A5": "pass"});
+    // L2b: each value is what its check reported: A0 above; A5 from X6's hook (debts, bloat, a dep grant; the blast radius
+    // passed in `plan`) once X4's hook found the disk room; A4 from X4's probe; K from X8's
+    let mut checks = json!({"A0": "pass", "A4": "skip", "A5": null});
     let mut snapshot = Value::Null;
     let admit = lock(hooks()).admit.clone();
     for f in admit {
         let r = f(root, &args, plan.first)?;
-        for c in ["A4", "K"] {
+        for c in ["A4", "A5", "K"] {
             if r.get(c).is_some() {
                 checks[c] = r[c].clone(); // K: X8's Root conformance probe (scope k)
             }
@@ -623,6 +652,9 @@ pub fn change_open(root: &Arc<Root>, a: &Value) -> Result<Value, Err3> {
         if r.get("snapshot").is_some_and(|s| !s.is_null()) {
             snapshot = r["snapshot"].clone();
         }
+    }
+    if checks["A5"] != "pass" {
+        return Err(no("root.internal", "A5: the budget checks did not run (no admission hook reported them); nothing opens"));
     }
     if !plan.first {
         snapshot = with(root, |e, _| (e.groups.iter().find(|g| g.seq == plan.group).and_then(|g| g.snapshot.clone()), Vec::new())).map_or(Value::Null, Value::from);

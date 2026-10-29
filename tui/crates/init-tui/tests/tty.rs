@@ -23,11 +23,19 @@ impl Drive {
     }
     /// The same with the TUI's cwd (the driver's) set to `cwd` (WIRE-009: the workspace).
     fn start_in(rh: &std::path::Path, args: &[&str], cwd: Option<&std::path::Path>) -> Drive {
+        Drive::start_with(rh, args, cwd, &[])
+    }
+    /// The same with `INIT_*` variables for the TUI (the pty driver passes those on; v0.5.3).
+    fn start_env(rh: &std::path::Path, args: &[&str], env: &[(&str, &str)]) -> Drive {
+        Drive::start_with(rh, args, None, env)
+    }
+    fn start_with(rh: &std::path::Path, args: &[&str], cwd: Option<&std::path::Path>, env: &[(&str, &str)]) -> Drive {
         let script = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/pty_drive.py");
         let mut cmd = Command::new("/usr/bin/python3");
         if let Some(c) = cwd {
             cmd.current_dir(c);
         }
+        cmd.envs(env.iter().copied());
         let mut child = cmd
             .arg("-I")
             .arg(script)
@@ -71,6 +79,28 @@ impl Drop for Drive {
         let _ = self.child.kill(); // our own child (the driver), by its handle
         let _ = self.child.wait();
     }
+}
+
+/// `out` without its escape sequences (CSI `ESC [ … final`, OSC `ESC ] … ST`, and two-byte ones).
+fn plain(out: &str) -> String {
+    let mut s = String::new();
+    let mut it = out.chars().peekable();
+    while let Some(c) = it.next() {
+        if c != '\u{1b}' {
+            s.push(c);
+            continue;
+        }
+        match it.next() {
+            Some('[') => while it.next().is_some_and(|c| !('\u{40}'..='\u{7e}').contains(&c)) {},
+            Some(']') => while let Some(c) = it.next() {
+                if c == '\u{7}' || (c == '\u{1b}' && it.next_if_eq(&'\\').is_some()) {
+                    break;
+                }
+            },
+            _ => {}
+        }
+    }
+    s
 }
 
 /// The `--latency-report` lines from the TUI's output.
@@ -441,4 +471,29 @@ fn tui13_latency_and_load() {
     let sum = line_of(&dd, "first_paint_ms");
     check(field(sum, "disconnects") == 0, format!("0 disconnects at 5,000 frames/s for {secs} s: {sum}; {}", line_of(&dd, "frame->flush")));
     assert!(fails.is_empty(), "TUI-13 misses: {fails:#?}");
+}
+
+/// v0.5.3 (the v0.5.2 post-release review, finding 4): the quit line said "run init-agent to come back",
+/// a bare command that a fresh Mac does not find (~/.local/bin is not on its PATH). It names the
+/// launcher by its path (the launcher passes it in INIT_AGENT_LAUNCHER), as `~/…` under HOME, with
+/// INIT_ROOT_HOME= in front for a ROOT_HOME that is not ~/.init-root.
+#[test]
+fn the_quit_line_names_the_launcher_by_its_path() {
+    let fx = Fixture::start("quit-path");
+    let home = fx.rh.parent().unwrap(); // the pty driver's HOME
+    let launcher = home.join("apps/bin/init-agent"); // not install.sh's default: the TUI must print the one it was given
+    let mut d = Drive::start_env(&fx.rh, &[], &[("INIT_AGENT_LAUNCHER", launcher.to_str().unwrap())]);
+    d.ok(json!(["wait", "root ok", 10]));
+    d.ok(json!(["type", "\u{4}"])); // Ctrl-D on an empty box: quit
+    let s = d.exit(10);
+    assert_eq!(s["exit"], 0, "{}", s["output"]);
+    let out = s["output"].as_str().unwrap();
+    let flat = plain(out).split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flat.contains("init-agent closed."), "{out}");
+    // the TUI quotes a path that needs it (app.rs `shq`): the main checkout's path holds a space ("INIT Agent")
+    let rh = fx.rh.display().to_string();
+    let rh = if rh.bytes().all(|c| c.is_ascii_alphanumeric() || b"/._+-,:@%=".contains(&c)) { rh } else { format!("'{}'", rh.replace('\'', "'\\''")) };
+    assert!(flat.contains(&format!("run INIT_ROOT_HOME={rh} ~/apps/bin/init-agent to come back")), "{flat}");
+    assert!(!flat.contains("run init-agent"), "{flat}");
+    cleanup(&fx.dir);
 }

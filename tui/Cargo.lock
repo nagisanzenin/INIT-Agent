@@ -56,7 +56,7 @@ dependencies = [
 
 [[package]]
 name = "init-tui"
-version = "0.5.2"
+version = "0.5.3"
 dependencies = [
  "crossterm",
  "rustix",

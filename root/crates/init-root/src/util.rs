@@ -217,9 +217,34 @@ pub fn root_cmd(rh: &Path, args: &str) -> String {
     root_cmd_for(rh, crate::sys::passwd_home().as_deref(), args)
 }
 
+/// v0.5.3 (REL-052 §7.5 finding 4): the command an owner types to run `init-agent <args>`: the launcher in `bin_dir`
+/// (install.sh's `INIT_BIN_DIR`, default `~/.local/bin`) by its path, because a fresh Mac has no `~/.local/bin` on
+/// PATH and a bare `init-agent` fails with "command not found". Under the passwd home (a new terminal's `~`) it prints
+/// as `~/…`, as [`root_cmd_for`] does; scripts/install.sh and the TUI follow the same rule.
+pub fn agent_cmd_for(bin_dir: &Path, passwd_home: Option<&Path>, args: &str) -> String {
+    let exe = bin_dir.join("init-agent");
+    let shown = match passwd_home.and_then(|h| exe.strip_prefix(h).ok()) {
+        Some(rest) => format!("~/{}", sh_word(&rest.to_string_lossy())),
+        None => sh_word(&exe.to_string_lossy()),
+    };
+    if args.is_empty() { shown } else { format!("{shown} {args}") }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// v0.5.3 (REL-052 §7.5 finding 4): the launcher by its path, `~` under the passwd home, quoted only when it must be.
+    #[test]
+    fn the_launcher_is_printed_by_its_path() {
+        let h = Path::new("/Users/o");
+        assert_eq!(agent_cmd_for(Path::new("/Users/o/.local/bin"), Some(h), "upgrade"), "~/.local/bin/init-agent upgrade");
+        assert_eq!(agent_cmd_for(Path::new("/Users/o/.local/bin"), Some(h), ""), "~/.local/bin/init-agent");
+        assert_eq!(agent_cmd_for(Path::new("/Users/o/my bin"), Some(h), "--workspace"), "~/'my bin/init-agent' --workspace");
+        assert_eq!(agent_cmd_for(Path::new("/opt/init/bin"), Some(h), "upgrade"), "/opt/init/bin/init-agent upgrade");
+        assert_eq!(agent_cmd_for(Path::new("/Users/o/.local/bin"), None, ""), "/Users/o/.local/bin/init-agent", "no passwd home: absolute");
+        assert_eq!(agent_cmd_for(Path::new("/Users/other/bin"), Some(h), ""), "/Users/other/bin/init-agent");
+    }
 
     #[test]
     fn rfc3339_round_trip() {

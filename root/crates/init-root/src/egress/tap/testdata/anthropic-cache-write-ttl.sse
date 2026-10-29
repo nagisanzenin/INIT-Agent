@@ -1,0 +1,24 @@
+event: message_start
+data: {"message":{"content":[],"id":"msg_g1","model":"claude-sonnet-5-5","role":"assistant","stop_reason":null,"stop_sequence":null,"type":"message","usage":{"cache_creation":{"ephemeral_1h_input_tokens":1504,"ephemeral_5m_input_tokens":20000},"cache_creation_input_tokens":21504,"cache_read_input_tokens":0,"input_tokens":3,"output_tokens":1}},"type":"message_start"}
+
+event: ping
+data: {"type":"ping"}
+
+event: content_block_start
+data: {"content_block":{"text":"","type":"text"},"index":0,"type":"content_block_start"}
+
+event: content_block_delta
+data: {"delta":{"text":"Running it n","type":"text_delta"},"index":0,"type":"content_block_delta"}
+
+event: content_block_delta
+data: {"delta":{"text":"ow.","type":"text_delta"},"index":0,"type":"content_block_delta"}
+
+event: content_block_stop
+data: {"index":0,"type":"content_block_stop"}
+
+event: message_delta
+data: {"delta":{"stop_reason":"end_turn","stop_sequence":null},"type":"message_delta","usage":{"cache_creation_input_tokens":21504,"cache_read_input_tokens":0,"input_tokens":3,"output_tokens":87}}
+
+event: message_stop
+data: {"type":"message_stop"}
+

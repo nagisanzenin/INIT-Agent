@@ -1,7 +1,8 @@
 //! UX-KEYMODEL (v0.2.0-preview): providers, keys and the model selection from inside the app, so the owner never
 //! hand-edits two TOML files with different price units (docs/provider-configuration.md).
 //!
-//! - A built-in catalog of five presets. Only DeepSeek is live-tested; the others are marked experimental.
+//! - A built-in catalog of five presets. DeepSeek's models and OpenAI's gpt-6.1-sol are live-tested; the others are
+//!   marked experimental.
 //! - `providers add` writes the charter's `[actions.providers]` class (destinations, paths, the provider entry, the
 //!   model tariff in µUSD/MTok) as one explicit block, checks it with the charter rules and applies it through the
 //!   existing `charter.apply` path. It adds the matching `INIT_HOME/kernel/config.toml` provider table (decimal
@@ -38,6 +39,11 @@ pub struct CatModel {
     /// Live-tested on this model: a passing scripts/qualify-provider.sh run (DeepSeek: the v0.1–v0.4 real runs).
     /// The label the app shows per model; the preset's `tested` stays the provider's label.
     pub live: bool,
+    /// v0.5.3 L6: the shortest prompt this model caches, in tokens (0: no stated minimum). A shorter request is
+    /// processed uncached by the provider, so the Root leaves it out of the cache-read card (`min_cacheable`).
+    /// Per model, not per provider: Anthropic's minimum ranges from 512 to 4,096 tokens by model
+    /// (research_notes/INIT v1 providers UX vision/llm_api_providers.md, "Minimum cacheable length").
+    pub min_cacheable_tokens: u64,
     /// Input window, used only when a custom alias (a gateway) serves this model and the kernel needs a descriptor.
     pub context: u64,
     pub max_output: u64,
@@ -57,20 +63,24 @@ pub struct Preset {
     pub kernel_preset: &'static str,
     pub local: bool,
     pub default_url: Option<&'static str>,
-    /// `live` or `experimental` (not live-tested).
+    /// `live` or `experimental` (not live-tested): the official host's label, when at least one of its models passed a
+    /// live qualification. A custom URL with this preset (a gateway) is always experimental (`spec`).
     pub tested: &'static str,
     pub models: &'static [CatModel],
     pub env: Option<&'static str>,
 }
 
 const fn m(id: &'static str, p: (u64, u64, u64), (context, max_output): (u64, u64), reserve: u64) -> CatModel {
-    CatModel { id, input: p.0, cache_read: p.1, output: p.2, offpeak: None, cache_write: None, live: false, context, max_output, reserve }
+    CatModel { id, input: p.0, cache_read: p.1, output: p.2, offpeak: None, cache_write: None, live: false, min_cacheable_tokens: 0, context,
+        max_output, reserve }
 }
 
 /// DeepSeek prices as `scripts/install.sh` writes them; Anthropic and OpenAI from
 /// research_notes/INIT v1 providers UX vision/llm_api_providers.md (standard tier, verified 2026-10-20), checked
 /// against reports/INIT v1 providers UX vision.md Table A on 2026-10-27 (v0.5.0 L3; the OpenAI cache-write prices
 /// were missing). Not representable here: gpt-6.1-sol and gpt-6-astra reprice a whole request above 272K input.
+/// Minimum cacheable lengths (v0.5.3 L6): Anthropic's 5.5 models 512, OpenAI's GPT-5.6+ models 1,024, DeepSeek none
+/// stated (research_notes/INIT v1 providers UX vision/llm_api_providers.md).
 pub const CATALOG: [Preset; 5] = [
     Preset { id: "deepseek", display: "DeepSeek", api: "chat", host: Some("api.deepseek.com:443"),
         paths: &["chat/completions", "beta/chat/completions", "models", "user/balance"], kernel_preset: "deepseek", local: false,
@@ -82,13 +92,19 @@ pub const CATALOG: [Preset; 5] = [
         kernel_preset: "deepseek", local: false, default_url: None, tested: "experimental", env: None, models: &[] },
     Preset { id: "anthropic", display: "Anthropic (Messages API)", api: "messages", host: Some("api.anthropic.com:443"), paths: &["v1/messages"],
         kernel_preset: "anthropic", local: false, default_url: None, tested: "experimental", env: Some("ANTHROPIC_API_KEY"), models: &[
-            CatModel { cache_write: Some((5_000_000, 8_000_000)), ..m("claude-opus-5-5", (4_000_000, 200_000, 20_000_000), (1_000_000, 131_072), 32_768) },
-            CatModel { cache_write: Some((2_500_000, 4_000_000)), ..m("claude-sonnet-5-5", (2_000_000, 100_000, 10_000_000), (1_000_000, 131_072), 32_768) },
+            CatModel { cache_write: Some((5_000_000, 8_000_000)), min_cacheable_tokens: 512,
+                ..m("claude-opus-5-5", (4_000_000, 200_000, 20_000_000), (1_000_000, 131_072), 32_768) },
+            CatModel { cache_write: Some((2_500_000, 4_000_000)), min_cacheable_tokens: 512,
+                ..m("claude-sonnet-5-5", (2_000_000, 100_000, 10_000_000), (1_000_000, 131_072), 32_768) },
         ] },
     Preset { id: "openai", display: "OpenAI (Responses API)", api: "responses", host: Some("api.openai.com:443"), paths: &["v1/responses"],
-        kernel_preset: "openai", local: false, default_url: None, tested: "experimental", env: Some("OPENAI_API_KEY"), models: &[
-            CatModel { cache_write: Some((2_500_000, 2_500_000)), ..m("gpt-6.1-sol", (2_000_000, 100_000, 10_000_000), (922_000, 128_000), 32_768) },
-            CatModel { cache_write: Some((12_500_000, 12_500_000)), ..m("gpt-6-astra", (10_000_000, 1_000_000, 50_000_000), (922_000, 128_000), 32_768) },
+        kernel_preset: "openai", local: false, default_url: None, tested: "live", env: Some("OPENAI_API_KEY"), models: &[
+            // live-tested 2026-10-29: scripts/qualify-provider.sh PASS 7/7 on the owner's v0.5.2 install
+            // (build/status/qualify/openai-gpt-6.1-sol-v0.5.2.json and .log)
+            CatModel { cache_write: Some((2_500_000, 2_500_000)), live: true, min_cacheable_tokens: 1_024,
+                ..m("gpt-6.1-sol", (2_000_000, 100_000, 10_000_000), (922_000, 128_000), 32_768) },
+            CatModel { cache_write: Some((12_500_000, 12_500_000)), min_cacheable_tokens: 1_024,
+                ..m("gpt-6-astra", (10_000_000, 1_000_000, 50_000_000), (922_000, 128_000), 32_768) },
         ] },
     Preset { id: "local", display: "Local server, no key (Ollama, LM Studio, llama.cpp; Chat Completions)", api: "chat", host: None,
         paths: &["chat/completions"], kernel_preset: "deepseek", local: true, default_url: Some("http://127.0.0.1:11434/v1"),
@@ -108,6 +124,12 @@ pub fn preset(id: &str) -> Option<&'static Preset> {
 
 fn cat_model(provider: &str, model: &str) -> Option<&'static CatModel> {
     preset(provider).filter(|p| OFFICIAL.contains(&p.id))?.models.iter().find(|x| x.id == model)
+}
+
+/// v0.5.3 L6: the shortest prompt `provider`'s `model` caches (the catalog's `min_cacheable_tokens`); 0 for a model the
+/// catalog does not list (a gateway or custom model: every request counts, as before).
+pub fn min_cacheable(provider: &str, model: &str) -> u64 {
+    cat_model(provider, model).map_or(0, |c| c.min_cacheable_tokens)
 }
 
 /// Provider ids `^[a-z][a-z0-9_-]{0,31}$` (kernel/proxy.md §3.5).
@@ -275,7 +297,8 @@ pub fn spec(r: &AddReq) -> Result<Spec, String> {
         paths: pr.paths.iter().map(|p| p.to_string()).collect(), price: price.unwrap_or((0, 0, 0)), priced: price.is_some() || pr.local,
         offpeak: cat.and_then(|c| c.offpeak).filter(|_| official), cache_write: cat.and_then(|c| c.cache_write).filter(|_| official),
         context, max_output, reserve: cat.map_or(CUSTOM_REQUEST.min(max_output), |c| c.reserve), model, alias,
-        tested: cat.filter(|_| official).map_or(pr.tested, |c| if c.live { "live" } else { "experimental" }),
+        // the qualification was of the official host: the same preset at another URL (a gateway) is not live-tested
+        tested: match cat.filter(|_| official) { Some(c) if c.live => "live", None if official => pr.tested, _ => "experimental" },
     })
 }
 
@@ -887,8 +910,8 @@ fn print_list(p: &Paths, v: &Value, only: Option<&str>, models_only: bool) {
         println!("  {:<10} {}  [{ms}]  {t}", c["preset"].as_str().unwrap_or(""), c["display"].as_str().unwrap_or(""));
     }
     if v["ready"] != true {
-        println!("Not ready: the selected model {}/{} has no usable key. Run `init-agent` for the guided setup.",
-            v["selected"]["provider"].as_str().unwrap_or(""), v["selected"]["model"].as_str().unwrap_or(""));
+        println!("Not ready: the selected model {}/{} has no usable key. Run `{}` for the guided setup.",
+            v["selected"]["provider"].as_str().unwrap_or(""), v["selected"]["model"].as_str().unwrap_or(""), p.agent_cmd(""));
     }
 }
 

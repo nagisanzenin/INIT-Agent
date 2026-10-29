@@ -259,7 +259,9 @@ t1_install() { # TARBALL DIR
   t1_log "get.sh exit $grc in $T1_GET_MS ms"
   [ $grc = 0 ] || { tail -40 "$T1_DIR/get.log" >&2; t1_die "get.sh"; return 1; }
   [ -x "$BIN/init-agent" ] || { t1_die "no $BIN/init-agent"; return 1; }
-  grep -q 'prebuilt body, verified bit for bit' "$T1_DIR/get.log" || { t1_die "the install did not use the prebuilt body"; return 1; }
+  # the installed release's own wording: "hash-equal to the maintainer's build" from v0.5.3, "verified bit for bit" before
+  grep -qE "installed \(prebuilt body, (hash-equal to the maintainer's build|verified bit for bit)\)" "$T1_DIR/get.log" \
+    || { t1_die "the install did not use the prebuilt body"; return 1; }
   T1_TC="$(/usr/bin/python3 -I -c 'import json,sys;print(json.load(open(sys.argv[1])).get("toolchain") or "")' "$RH/install.json")"
   export T1_TC
   case "$T1_TC" in "$T1_PW_HOME/.rustup/toolchains/$T1_RUST-"*) ;; *) t1_die "recorded toolchain '$T1_TC' is not rustup's $T1_RUST"; return 1 ;; esac

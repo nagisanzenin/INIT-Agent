@@ -11,6 +11,8 @@
 //! under `root/target/test-homes/sbx009/`; nothing outside it is read or written.
 #![cfg(feature = "test-fixtures")]
 
+#[path = "common/shown.rs"]
+mod shown;
 use serde_json::{Value, json};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -34,9 +36,21 @@ struct Home {
 impl Drop for Home {
     fn drop(&mut self) {
         if !std::thread::panicking() {
+            unlock(&self.dir);
             let _ = fs::remove_dir_all(&self.dir);
         }
     }
+}
+
+/// v0.5.3: the `/undo` tests leave read-only folders and locked files in their home (in the workspace and in the
+/// Root's clones of it); this makes them removable again: the lock flag off, then the owner's permissions on, under
+/// `dir` only (a test home this file made).
+fn unlock(dir: &Path) {
+    if cfg!(target_os = "macos") {
+        let _ = Command::new("/usr/bin/chflags").args(["-R", "nouchg"]).arg(dir).stderr(Stdio::null()).status();
+        let _ = Command::new("/bin/chmod").args(["-R", "-N"]).arg(dir).stderr(Stdio::null()).status(); // and every ACL
+    }
+    let _ = Command::new("/bin/chmod").args(["-R", "u+rwX"]).arg(dir).stderr(Stdio::null()).status();
 }
 
 /// A fresh fake HOME `root/target/test-homes/sbx009/<name>` (short: ROOT_HOME must stay ≤ 80 bytes).
@@ -44,6 +58,7 @@ fn home(name: &str) -> Home {
     let base = fs::canonicalize(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target")).unwrap().join("test-homes/sbx009");
     let dir = base.join(name);
     if dir.exists() {
+        unlock(&dir);
         fs::remove_dir_all(&dir).unwrap(); // exact path, created by an earlier run of this test
     }
     for d in ["rel", "tc/bin", "proj/src", "other", ".ssh/keys", ".local/bin"] {
@@ -107,12 +122,18 @@ impl Home {
         v["error"].clone()
     }
     fn daemon(&self, fk: &str) -> Daemon {
+        self.daemon_with(fk, &[])
+    }
+    /// [`Home::daemon`] with more environment (v0.5.3: `INIT_FAULT`, the Root's fault points in test builds).
+    fn daemon_with(&self, fk: &str, env: &[(&str, &str)]) -> Daemon {
         let info: Value = serde_json::from_str(&fs::read_to_string(self.rh.join("install.json")).unwrap()).unwrap();
         let s = |k: &str| info[k].as_str().unwrap_or("").to_string();
-        let c = self.cmd().arg("start").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).env("INIT_TEST_FK", fk)
+        let mut c = self.cmd();
+        c.arg("start").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).env("INIT_TEST_FK", fk)
             .env("INIT_TEST_TOOLCHAIN", s("toolchain")).env("INIT_TEST_DEVDIR", s("devdir")).env("INIT_TEST_HOME_REAL", &self.dir)
-            .env("INIT_ROOT_TEST_NOW", "2030-01-10T00:00:00Z").spawn().unwrap();
-        let d = Daemon(c, self.rh.clone());
+            .env("INIT_ROOT_TEST_NOW", "2030-01-10T00:00:00Z");
+        c.envs(env.iter().copied());
+        let d = Daemon(c.spawn().unwrap(), self.rh.clone());
         wait(10, "owner.sock", || UnixStream::connect(self.rh.join("run/owner.sock")).is_ok());
         d
     }
@@ -260,7 +281,9 @@ fn charter_disables_full_mode_and_home_reads() {
     assert_eq!((e["code"].as_str(), e["data"]["reason"].as_str()), (Some("root.mode"), Some("charter")));
     assert_eq!((v["full"].as_bool(), v["mode"].as_str()), (Some(false), Some("full")), "allow_full = false wins over the default mode");
     let w = h.ok("workspace.set", json!({"cwd": h.s("proj")}));
-    assert_eq!(w["access"]["access"], if linux { "none" } else { "workspace" });
+    // v0.5.3 (lane H): a workspace without the home read is `workspace_only`, which the body's boot block states (until
+    // v0.5.3 it was `workspace`, and the boot block told the model it could read the owner's home)
+    assert_eq!(w["access"]["access"], if linux { "none" } else { "workspace_only" });
     if linux {
         assert_eq!(w["refused"]["code"], "platform", "{w}");
     }
@@ -335,9 +358,12 @@ fn body_writes_the_workspace_and_undo_restores_it() {
     let saved = h.rh.join("snapshots").join(r["saved"]["id"].as_str().unwrap());
     assert_eq!(fs::read_to_string(saved.join("agent.txt")).unwrap(), "agent\n", "the state before /undo was saved");
     assert!(h.snapshots().contains(&first), "the session snapshot is still kept");
-    // the undo can itself be undone: the latest snapshot is now the pre_undo one
-    let r2 = h.ok("undo", json!({"confirm": "confirm"}));
-    assert_eq!(r2["restored"]["id"], r["saved"]["id"]);
+    // the undo can itself be undone, by the save's id (v0.5.3: plain /undo never goes back to a state an /undo replaced)
+    assert_eq!(h.refused("undo", json!({}))["data"]["reason"], "replaced");
+    let sid = r["saved"]["id"].as_str().unwrap();
+    let mut a = Attach::new(&h);
+    a.say(&format!("/undo {sid} confirm"));
+    a.notice(&format!("[root] /undo restored {} to snapshot {sid},", proj.display()));
     assert_eq!(fs::read_to_string(proj.join("agent.txt")).unwrap(), "agent\n");
     assert_eq!(fs::read_to_string(proj.join("src/a.txt")).unwrap(), "v2\n");
     // full access while that body still runs (no confirmation: the charter's default is full): a restart at idle
@@ -345,6 +371,107 @@ fn body_writes_the_workspace_and_undo_restores_it() {
     h.ok("full.set", json!({"on": true}));
     wait(10, "access{restart:idle}", || h.fk_events("access").iter().any(|d| d["full"] == true && d["restart"] == "idle"));
     assert_eq!(h.ok("access.get", json!({}))["restart_pending"], true);
+}
+
+/// v0.5.3 (lane H, the cancelled demo's setup): with a workspace set, turning `sandbox.read_home` off is a change of the
+/// live body's grant. The running body is restarted at its next idle point (`access{restart:"idle"}`, `restart_pending`)
+/// and the next one gets `INIT_ACCESS=workspace_only`, so its boot block no longer says it can read the owner's home. In
+/// v0.5.2 both grants were `workspace`, so the body kept the home read and the boot block kept the claim.
+#[cfg(target_os = "macos")]
+#[test]
+fn turning_read_home_off_under_a_workspace_restarts_the_body_and_says_so() {
+    let h = home("rh");
+    h.install(true, "");
+    let _d = h.daemon("");
+    wait(20, "running", || h.ok("status", json!({}))["slot"] == "running");
+    h.ok("workspace.set", json!({"cwd": h.s("proj"), "mode": "workspace"}));
+    let i = fs::canonicalize(&h.ih).unwrap().to_string_lossy().into_owned();
+    let (env1, first) = live_body(&h, &format!("env > '{i}/work/e.tmp' && mv '{i}/work/e.tmp' '{i}/work/env1.txt'; exec /bin/sleep 60"), Value::Null);
+    wait(20, "the body ran", || h.ih.join("work/env1.txt").exists());
+    let env = fs::read_to_string(h.ih.join("work/env1.txt")).unwrap();
+    assert!(env.lines().any(|l| l == "INIT_ACCESS=workspace"), "{env} {env1}");
+    assert_eq!(h.ok("access.get", json!({}))["restart_pending"], false, "the body holds the current grant");
+    fs::write(h.rh.join("charter.toml"), charter("[sandbox]\nread_home = false\n")).unwrap();
+    let o = h.run(&["charter", "check", "--apply", "--yes"]);
+    assert_eq!(o.status.code(), Some(0), "charter apply: {}", String::from_utf8_lossy(&o.stderr));
+    wait(10, "access{restart:idle}", || h.fk_events("access").iter().any(|d| d["access"] == "workspace_only" && d["restart"] == "idle"));
+    let v = h.ok("access.get", json!({}));
+    assert_eq!((v["access"].as_str(), v["read_home"].as_bool(), v["restart_pending"].as_bool()), (Some("workspace_only"), Some(false), Some(true)), "{v}");
+    live_body(&h, &format!("env > '{i}/work/e.tmp' && mv '{i}/work/e.tmp' '{i}/work/env2.txt'; exec /bin/sleep 60"), first);
+    wait(20, "the second body ran", || h.ih.join("work/env2.txt").exists());
+    let env = fs::read_to_string(h.ih.join("work/env2.txt")).unwrap();
+    assert!(env.lines().any(|l| l == "INIT_ACCESS=workspace_only"), "the next body is told it has no home read: {env}");
+    assert_eq!(h.ok("access.get", json!({}))["restart_pending"], false, "the new body holds the new grant");
+}
+
+/// v0.5.3 (lane H, the cancelled demo's setup): another INIT install on the account (here `~/.init-root-demo`, the
+/// default `~/.init`, and a ROOT_HOME under another name with the INIT_HOME its install.json records) is denied to this
+/// install's live body in full access (the default) and in workspace mode: it reads none of their keys and cannot
+/// replace their Root. Neither mode reads the maintainer's release signing key in `~/.init-release`. Workspace mode also
+/// denies the credential stores the v0.5.2 list missed; full access reads them (ADR-012). In v0.5.2 a full body could
+/// write the other install's Root binary.
+#[cfg(target_os = "macos")]
+#[test]
+fn another_installs_homes_are_denied_in_both_modes() {
+    let h = home("o");
+    h.install(true, "");
+    let (demo_rh, demo_ih) = (h.dir.join("demo-rh"), h.dir.join("demo-ih"));
+    for d in [".init-root-demo/keys", ".init-root-demo/bin", ".init/kernel/bin", "demo-rh/keys", "demo-ih/state", ".config/gh", ".init-release"] {
+        fs::create_dir_all(h.dir.join(d)).unwrap();
+    }
+    for f in [".init-root-demo/keys/lineage.key", ".init-root-demo/bin/init-root", ".init/kernel/bin/init-kernel", "demo-rh/keys/lineage.key",
+        "demo-ih/state/x", ".git-credentials", ".config/gh/hosts.yml", ".init-release/release.key"] {
+        fs::write(h.dir.join(f), "fake, not a real secret\n").unwrap();
+    }
+    fs::write(demo_rh.join("install.json"), json!({"init_home": demo_ih, "root_home": demo_rh}).to_string()).unwrap();
+    let _d = h.daemon("");
+    wait(20, "running", || h.ok("status", json!({}))["slot"] == "running");
+    let i = fs::canonicalize(&h.ih).unwrap().to_string_lossy().into_owned();
+    let probe = |tag: &str| {
+        let mut sh = String::new();
+        for (n, f) in [(1, ".init-root-demo/keys/lineage.key"), (2, ".init/kernel/bin/init-kernel"), (3, "demo-rh/keys/lineage.key"),
+            (4, "demo-ih/state/x"), (5, ".git-credentials"), (6, ".config/gh/hosts.yml"), (7, ".init-release/release.key")] {
+            sh.push_str(&format!("( cat '{}' ) >/dev/null 2>&1; echo r{n}=$? >> '{i}/work/{tag}.t'; ", h.s(f)));
+        }
+        sh.push_str(&format!("( echo x > '{}' ) 2>/dev/null; echo w1=$? >> '{i}/work/{tag}.t'; ", h.s(".init-root-demo/bin/init-root")));
+        sh.push_str(&format!("mv '{i}/work/{tag}.t' '{i}/work/{tag}.rc'; exec /bin/sleep 60"));
+        sh
+    };
+    let rc = |tag: &str| {
+        wait(20, tag, || h.ih.join(format!("work/{tag}.rc")).exists());
+        let t = fs::read_to_string(h.ih.join(format!("work/{tag}.rc"))).unwrap();
+        t.lines().filter_map(|l| l.split_once('=')).map(|(k, v)| (k.to_string(), v == "0")).collect::<std::collections::BTreeMap<String, bool>>()
+    };
+    h.ok("workspace.set", json!({"cwd": h.s("proj")})); // the default: full access
+    let (_, first) = live_body(&h, &probe("full"), Value::Null);
+    let full = rc("full");
+    for k in ["r1", "r2", "r3", "r4", "r7", "w1"] {
+        assert!(!full[k], "full access: {k} must be denied: {full:?}");
+    }
+    assert!(full["r5"] && full["r6"], "full access reads the owner's credential stores (ADR-012): {full:?}");
+    assert_eq!(fs::read_to_string(h.dir.join(".init-root-demo/bin/init-root")).unwrap(), "fake, not a real secret\n");
+    h.ok("workspace.set", json!({"cwd": h.s("proj"), "mode": "workspace"}));
+    live_body(&h, &probe("ws"), first);
+    let ws = rc("ws");
+    assert!(ws.values().all(|ok| !ok), "workspace mode denies all of them: {ws:?}");
+}
+
+/// A live body through the broker, as the kernel spawns one (`replaces`: the body it restarts): the request's id is
+/// answered in the fake kernel's log; returns (the `call` outcome, the instance id).
+fn live_body(h: &Home, script: &str, replaces: Value) -> (Value, Value) {
+    let calls = || fs::read_to_string(h.ih.join("state/kernel/fk.jsonl")).unwrap_or_default().lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok()).filter(|v| v["ev"] == "call").collect::<Vec<Value>>();
+    let n = calls().len();
+    let mut req = body_request(h, script, json!({"PATH": "/usr/bin:/bin"}));
+    req["replaces"] = replaces;
+    let (tmp, dst) = (h.ih.join("work/fk-call.tmp"), h.ih.join("work/fk-call.json"));
+    fs::write(&tmp, json!({"cmd": "spawn", "args": req}).to_string()).unwrap();
+    fs::rename(tmp, dst).unwrap();
+    wait(20, "the spawn answered", || calls().len() > n);
+    let c = calls()[n].clone();
+    assert_eq!(c["ok"], true, "{c}");
+    let id = c["result"]["instance"].clone();
+    (c, id)
 }
 
 /// R-UNDO (v0.5.2; docs/user-sessions/v0.5.1-new.md): after INIT is reopened, `/undo` still goes back to before the
@@ -415,18 +542,22 @@ fn a_relaunch_still_undoes_the_agents_edits() {
     let done = notice("[root] /undo restored");
     let saved = h.snapshots().into_iter().find(|n| *n != first && *n != second).unwrap();
     assert_eq!(done, format!("[root] /undo restored {p} to snapshot {first}, taken 2030-01-10 07:00:00 +07:00 at launch; the folder as it \
-        was is saved as snapshot {saved}, so /undo brings it back (/undo list shows every snapshot)"));
+        was is saved as snapshot {saved}, so /undo {saved} brings it back (/undo list shows every snapshot)"));
     assert!(!proj.join("hello.py").exists(), "the agent's new file is gone");
     assert_eq!(fs::read_to_string(proj.join("src/a.txt")).unwrap(), "v1\n");
-    // "/undo brings it back", by the request the TUI sends
+    // v0.5.3: plain /undo never goes back to what an /undo replaced; the request the TUI sends names the line that does
     tick();
     let e = h.refused("undo", json!({}));
-    assert_eq!(e["data"]["snapshot"]["id"].as_str(), Some(saved.as_str()), "{e}");
-    assert!(e["message"].as_str().unwrap().contains("before an /undo (the folder it replaced)"), "{e}");
-    let r = h.ok("undo", json!({"confirm": "confirm"}));
-    assert_eq!(r["restored"]["id"].as_str(), Some(saved.as_str()));
+    assert_eq!((e["code"].as_str(), e["data"]["reason"].as_str()), (Some("root.not_found"), Some("replaced")), "{e}");
+    let m = e["message"].as_str().unwrap();
+    assert!(m.starts_with(&format!("/undo has nothing to restore: the snapshots that differ from {p} hold only what an /undo replaced")), "{m}");
+    assert!(m.contains(&format!("/undo {saved} brings back the newest of them, taken ")) && m.contains("before an /undo (the folder it replaced)"), "{m}");
+    // "/undo <id> brings it back", as printed
+    say(&format!("/undo {saved} confirm"));
+    let done = notice(&format!("[root] /undo restored {p} to snapshot {saved},"));
     assert_eq!(fs::read_to_string(proj.join("hello.py")).unwrap(), "print('hello')\n");
-    let back = r["saved"]["id"].as_str().unwrap().to_string();
+    let back = h.snapshots().into_iter().find(|n| ![&first, &second, &saved].contains(&n)).unwrap();
+    assert!(done.contains(&format!("saved as snapshot {back}, so /undo {back} brings it back")), "{done}");
 
     // refusals name /undo list: an id that is not a snapshot, one that equals the folder now, a malformed line
     say("/undo nope");
@@ -439,33 +570,39 @@ fn a_relaunch_still_undoes_the_agents_edits() {
 
     // the folder changes between the question and the confirmation: the confirmation asks again, and changes nothing
     tick();
+    fs::write(proj.join("notes.txt"), "notes\n").unwrap();
+    let third = snap(&h.ok("workspace.set", json!({"cwd": p})));
+    tick();
     let e = h.refused("undo", json!({}));
-    assert_eq!(e["data"]["snapshot"]["id"].as_str(), Some(back.as_str()), "the state before the last restore: {e}");
-    fs::remove_file(proj.join("hello.py")).unwrap(); // exact path, written above: the folder is now `back`'s
-    fs::write(proj.join("src/a.txt"), "v1\n").unwrap();
+    assert_eq!(e["data"]["snapshot"]["id"].as_str(), Some(saved.as_str()), "before the notes, passing over {back}, which an /undo replaced: {e}");
+    assert!(e["message"].as_str().unwrap().contains("passing over 1 that an /undo replaced"), "{e}");
+    fs::remove_file(proj.join("notes.txt")).unwrap(); // exact path, written above: the folder is now `saved`'s
     let n = h.snapshots().len();
     let e = h.refused("undo", json!({"confirm": "confirm"}));
-    assert_eq!((e["code"].as_str(), e["data"]["snapshot"]["id"].as_str()), (Some("root.confirm"), Some(saved.as_str())), "{e}");
+    assert_eq!((e["code"].as_str(), e["data"]["snapshot"]["id"].as_str()), (Some("root.confirm"), Some(third.as_str())), "{e}");
     assert!(e["message"].as_str().unwrap().starts_with("The folder changed since /undo asked. /undo restores "), "{e}");
     assert_eq!(h.snapshots().len(), n, "the refused confirmation keeps no snapshot");
-    assert!(!proj.join("hello.py").exists(), "and restores nothing");
+    assert!(!proj.join("notes.txt").exists(), "and restores nothing");
     let r = h.ok("undo", json!({"confirm": "confirm"}));
-    assert_eq!(r["restored"]["id"].as_str(), Some(saved.as_str()), "the second confirmation restores what it named");
+    assert_eq!(r["restored"]["id"].as_str(), Some(third.as_str()), "the second confirmation restores what it named");
+    assert!(proj.join("notes.txt").exists());
 
     // with five kept, restoring the oldest keeps it (the pre_undo save makes six; the next oldest goes)
-    assert_eq!(h.snapshots().len(), 5, "{:?}", h.snapshots());
-    assert_eq!(h.snapshots()[0], first);
+    let all = h.snapshots();
+    assert_eq!(all.len(), 5, "{all:?}");
+    assert_eq!(all[0], second, "the save of the last restore made six, so the oldest went: {all:?}");
     tick();
-    say(&format!("/undo {first} confirm"));
-    notice(&format!("[root] /undo restored {p} to snapshot {first},")); // the earlier restores' notices are passed over
+    say(&format!("/undo {second} confirm"));
+    notice(&format!("[root] /undo restored {p} to snapshot {second},")); // the earlier restores' notices are passed over
     let left = h.snapshots();
     assert_eq!(left.len(), 5, "{left:?}");
-    assert!(left.contains(&first) && !left.contains(&second), "the restored snapshot is kept, the next oldest pruned: {left:?}");
-    assert!(!proj.join("hello.py").exists());
-    // no workspace: `/undo list` says why, as `/undo` does
+    assert!(left.contains(&second) && !left.contains(&saved), "the restored snapshot is kept, the next oldest pruned: {left:?}");
+    assert!(!proj.join("notes.txt").exists());
+    // no workspace: `/undo list` says why, as `/undo` does, with the launcher's path (v0.5.3)
     h.ok("workspace.set", json!({"cwd": h.s("")}));
     say("/undo list");
-    assert!(notice("[root] /undo has nothing to restore: this session has no workspace").contains("run init-agent there"));
+    let launcher = shown::agent(&h.dir.join(".local/bin"), "");
+    assert!(notice("[root] /undo has nothing to restore: this session has no workspace").contains(&format!("run {launcher} there")));
 }
 
 /// The body's spawn request as the fake kernel sends it (`spawn_args`): kind body, the live lane, running `/bin/sh -c`.
@@ -525,7 +662,8 @@ fn default_full_access_and_session_choices() {
     let r = h.ok("workspace.set", json!({"cwd": h.s("proj")}));
     assert_eq!(r["access"]["access"], "full", "{r}");
     let out = String::from_utf8_lossy(&h.run(&["status"]).stdout).into_owned();
-    assert!(out.contains("access: FULL (default) · workspace ") && out.contains("init-agent --workspace, /full off, or sandbox.mode = \"workspace\" in "), "{out}");
+    let confine = format!("{}, /full off, or sandbox.mode = \"workspace\" in ", shown::agent(&h.dir.join(".local/bin"), "--workspace"));
+    assert!(out.contains("access: FULL (default) · workspace ") && out.contains(&confine), "{out}");
     let lin = fs::read_to_string(h.ih.join("root/lineage.jsonl")).unwrap();
     assert!(!lin.contains(&proj), "no workspace path in the lineage");
 }
@@ -565,4 +703,379 @@ fn full_body_writes_the_home_not_the_root() {
     assert_ne!(fs::read_to_string(h.ih.join("work/init.rc")).unwrap().trim(), "0", "INIT's launcher stays unwritable");
     assert_ne!(fs::read_to_string(h.ih.join("work/old.rc")).unwrap().trim(), "0", "so does its old name, init");
     assert!(!h.dir.join(".local/bin/init-agent").exists() && !h.dir.join(".local/bin/init").exists());
+}
+
+// ---------------------------------------------------------------------------------------------
+// v0.5.3 (REL-052 §7.5 findings 1, 2 and the low finding on /undo after an /undo): `/undo` never loses files
+
+/// An attached owner client: lines on the Root's line path, and the Root's notices by their prefix.
+struct Attach(UnixStream, BufReader<UnixStream>);
+impl Attach {
+    fn new(h: &Home) -> Attach {
+        let mut a = UnixStream::connect(h.rh.join("run/owner.sock")).unwrap();
+        writeln!(a, "{}", json!({"client": "undo-test", "replay": false, "t": "attach"})).unwrap();
+        a.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        let r = BufReader::new(a.try_clone().unwrap());
+        Attach(a, r)
+    }
+    fn say(&mut self, line: &str) {
+        writeln!(self.0, "{}", json!({"t": "line", "text": line})).unwrap();
+    }
+    fn notice(&mut self, prefix: &str) -> String {
+        loop {
+            let mut l = String::new();
+            assert!(self.1.read_line(&mut l).unwrap() > 0, "the attach connection closed before {prefix:?}");
+            let v: Value = serde_json::from_str(&l).unwrap_or_default();
+            if v["t"] == "notice" && v["text"].as_str().is_some_and(|t| t.starts_with(prefix)) {
+                return v["text"].as_str().unwrap().to_string();
+            }
+        }
+    }
+}
+
+/// Every entry below `dir`, sorted, never following a link: its path, mode, and a file's bytes or a link's target.
+fn tree(dir: &Path) -> Vec<String> {
+    use std::os::unix::fs::PermissionsExt;
+    let (mut out, mut stack) = (Vec::new(), vec![PathBuf::new()]);
+    while let Some(rel) = stack.pop() {
+        for e in fs::read_dir(dir.join(&rel)).unwrap() {
+            let r = rel.join(e.unwrap().file_name());
+            let (p, md) = (dir.join(&r), fs::symlink_metadata(dir.join(&r)).unwrap());
+            let what = if md.file_type().is_symlink() {
+                format!("link {}", fs::read_link(&p).unwrap().display())
+            } else if md.is_dir() {
+                stack.push(r.clone());
+                "dir".into()
+            } else {
+                format!("file {:?}", String::from_utf8_lossy(&fs::read(&p).unwrap()))
+            };
+            out.push(format!("{} {:o} {what}", r.display(), md.permissions().mode() & 0o7777));
+        }
+    }
+    out.sort();
+    out
+}
+
+fn chmod(p: &Path, mode: u32) {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(p, fs::Permissions::from_mode(mode)).unwrap();
+}
+
+/// ROOT_HOME/snapshots holds snapshots only: each tree has its record, and no probe clone, staging tree or orphan clone
+/// is left (the v0.5.2 findings: a clone that could not be removed stayed as `.probe` or as an orphan `<id>/`).
+fn only_snapshots(h: &Home) {
+    let names: Vec<String> = fs::read_dir(h.rh.join("snapshots")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    for n in &names {
+        if !n.ends_with(".json") {
+            assert!(!n.starts_with('.') && names.contains(&format!("{n}.json")), "{n} is not a snapshot with its record: {names:?}");
+        }
+    }
+}
+
+/// A project as a Go developer has it: a vendored module cache (`vendor/pkg` 0555 with a 0444 file, as `go mod vendor`
+/// and the module cache leave them), a nested read-only tree, a read-only folder at the top (a copied release), a link
+/// to a file and one to a folder outside the project.
+fn read_only_project(h: &Home) -> PathBuf {
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    fs::write(proj.join("main.go"), "package main\n").unwrap();
+    fs::write(proj.join("zz.txt"), "zz\n").unwrap();
+    for (d, f) in [("vendor/pkg", "mod.go"), ("cache/a/b", "c.txt"), ("rel", "VERSION")] {
+        fs::create_dir_all(proj.join(d)).unwrap();
+        fs::write(proj.join(d).join(f), format!("{d}/{f}\n")).unwrap();
+        chmod(&proj.join(d).join(f), 0o444);
+    }
+    for d in ["vendor/pkg", "cache/a/b", "cache/a", "rel"] {
+        chmod(&proj.join(d), 0o555);
+    }
+    std::os::unix::fs::symlink("main.go", proj.join("link")).unwrap();
+    fs::write(h.dir.join("other/keep.txt"), "outside\n").unwrap();
+    std::os::unix::fs::symlink(h.dir.join("other"), proj.join("out")).unwrap();
+    proj
+}
+
+/// v0.5.3 (REL-052 §7.5 finding 1, FG-1): `/undo` in a folder with read-only folders restores the launch snapshot
+/// whole: every file, mode and link as it was, the folder a link points to untouched. v0.5.2 removed the folder's
+/// entries before cloning the snapshot back, and EACCES in `vendor/pkg` stopped it with the files already gone. The
+/// state it replaced is saved and comes back by its id; nothing but snapshots is left in ROOT_HOME/snapshots.
+#[cfg(target_os = "macos")]
+#[test]
+fn undo_with_read_only_folders_loses_nothing() {
+    let h = home("ro");
+    h.install(false, "");
+    let _d = h.daemon("");
+    let proj = read_only_project(&h);
+    let before = tree(&proj);
+    let first = h.ok("workspace.set", json!({"cwd": proj.to_str().unwrap()}))["access"]["snapshot"]["id"].as_str().unwrap().to_string();
+    // the agent's edits
+    fs::write(proj.join("main.go"), "package main // v2\n").unwrap();
+    fs::write(proj.join("new.txt"), "new\n").unwrap();
+    fs::remove_file(proj.join("zz.txt")).unwrap(); // exact path, written above
+    let edited = tree(&proj);
+    assert_eq!(h.refused("undo", json!({}))["data"]["snapshot"]["id"].as_str(), Some(first.as_str()));
+    let v = h.req("undo", json!({"confirm": "confirm"}));
+    assert_eq!(v["ok"], true, "the restore completes: {v}");
+    assert_eq!(tree(&proj), before, "every file, mode and link of the launch snapshot");
+    assert_eq!(fs::read_to_string(h.dir.join("other/keep.txt")).unwrap(), "outside\n", "a link's target is never touched");
+    let saved = v["result"]["saved"]["id"].as_str().unwrap().to_string();
+    assert_eq!(tree(&h.rh.join("snapshots").join(&saved)), edited, "the state /undo replaced is saved whole");
+    only_snapshots(&h);
+    // and it comes back by its id, read-only folders and all
+    let mut a = Attach::new(&h);
+    a.say(&format!("/undo {saved} confirm"));
+    let done = a.notice("[root] /undo restored");
+    assert!(done.contains(&format!("to snapshot {saved},")), "{done}");
+    assert_eq!(tree(&proj), edited);
+    only_snapshots(&h);
+}
+
+/// v0.5.3 (lane U, class 1): the state an `/undo` replaced is saved in inodes of its own. c4797cc made the entries
+/// the restore moved out of the workspace the `pre_undo` snapshot's tree by rename, so a file in it was still the one
+/// the zone could reach through a hard link kept outside the folder (full access writes the home) or a descriptor
+/// it held open: a write there after the `/undo` changed the saved state behind its recorded digest, and
+/// `/undo <id>` brought back content that no longer matched it. Now the save is a clone: those writes reach the
+/// moved-out files only, and `/undo <id>` brings back the folder exactly as the `/undo` replaced it.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_state_an_undo_replaced_shares_no_inode_with_the_zone() {
+    let h = home("hl");
+    h.install(false, "");
+    let _d = h.daemon("");
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    h.ok("workspace.set", json!({"cwd": proj.to_str().unwrap()}));
+    fs::write(proj.join("src/a.txt"), "the agent's edit\n").unwrap();
+    let link = h.dir.join("other/a.link");
+    fs::hard_link(proj.join("src/a.txt"), &link).unwrap(); // outside the folder, as full access allows
+    let mut open = fs::OpenOptions::new().write(true).open(proj.join("README")).unwrap(); // a descriptor the zone keeps
+    let edited = tree(&proj);
+    let r = h.ok("undo", json!({"confirm": "confirm"}));
+    let saved = r["saved"]["id"].as_str().unwrap().to_string();
+    let snap = h.rh.join("snapshots").join(&saved);
+    assert_eq!(tree(&snap), edited, "the state /undo replaced is saved whole");
+    // the zone writes through its hard link and its descriptor after the /undo
+    fs::write(&link, "written after the /undo\n").unwrap();
+    open.write_all(b"also written after the /undo\n").unwrap();
+    drop(open);
+    assert_eq!(tree(&snap), edited, "the saved state is the folder as the /undo replaced it");
+    only_snapshots(&h);
+    // and `/undo <id>` brings it back as recorded
+    let mut a = Attach::new(&h);
+    a.say(&format!("/undo {saved} confirm"));
+    a.notice(&format!("[root] /undo restored {} to snapshot {saved},", proj.display()));
+    assert_eq!(tree(&proj), edited);
+    assert_eq!(fs::read_to_string(&link).unwrap(), "written after the /undo\n", "the zone's own file is its own");
+    only_snapshots(&h);
+}
+
+/// v0.5.3 (lane U, reviewer 2): no owner line goes to the agent while a confirmed `/undo` restores. The busy check
+/// comes before the confirmation and the restore lock, and the owner socket serves one thread per client, so in
+/// c4797cc a line typed on another attached client during the restore went to the agent at once and could start a
+/// turn that wrote the folder while its entries moved. Now it stays queued, the notice says why, and it goes to the
+/// agent when the restore ends. (`root.undo.out@1:sleep1500` holds the restore before its first move.)
+#[cfg(target_os = "macos")]
+#[test]
+fn a_line_typed_during_an_undo_waits_for_the_restore() {
+    let h = home("hd");
+    h.install(true, "");
+    let _d = h.daemon_with("", &[("INIT_FAULT", "root.undo.out@1:sleep1500")]);
+    wait(20, "running", || h.ok("status", json!({}))["slot"] == "running");
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    h.ok("workspace.set", json!({"cwd": proj.to_str().unwrap()}));
+    fs::write(proj.join("src/a.txt"), "v2\n").unwrap();
+    let text = "typed during the undo";
+    let sent = || fs::read_to_string(h.ih.join("state/kernel/fk.jsonl")).unwrap_or_default().lines().filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .any(|v| v["ev"] == "owner.in" && v["frame"]["text"] == text);
+    std::thread::scope(|s| {
+        let undo = s.spawn(|| h.req("undo", json!({"confirm": "confirm"})));
+        wait(10, "the restore runs", || fs::read_dir(h.rh.join("snapshots")).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with(".undo-")));
+        let mut a = Attach::new(&h);
+        a.say(text);
+        let n = a.notice("[root] /undo is restoring the workspace;");
+        assert!(n.ends_with("your message is queued (1) and goes to the agent when it is done"), "{n}");
+        assert!(!sent(), "held while the entries move");
+        let v = undo.join().unwrap();
+        assert_eq!(v["ok"], true, "the restore completes: {v}");
+    });
+    assert_eq!(fs::read_to_string(proj.join("src/a.txt")).unwrap(), "v1\n");
+    wait(10, "the held line goes to the agent", sent);
+}
+
+/// v0.5.3 (finding 1): a restore that cannot complete leaves the folder exactly as it was and says why and what the
+/// owner can do. Refused before anything moves: a locked file (`chflags uchg`), and a read-only workspace folder itself.
+/// Rolled back: a move that fails midway (the fault points `root.undo.out`, while the folder's entries move aside, and
+/// `root.undo.in`, while the snapshot's move in; each after one entry has moved). Each time the folder is unchanged,
+/// the save of it is dropped and nothing but snapshots is left; then a restore completes.
+#[cfg(target_os = "macos")]
+#[test]
+fn an_undo_that_cannot_finish_changes_nothing() {
+    let h = home("rb");
+    h.install(false, "");
+    let _d = h.daemon_with("", &[("INIT_FAULT", "root.undo.out@2:enospc,root.undo.in@2:enospc")]);
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    let p = proj.display().to_string();
+    let first = h.ok("workspace.set", json!({"cwd": p}))["access"]["snapshot"]["id"].as_str().unwrap().to_string();
+    let launch = tree(&proj);
+    fs::write(proj.join("src/a.txt"), "v2\n").unwrap();
+    fs::write(proj.join("b.txt"), "b\n").unwrap();
+    fs::write(proj.join("locked.txt"), "l\n").unwrap();
+    assert!(Command::new("/usr/bin/chflags").args(["uchg"]).arg(proj.join("locked.txt")).status().unwrap().success());
+    let edited = tree(&proj);
+    let n = h.snapshots().len();
+    let unchanged = |why: &str| {
+        assert_eq!(tree(&proj), edited, "{why}: the folder is exactly as it was");
+        assert_eq!(h.snapshots().len(), n, "{why}: the save of the folder is dropped");
+        only_snapshots(&h);
+    };
+    // a locked file: refused before anything moves
+    let e = h.refused("undo", json!({"confirm": "confirm"}));
+    assert_eq!((e["code"].as_str(), e["data"]["reason"].as_str()), (Some("root.mode"), Some("restore_refused")), "{e}");
+    let m = e["message"].as_str().unwrap();
+    assert!(m.starts_with(&format!("/undo did not restore {p}: {p}/locked.txt is locked")) && m.contains("chflags nouchg")
+        && m.ends_with("Nothing changed."), "{m}");
+    unchanged("a locked file");
+    assert!(Command::new("/usr/bin/chflags").args(["nouchg"]).arg(proj.join("locked.txt")).status().unwrap().success());
+    // the workspace folder itself read-only
+    chmod(&proj, 0o555);
+    let e = h.refused("undo", json!({"confirm": "confirm"}));
+    chmod(&proj, 0o755);
+    assert_eq!(e["data"]["reason"].as_str(), Some("restore_refused"), "{e}");
+    let m = e["message"].as_str().unwrap();
+    assert!(m.contains(&format!("{p} itself is read-only (mode 555)")) && m.contains(&format!("chmod u+w {}", shown::sh_word(&p))), "{m}");
+    unchanged("a read-only workspace");
+    // a move that fails after one entry moved aside, then one that fails after one entry moved in: all put back
+    for (point, why) in [("out", "moving the folder's entries aside"), ("in", "moving the snapshot's entries in")] {
+        let e = h.refused("undo", json!({"confirm": "confirm"}));
+        assert_eq!((e["code"].as_str(), e["data"]["reason"].as_str()), (Some("root.internal"), Some("rolled_back")), "{point}: {e}");
+        let m = e["message"].as_str().unwrap();
+        assert!(m.starts_with(&format!("/undo could not restore {p}: ")) && m.contains("so every entry was put back and the folder is exactly as it \
+            was before /undo"), "{point}: {m}");
+        unchanged(why);
+    }
+    // then the restore completes
+    let r = h.ok("undo", json!({"confirm": "confirm"}));
+    assert_eq!(r["restored"]["id"].as_str(), Some(first.as_str()));
+    assert_eq!(tree(&proj), launch);
+    only_snapshots(&h);
+}
+
+/// v0.5.3 (REL-052 §7.5 finding 2): the content check never depends on one shared probe clone. A `snapshots/.probe`
+/// that a v0.5.2 Root could not remove (it holds a read-only folder) made every check fail with EEXIST, so `/undo`
+/// named the newest snapshot (the folder as it is) and the confirmation asked again; an unchanged launch kept an
+/// orphan clone. Now every check names the snapshot from before the edits, the confirmation restores it, an unchanged
+/// launch keeps no clone, and a probe a crashed call left is removed. One that cannot be removed at all (here an ACL
+/// denies the delete, which the Root does not change) stays, and the checks go on around it.
+#[cfg(target_os = "macos")]
+#[test]
+fn the_content_check_survives_a_stuck_probe() {
+    let h = home("pr");
+    h.install(false, "");
+    // v0.5.2's shared probe, which nothing can remove, and a probe of a crashed v0.5.3 call, read-only inside
+    let (stuck, left) = (h.rh.join("snapshots/.probe/vendor/pkg"), h.rh.join("snapshots/.probe-1-0/vendor/pkg"));
+    for d in [&stuck, &left] {
+        fs::create_dir_all(d).unwrap();
+        fs::write(d.join("mod.go"), "x\n").unwrap();
+        chmod(d, 0o555);
+    }
+    assert!(Command::new("/bin/chmod").args(["+a", "everyone deny delete"]).arg(stuck.join("mod.go")).status().unwrap().success());
+    let _d = h.daemon("");
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    fs::create_dir_all(proj.join("vendor/pkg")).unwrap();
+    fs::write(proj.join("vendor/pkg/mod.go"), "package pkg\n").unwrap();
+    chmod(&proj.join("vendor/pkg"), 0o555);
+    let p = proj.display().to_string();
+    let snap = |r: &Value| r["access"]["snapshot"]["id"].as_str().unwrap().to_string();
+    let first = snap(&h.ok("workspace.set", json!({"cwd": p})));
+    fs::write(proj.join("src/a.txt"), "v2\n").unwrap();
+    h.ok("test.clock", json!({"advance_ms": 60_000}));
+    let second = snap(&h.ok("workspace.set", json!({"cwd": p})));
+    assert_ne!(second, first);
+    h.ok("test.clock", json!({"advance_ms": 60_000}));
+    assert_eq!(snap(&h.ok("workspace.set", json!({"cwd": p}))), second, "an unchanged launch");
+    let names: Vec<String> = fs::read_dir(h.rh.join("snapshots")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+    for n in names.iter().filter(|n| !n.starts_with('.') && !n.ends_with(".json")) {
+        assert!(names.contains(&format!("{n}.json")), "the unchanged launch left its clone {n}: {names:?}");
+    }
+    let probes = || -> Vec<String> {
+        let mut v: Vec<String> = fs::read_dir(h.rh.join("snapshots")).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|n| n.starts_with(".probe")).collect();
+        v.sort();
+        v
+    };
+    for _ in 0..2 {
+        let e = h.refused("undo", json!({}));
+        assert_eq!(e["data"]["snapshot"]["id"].as_str(), Some(first.as_str()), "every check sees the folder: {e}");
+        assert_eq!(probes(), [".probe"], "the crashed call's probe and this check's are gone; only the one nothing can remove is left");
+    }
+    let mut a = Attach::new(&h);
+    a.say("/undo list");
+    let list = a.notice("[root] /undo list:");
+    assert!(list.contains(&format!("{first} · ")) && list.lines().any(|l| l.contains(&first) && l.ends_with("← /undo")), "{list}");
+    assert!(list.lines().any(|l| l.contains(&second) && l.ends_with("same as the folder now")), "{list}");
+    let r = h.ok("undo", json!({"confirm": "confirm"}));
+    assert_eq!(r["restored"]["id"].as_str(), Some(first.as_str()), "the confirmation restores what the question named, without asking again");
+    assert_eq!(fs::read_to_string(proj.join("src/a.txt")).unwrap(), "v1\n");
+    assert_eq!(probes(), [".probe"]);
+    assert!(Command::new("/bin/chmod").args(["-N"]).arg(stuck.join("mod.go")).status().unwrap().success());
+    h.refused("undo", json!({}));
+    only_snapshots(&h); // once it can be removed, the next check removes it
+}
+
+/// v0.5.3 (REL-052 §7.5, low): plain `/undo` never goes back to a state an `/undo` replaced. After an `/undo` and new
+/// edits, v0.5.2's "newest snapshot that differs from the folder" was the `pre_undo` save, so `/undo` brought back the
+/// edits the owner had just undone. Now it goes back to the folder as the `/undo` left it; right after an `/undo`,
+/// plain `/undo` has nothing to restore and names the `/undo <id>` that brings the replaced state back; those states
+/// stay in `/undo list`, and restoring one by its id makes it a default target again.
+#[cfg(target_os = "macos")]
+#[test]
+fn undo_never_defaults_to_a_state_an_undo_replaced() {
+    let h = home("rj");
+    h.install(false, "");
+    let _d = h.daemon("");
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    let p = proj.display().to_string();
+    let tick = || h.ok("test.clock", json!({"advance_ms": 60_000}));
+    let first = h.ok("workspace.set", json!({"cwd": p}))["access"]["snapshot"]["id"].as_str().unwrap().to_string();
+    let s1 = tree(&proj);
+    tick();
+    fs::write(proj.join("agent.txt"), "the agent's edit\n").unwrap();
+    let s2 = tree(&proj);
+    tick();
+    let second = h.ok("workspace.set", json!({"cwd": p}))["access"]["snapshot"]["id"].as_str().unwrap().to_string();
+    // the owner undoes the agent's edit
+    tick();
+    let r = h.ok("undo", json!({"confirm": "confirm"}));
+    assert_eq!(r["restored"]["id"].as_str(), Some(first.as_str()));
+    let p1 = r["saved"]["id"].as_str().unwrap().to_string();
+    assert_eq!(tree(&proj), s1);
+    // right after it, plain /undo has nothing to restore, and names the line that brings the replaced state back
+    let e = h.refused("undo", json!({}));
+    assert_eq!((e["code"].as_str(), e["data"]["reason"].as_str()), (Some("root.not_found"), Some("replaced")), "{e}");
+    assert!(e["message"].as_str().unwrap().contains(&format!("/undo {p1} brings back")), "{e}");
+    // new edits, then /undo: back to the folder as the /undo left it, not to the edits it undid
+    tick();
+    fs::write(proj.join("new.txt"), "new\n").unwrap();
+    let e = h.refused("undo", json!({}));
+    assert_eq!(e["data"]["snapshot"]["id"].as_str(), Some(first.as_str()), "not {p1} or {second}, which hold the undone edit: {e}");
+    let r = h.ok("undo", json!({"confirm": "confirm"}));
+    assert_eq!(r["restored"]["id"].as_str(), Some(first.as_str()));
+    let p2 = r["saved"]["id"].as_str().unwrap().to_string();
+    assert_eq!(tree(&proj), s1);
+    let e = h.refused("undo", json!({}));
+    assert_eq!(e["data"]["reason"].as_str(), Some("replaced"), "{e}");
+    assert!(e["message"].as_str().unwrap().contains(&format!("/undo {p2} brings back")), "the newest replaced state: {e}");
+    // they stay listed, and restoring one by its id makes it a default target again
+    let mut a = Attach::new(&h);
+    a.say("/undo list");
+    let list = a.notice("[root] /undo list:");
+    for id in [&p1, &p2, &second] {
+        assert!(list.lines().any(|l| l.contains(id.as_str()) && !l.ends_with("← /undo")), "{id} listed, not the default: {list}");
+    }
+    tick();
+    a.say(&format!("/undo {p1} confirm"));
+    a.notice(&format!("[root] /undo restored {p} to snapshot {p1},"));
+    assert_eq!(tree(&proj), s2, "the agent's edit is back, as asked");
+    tick();
+    fs::write(proj.join("more.txt"), "more\n").unwrap();
+    let e = h.refused("undo", json!({}));
+    let back = e["data"]["snapshot"]["id"].as_str().unwrap();
+    assert!(back == p1 || back == second, "back to the state restored by its id: {e}");
 }

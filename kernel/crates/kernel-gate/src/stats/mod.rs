@@ -1,6 +1,7 @@
 //! G4 statistics (kernel/gate.md §3.8): noise floor δ(m), paired cluster-bootstrap non-inferiority,
 //! futility look, capability test, the G-21 calibration simulation, and ADR-011's policy simulator (X10).
 
+pub mod betting;
 pub mod boot;
 pub mod data;
 pub mod extend_sim;

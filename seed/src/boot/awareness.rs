@@ -1103,17 +1103,18 @@ fn one_line(s: &str) -> String {
 }
 
 /// ADR-009, ADR-012: what this body may write and read (`INIT_ACCESS` = `none` · `read_home` · `workspace` ·
-/// `full`, set by the Root on every body spawn; SBX-009 §D). It is fixed for the body's lifetime
-/// (a change restarts the body), so it lives in the boot block, never in the head or the signal
-/// line. Absent `INIT_ACCESS` (an older kernel): no line. A value this body does not know, or a
-/// value that contradicts the workspace, renders verbatim.
+/// `workspace_only` · `full`, set by the Root on every body spawn; SBX-009 §D). It is fixed for the body's
+/// lifetime (a change restarts the body), so it lives in the boot block, never in the head or the
+/// signal line. Absent `INIT_ACCESS` (an older kernel): no line. A value this body does not know,
+/// or a value that contradicts the workspace, renders verbatim. v0.5.3: `workspace_only` (charter
+/// `sandbox.read_home = false`) says the home is not readable; until then the line said it was.
 fn access_line(b: &BlockIn) -> Option<String> {
     let access = one_line(b.access?);
     let raw = b.workspace.map(|w| w.to_string_lossy());
     let ws = raw.as_deref().map(one_line);
     let ws_or_none = ws.clone().unwrap_or_else(|| "none".into());
     Some(match (access.as_str(), ws) {
-        ("workspace", Some(w)) => {
+        (a @ ("workspace" | "workspace_only"), Some(w)) => {
             // The probed cwd differs only when the workspace was not a directory at boot (a boot
             // facts warning); an unknown cwd counts as the workspace.
             let start = match get_s(b.env, &["probed", "cwd"]) {
@@ -1122,9 +1123,12 @@ fn access_line(b: &BlockIn) -> Option<String> {
                 }
                 _ => "your tools start in the workspace".to_string(),
             };
-            format!(
-                "- access: write the workspace {w} and INIT_HOME ({start}) · read the owner's home, secret stores denied"
-            )
+            let read = if a == "workspace" {
+                "read the owner's home, secret stores denied"
+            } else {
+                "no other part of the owner's home is readable (charter sandbox.read_home = false)"
+            };
+            format!("- access: write the workspace {w} and INIT_HOME ({start}) · {read}")
         }
         ("none", None) => {
             "- access: INIT_HOME only (no home access; the v0.1 sandbox)".to_string()

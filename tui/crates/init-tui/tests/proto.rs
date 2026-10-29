@@ -638,3 +638,22 @@ fn line_mode_replayed_turn_is_not_free() {
     assert!(turn.contains("· $? before this launch") && !turn.contains("$0.000"), "{turn}");
     cleanup(&fx.dir);
 }
+
+/// v0.5.3 (the v0.5.2 post-release review, finding 10) in line mode: a one-segment path goes out; a
+/// built-in with an argument its grammar refuses, or joined with `-`, is dropped with the right form;
+/// any other `/word` is dropped once, and the same line again sends it (a command an evolved body added).
+#[test]
+fn slash_lines_in_line_mode() {
+    let fx = Fixture::start("slash");
+    let input = "/hepl\n/hepl\n/stop now\n/tmp is full\n/undo-list\n/stats\nhello\n/stats\n";
+    let o = run(&fx.rh, &["--plain", "--wait-idle", "--timeout", "10"], input, 15);
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
+    let out = text(&o);
+    let lines: Vec<String> = fx.received().iter().filter(|r| r.frame["t"] == "line").map(|r| r.frame["text"].as_str().unwrap_or("").to_string()).collect();
+    assert_eq!(lines, ["/hepl", "/tmp is full", "hello"], "{out}");
+    assert!(out.contains("[tui] /hepl: not a TUI command; did you mean /help? — send the same line again to send it to the model as text"), "{out}");
+    assert!(out.contains("[tui] /stop now: /stop takes no argument") && out.contains("(not sent)"), "{out}");
+    assert!(out.contains("did you mean /undo list?"), "{out}");
+    assert_eq!(out.matches("[tui] /stats: not a TUI command").count(), 2, "another line in between: asked again: {out}");
+    cleanup(&fx.dir);
+}

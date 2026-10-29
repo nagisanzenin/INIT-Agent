@@ -83,6 +83,8 @@ pub struct Root {
     pub sentinel: crate::sentinel::Shared,
     /// ADR-011 §5 (X5): attribution, the usage ledger and the cap table (extend/); a leaf lock.
     pub extend: crate::extend::Extend,
+    /// ADR-011 A0 (L2b): what this daemon's `root_start` recorded, set once at start (boundary.rs).
+    pub boundary: OnceLock<crate::boundary::Start>,
 }
 
 impl Root {
@@ -125,7 +127,7 @@ impl Root {
         let root = Arc::new(Root { benchmark, p, st: Mutex::new(st), lin: Mutex::new(lin.ok().filter(|_| halt != Some("lineage"))),
             clients: Mutex::new(Vec::new()), ring: Mutex::default(), replay: (r.0 as usize, r.1 as usize), hits: Mutex::default(),
             egress: OnceLock::new(), info, zone: Default::default(), sup: Default::default(), access,
-            sentinel: Default::default(), extend: Default::default() });
+            sentinel: Default::default(), extend: Default::default(), boundary: OnceLock::new() });
         records.iter().for_each(|r| lock(&root.sup.ptrs).apply(r));
         records.iter().for_each(|r| root.extend.apply(r));
         match halt {
@@ -302,6 +304,12 @@ impl Root {
 
     pub fn status(&self) -> Value {
         let head = lock(&self.lin).as_ref().and_then(|l| l.head.clone());
+        // v0.5.3 (REL-052 §7.5 finding 3): where a panic resume rolls back to, by the resume's own pick (panic.rs
+        // `resume`: `ledger::anchor`, then `tuple::rollback`'s order), so `/panic`'s warning names what it drops. Each
+        // lock is taken and released alone: the anchor reads `st`, and elsewhere `ptrs` is taken while `st` is held
+        let want = ledger::anchor(self);
+        let ptrs = lock(&self.sup.ptrs).clone();
+        let resume = crate::tuple::rollback_target(&ptrs, want).map(|(pointer, tuple)| json!({"pointer": pointer, "tuple": tuple}));
         let st = lock(&self.st);
         let ch = st.charter.as_ref().map(|l| &l.ch);
         let max = ch.map(|c| c.autonomy.max_level);
@@ -315,7 +323,7 @@ impl Root {
             // `money.enforced`); the block says so, so no client shows them as a cap
             "ceilings": {"day_musd": money(ch.map(|c| &c.money.day_usd)), "enforced": false, "policy": "observe",
                 "total_musd": money(ch.map(|c| &c.money.total_usd))},
-            "tuples": lock(&self.sup.ptrs).json(), "last_audit": null, "instances": self.zone.list(),
+            "tuples": ptrs.json(), "resume": resume, "last_audit": null, "instances": self.zone.list(),
             "kernel": self.sup.kernel().map(|k| json!({"instance": k.inst, "pid": k.pid, "ready": k.ready.load(std::sync::atomic::Ordering::SeqCst),
                 "reason": k.plan.reason, "boot_seq": self.sup.boot_seq()})),
             "sweep": if cfg!(feature = "live-sweep") { "d1" } else { "held_only" },
@@ -506,11 +514,17 @@ impl Root {
     /// `owner.in{qid, frame}` to a ready kernel (§3.15); false when none runs. The `qid` and the line are
     /// kept (1,000) for the `owner` record check (§3.10.5).
     pub fn deliver(&self, qid: &str, frame: &Value) -> bool {
+        // lane U (v0.5.3): while `/undo` restores the workspace, an owner line stays in the queue (no turn starts that
+        // could write the folder mid-restore); the restore redelivers it when it ends
+        if frame["t"] == "line" && crate::access::restoring() {
+            return false;
+        }
         let Some(k) = self.sup.kernel().filter(|k| k.ready.load(std::sync::atomic::Ordering::SeqCst)) else { return false };
         let mut pend = lock(&k.pending); // held across the send, so the answer always finds its qid
         if !pend.1.insert(qid.into()) {
             return true; // already sent to this kernel (a line typed while `ready` redelivers)
         }
+        *lock(&k.delivered) = Some(std::time::Instant::now());
         pend.0.insert(k.request("owner.in", json!({"frame": frame, "qid": qid})), qid.into());
         let mut rel = lock(&self.sup.relayed);
         rel.push_back((qid.into(), frame["text"].as_str().unwrap_or("").into()));
@@ -562,7 +576,11 @@ impl Root {
         lock(&self.st).queued = n + 1;
         if !self.deliver(&qid, &frame) {
             self.out(&json!({"qid": qid, "t": "echo", "text": text}), "root"); // a running kernel echoes it itself
-            let t = queued_text(&lock(&self.st).slot, n + 1);
+            let t = if crate::access::restoring() {
+                format!("[root] /undo is restoring the workspace; your message is queued ({}) and goes to the agent when it is done", n + 1)
+            } else {
+                queued_text(&lock(&self.st).slot, n + 1)
+            };
             self.notice("info", &t);
         }
     }

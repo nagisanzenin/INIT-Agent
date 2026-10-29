@@ -53,7 +53,7 @@
 -- no egress @40
  busy 41 s · $?/$? today   L0 · root ok |..........mmmddddddddddd.....mmmaaaaaaa 
 -- state model+cost @120
- busy 41 s · deepseek-flash · $0.040 run · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg              L0 (cap L1) · root ok |..........mmmddddddddddddddmmm..........mmm.................mmmmmmmmddddddddddddmmmm.........................mmmaaaaaaa 
+ busy 41 s · deepseek-flash · +$0.000 since attach · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg    L0 (cap L1) · root ok |..........mmmddddddddddddddmmmddddddddddddddddddddmmm.................mmmmmmmmddddddddddddmmmm...............mmmaaaaaaa 
 -- state model+cost @80
  busy 41 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg             L0 · root ok |..........mmm.................mmmmmmmmddddddddddddmmmm...............mmmaaaaaaa 
 -- state model+cost @40

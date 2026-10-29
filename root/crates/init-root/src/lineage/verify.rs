@@ -154,6 +154,14 @@ pub const FILE_LIMITS: &str = "This shows that no record was changed, reordered 
 (removal at the end is caught only with --head). It does not show that the binaries you run match the source. It is only \
 as good as the key: take the key from a place other than the records file, for example the release notes.";
 
+/// v0.5.3 (PLAN-052 L4): `audit verify --file` without `--head` (stderr; the exit code stays 0, since every record it
+/// read is valid). A copy cut short at a record boundary, or rewound by a force-push of the mirror branch, is itself a
+/// valid chain, so only the head the owner trusts tells it from the whole one.
+pub const NO_HEAD: &str = "init-root: warning: no --head given, so a copy with records missing at the end verifies too \
+(a file cut at a record boundary, or a mirror branch that was force-pushed back). Compare the head above with one you \
+trust from elsewhere, or run this again with --head HASH: the hash of the newest record, as \
+`~/.init-root/bin/init-root audit verify` prints it on the install.";
+
 /// A public key given as 64 hex characters (optionally `ed25519:`-prefixed) or as a file holding them
 /// (`keys/lineage.pub`, `INIT_HOME/root/lineage.pub`).
 fn parse_pub(arg: &str) -> Option<VerifyingKey> {
@@ -206,6 +214,9 @@ pub fn file_cli(file: Option<String>, key: Option<String>, head: Option<String>,
     match file_verify(Path::new(&file), &key, head.as_deref()) {
         Ok(report) => {
             println!("{report}\n{FILE_LIMITS}");
+            if head.is_none() {
+                eprintln!("{NO_HEAD}");
+            }
             0
         }
         Err((64, m)) => usage(&m),

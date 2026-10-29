@@ -73,7 +73,7 @@ pub struct BootEnv {
     /// `INIT_WORKSPACE` (ADR-009): the owner's project directory, where the tools start. None when
     /// the variable is empty (no workspace), absent (an older kernel) or not absolute (a warning).
     pub workspace: Option<PathBuf>,
-    /// `INIT_ACCESS` (ADR-009, SBX-009 §D): `none` · `read_home` · `workspace` · `full`, or a newer
+    /// `INIT_ACCESS` (ADR-009, SBX-009 §D): `none` · `read_home` · `workspace` · `workspace_only` · `full`, or a newer
     /// value kept verbatim.
     /// None when absent (an older kernel), empty or malformed (a warning).
     pub access: Option<String>,

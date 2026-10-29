@@ -160,6 +160,30 @@ fn rr19_the_daemon_mirrors_panics_from_the_mirror_and_never_forces() {
     h.r4_verify();
 }
 
+/// v0.5.3 (PLAN-052 L4): `audit verify --file` of a published copy warns when no `--head` pins its end, since a copy
+/// cut at a record boundary (or a mirror branch force-pushed back) is a valid chain too; with `--head` it does not.
+#[test]
+fn offline_verify_without_head_warns_that_a_cut_copy_verifies_too() {
+    let h = home("nohead");
+    h.install("");
+    let (file, key) = (h.rh.join("lineage/lineage.jsonl"), h.rh.join("keys/lineage.pub"));
+    let args = |head: Option<&str>| {
+        let mut a = vec!["audit".to_string(), "verify".into(), "--file".into(), file.display().to_string(), "--pub".into(), key.display().to_string()];
+        a.extend(head.map(|x| ["--head".to_string(), x.to_string()]).into_iter().flatten());
+        h.cmd().args(&a).stdin(Stdio::null()).output().unwrap()
+    };
+    let o = args(None);
+    let (out, err) = (String::from_utf8_lossy(&o.stdout), String::from_utf8_lossy(&o.stderr));
+    assert_eq!(o.status.code(), Some(0), "{out}{err}");
+    assert!(out.contains("lineage ok:"), "{out}");
+    assert!(err.contains("warning: no --head given, so a copy with records missing at the end verifies too"), "{err}");
+    let head = h.records().last().unwrap()["hash"].as_str().unwrap().to_string();
+    let o = args(Some(&head));
+    assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stdout));
+    assert!(!String::from_utf8_lossy(&o.stderr).contains("warning"), "{}", String::from_utf8_lossy(&o.stderr));
+    fs::remove_dir_all(&h.dir).unwrap(); // exact path, made by home()
+}
+
 /// RR-17: `root.lineage.mid_append` aborts the process with half a line written; the next Root start
 /// copies the torn tail to `lineage/torn-<ts>.bin`, truncates it, and the chain verifies.
 #[test]

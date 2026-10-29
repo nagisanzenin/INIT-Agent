@@ -210,7 +210,9 @@ pub struct Kctl {
     /// The last `hb`'s `busy` (the live body is in a turn).
     pub busy: AtomicBool,
     spawned: Instant,
-    last_hb: Mutex<Instant>,
+    pub last_hb: Mutex<Instant>,
+    /// Lane U (v0.5.3): when the Root last sent this kernel an owner line (a turn it starts shows in the next `hb`).
+    pub delivered: Mutex<Option<Instant>>,
     pub plan: Plan,
     /// Root request id → owner-queue qid, for `owner.in` acknowledgements; every qid sent to this kernel.
     pub pending: Mutex<(HashMap<String, String>, HashSet<String>)>,
@@ -320,10 +322,22 @@ fn kernel_append(root: &Root, a: &Value) -> Result<Value, Err3> {
     if a["kind"] == "promotion" {
         crate::benchmark::deny_change(root.benchmark.as_ref())?;
         tuple::check_promotion(&root.p.rh, data).map_err(|m| ("root.lineage", m, Value::Null))?;
-        // X7 (ADR-011 §2.3): on the free path an LKG promotion must match a group the Root closed; the genesis one is exempt
+        // X7 (ADR-011 §2.3): on the free path an LKG promotion must match a group the Root closed; the genesis one is exempt.
+        // L2b (INV-3): matched by content: the tuple it would form must be one `change.open` admitted, not one of its sha
         let free = lock(&root.st).charter.as_ref().is_some_and(|l| l.ch.extend.free()) && lock(&root.sup.ptrs).current.is_some();
-        if free && data["lkg"] == true && !ledger::promotion_closed(&crate::lineage::records(&root.p.rh).unwrap_or_default(), data["sha"].as_str().unwrap_or("")) {
-            return Err(("root.lineage", "promotion{lkg:true} names no change group the Root closed (ADR-011 §2.3)".into(), Value::Null));
+        // V10 (v0.5.3): no LKG promotion while the owner's gated `/rollback` waits for the zone to restart on its target
+        if data["lkg"] == true && lock(&root.sup.ptrs).current.is_some()
+            && tuple::owner_rollback_pending(&crate::lineage::records(&root.p.rh).unwrap_or_default())
+        {
+            return Err(("root.lineage", "promotion{lkg:true} refused: the owner's /rollback is undoing the newest kept change and the zone \
+                restarts on its target; a promotion built before that restart is built on the undone change".into(), Value::Null));
+        }
+        if free && data["lkg"] == true {
+            let id = tuple::promoted(root, data).map(|(t, _)| tuple::id_of(&t)).unwrap_or_default();
+            if !ledger::promotion_closed(&crate::lineage::records(&root.p.rh).unwrap_or_default(), &id) {
+                return Err(("root.lineage", "promotion{lkg:true} names no admitted change whose group the Root closed: the tuple it forms \
+                    (its body, ext and commit on the current kernel) must be the one change.open admitted (ADR-011 §2.3)".into(), Value::Null));
+            }
         }
     }
     let cur = lock(&root.sup.ptrs).current.clone().and_then(|c| tuple::load(&root.p.rh, &c));
@@ -598,7 +612,7 @@ pub fn install_seed(root: &Arc<Root>, bundle: &std::path::Path, tag: &str, timeo
     };
     let w = kp.ctl.try_clone().map_err(|e| e.to_string())?;
     let k = Arc::new(Kctl { inst: kp.inst, pid: kp.pid, w: Mutex::new(w), fdc: kp.fdc, next: AtomicU64::new(1),
-        ready: AtomicBool::new(false), busy: AtomicBool::new(false), spawned: Instant::now(), last_hb: Mutex::new(Instant::now()), plan: Plan::plain("install"),
+        ready: AtomicBool::new(false), busy: AtomicBool::new(false), spawned: Instant::now(), last_hb: Mutex::new(Instant::now()), delivered: Mutex::new(None), plan: Plan::plain("install"),
         pending: Mutex::new((HashMap::new(), HashSet::new())), stash: Mutex::new(Vec::new()) });
     *lock(&root.sup.k) = Some(k.clone());
     zone::save(root);
@@ -682,9 +696,21 @@ pub fn start(root: &Arc<Root>) {
     }
     // WP24 D8: run roots a previous Root's sealed runs left in sealed/runs.json go now, not at the next audit
     crate::sealed::clean_stale(&root.p.rh);
-    // WP21 D9: a `Halted{crash_loop_safe}` the records leave standing survives the restart with its retry time
+    // ADR-011 A0, INV-2 (L2b): `root_start`; the zone never runs on a Root binary that no start or upgrade recorded
+    let boundary = crate::boundary::start(root, &recs);
+    if let Err(why) = &boundary {
+        root.append("halt", json!({"on": true, "reason": "boundary", "retry_at": null}));
+        root.alert("halted", &format!("[root] Halted{{boundary}}: {why}. The agent does not run on it. Check {} (the Root's \
+            binary); if you put it there yourself, type /resume in init-agent (or run {}) to accept it", root.p.r("bin/init-root").display(),
+            root.p.cmd("resume")));
+    }
+    // WP21 D9: a `Halted{crash_loop_safe}` the records leave standing survives the restart with its retry time; so does a
+    // `Halted{boundary}` (L2b) on the binary that recorded it, until the owner's /resume
     if lock(&root.st).slot == Slot::Stopped {
-        if let Some((reason, retry_at)) = standing_halt(&recs) {
+        let exe = root.boundary.get().map(|b| b.root_sha256.as_str());
+        if boundary.is_err() {
+            lock(&root.st).slot = Slot::Halted { reason: "boundary", retry_at: None };
+        } else if let Some((reason, retry_at)) = standing_halt(&recs, exe) {
             lock(&root.st).slot = Slot::Halted { reason, retry_at };
             root.alert("halted", &format!("[root] still Halted{{{reason}}} after the Root restart; the retry stays at {}", retry_at.map_or("none".into(), rfc3339)));
         } else if let Some(t) = prev.backoff_until.filter(|&t| t > now) {
@@ -703,6 +729,22 @@ pub fn start(root: &Arc<Root>) {
         }
         r.run(rx)
     });
+}
+
+/// ADR-011 A0 (L2b): a Root file changed under the running Root (boundary.rs `check`, at an admission, which then refuses
+/// the change `root.boundary`). The zone stops at once and stays stopped, also across a Root restart on the same binary,
+/// until the owner's /resume: `halt{on:true, reason:"boundary"}`, which `standing_halt` reads.
+pub fn boundary_halt(root: &Root, why: &str) {
+    *lock(&root.sup.k) = None;
+    root.zone.kill_all();
+    root.append("halt", json!({"on": true, "reason": "boundary", "retry_at": null}));
+    lock(&root.st).slot = Slot::Halted { reason: "boundary", retry_at: None };
+    root.alert("halted", &format!("[root] Halted{{boundary}}: {why}. No zone event may change the Root's files, so no change \
+        opens and the agent is stopped. Restore the file; or, if you changed it yourself, restart the Root ({}, then {}) and type \
+        /resume in init-agent (or run {}) to accept it", crate::install::stop_hint(&root.p), crate::install::start_hint(&root.p),
+        root.p.cmd("resume")));
+    zone::save(root);
+    root.publish();
 }
 
 /// `Halted{lineage}` found while running (the daily full verify, lineage/mirror.rs): the zone stops at once.
@@ -725,18 +767,30 @@ fn lineage_safe_since(recs: &[Value]) -> Option<i64> {
 /// WP21 D9: the `Halted{crash_loop_safe}` the records leave standing: its newest `halt{on:true}` with no later
 /// `halt{on:false}`, `stop`, `resume` or `zone_start`. Other halts are re-detected at start (the integrity
 /// ones) or retried at once (`config`: a restart is how a fixed `config.toml` is usually applied).
-fn standing_halt(recs: &[Value]) -> Option<(&'static str, Option<i64>)> {
-    let mut h = None;
+/// L2b: a `Halted{boundary}` stands too, ended only by `halt{on:false}` (the owner's /resume or start), `resume` or
+/// `zone_start`, not by a `stop` nor by a `halt{on:true}` of another reason (Root::boot's `layout`, `tooling` or
+/// `lineage` at a later start); and only while the Root starts from `exe`, the binary of the Root that recorded it
+/// (its newest `root_start` before the halt). Another binary is judged by the start check alone (boundary.rs), so an
+/// upgrade rollback that restores the binary from before a refused probe runs again.
+fn standing_halt(recs: &[Value], exe: Option<&str>) -> Option<(&'static str, Option<i64>)> {
+    let (mut h, mut started) = (None, None);
     for r in recs {
         match r["kind"].as_str() {
+            Some("root_start") if r["by"] == "root" => started = r["data"]["root_sha256"].as_str(),
+            Some("halt") if r["data"]["on"] == true && r["data"]["reason"] == "boundary" => h = Some(("boundary", None, started)),
+            Some("stop") if h.is_some_and(|x| x.0 == "boundary") => {}
+            Some("halt") if r["data"]["on"] == true && h.is_some_and(|x| x.0 == "boundary") => {}
             Some("halt") if r["data"]["on"] == true && r["data"]["reason"] == "crash_loop_safe" => {
-                h = Some(("crash_loop_safe", r["data"]["retry_at"].as_str().and_then(util::parse_rfc3339)));
+                h = Some(("crash_loop_safe", r["data"]["retry_at"].as_str().and_then(util::parse_rfc3339), None));
             }
             Some("halt" | "stop" | "resume" | "zone_start") => h = None,
             _ => {}
         }
     }
-    h
+    match h {
+        Some(("boundary", _, by)) if by != exe => None,
+        h => h.map(|(reason, retry, _)| (reason, retry)),
+    }
 }
 
 /// §3.6.6 "at most 4 retries per owner day": the retries (`halt{on:false, reason:"crash_loop_safe"}`, which an
@@ -823,7 +877,7 @@ impl Run {
             Ok(kp) => {
                 let Ok(w) = kp.ctl.try_clone() else { return self.crash() };
                 let k = Arc::new(Kctl { inst: kp.inst, pid: kp.pid, w: Mutex::new(w), fdc: kp.fdc,
-                    next: AtomicU64::new(1), ready: AtomicBool::new(false), busy: AtomicBool::new(false), spawned: Instant::now(), last_hb: Mutex::new(Instant::now()),
+                    next: AtomicU64::new(1), ready: AtomicBool::new(false), busy: AtomicBool::new(false), spawned: Instant::now(), last_hb: Mutex::new(Instant::now()), delivered: Mutex::new(None),
                     plan, pending: Mutex::new((HashMap::new(), HashSet::new())), stash: Mutex::new(Vec::new()) });
                 *lock(&root.sup.k) = Some(k.clone());
                 self.set(Slot::Starting { hello: false });
@@ -1198,12 +1252,35 @@ mod tests {
         let off = |at: &str| rec("halt", at, json!({"on": false, "reason": "crash_loop_safe", "retry_at": null}));
         let t = |s: &str| util::parse_rfc3339(s).unwrap();
         let recs = vec![on("2026-10-20T00:00:00Z", "2026-10-20T06:00:00.000Z")];
-        assert_eq!(standing_halt(&recs), Some(("crash_loop_safe", Some(t("2026-10-20T06:00:00Z")))));
+        assert_eq!(standing_halt(&recs, None), Some(("crash_loop_safe", Some(t("2026-10-20T06:00:00Z")))));
         for end in [off("2026-10-20T06:00:00Z"), rec("stop", "2026-10-20T01:00:00Z", json!({"by": "owner"})), rec("zone_start", "2026-10-20T06:00:01Z", json!({}))] {
-            assert_eq!(standing_halt(&[recs[0].clone(), end.clone()]), None, "{end}");
+            assert_eq!(standing_halt(&[recs[0].clone(), end.clone()], None), None, "{end}");
         }
         let cfg = rec("halt", "2026-10-20T00:00:00Z", json!({"on": true, "reason": "config", "retry_at": "2026-10-20T06:00:00.000Z"}));
-        assert_eq!(standing_halt(&[cfg]), None, "a config halt retries at once after a restart");
+        assert_eq!(standing_halt(&[cfg], None), None, "a config halt retries at once after a restart");
+        // L2b: a boundary halt stands on the binary that recorded it, through a `stop`, until /resume (`halt{on:false}`)
+        let (a, b) = ("a".repeat(64), "b".repeat(64));
+        let start = |sha: &str| json!({"at": "2026-10-20T00:00:00Z", "by": "root", "data": {"root_sha256": sha}, "kind": "root_start"});
+        let bnd = rec("halt", "2026-10-20T00:00:01Z", json!({"on": true, "reason": "boundary", "retry_at": null}));
+        let stop = rec("stop", "2026-10-20T00:00:02Z", json!({"by": "owner"}));
+        let halted = vec![start(&a), bnd.clone(), stop.clone()];
+        assert_eq!(standing_halt(&halted, Some(&a)), Some(("boundary", None)), "a stop does not end it");
+        assert_eq!(standing_halt(&halted, Some(&b)), None, "another binary: the start check alone decides");
+        assert_eq!(standing_halt(&[start(&a), start(&b), bnd.clone()], Some(&b)), Some(("boundary", None)), "the newest start before the halt");
+        let resumed = rec("halt", "2026-10-20T00:00:03Z", json!({"on": false, "reason": "boundary", "retry_at": null}));
+        assert_eq!(standing_halt(&[start(&a), bnd.clone(), stop.clone(), resumed], Some(&a)), None, "the owner's /resume ends it");
+        // V2: binary b refused; a restart on b with a bad charter (Root::boot's `halt{layout}`); the charter fixed and a
+        // restart on b: the boundary halt still stands, since only /resume, `resume` or `zone_start` ends it
+        let layout = rec("halt", "2026-10-20T00:00:04Z", json!({"on": true, "reason": "layout", "retry_at": null}));
+        let refused = vec![start(&a), start(&b), bnd.clone(), start(&b), layout.clone(), start(&b)];
+        assert_eq!(standing_halt(&refused, Some(&b)), Some(("boundary", None)), "another reason's halt does not end it");
+        let tooling = rec("halt", "2026-10-20T00:00:05Z", json!({"on": true, "reason": "tooling", "retry_at": null}));
+        assert_eq!(standing_halt(&[start(&b), bnd.clone(), tooling, stop], Some(&b)), Some(("boundary", None)));
+        let cls = rec("halt", "2026-10-20T00:00:06Z", json!({"on": true, "reason": "crash_loop_safe", "retry_at": "2026-10-20T06:00:00.000Z"}));
+        assert_eq!(standing_halt(&[start(&b), bnd.clone(), cls], Some(&b)), Some(("boundary", None)));
+        for end in [rec("resume", "2026-10-20T00:00:07Z", json!({})), rec("zone_start", "2026-10-20T00:00:07Z", json!({}))] {
+            assert_eq!(standing_halt(&[start(&b), bnd.clone(), layout.clone(), end.clone()], Some(&b)), None, "{end}");
+        }
         // four retries from 18:00Z on, with the owner day starting at 17:00Z (+07:00): the 20th's 05:00Z one is the day before
         let retries: Vec<Value> = ["2026-10-20T05:00:00Z", "2026-10-20T18:00:00Z", "2026-10-20T23:00:00Z", "2026-10-21T05:00:00Z", "2026-10-21T11:00:00Z"]
             .iter().map(|a| off(a)).collect();

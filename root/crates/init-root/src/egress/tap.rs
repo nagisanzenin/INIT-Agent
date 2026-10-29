@@ -46,7 +46,7 @@ pub fn musd(parts: &[(u64, u64)]) -> u64 {
 /// Tokens as the provider reported them: the input total (cache reads and writes included), the cache
 /// reads within it (DeepSeek `prompt_cache_hit_tokens`, OpenAI `cached_tokens`, Anthropic
 /// `cache_read_input_tokens`), the cache writes within it (v0.5.0 L3: Anthropic `cache_creation_input_tokens`,
-/// split by TTL; OpenAI `cache_write_tokens`) and the output.
+/// split by TTL; OpenAI `cache_write_tokens`) and the output (reasoning included: every family counts it there).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Usage {
     pub input: u64,
@@ -56,6 +56,13 @@ pub struct Usage {
     /// Anthropic 1-hour writes, and every Anthropic write the response does not split by TTL (the dearer class).
     pub cache_write_1h: u64,
     pub output: u64,
+    /// v0.5.3 L6: tokens in usage fields this codec has no price for (a class the provider added, such as a new
+    /// cache TTL): the Root books them at the model's dearest price and flags `price_drift` (money.rs `book`).
+    pub unknown: u64,
+    /// v0.5.3 L6: the stream ended before the provider's final usage (an Anthropic stream cut after
+    /// `message_start`, a Chat stream cut before its finish reason): `output` is only what was reported so far, so
+    /// the Root books the output at the request's wire cap (money.rs `book`).
+    pub partial: bool,
 }
 
 impl Usage {
@@ -64,14 +71,22 @@ impl Usage {
     /// (build-deviations §3.13); a model without a cache-read price bills reads at the input price, and one without
     /// write prices bills writes at twice the input price (classes.rs), so neither under-counts. Each class is
     /// clamped to what is left of the input, so a provider that reports more than its input cannot lower the bill.
+    /// Classes the Root has no price for (`unknown`) are not in it: money.rs `book` adds them.
     pub fn cost(&self, m: &Model) -> u64 {
+        self.cost_with(m, &[])
+    }
+
+    /// `cost` with `extra` (tokens, price) terms, rounded up once over the sum.
+    pub fn cost_with(&self, m: &Model, extra: &[(u64, u64)]) -> u64 {
         let cr = self.cache_read.min(self.input);
         let w1 = self.cache_write_1h.min(self.input - cr);
         let w5 = self.cache_write.min(self.input - cr - w1);
-        musd(&[(self.input - cr - w1 - w5, m.input), (cr, m.cache_read), (w5, m.cache_write), (w1, m.cache_write_1h), (self.output, m.output)])
+        let mut parts = vec![(self.input - cr - w1 - w5, m.input), (cr, m.cache_read), (w5, m.cache_write), (w1, m.cache_write_1h), (self.output, m.output)];
+        parts.extend_from_slice(extra);
+        musd(&parts)
     }
-    /// The `usage` object of a ledger record; the write fields only when there are writes (DeepSeek's records are
-    /// unchanged).
+    /// The `usage` object of a ledger record; the write fields only when there are writes, `unknown` and `partial`
+    /// only when set (v0.5.3 L6), so DeepSeek's records are unchanged.
     pub fn json(&self) -> Value {
         let mut v = json!({"cache_read": self.cache_read, "input": self.input, "output": self.output});
         if self.cache_write > 0 {
@@ -80,7 +95,42 @@ impl Usage {
         if self.cache_write_1h > 0 {
             v["cache_write_1h"] = json!(self.cache_write_1h);
         }
+        if self.unknown > 0 {
+            v["unknown"] = json!(self.unknown);
+        }
+        if self.partial {
+            v["partial"] = json!(true);
+        }
         v
+    }
+}
+
+/// v0.5.3 L6: the usage fields each family's codec reads, as paths in the usage object. Totals and subsets of a priced
+/// field are listed too (`total_tokens`; reasoning and predicted-output tokens, which every family counts in its
+/// output). Any other positive integer in a usage object is a class the Root has no price for.
+const KNOWN_CHAT: [&str; 10] = ["prompt_tokens", "completion_tokens", "total_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens",
+    "prompt_tokens_details.cached_tokens", "prompt_tokens_details.cache_write_tokens", "completion_tokens_details.reasoning_tokens",
+    "completion_tokens_details.accepted_prediction_tokens", "completion_tokens_details.rejected_prediction_tokens"];
+const KNOWN_MESSAGES: [&str; 6] = ["input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens",
+    "cache_creation.ephemeral_5m_input_tokens", "cache_creation.ephemeral_1h_input_tokens"];
+const KNOWN_RESPONSES: [&str; 6] = ["input_tokens", "output_tokens", "total_tokens", "input_tokens_details.cached_tokens",
+    "input_tokens_details.cache_write_tokens", "output_tokens_details.reasoning_tokens"];
+/// Unknown fields named in a record or an alert (all of them are counted).
+const DRIFT_NAMES: usize = 8;
+
+/// The positive integers of a usage object (nested objects included, three levels deep) at paths `known` lacks.
+fn unknown_fields(u: &Value, known: &[&str], prefix: &str, depth: u32, out: &mut BTreeMap<String, u64>) {
+    let Some(o) = u.as_object() else { return };
+    for (k, v) in o {
+        let path = if prefix.is_empty() { k.clone() } else { format!("{prefix}.{k}") };
+        if v.is_object() && depth < 3 {
+            unknown_fields(v, known, &path, depth + 1, out);
+        } else if let Some(n) = v.as_u64().filter(|n| *n > 0)
+            && !known.contains(&path.as_str())
+        {
+            let name: String = path.chars().take(64).map(|c| if c.is_ascii_alphanumeric() || "._-".contains(c) { c } else { '?' }).collect();
+            *out.entry(name).or_default() = n; // cumulative fields (Anthropic): the latest value, never a sum
+        }
     }
 }
 
@@ -100,11 +150,22 @@ pub struct Tap {
     pub finish: Option<&'static str>,
     /// X5: the tool-call reader, on live forwards only (`with_calls`).
     calls: Option<Calls>,
+    /// v0.5.3 L6: the stream reached the event that carries the final usage (Chat: a finish reason; Messages:
+    /// `message_delta`; Responses: a finished response). A stream without it that has usage is `partial`.
+    done: bool,
+    /// v0.5.3 L6: usage fields the codec has no price for, by path, with their latest count.
+    drift: BTreeMap<String, u64>,
 }
 
 impl Tap {
     pub fn new(family: Family, sse: bool) -> Tap {
-        Tap { family, sse, buf: Vec::new(), overflow: false, a: [None; 6], usage: None, finish: None, calls: None }
+        Tap { family, sse, buf: Vec::new(), overflow: false, a: [None; 6], usage: None, finish: None, calls: None, done: false,
+            drift: BTreeMap::new() }
+    }
+
+    /// v0.5.3 L6: the usage fields the codec has no price for (at most `DRIFT_NAMES`), for the record and the alert.
+    pub fn drift(&self) -> Vec<String> {
+        self.drift.keys().take(DRIFT_NAMES).cloned().collect()
     }
 
     /// X5: also read the response's tool calls (ADR-011 §5.2); the live forwarder only, never sealed lanes.
@@ -163,11 +224,14 @@ impl Tap {
             && let Ok(v) = serde_json::from_slice::<Value>(&self.buf)
         {
             self.observe(&v);
+            self.done = true; // a whole body: its usage is the final one
             if let Some(c) = self.calls.as_mut() {
                 c.body(&v);
             }
         }
-        (self.usage, self.finish, self.calls.map(|c| c.caps()).unwrap_or_default())
+        let unknown = self.drift.values().fold(0u64, |s, n| s.saturating_add(*n));
+        let usage = self.usage.map(|u| Usage { unknown, partial: !self.done, ..u });
+        (usage, self.finish, self.calls.map(|c| c.caps()).unwrap_or_default())
     }
 
     fn observe(&mut self, v: &Value) {
@@ -180,10 +244,12 @@ impl Tap {
                     // a gateway's cache writes (OpenRouter `prompt_tokens_details.cache_write_tokens`); DeepSeek sends none
                     let cache_write = n(&u["prompt_tokens_details"], "cache_write_tokens").unwrap_or(0);
                     if let Some(input) = n(u, "prompt_tokens").or(hm) {
-                        self.usage = Some(Usage { input, cache_read, cache_write, cache_write_1h: 0, output: n(u, "completion_tokens").unwrap_or(0) });
+                        self.usage = Some(Usage { input, cache_read, cache_write, output: n(u, "completion_tokens").unwrap_or(0), ..Usage::default() });
+                        unknown_fields(u, &KNOWN_CHAT, "", 0, &mut self.drift);
                     }
                 }
                 if let Some(f) = v["choices"][0]["finish_reason"].as_str() {
+                    self.done = true; // the usage chunk is this one (DeepSeek) or follows it (OpenAI)
                     self.finish = Some(match f {
                         "tool_calls" | "function_call" => "tool_use",
                         "stop" => "stop",
@@ -205,11 +271,17 @@ impl Tap {
                         self.a[i] = Some(x);
                     }
                 }
+                if u.is_object() {
+                    unknown_fields(u, &KNOWN_MESSAGES, "", 0, &mut self.drift);
+                    // `message_delta` carries the final, cumulative usage; `message_start`'s output is a placeholder
+                    self.done |= t == "message_delta" || t == "message";
+                }
                 if let Some(i) = self.a[0] {
                     let (cache_read, output, created) = (self.a[1].unwrap_or(0), self.a[3].unwrap_or(0), self.a[2].unwrap_or(0));
                     // only writes the response puts in the 5-minute class bill at the 5-minute price; the rest at 1 hour
                     let w5 = self.a[4].unwrap_or(0).min(created);
-                    self.usage = Some(Usage { input: i + cache_read + created, cache_read, cache_write: w5, cache_write_1h: created - w5, output });
+                    self.usage = Some(Usage { input: i.saturating_add(cache_read).saturating_add(created), cache_read, cache_write: w5,
+                        cache_write_1h: created - w5, output, ..Usage::default() });
                 }
                 let stop = v["delta"]["stop_reason"].as_str().or(v["stop_reason"].as_str());
                 self.finish = match (t, stop) {
@@ -231,7 +303,10 @@ impl Tap {
                 {
                     let cache_read = n(&u["input_tokens_details"], "cached_tokens").unwrap_or(0);
                     let cache_write = n(&u["input_tokens_details"], "cache_write_tokens").unwrap_or(0);
-                    self.usage = Some(Usage { input, cache_read, cache_write, cache_write_1h: 0, output: n(u, "output_tokens").unwrap_or(0) });
+                    self.usage = Some(Usage { input, cache_read, cache_write, output: n(u, "output_tokens").unwrap_or(0), ..Usage::default() });
+                    unknown_fields(u, &KNOWN_RESPONSES, "", 0, &mut self.drift);
+                    // usage on a finished response is final; on any other event it is a running count
+                    self.done = matches!(r["status"].as_str(), Some("completed" | "incomplete" | "failed" | "cancelled"));
                 }
                 let call = r["output"].as_array().into_iter().flatten().any(|o| matches!(o["type"].as_str(), Some("function_call" | "custom_tool_call")));
                 self.finish = match r["status"].as_str() {
@@ -349,21 +424,81 @@ mod tests {
         let split = "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":4,\"cache_read_input_tokens\":100,\
             \"cache_creation_input_tokens\":30,\"cache_creation\":{\"ephemeral_5m_input_tokens\":20,\"ephemeral_1h_input_tokens\":10},\
             \"output_tokens\":1}}}\n\ndata: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":9}}\n\n";
-        assert_eq!(w(Family::Messages, split), Usage { input: 134, cache_read: 100, cache_write: 20, cache_write_1h: 10, output: 9 });
+        assert_eq!(w(Family::Messages, split), Usage { input: 134, cache_read: 100, cache_write: 20, cache_write_1h: 10, output: 9, ..Usage::default() });
         // OpenAI Responses, and a Chat gateway's single write class (OpenRouter)
         let resp = "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":50,\
             \"input_tokens_details\":{\"cached_tokens\":20,\"cache_write_tokens\":25},\"output_tokens\":3}}}\n\n";
-        assert_eq!(w(Family::Responses, resp), Usage { input: 50, cache_read: 20, cache_write: 25, cache_write_1h: 0, output: 3 });
+        assert_eq!(w(Family::Responses, resp), Usage { input: 50, cache_read: 20, cache_write: 25, output: 3, ..Usage::default() });
         let chat = "data: {\"choices\":[{\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":50,\
             \"prompt_tokens_details\":{\"cached_tokens\":20,\"cache_write_tokens\":25},\"completion_tokens\":3}}\n\n";
-        assert_eq!(w(Family::Chat, chat), Usage { input: 50, cache_read: 20, cache_write: 25, cache_write_1h: 0, output: 3 });
+        assert_eq!(w(Family::Chat, chat), Usage { input: 50, cache_read: 20, cache_write: 25, output: 3, ..Usage::default() });
         // each class at its own price; counts beyond the input are clamped to it and can only raise the bill
         let m = Model { min_level: 0, input: 1_000_000, cache_read: 100_000, cache_write: 1_250_000, cache_write_1h: 2_000_000,
             output: 5_000_000, reserve_out: 1 };
         assert_eq!(w(Family::Messages, split).cost(&m), musd(&[(4, 1_000_000), (100, 100_000), (20, 1_250_000), (10, 2_000_000), (9, 5_000_000)]));
-        let inflated = Usage { input: 10, cache_read: 4, cache_write: 50, cache_write_1h: 50, output: 0 };
+        let inflated = Usage { input: 10, cache_read: 4, cache_write: 50, cache_write_1h: 50, output: 0, ..Usage::default() };
         assert_eq!(inflated.cost(&m), musd(&[(4, 100_000), (6, 2_000_000)]), "the 4 reads, then the 6 tokens left at the dearest write class");
         assert_eq!(w(Family::Responses, resp).json(), json!({"cache_read": 20, "cache_write": 25, "input": 50, "output": 3}));
+    }
+
+    /// v0.5.3 L6: a positive count in a usage field the codec has no price for is an unknown class, by path; totals,
+    /// reasoning and other subsets of a priced field are not, nor are zeros, strings or floats.
+    #[test]
+    fn usage_fields_without_a_price_are_unknown_classes() {
+        let tap = |f: Family, s: &str| {
+            let mut t = Tap::new(f, true);
+            t.feed(s.as_bytes());
+            let d = t.drift();
+            (t.finish().0.unwrap(), d)
+        };
+        // DeepSeek's real fields (seed/src/provider/testdata/deepseek/real-text-cache-hit.sse) are all known
+        let ds = "data: {\"choices\":[{\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":4002,\"completion_tokens\":5,\"total_tokens\":4007,\
+            \"prompt_tokens_details\":{\"cached_tokens\":3840},\"completion_tokens_details\":{\"reasoning_tokens\":2},\"prompt_cache_hit_tokens\":3840,\
+            \"prompt_cache_miss_tokens\":162}}\n\n";
+        assert_eq!(tap(Family::Chat, ds), (Usage { input: 4002, cache_read: 3840, output: 5, ..Usage::default() }, vec![]));
+        // OpenAI Chat: audio and a gateway's float `cost` and zero counts; predicted-output tokens are inside the completion
+        let oc = "data: {\"choices\":[{\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":50,\"completion_tokens\":9,\"total_tokens\":59,\"cost\":0.0012,\
+            \"is_byok\":false,\"prompt_tokens_details\":{\"cached_tokens\":0,\"audio_tokens\":30},\"completion_tokens_details\":{\"reasoning_tokens\":0,\
+            \"accepted_prediction_tokens\":3,\"rejected_prediction_tokens\":2,\"audio_tokens\":0},\"cost_details\":{\"upstream_inference_cost\":null}}}\n\n";
+        assert_eq!(tap(Family::Chat, oc), (Usage { input: 50, output: 9, unknown: 30, ..Usage::default() }, vec!["prompt_tokens_details.audio_tokens".to_string()]));
+        // Anthropic: a 12-hour TTL in the cache_creation split, counted once though both events carry it
+        let an = "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":3,\"cache_read_input_tokens\":0,\
+            \"cache_creation_input_tokens\":700,\"cache_creation\":{\"ephemeral_5m_input_tokens\":0,\"ephemeral_1h_input_tokens\":0,\
+            \"ephemeral_12h_input_tokens\":700},\"output_tokens\":1,\"service_tier\":\"standard\"}}}\n\n\
+            data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"},\"usage\":{\"output_tokens\":12,\
+            \"cache_creation\":{\"ephemeral_12h_input_tokens\":700},\"server_tool_use\":{\"web_search_requests\":0}}}\n\n";
+        assert_eq!(tap(Family::Messages, an), (Usage { input: 703, cache_write_1h: 700, output: 12, unknown: 700, ..Usage::default() },
+            vec!["cache_creation.ephemeral_12h_input_tokens".to_string()]));
+        // OpenAI Responses: a TTL class next to the known details; reasoning is inside output_tokens
+        let rs = "data: {\"type\":\"response.completed\",\"response\":{\"status\":\"completed\",\"usage\":{\"input_tokens\":900,\
+            \"input_tokens_details\":{\"cached_tokens\":0,\"cache_write_tokens\":0,\"ttl_12h_tokens\":800},\"output_tokens\":70,\
+            \"output_tokens_details\":{\"reasoning_tokens\":64},\"total_tokens\":970}}}\n\n";
+        assert_eq!(tap(Family::Responses, rs), (Usage { input: 900, output: 70, unknown: 800, ..Usage::default() },
+            vec!["input_tokens_details.ttl_12h_tokens".to_string()]));
+        assert_eq!(tap(Family::Responses, rs).0.json()["unknown"], 800, "the ledger keeps the count");
+    }
+
+    /// v0.5.3 L6: usage seen before the event that carries the final count is partial: an Anthropic stream cut after
+    /// `message_start` (whose `output_tokens` is a placeholder), a Chat stream with running usage cut before its finish
+    /// reason, a Responses usage on an unfinished response. Complete streams and whole bodies are not.
+    #[test]
+    fn usage_before_the_final_event_is_partial() {
+        let start = "data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10,\"cache_read_input_tokens\":300,\
+            \"cache_creation_input_tokens\":5,\"output_tokens\":1}}}\n\ndata: {\"type\":\"content_block_delta\",\"delta\":{\"text\":\"hi\"}}\n\n";
+        assert_eq!(run(Family::Messages, true, start, 7).0, Some(Usage { cache_write_1h: 5, partial: true, ..u(315, 300, 1) }));
+        assert_eq!(run(Family::Messages, true, ANTHROPIC, 7).0.map(|u| u.partial), Some(false));
+        let error = format!("{start}data: {{\"type\":\"error\",\"error\":{{\"type\":\"overloaded_error\"}}}}\n\n");
+        assert_eq!(run(Family::Messages, true, &error, 7), (Some(Usage { cache_write_1h: 5, partial: true, ..u(315, 300, 1) }), Some("error")));
+        // a server that sends usage on every chunk (vLLM's continuous usage), cut before the finish reason
+        let running = "data: {\"choices\":[{\"delta\":{\"content\":\"a\"}}],\"usage\":{\"prompt_tokens\":40,\"completion_tokens\":3}}\n\n";
+        assert_eq!(run(Family::Chat, true, running, 5).0, Some(Usage { partial: true, ..u(40, 0, 3) }));
+        assert_eq!(run(Family::Chat, true, DEEPSEEK, 5).0.map(|u| u.partial), Some(false));
+        let early = "data: {\"type\":\"response.in_progress\",\"response\":{\"status\":\"in_progress\",\"usage\":{\"input_tokens\":9,\"output_tokens\":1}}}\n\n";
+        assert_eq!(run(Family::Responses, true, early, 5).0.map(|u| u.partial), Some(true));
+        assert_eq!(run(Family::Responses, true, RESPONSES, 5).0.map(|u| u.partial), Some(false));
+        let body = r#"{"type":"message","stop_reason":"end_turn","usage":{"input_tokens":4,"output_tokens":9}}"#;
+        assert_eq!(run(Family::Messages, false, body, 3).0.map(|u| u.partial), Some(false), "a whole body is final");
+        assert_eq!(Usage { partial: true, ..u(1, 0, 1) }.json()["partial"], true);
     }
 
     #[test]

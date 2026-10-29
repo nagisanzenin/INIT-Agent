@@ -2,11 +2,123 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.5.3-preview (2026-10-29)
+
+The math, scale and safety release: the v0.5.2 post-release review's fixes, the Root's known invariant gaps closed,
+statistics that hold their stated error rates, signed releases and an honest meter. The full record is
+build/status/REL-053.md.
+
+### `/undo` and the system restore never lose files (lane A; REL-052 §7.5 findings 1, 2, 10, 11)
+- **`/undo` is all or nothing.** v0.5.2 removed the folder's entries before it cloned the snapshot back, so a read-only
+  folder (a Go module cache, `vendor/pkg` at 0555) stopped it halfway with files gone. The snapshot is now cloned into
+  a staging folder and checked first; entries are swapped by renames that never replace and never follow a link, and a
+  failed step puts every step back. A restore that cannot complete leaves the folder exactly as it was and says why.
+- **The Root's own system restore (R2) is all or nothing too.** It had the same remove-then-clone pattern, and the
+  agent could create a read-only folder in its state and make the Root's rollback fail halfway (class 1). It now
+  swaps all or nothing and checks that every tree holds exactly the snapshot's entries. `prune_at` removes snapshots
+  that hold read-only folders instead of leaking them.
+- **One probe per check.** A stuck `snapshots/.probe` no longer breaks every content check, and an unchanged launch
+  leaves no orphan clone.
+- **Plain `/undo` never brings back a state an `/undo` replaced.** After an `/undo` and new edits, v0.5.2 restored the
+  edits the owner had just undone; those states are now marked in `/undo list` and restored only by `/undo <id>`.
+- **`/panic`'s warning** names the version a resume really rolls back to (settled, then LKG, in free mode); the
+  Root's status carries a `resume` block.
+- **A service start that cannot finish a pending upgrade waits** with one message instead of restarting in a loop.
+
+### The Root's invariants (lane E1; docs/foundations.md INV-2, INV-3, INV-5, INV-10)
+- **A0 (INV-2):** every Root start records `root_start` (its binary, profiles and charter hashes) and every admission
+  re-hashes them. A Root binary that neither the last start nor the upgrade journal names halts the zone until the
+  owner's `/resume`. A5 is the selection hook's real result, not a fixed "pass".
+- **INV-3:** a free-path promotion must name the content of a change the Root admitted in a closed group, not a commit
+  sha.
+- **INV-5:** a sealed audit moves `lkg` by compare-and-set: never backwards, never onto an open group (`lkg_cas`).
+- **INV-10 (D9):** the genesis last resort after an upgrade runs that release's kernel, not the install's original.
+
+### Statistics that hold their stated rates (lane D; build/status/STATS-053.md)
+- **Measured first.** On v0.5.2, a goal whose changes did nothing ended `met` in 35–99 % of simulated goals, and a
+  reading said `better` on a null change up to 42 % of the time.
+- **Readings use an exact permutation test** at 2.275 % (records gain `p_better_ppm`, `p_worse_ppm`, `test`); `z` now
+  describes size only.
+- **`met` needs p ≤ 5 % divided by the goal's rounds**, and every change that goes live during a goal spends a round,
+  predicted or not. Simulated false `met` is now 0–4.65 % per goal at rounds = 10.
+- **Forecasts are scored as Brier skill against each class's base rate**; an unpredicted live change is scored at 500‰.
+- **Guardrails on discrete cards** (requests, cache reads, provider errors, corrections) read 15 turns; cost and wall
+  keep 5. Null rollbacks stay ≤ 2.2 %, and detection is at or above v0.5.2's in every measured cell but one (cache
+  reads at 2× with 40 turns before, 1.1 points lower). A verdict comes about 10 owner turns later.
+- **What a level means (the owner's choice):** a level certifies, at 95 % confidence and valid however often it is
+  re-checked, that the share of closed change groups ending in a direct-harm rollback is below 25 % (L1), 20 % (L2),
+  10 % (L3) or 5 % (L4). It replaces "at most 6/4/3 rollbacks in 30 groups", which certified only < 35.7 % / 28.0 % /
+  23.9 %. Release builds still stop at L0.
+- **A static test** checks that every level permission names its Root cap or rollback path.
+
+### Signed releases (lane S; docs/release-signing.md)
+- Each release's `SHA256SUMS` (with version and an expiry date) is signed with one ed25519 key. A fresh install checks
+  it with `ssh-keygen -Y verify`; an upgrade from 0.5.3 on asks the installed Root, which pins the key at build time and
+  never takes one from the download. An older release is refused; an expired list is refused unless `--allow-expired`;
+  a missing verifier is refused unless `--allow-unsigned` (each printed with its risk). Key 1's fingerprint:
+  `SHA256:IS7wIWkppZkHSUwdnsJR+K4fBPkmPa/IJwfNi9sIoMs`.
+- `audit verify --file` without `--head` warns that it cannot detect a truncated tail.
+
+### The meter (lane M; docs/root/egress.md)
+- A usage class the codec does not know is billed at the model's dearest price, never 0, with a `price_drift` alert.
+- `/usage` shows one price: a self-change's checks at the Root's ledger price (v0.5.2 showed the kernel's off-peak
+  price after a relaunch). DeepSeek off-peak requests are therefore over-counted, never under-counted.
+- An Anthropic stream cut after `message_start` was billed 1 output token; it is now booked as an upper bound.
+- A property test checks, over every combination of usage classes on every catalog model and random price tables,
+  that the bill is at most the reservation and at least the provider's list price.
+- **OpenAI gpt-6.1-sol is tested live** (qualified on 2026-10-29, build/status/qualify/). Anthropic stays experimental.
+
+### Access and the gated path (lane H)
+- **Plain `/rollback` works on the gated path.** A kept core change became LKG within about a second there, and the
+  owner had no one-line undo; `/rollback` now moves back to the version the newest kept change replaced.
+- **More credential stores are denied** to the agent in workspace mode (git, gh and hub credentials, Cloudflare and
+  wrangler, Terraform, Vault, the 1Password CLI, cargo and gem credentials, keyrings, more browser profiles), and every
+  other INIT install's homes, plus `~/.init-release`, are denied in both modes.
+- **The boot line tells the model the truth** about `read_home = false`, and turning it off restarts the body.
+
+### Install, upgrade and the TUI (lane B; REL-052 §7.5 findings 4–6, 10)
+- Every printed `init-agent` carries its path (`~/.local/bin/init-agent …`), from the installers, the upgrade, the
+  launcher, the Root and the TUI.
+- install.sh's PATH hint names your shell's startup file (zsh, bash on Linux, the file login bash reads on macOS, fish,
+  else `~/.profile`).
+- `--upgrade` on a custom-home install prints that install's line with `INIT_ROOT_HOME` filled in, on the first try.
+- The TUI sends a line that starts with a real path at once, holds an unknown `/word` once (Enter again sends it, so a
+  command your agent added still works), and refuses a built-in with a wrong argument.
+
+### Found by the release review (lanes U, V, W; build/status/REL-053.md §4.3)
+- **`/undo` and R2 never follow a link.** Both worked on the workspace and INIT_HOME's trees by path, so in full access
+  an agent that swapped the workspace (or `state/`) for a symlink mid-restore could redirect the Root's moves into a
+  folder it cannot write (pre-existing; v0.5.2's `remove_dir_all` would have deleted there). They now open the folder
+  once with `O_NOFOLLOW` at every component and work relative to that descriptor.
+- **The pre-undo save is a clone again,** so a hard link or open descriptor the agent kept cannot change it afterwards.
+- **Owner lines wait while `/undo` restores** (a second client could start a turn mid-restore).
+- **The sealed audit never moves `lkg` or `audited` onto a tuple rolled back or replaced while it ran.**
+- **A boundary halt outlives a later integrity halt;** A0 compares the active charter's bytes, so a removed
+  `extra_read` folder no longer halts the zone.
+- **No promotion lands while an owner `/rollback` restarts the zone,** and a promotion's tuple and LKG are written
+  under one lock.
+- **`met` counts a change's first goal-card reading only** (re-reading the same change raised false `met` far above
+  5 %); an owner guardrail that ends without a verdict alerts the owner (`goal_guard_unchecked`); only rollbacks
+  attributed `direct` count toward a level's evidence.
+- **Signed releases:** `current` only for the exact installed version string, downgrades by SemVer precedence, the file
+  check before the expiry check, and the `--allow-expired` warning only when the flag was given.
+- **Install:** the upgrade and the uninstaller reach systemd under `env -i` on Linux and report service errors;
+  get.sh's "run it again with --allow-…" lines keep the run's arguments and homes; `~/.cloudflared` is denied.
+- **TUI:** no kernel-side price anywhere (the ledger's only); `/stop.` and `/help?` are judged as commands.
+
+### Docs and claims (lanes C and F)
+- docs/foundations.md is the single source; money is metered, not capped; "bit for bit" became "hash-equal to the
+  maintainer's build"; "reward-free" is scoped to admission; every cold-build number names its machine, load and
+  receipt (docs/guide.md "Time"). The Root's TCB is counted in docs/root/root.md §4.8.
+- A5 refuses a change when free disk cannot be read (it passed before). The dependency estimate is the measured
+  15–21 min on a busy M2.
+
 ## v0.5.2-preview (2026-10-29)
 
 ### TUI: what a first-time user saw that was not true (R-TUI; docs/user-sessions/v0.5.1-new.md, v0.5.1-returning.md)
-- **The cold dependency build is its own step.** The first self-change of the compiled core spends 10–20 min building
-  its dependencies inside G0; the gate track said `G0 build + tests □ 12 min 3 s` with no estimate, then
+- **The cold dependency build is its own step.** The first self-change of the compiled core builds its dependencies
+  inside G0 (17 min 16 s in the v0.5.1 user session, beside a release job; docs/guide.md "Time" has every
+  measurement); the gate track said `G0 build + tests □ 12 min 3 s` with no estimate, then
   `■ pass · 2 min 32 s · waited 17 min 46 s`, and a stranger read the build as idle waiting. The kernel now sends an
   owner-only `gate_deps` event when that build starts and adds `build_ms`, `deps_ms` and `deps_mode` to G0's owner
   notice (`kernel-supervise` `promote/stages.rs` `prepare_deps`, `promote/record.rs` `Record::owner_extra`; the body's

@@ -258,3 +258,9 @@ cleanup
 if [ $KEEP = 0 ] && [ -e "$REL" ]; then rm -rf -- "$REL"; log "removed $REL (--keep-release keeps it)"; fi
 log "bundle $TGZ ($(( $(bytes "$TGZ") / 1048576 )) MB packed, $UNPACKED_MB MB unpacked; sha256 ${TGZ_SHA:0:16}…)"
 log "times: release $(( T_REL - T0 )) s, prebuilt body $(( T_BODY - T_REL )) s, total $(( $(now) - T0 )) s; free $(free_mb) MB"
+# v0.5.3 (docs/release-signing.md): the key the bundle's get.sh and Root pin; scripts/sign-release.sh signs the release
+if grep -q "^RELEASE_KEYS=''" "$REPO/scripts/get.sh"; then
+  log "NOTE: get.sh pins no release key: a development bundle (its get.sh verifies no download; sign-release.sh will not sign it)"
+else
+  log "release key pinned in get.sh and the Root: $(sed -n "s/^RELEASE_KEYS='\(ssh-ed25519 [A-Za-z0-9+/=]*\).*/\1/p" "$REPO/scripts/get.sh" | cut -c1-40)…; next: scripts/sign-release.sh (release.md §4c)"
+fi

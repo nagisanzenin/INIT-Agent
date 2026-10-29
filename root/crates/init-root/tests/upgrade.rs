@@ -14,6 +14,8 @@
 //! `HOME` is a fake home under `root/target/test-homes/upg/`; nothing outside it is read or written.
 #![cfg(feature = "test-fixtures")]
 
+#[path = "common/shown.rs"]
+mod shown;
 use serde_json::{Value, json};
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -133,6 +135,9 @@ impl Home {
     fn ptrs(&self) -> (String, String) {
         let (mut cur, mut lkg) = (String::new(), String::new());
         for l in fs::read_to_string(self.rh.join("lineage/lineage.jsonl")).unwrap().lines() {
+            if l.trim_matches('\0').is_empty() {
+                continue; // a torn tail that the SIGKILL of the test's daemon left (NUL bytes): the Root trims it at its next open
+            }
             let r: Value = serde_json::from_str(l).unwrap();
             let s = |k: &str| r["data"][k].as_str().unwrap_or("").to_string();
             match r["kind"].as_str() {
@@ -184,7 +189,8 @@ impl Home {
         assert_eq!(code(&o), Some(0), "probe: {}", err(&o));
     }
     fn records(&self) -> Vec<Value> {
-        fs::read_to_string(self.rh.join("lineage/lineage.jsonl")).unwrap().lines().map(|l| serde_json::from_str(l).unwrap()).collect()
+        fs::read_to_string(self.rh.join("lineage/lineage.jsonl")).unwrap().lines().filter(|l| !l.trim_matches('\0').is_empty()) // a torn tail
+            .map(|l| serde_json::from_str(l).unwrap()).collect()
     }
     fn last(&self, kind: &str) -> Value {
         self.records().into_iter().rev().find(|r| r["kind"] == kind).unwrap_or_default()
@@ -341,7 +347,7 @@ fn replace_probe_commit_then_a_failed_probe_rolls_back() {
     assert_eq!((sha(&h.rh.join("bin/init-root")), sha(&h.ih.join("kernel/bin/init-kernel")), launchers(&h)), (root1, kernel1, launch1),
         "the Root, the kernel and the launchers from before");
     assert_eq!(h.journal()["phase"], "rolled_back");
-    let last_rb = fs::read_to_string(h.rh.join("lineage/lineage.jsonl")).unwrap().lines().rev()
+    let last_rb = fs::read_to_string(h.rh.join("lineage/lineage.jsonl")).unwrap().lines().rev().filter(|l| !l.trim_matches('\0').is_empty())
         .map(|l| serde_json::from_str::<Value>(l).unwrap()).find(|r| r["kind"] == "rollback").expect("a rollback record");
     assert_eq!(last_rb["data"]["to"], cur.as_str(), "{last_rb}");
     h.verify();
@@ -426,7 +432,7 @@ fn a_panic_after_a_committed_upgrade_resumes_on_the_upgraded_kernel() {
     assert_eq!(tuple(&cur)["kernel"], upgraded["kernel"], "the resume runs the release's kernel, not the one from before: {r} {st}");
     assert_ne!(cur, genesis, "{st}");
     assert_eq!(sha(&h.ih.join("kernel/bin/init-kernel")), new_kernel, "kernel/bin holds the release's kernel after the resume");
-    let rb = fs::read_to_string(h.rh.join("lineage/lineage.jsonl")).unwrap().lines().rev()
+    let rb = fs::read_to_string(h.rh.join("lineage/lineage.jsonl")).unwrap().lines().rev().filter(|l| !l.trim_matches('\0').is_empty())
         .map(|l| serde_json::from_str::<Value>(l).unwrap()).find(|r| r["kind"] == "rollback").expect("the resume's rollback record");
     assert_eq!((rb["data"]["reason"].as_str(), rb["data"]["target"].as_str(), rb["data"]["to"].as_str()), (Some("panic"), Some("audited"), Some(cur.as_str())), "{rb}");
     drop(_d);
@@ -481,7 +487,8 @@ fn a_start_mid_upgrade_never_runs_the_zone_on_mixed_anchors() {
     assert_eq!(code(&o), Some(75), "{}", err(&o));
     let e = String::from_utf8_lossy(&o.stderr).into_owned();
     for want in ["it was cut off after its replace step, before its health probe and commit, so this start rolled it back",
-        "Start the Root again: run this in a terminal of its own and leave it open: ", "start --foreground", "init-agent upgrade"] {
+        "Start the Root again: run this in a terminal of its own and leave it open: ", "start --foreground",
+        format!("run the upgrade again: {}.", shown::agent(&bin, "upgrade")).as_str()] {
         assert!(e.contains(want), "{want:?} in {e}");
     }
     assert_eq!(h.journal()["phase"], "rolled_back");
@@ -509,6 +516,65 @@ fn a_start_mid_upgrade_never_runs_the_zone_on_mixed_anchors() {
     assert_eq!((st["tuples"]["current"].as_str(), st["tuples"]["lkg"].as_str()), (Some(to.as_str()), Some(to.as_str())), "{st}");
     drop(_d);
     h.verify();
+}
+
+/// Our own child, killed and reaped by its handle when a test fails while it runs.
+struct Kid(Child);
+impl Drop for Kid {
+    fn drop(&mut self) {
+        if matches!(self.0.try_wait(), Ok(None)) {
+            let _ = self.0.kill();
+            let _ = self.0.wait();
+        }
+    }
+}
+
+/// v0.5.3 (REL-052 §7.5, low): a start that cannot finish a pending upgrade never exits into a restart loop. launchd's
+/// `KeepAlive` and systemd's `Restart=always` start an exited Root again, so v0.5.2's exit 1 repeated the refused
+/// rollback, its alert and its log line every 10 s for as long as the service was loaded. Now the service's `start`
+/// says it once, never runs the zone, and waits; once the owner finishes the upgrade as it says, it exits by itself
+/// (75: the service starts the Root again, which runs). `start --foreground`, run by hand in a terminal, exits 1.
+#[test]
+fn a_start_that_cannot_finish_an_upgrade_waits_instead_of_looping() {
+    let h = home("wl");
+    h.install();
+    { let _d = h.daemon(); }
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    let bin = h.dir.join(".local/bin");
+    let o = h.upgrade(&r1, &["--bin-dir", bin.to_str().unwrap(), "--by-installer"]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    let j = h.journal();
+    assert_eq!(j["phase"], "replaced");
+    // the snapshot loses a file, so the rollback a start does in `replaced` is refused
+    let snap = h.rh.join("state/upgrade").join(j["id"].as_str().unwrap());
+    let key = j["items"].as_array().unwrap().iter().filter(|i| i["kind"] == "file").filter_map(|i| i["key"].as_str())
+        .find(|k| snap.join(k).is_file()).unwrap().to_string();
+    fs::remove_file(snap.join(&key)).unwrap(); // exact path, in this test's home
+    let fk_lines = || fs::read_to_string(h.ih.join("state/kernel/fk.jsonl")).map_or(0, |t| t.lines().count());
+    let n0 = fk_lines();
+    let said = || fs::read_to_string(h.rh.join("alerts.jsonl")).unwrap_or_default().matches("is not finished").count();
+    // by hand in a terminal: exits 1 at once, and says what to run
+    let o = h.run(Path::new(BIN), &["start", "--foreground"]);
+    assert_eq!(code(&o), Some(1), "{}", err(&o));
+    assert!(err(&o).contains("upgrade --commit"), "{}", err(&o));
+    assert_eq!(said(), 1);
+    // the service's start: says it once, then waits instead of exiting into a restart loop
+    let mut c = Kid(h.cmd(Path::new(BIN)).arg("start").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::piped()).spawn().unwrap());
+    wait(10, "the message", || said() == 2);
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(c.0.try_wait().unwrap().is_none(), "the service's start exited: launchd and systemd would start it again, in a loop");
+    assert_eq!(said(), 2, "said once");
+    let m = fs::read_to_string(h.rh.join("alerts.jsonl")).unwrap().lines().last().unwrap().to_string();
+    assert!(m.contains("so this start waits instead of exiting") && m.contains("upgrade --commit"), "{m}");
+    assert_eq!(fk_lines(), n0, "the zone never ran");
+    // the owner finishes the upgrade as the message says: the waiting start exits by itself, and the Root runs
+    let o = h.verb("--commit", "");
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    wait(20, "the waiting start exits", || c.0.try_wait().unwrap().is_some());
+    assert_eq!(c.0.wait().unwrap().code(), Some(75), "75: its service starts the Root again");
+    assert_eq!(said(), 2);
+    let _d = h.daemon();
+    assert_eq!(h.journal()["phase"], "committed");
 }
 
 /// v0.5.1: an anchor whose tuple file cannot be read at the commit is never skipped silently. The upgrade itself is
@@ -860,4 +926,150 @@ fn the_zone_cannot_run_the_upgrade_or_write_what_it_replaces() {
         assert_eq!(protected(&h), before, "{mode}: a protected file changed");
     }
     assert!(!h.rh.join("state/upgrade.json").exists(), "no upgrade ran");
+}
+
+/// L2b (v0.5.3): SHA-256 of a file's bytes (a blob's name in the Root's store), from /usr/bin/shasum.
+fn sha256(b: &[u8]) -> String {
+    let o = Command::new("/usr/bin/shasum").args(["-a", "256"]).stdin(Stdio::piped()).stdout(Stdio::piped()).spawn().and_then(|mut c| {
+        c.stdin.take().unwrap().write_all(b)?;
+        c.wait_with_output()
+    }).unwrap();
+    String::from_utf8_lossy(&o.stdout).split_whitespace().next().unwrap().to_string()
+}
+
+/// L2b: a copy of this test's `init-root` with a trailing marker (a different Root binary that runs the same).
+fn root_variant(at: &Path, marker: &str) {
+    let mut b = fs::read(BIN).unwrap();
+    b.extend_from_slice(format!("\n# {marker}\n").as_bytes());
+    let tmp = at.with_extension("new");
+    fs::write(&tmp, b).unwrap();
+    fs::set_permissions(&tmp, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    fs::rename(&tmp, at).unwrap(); // a new inode, as `mv` or an upgrade leaves it
+}
+
+impl Home {
+    /// The daemon started from the installed `ROOT_HOME/bin/init-root`, as the service starts it.
+    fn installed_daemon(&self) -> Daemon {
+        let c = self.cmd(&self.rh.join("bin/init-root")).arg("start").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+        let d = Daemon(c, self.rh.clone());
+        wait(10, "owner.sock", || UnixStream::connect(self.rh.join("run/owner.sock")).is_ok());
+        wait(20, "running", || self.ok("status", json!({}))["slot"] == "running");
+        d
+    }
+}
+
+/// L2b (INV-2 / A0 at start; "after a legitimate upgrade the new binary's hash is the expected one"): a release that
+/// ships a new Root binary. Its probe starts it (the journal's `to.root_sha256`), the commit keeps it, and the service's
+/// next start runs it as the recorded binary; a later upgrade rolled back after its probe restores the binary before it,
+/// which starts too (the journal's `from.root_sha256`). Each start records `root_start` with the binary it ran.
+#[test]
+fn an_upgrade_that_ships_a_new_root_binary_starts_it_and_its_rollback_restores_the_old_one() {
+    let h = home("nb");
+    h.install();
+    { let _d = h.daemon(); }
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    root_variant(&r1.join("init-root"), "release one's Root");
+    let new_root = sha256(&fs::read(r1.join("init-root")).unwrap());
+    let o = h.upgrade(&r1, &["--bin-dir", h.dir.join(".local/bin").to_str().unwrap()]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    assert_eq!(h.journal()["to"]["root_sha256"], new_root.as_str());
+    h.probe();
+    assert_eq!(h.last("root_start")["data"]["root_sha256"], new_root.as_str(), "the probe's Root is the release's binary");
+    let o = h.verb("--commit", "");
+    assert_eq!(code(&o), Some(0), "commit: {}", err(&o));
+    { let _d = h.installed_daemon(); }
+    // a second release, probed and then rolled back: the binary from before comes back and starts
+    let r2 = h.release("rel2", "9.2.0-test", "release two", None);
+    root_variant(&r2.join("init-root"), "release two's Root");
+    let o = h.upgrade(&r2, &[]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    h.probe();
+    let o = h.run(&r2.join("init-root"), &["upgrade", "--rollback"]);
+    assert_eq!(code(&o), Some(0), "rollback: {}", err(&o));
+    assert_eq!(sha256(&fs::read(h.rh.join("bin/init-root")).unwrap()), new_root);
+    { let _d = h.installed_daemon(); }
+    assert_eq!(h.last("root_start")["data"]["root_sha256"], new_root.as_str());
+    assert!(!h.records().iter().any(|r| r["kind"] == "halt" && r["data"]["reason"] == "boundary"), "no start was refused");
+    h.verify();
+}
+
+/// L2b (INV-2 / A0 at start): something other than the upgrade puts another binary at `ROOT_HOME/bin/init-root` after
+/// the replace step. The probe's Root is then a binary neither the last start nor the upgrade recorded: it never runs
+/// the zone (`Halted{boundary}`), so the probe fails and the owner rolls the upgrade back instead of committing it.
+#[test]
+fn a_root_binary_swapped_after_the_replace_step_fails_the_probe() {
+    let h = home("sw");
+    h.install();
+    { let _d = h.daemon(); }
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    let o = h.upgrade(&r1, &[]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    root_variant(&h.rh.join("bin/init-root"), "not the release's binary");
+    let o = h.run(&h.rh.join("bin/init-root"), &["upgrade", "--probe", "--timeout", "30"]);
+    assert_eq!(code(&o), Some(1), "the probe must fail: {}", err(&o));
+    assert!(err(&o).contains("boundary"), "{}", err(&o));
+    let o = h.run(&r1.join("init-root"), &["upgrade", "--rollback"]);
+    assert_eq!(code(&o), Some(0), "rollback: {}", err(&o));
+    let _d = h.daemon(); // the install from before runs
+}
+
+/// L2b, INV-10 / D9: the genesis last resort after an upgrade. `upgrade --commit` moves `lkg`, `audited`, `settled` and
+/// the twin onto the release's kernel, but the rollback order (root.md §3.7.3) ends at genesis, the install's first
+/// tuple, which still named the install's kernel. With every other anchor unreadable, a rollback installed that old
+/// kernel under the new Root. Now genesis runs with the kernel of the newest upgrade and its own body and ext; and if
+/// that kernel's blob is gone too, the Root halts (`no_tuple`) rather than run the old one.
+#[test]
+fn the_genesis_last_resort_after_an_upgrade_runs_the_release_kernel() {
+    let h = home("gl");
+    h.install();
+    { let _d = h.daemon(); } // the seedless genesis tuple: current, lkg and audited
+    let (genesis, _) = h.ptrs();
+    let (g, kernel0) = (h.tuple(&genesis), sha(&h.ih.join("kernel/bin/init-kernel")));
+    // a later tuple of its own (another commit, the same empty body binary) is current, lkg and audited-good
+    let mut tc = g.clone();
+    tc["body"]["sha"] = json!("c".repeat(40));
+    let id = format!("t{}", &sha256(serde_json::to_string(&tc).unwrap().as_bytes())[..12]);
+    let f = h.rh.join("store/tuples").join(format!("{id}.json"));
+    fs::write(&f, format!("{}\n", serde_json::to_string(&tc).unwrap())).unwrap();
+    {
+        let _d = h.daemon();
+        h.append(json!([{"kind": "tuple", "data": {"id": id, "tuple": tc}}, {"kind": "lkg", "data": {"tuple": id}},
+            {"kind": "audited", "data": {"tuple": id}}]));
+    }
+    let r1 = h.release("rel1", "9.1.0-test", "release one", None);
+    let o = h.upgrade(&r1, &["--bin-dir", h.dir.join(".local/bin").to_str().unwrap()]);
+    assert_eq!(code(&o), Some(0), "{}", err(&o));
+    h.probe();
+    let o = h.verb("--commit", "");
+    assert_eq!(code(&o), Some(0), "commit: {}", err(&o));
+    let (to, lkg) = h.ptrs();
+    let upgraded = h.tuple(&to);
+    assert!(lkg == to && h.tuple(&to)["body"] == tc["body"], "lkg is the upgraded tuple");
+    assert_eq!(h.last("audited")["data"]["tuple"], to.as_str(), "audited-good moved onto the release's kernel");
+    // the upgraded tuple's file is damaged: lkg and audited-good both fail to verify; genesis is the last resort
+    let tf = h.rh.join("store/tuples").join(format!("{to}.json"));
+    fs::set_permissions(&tf, std::os::unix::fs::PermissionsExt::from_mode(0o644)).unwrap();
+    fs::write(&tf, "{\"damaged\": true}\n").unwrap();
+    {
+        let _d = h.daemon();
+        let rb = h.last("rollback");
+        assert_eq!((rb["data"]["target"].as_str(), rb["data"]["reason"].as_str()), (Some("genesis"), Some("blob_missing")), "{rb}");
+        let landed = rb["data"]["to"].as_str().unwrap().to_string();
+        assert_ne!(landed, genesis, "not the install's tuple with the install's kernel: {rb}");
+        let t = h.tuple(&landed);
+        assert_eq!(t["kernel"], upgraded["kernel"], "the release's kernel: {rb}");
+        assert_eq!((&t["body"], &t["ext"]), (&g["body"], &g["ext"]), "genesis's own body and ext");
+        assert_eq!(sha(&h.ih.join("kernel/bin/init-kernel")), sha(&r1.join("init-kernel")), "kernel/bin holds the release's kernel");
+        assert_ne!(sha(&h.ih.join("kernel/bin/init-kernel")), kernel0);
+        let st = h.ok("status", json!({}));
+        assert_eq!((st["slot"].as_str(), st["tuples"]["current"].as_str()), (Some("running"), Some(landed.as_str())), "{st}");
+    }
+    // the release kernel's blob is gone as well: no tuple of the release's kernel verifies, and the old one never runs
+    let kblob = h.rh.join("store/blobs").join(upgraded["kernel"]["init_kernel"].as_str().unwrap());
+    fs::remove_file(&kblob).unwrap(); // exact path, a blob of this test's store
+    let c = h.cmd(Path::new(BIN)).arg("start").stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).spawn().unwrap();
+    let _d = Daemon(c, h.rh.clone());
+    wait(10, "owner.sock", || UnixStream::connect(h.rh.join("run/owner.sock")).is_ok());
+    wait(30, "Halted{no_tuple}", || h.ok("status", json!({}))["halted"] == "no_tuple");
+    assert_ne!(sha(&h.ih.join("kernel/bin/init-kernel")), kernel0, "the install's kernel was never installed again");
 }

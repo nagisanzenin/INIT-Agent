@@ -7,7 +7,7 @@ use crate::app::{Latency, spawn_signals};
 use crate::conn::{self, Ev, PollCmd};
 use crate::model::{EchoOut, Echoes, Feed, FeedOut, Info, OwnerSt};
 use crate::notice;
-use crate::proto::{self, DisplayKind, Frame, LineKind};
+use crate::proto::{self, DisplayKind, Frame, LineKind, Slash};
 use crate::render::{Role, Style, sanitize, wrap};
 use crate::setup;
 use std::collections::{HashSet, VecDeque};
@@ -146,6 +146,9 @@ struct LineApp<W: Write> {
     last_notice: Option<(String, u32)>,
     /// TUI-PICKER: the agent's open question; the next input line answers it (numbers become labels).
     ask: Option<crate::render::picker::Ask>,
+    /// v0.5.3: the line whose `/word` the TUI did not know, dropped once ([`Slash::Ask`]); the same line
+    /// next sends it.
+    slash_asked: Option<String>,
 }
 
 impl<W: Write> LineApp<W> {
@@ -297,12 +300,18 @@ impl<W: Write> LineApp<W> {
                 }
             };
             let text = proto::canonical(&text);
-            // v0.5.2: an unknown command is refused here, not sent to the model (and billed)
-            if kind == LineKind::Input
-                && let Some(word) = proto::unknown_command(&text)
-            {
+            // v0.5.2: a `/word` line that may not be what the owner meant is dropped here, not sent to the
+            // model (and billed); v0.5.3: a path goes out, and a `/word` the TUI does not know is sent
+            // when the next line is the same (a command an evolved body added)
+            let asked = self.slash_asked.take();
+            let s = proto::slash(&text, &proto::path_exists);
+            let confirmed = matches!(s, Slash::Ask { .. }) && asked.as_deref() == Some(text.trim());
+            if s != Slash::Pass && !confirmed {
                 self.unsent.pop_front();
-                let m = format!("[tui] {word}: {} (not sent)", proto::UNKNOWN_HINT);
+                if matches!(s, Slash::Ask { .. }) {
+                    self.slash_asked = Some(text.trim().to_string());
+                }
+                let m = format!("[tui] {} (not sent)", s.text(true).unwrap_or_default());
                 if self.o.raw {
                     eprintln!("{m}");
                 } else {
@@ -321,6 +330,7 @@ impl<W: Write> LineApp<W> {
                 continue;
             }
             if !self.send(&frame) {
+                self.slash_asked = asked.filter(|_| confirmed); // sent when the connection is back, not asked again
                 break;
             }
             self.unsent.pop_front();
@@ -742,11 +752,12 @@ pub fn run(o: LineOpts) -> i32 {
     spawn_signals(tx.clone());
     let mut feed = Feed::new();
     feed.want_raw = o.raw;
-    let acc = access::Flow::new(o.cwd.clone(), o.full, o.workspace);
     let mut info = Info::default();
     info.home = std::env::var("HOME").ok().filter(|h| !h.is_empty());
+    info.agent = crate::app::agent_cmd_here(info.home.as_deref(), &o.root_home);
+    let acc = access::Flow::new(o.cwd.clone(), o.full, o.workspace).with_agent(&info.agent);
     // a key typed into a terminal in line mode would be echoed: only a pipe may carry one
-    let setup = setup::Flow::new(!std::io::IsTerminal::is_terminal(&std::io::stdin()), &o.root_home, info.home.as_deref());
+    let setup = setup::Flow::new(!std::io::IsTerminal::is_terminal(&std::io::stdin()), &o.root_home, info.home.as_deref()).with_agent(&info.agent);
     let mut app = LineApp {
         o,
         out: Out { w: io::BufWriter::new(io::stdout()), col: 0, style },
@@ -784,6 +795,7 @@ pub fn run(o: LineOpts) -> i32 {
         steers: std::collections::BTreeMap::new(),
         setup,
         ask: None,
+        slash_asked: None,
     };
     app.start_attach();
     spawn_stdin(tx);

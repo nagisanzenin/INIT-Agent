@@ -8,7 +8,7 @@ use crate::input::Editor;
 use crate::keys::{self, Action, View};
 use crate::model::{self, Conn, EchoOut, Echoes, Feed, FeedOut, Info, Kind, OwnerSt, Transcript, Tray, TrayOut};
 use crate::notice::{self, Class};
-use crate::proto::{self, Frame, LineKind};
+use crate::proto::{self, Frame, LineKind, Slash};
 use crate::render::live::{self, Ui};
 use crate::render::transcript::{self, ViewState};
 use crate::render::Line;
@@ -130,6 +130,9 @@ pub struct App {
     pub panic_ask: bool,
     /// TUI-FIX2: setup answers that arrived while `/panic` waited for its word; they run after it.
     panic_held: Vec<(setup::Op, Result<serde_json::Value, conn::ReqErr>)>,
+    /// v0.5.3: the line whose `/word` the TUI did not know, held once ([`Slash::Ask`]); Enter on the
+    /// same line again sends it.
+    slash_asked: Option<String>,
 }
 
 /// v0.5.1: `init-root <args>` as the owner types it in a terminal, the same form the Root prints
@@ -138,15 +141,81 @@ pub struct App {
 /// install (`$HOME/.init-root`) prints as `~/.init-root/bin/init-root <args>`; any other ROOT_HOME prints its
 /// absolute binary with `INIT_ROOT_HOME=` in front, quoted when the path needs it.
 pub fn root_cmd(root_home: &std::path::Path, home: Option<&str>, args: &str) -> String {
-    let q = |s: String| {
-        if !s.is_empty() && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"/._+-,:@%=".contains(&c)) { s } else { format!("'{}'", s.replace('\'', "'\\''")) }
-    };
     let exe = if home.is_some_and(|h| root_home == std::path::Path::new(h).join(".init-root")) {
         "~/.init-root/bin/init-root".to_string()
     } else {
-        format!("INIT_ROOT_HOME={} {}", q(root_home.display().to_string()), q(root_home.join("bin/init-root").display().to_string()))
+        format!("INIT_ROOT_HOME={} {}", shq(&root_home.display().to_string()), shq(&root_home.join("bin/init-root").display().to_string()))
     };
     if args.is_empty() { exe } else { format!("{exe} {args}") }
+}
+
+/// A word as the shell reads it back: as it is when plain, else in single quotes (the scripts' `shq`).
+fn shq(s: &str) -> String {
+    if !s.is_empty() && s.bytes().all(|c| c.is_ascii_alphanumeric() || b"/._+-,:@%=".contains(&c)) { s.to_string() } else { format!("'{}'", s.replace('\'', "'\\''")) }
+}
+
+/// Where install.sh puts the launcher by default (INIT_BIN_DIR, ~/.local/bin), for a TUI told nothing else.
+pub const DEFAULT_AGENT: &str = "~/.local/bin/init-agent";
+
+/// v0.5.3 (the v0.5.2 post-release review, finding 4): `init-agent` as the owner types it in a new
+/// terminal. A bare `init-agent` fails on a fresh Mac, whose PATH lacks ~/.local/bin. The path is the
+/// launcher's own (`launcher`: the `INIT_AGENT_LAUNCHER` scripts/init-agent sets when it starts the TUI)
+/// when it is absolute and printable, else `init-agent` next to this binary (`exe`: install.sh puts
+/// `init-tui` beside the launcher), else [`DEFAULT_AGENT`]; written `~/…` under HOME, with
+/// `INIT_ROOT_HOME=` in front when the Root's home is not ~/.init-root ([`root_cmd`]'s rule, and
+/// get.sh's `up_agent`).
+pub fn agent_cmd(launcher: Option<&str>, exe: Option<&std::path::Path>, home: Option<&str>, root_home: &std::path::Path) -> String {
+    let path = launcher.filter(|l| printable_abs(l)).map(str::to_string).or_else(|| {
+        exe.and_then(std::path::Path::parent).and_then(|d| d.join("init-agent").to_str().map(str::to_string)).filter(|p| printable_abs(p))
+    });
+    let h = home.map(|h| h.trim_end_matches('/')).filter(|h| !h.is_empty());
+    let shown = match (path, h) {
+        (None, _) => DEFAULT_AGENT.to_string(),
+        (Some(p), Some(h)) => match p.strip_prefix(h).and_then(|r| r.strip_prefix('/')).filter(|r| !r.is_empty()) {
+            Some(rest) => format!("~/{}", shq(rest)),
+            None => shq(&p),
+        },
+        (Some(p), None) => shq(&p),
+    };
+    if home.is_some_and(|h| root_home == std::path::Path::new(h).join(".init-root")) {
+        shown
+    } else {
+        format!("INIT_ROOT_HOME={} {shown}", shq(&root_home.display().to_string()))
+    }
+}
+
+fn printable_abs(p: &str) -> bool {
+    p.starts_with('/') && !p.chars().any(char::is_control)
+}
+
+/// [`agent_cmd`] for this process, read once at startup ([`agent_sources`] of its environment and binary).
+pub fn agent_cmd_here(home: Option<&str>, root_home: &std::path::Path) -> String {
+    let (launcher, exe) = agent_sources(
+        std::env::var("INIT_AGENT_LAUNCHER").ok(),
+        std::env::var("INIT_BIN_DIR").ok(),
+        || std::env::current_exe().ok(),
+        root_home,
+    );
+    agent_cmd(launcher.as_deref(), exe.as_deref(), home, root_home)
+}
+
+/// Where [`agent_cmd`] takes the launcher's path from: `INIT_AGENT_LAUNCHER` (the launcher's own); for a
+/// TUI started by hand, its own directory, except `ROOT_HOME/bin` (the TUI's last lookup place, where
+/// install.sh puts no launcher); else `INIT_BIN_DIR`'s launcher (the installer's rule, shared with the Root's
+/// lines); else nothing, and [`DEFAULT_AGENT`].
+pub fn agent_sources(
+    launcher: Option<String>,
+    bin_dir: Option<String>,
+    exe: impl FnOnce() -> Option<std::path::PathBuf>,
+    root_home: &std::path::Path,
+) -> (Option<String>, Option<std::path::PathBuf>) {
+    if let Some(l) = launcher.filter(|l| printable_abs(l)) {
+        return (Some(l), None);
+    }
+    if let Some(e) = exe().filter(|e| e.parent() != Some(root_home.join("bin").as_path())) {
+        return (None, Some(e));
+    }
+    (bin_dir.filter(|d| printable_abs(d)).map(|d| format!("{}/init-agent", d.trim_end_matches('/'))), None)
 }
 
 /// TUI-FIX (v0.5.1 user session: "zsh: command not found: init-root"): how to start the Root, with
@@ -169,22 +238,34 @@ pub(crate) fn start_hint_on(root_home: &std::path::Path, home: Option<&str>, os:
 /// how to cancel; the Root's own semantics are unchanged (root/root.md §3.9).
 pub const PANIC_ASK: &str = "[tui] /panic is the emergency stop: it kills every agent process and all model spend now, \
     lowers the agent's autonomy level one step (when it is above L0), and /resume later restarts it on its last \
-    audited-good version. \
+    audited-good version (in free mode: the settled one, else the last known-good). \
     To stop only the current run use /stop; to stop the agent without a demotion, /root stop. \
     Type panic and press Enter to stop everything now; Esc or any other line cancels.";
 
 /// v0.5.2 (user session v0.5.1-new: "Panic quietly threw away my new tool"): `/panic`'s question,
-/// with what `/resume` will drop when the running version is not the audited-good one (the Root's
-/// status `tuples`): the self-changes kept since it stop running.
+/// with what `/resume` will drop when the running version is not the one it rolls back to: the
+/// self-changes kept since that one stop running. v0.5.3 (REL-052 §7.5 finding 3): that version is
+/// the Root's own pick, `status.resume` (`settled`, else LKG, in free mode), not audited-good, which
+/// a Root before v0.5.3 gives instead.
 pub fn panic_ask_text(status: Option<&serde_json::Value>) -> String {
     let t = status.map(|s| &s["tuples"]);
-    let (cur, aud) = (t.and_then(|t| t["current"].as_str()), t.and_then(|t| t["audited"].as_str()));
-    match (cur, aud) {
+    let cur = t.and_then(|t| t["current"].as_str());
+    let (to, name) = match status.map(|s| &s["resume"]).filter(|r| r.is_object()) {
+        Some(r) => (r["tuple"].as_str(), match r["pointer"].as_str() {
+            Some("audited") => "audited-good",
+            Some("settled") => "settled",
+            Some("lkg") => "last known-good",
+            Some("genesis") => "first",
+            _ => "known-good",
+        }),
+        None => (t.and_then(|t| t["audited"].as_str()), "audited-good"),
+    };
+    match (cur, to) {
         (Some(c), Some(a)) if c != a => {
             let (c, a) = (crate::render::sanitize::plain(c, 0), crate::render::sanitize::plain(a, 0));
             let cut = PANIC_ASK.find(" Type panic").unwrap_or(PANIC_ASK.len());
             format!(
-                "{} What you lose: this agent runs version {c}, newer than the audited-good {a}, so after /resume the \
+                "{} What you lose: this agent runs version {c}, newer than the {name} {a}, so after /resume the \
                  self-changes kept since {a} no longer run (they stay in the lineage; your files are not touched).{}",
                 &PANIC_ASK[..cut],
                 &PANIC_ASK[cut..]
@@ -209,10 +290,11 @@ pub fn panic_confirms(line: &str) -> bool {
 impl App {
     pub fn new(o: Opts, tx: Sender<Ev>, poll: Sender<PollCmd>, w: u16, h: u16) -> App {
         let verbose = o.verbose;
-        let acc = access::Flow::new(o.cwd.clone(), o.full, o.workspace);
         let mut info = Info::default();
         info.home = std::env::var("HOME").ok().filter(|h| !h.is_empty());
-        let setup = setup::Flow::new(true, &o.root_home, info.home.as_deref()).with_pickers();
+        info.agent = agent_cmd_here(info.home.as_deref(), &o.root_home);
+        let acc = access::Flow::new(o.cwd.clone(), o.full, o.workspace).with_agent(&info.agent);
+        let setup = setup::Flow::new(true, &o.root_home, info.home.as_deref()).with_pickers().with_agent(&info.agent);
         App {
             o,
             tx,
@@ -256,6 +338,7 @@ impl App {
             lineage: Default::default(),
             panic_ask: false,
             panic_held: Vec::new(),
+            slash_asked: None,
         }
     }
 
@@ -860,6 +943,8 @@ impl App {
         if text.trim().is_empty() {
             return;
         }
+        // v0.5.3: a `/word` asked about is sent only on the very next Enter, on the same line
+        let asked = self.slash_asked.take();
         if self.panic_ask {
             // TUI-FIX: the line after `/panic` answers its confirmation and is never sent as a line
             self.ed.clear();
@@ -935,23 +1020,37 @@ impl App {
             self.panic_ask = true;
             return;
         }
-        if let Some(word) = proto::unknown_command(&text) {
-            // v0.5.2 (user session v0.5.1-new: `/undo list` went to the model and was billed): an
-            // unknown command is not sent; the line stays in the box
-            self.info_block(format!("{word}: {} (nothing was sent)", proto::UNKNOWN_HINT));
-            self.set_hint("not sent: an unknown command · // at the start sends the line as a message", 5);
-            return;
-        }
+        // v0.5.2 (user session v0.5.1-new: `/undo list` went to the model and was billed): a `/word`
+        // line that may not be what the owner meant is not sent, and stays in the box. v0.5.3 (the
+        // v0.5.2 post-release review, finding 10): a path goes out, and a `/word` the TUI does not know
+        // (a typo, or a command an evolved body added) is held once: the same line again sends it.
+        let confirmed = match proto::slash(&text, &proto::path_exists) {
+            Slash::Pass => false,
+            Slash::Ask { .. } if asked.as_deref() == Some(text.trim()) => true,
+            s => {
+                self.info_block(format!("{} (nothing was sent)", s.text(false).unwrap_or_default()));
+                if matches!(s, Slash::Ask { .. }) {
+                    self.slash_asked = Some(text.trim().to_string());
+                    self.set_hint("not sent · Enter again sends the line to the model as text · /help lists the commands", 5);
+                } else {
+                    self.set_hint("not sent · // at the start sends the line as a message", 5);
+                }
+                return;
+            }
+        };
         let frame = proto::line(&text);
         if frame.len() > proto::LINE_MAX {
             self.set_hint(format!("too long to send ({} KiB > 900 KiB); split it", frame.len() / 1024), 5);
             return;
         }
+        // a line the owner already confirmed and that could not go out is not asked about again
         if self.writer.is_none() {
+            self.slash_asked = asked.filter(|_| confirmed);
             self.set_hint("not connected to the Root: nothing was sent; your text is kept", 4);
             return;
         }
         if !self.send_frame(&frame) {
+            self.slash_asked = asked.filter(|_| confirmed);
             self.set_hint("the connection dropped: nothing was sent; your text is kept", 4);
             return;
         }

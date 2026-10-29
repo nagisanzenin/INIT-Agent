@@ -171,6 +171,10 @@ List every number a user sees from this release, and answer four questions for e
 4. **Does the label survive a reader?** "Tested live" requires a live run (§5.6). "Mock model" or "simulated model"
    is said wherever it applies.
 
+The Root's size is one of these numbers. Run root/root.md §4.8's command (`rootloc.py`) at the tagged commit, for the
+whole Root and for the TCB split that docs/foundations.md §10 defines. README, foundations.md §10 and REL-<version>.md
+give both totals with that commit.
+
 ## 4.5 · Read paths degrade, never brick
 
 When a release changes a state format (charter, `install.json`, `status.json`, ledger, lineage, sessions), feed
@@ -191,7 +195,7 @@ The mechanics are in docs/release.md §2b and §3. Every command here is $0, on 
 | Check | Command | What it proves |
 |---|---|---|
 | fresh install | `scripts/bundle-e2e.sh <tarball>` | get.sh with Rust in a test home, one turn, owner state unchanged |
-| a self-change | `scripts/bundle-e2e.sh --t2 <tarball>` | the shipped gate G0–G3 and the hand-off, 20–30 min |
+| a self-change | `scripts/bundle-e2e.sh --t2 <tarball>` | the shipped gate G0–G3 and the hand-off; 14–32 min measured (docs/release.md §2b) |
 | pause | `scripts/bundle-e2e.sh --pause <tarball>` | Esc/Ctrl-C before the first token pauses, and the resume is one request |
 | source install | `scripts/release-e2e.sh` | install.sh, a tool turn, `audit verify`, the uninstaller's refusals and the Trash |
 | upgrade | `scripts/upgrade-e2e.sh --bundle <tarball>` | an evolved previous release keeps its state; a broken bundle rolls back; an incompatible one is refused |
@@ -309,17 +313,37 @@ alongside real bugs:
 The mechanics are in docs/release.md §4 and §4b. The owner's go is needed to publish, because it is a public action.
 
 - Tag only after every gate is green on the tagged commit.
-- **Never move a published public tag.** A fix after publishing ships as a replaced `get.sh` asset with a record, or
-  as a patch release. A private tag moved before the publish is recorded in REL-<version>.md.
+- **Never move a published public tag, and never replace a published asset.** From v0.5.3 the public repository has
+  immutable releases (docs/release-signing.md §7.1): once published, a release's assets and its tag cannot change. A
+  fix after publishing is a patch release. (Until v0.5.2 a fix could ship as a replaced `get.sh` asset with a record.)
+  A private tag moved before the publish is recorded in REL-<version>.md.
+- **Sign the release** (docs/release-signing.md §9). Put every asset, exactly as it will be uploaded, in one
+  directory: both bundles with their `.sha256` (the Linux one from the CI artifact, checked against its
+  `MANIFEST.json`), the merged `latest.json`, and the tagged commit's `get.sh`. Then:
+  - `scripts/sign-release.sh sums --version <V> DIR`;
+  - the offline step, `scripts/sign-release.sh sign --key <the release key> DIR`, done by the owner;
+  - `scripts/sign-release.sh check DIR`.
+  A release whose get.sh pins no release key, or whose `SHA256SUMS.sig` does not verify under that key, is not
+  published.
 - `scripts/publish-public.sh`: every scan must report 0. Commit with the noreply identity in **every** repository that
   is shared or published, including the INIT Labs site.
-- Publish the GitHub release as a draft first. Check its asset names and sizes against the local files, then publish
-  it as latest.
+- Publish the GitHub release as a draft first, with **every** asset, `SHA256SUMS` and `SHA256SUMS.sig` included:
+  nothing can be added once it is published. Check its asset names and sizes against the local files, then publish it
+  as latest.
+- **The expiry calendar.** A release's `SHA256SUMS` is valid for 180 days from signing (its `# expires:` line). The
+  next release, a patch if nothing else, ships before the newest one has 60 days left. Otherwise fresh installs refuse
+  it from the day after it expires (docs/release-signing.md §5). Put the date in REL-<version>.md.
 
 ## 7 · Verify the release is real
 
-- **Public download check:** download every asset from `releases/latest/download/`, confirm each is byte-identical to
-  what was uploaded, and run `bundle-e2e` on the downloaded tarball.
+- **Public download check:**
+  - download every asset from `releases/latest/download/`, `SHA256SUMS` and `SHA256SUMS.sig` included, and confirm
+    each is byte-identical to what was uploaded;
+  - `scripts/sign-release.sh check <the download dir>`: the signature under the key the published get.sh pins, every
+    asset's sha256, and the macOS bundle's own `init-root release verify`;
+  - `gh release verify v<version>`, and `gh release verify-asset v<version> <file>` for each asset (immutable, per
+    GitHub's attestation);
+  - `bundle-e2e` on the downloaded tarball.
 - `scripts/install-matrix.sh --published`.
 - **The real machine:** with the owner's consent, run the published one-liner, or `init-agent upgrade`, on the
   owner's Mac. Test homes never touch the real LaunchAgent, systemd unit or login items, so only this run exercises
@@ -335,8 +359,8 @@ what the pre-release review already found, and this standing instruction:
 
 > Find a command we print that fails in some user's state, a number that flatters, and a path that weakens the Root.
 
-If it finds something, fix it immediately and say so plainly in the CHANGELOG. A replaced get.sh asset, or a patch
-release an hour later, is not a failure. A stranded user left standing is.
+If it finds something, fix it immediately and say so plainly in the CHANGELOG. A patch release an hour later is not a
+failure (from v0.5.3 nothing published is replaced: immutable releases, §6). A stranded user left standing is.
 
 ## 8 · Tell users
 
@@ -361,8 +385,10 @@ release an hour later, is not a failure. A stranded user left standing is.
 - [ ] §5.5 `install-matrix.sh` green for fresh and every public release since 0.3.1; every block pasted whole
 - [ ] §5.6 live qualification with the owner's go and a cap, or listed as not verified and labelled experimental
 - [ ] §5.7 two user sessions run by a separate persona agent; reports filed; verdict **ship**
-- [ ] §6 tag on the green commit; export scans 0; noreply identity; draft checked; published as latest
-- [ ] §7 public download byte-identical; `install-matrix.sh --published`; the real-Mac run with the owner's consent
+- [ ] §6 tag on the green commit; signed (`sign-release.sh check` green); export scans 0; noreply identity; draft with
+      every asset checked; published as latest; the expiry date and the next release's latest date in REL-<version>.md
+- [ ] §7 public download byte-identical and `sign-release.sh check` green on it; `gh release verify`;
+      `install-matrix.sh --published`; the real-Mac run with the owner's consent
 - [ ] §7 site and README on the new release; receipts relabelled
 - [ ] §7.5 post-release independent review within 24 h
 - [ ] §8 upgrade lines published; fixed issues closed with a real reply
@@ -379,6 +405,7 @@ release an hour later, is not a failure. A stranded user left standing is.
 | §5.5 install matrix | the owner's 0.3.1 Mac: get.sh printed `init-agent upgrade` to a user who had no `init-agent` (2026-10-28) |
 | §5.5 paste the whole block | the README block ran `init-agent` twice after the install refused: "command not found" ×2 |
 | §6 identity and scans | a key-shaped literal and the private repository's name stopped the export (REL-050); a site commit carried the owner's personal e-mail (2026-10-28) |
+| §6 signing, immutable releases | until v0.5.2, whoever controlled the release page, or a server named by `INIT_DIST_URL`, chose both the bundle and its checksum; with full access the agent could plant that variable in the owner's shell (docs/release-signing.md A1, A3) |
 | §7 real machine | the uninstaller's `launchctl bootout` had never run before the owner's Mac (2026-10-28) |
 | §7.5 post-release review | the get.sh bug shipped behind every green gate; the owner found it within hours |
 
@@ -389,6 +416,10 @@ looking in a mirror.
 
 ## Version history of this protocol
 
+- **v1.3 (2026-10-29, during v0.5.3, PLAN-052 L4):** §6: every release is signed (`scripts/sign-release.sh`), and
+  with immutable releases no published asset is ever replaced; the expiry calendar. §7: the download check verifies the
+  signature and GitHub's attestation. §7.5: a fix is a patch release.
+- **v1.2 (2026-10-29, during v0.5.3):** §4.4: the Root's size and its TCB's, counted at the tag.
 - **v1.1 (2026-10-28, during v0.5.1):**
   - §4: one full CI run plus five loaded runs of the body suite, instead of three full runs.
   - §5.7: the harness rules.

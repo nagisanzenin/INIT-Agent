@@ -353,3 +353,47 @@ fn deps_cache_stub_then_warm_hit_then_corrupt_falls_back() {
     assert!(cache.lookup(&key).is_none(), "the corrupt entry is gone");
     cache.discard(&key).unwrap();
 }
+
+/// D11 (v0.5.3 L6): G4's task-cap check (kernel-gate `task_cap_problem`: a frozen task whose cap is below one
+/// request's reservation refuses G4) applies only where the proxy refuses requests for money. Under the Root's
+/// observe-only money no cap refuses a request, and the check refused G4 on every model whose one-request
+/// reservation is above the tasks' caps: gpt-6.1-sol's 327,680 µUSD against the 100,000 of fixtures/pool-v1.
+#[test]
+fn d11_the_task_cap_check_applies_only_where_money_is_enforced() {
+    struct Priced(bool);
+    impl GateProxy for Priced {
+        fn open_gate(&self, _: &str, _: &str, _: u64) -> Result<(), String> {
+            Ok(())
+        }
+        fn close_gate(&self, _: &str) -> u64 {
+            0
+        }
+        fn open_scope(&self, _: &str, _: proxy::LaneKind, _: &str, _: bool, _: u64, _: &str, _: &str, _: &std::path::Path) -> Result<(), String> {
+            Ok(())
+        }
+        fn close_scope(&self, _: &str) -> Value {
+            Value::Null
+        }
+        fn scope_summary(&self, _: &str) -> Value {
+            Value::Null
+        }
+        fn request(&self, _: &str) -> Option<RequestView> {
+            None
+        }
+        fn request_reservation_musd(&self) -> Option<u64> {
+            Some(327_680)
+        }
+        fn money_enforced(&self) -> bool {
+            self.0
+        }
+    }
+    let v = kernel_gate::evo::Validated { sha: "b".repeat(40), parent: "a".repeat(40), change_type: kernel_gate::evo::ChangeType::Feat, scope: None,
+        summary: String::new(), trailers: Default::default(), changed_paths: vec![], capability_labels: vec![] };
+    for (enforced, floor) in [(true, Some(327_680)), (false, None)] {
+        let mut e = env(&format!("pw-d11-{enforced}"), Arc::new(FakeSup::default()), Arc::new(FakeLineage::default()));
+        Arc::get_mut(&mut e).unwrap().proxy = Arc::new(Priced(enforced));
+        assert_eq!(pipeline::plan(&e, "j-000001", &v, 100, 100, 1, false).request_reservation_musd, floor, "money enforced: {enforced}");
+        crate::testutil::remove_test_dir(&e.home);
+    }
+    assert!(NoGateProxy.money_enforced(), "a proxy that says nothing enforces (the K-GATE check stays on)");
+}

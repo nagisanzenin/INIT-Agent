@@ -173,9 +173,13 @@ class NoBundleForThisMachine(unittest.TestCase):
         rec[f"sha256_{TARGET}"] = hashlib.sha256(tgz).hexdigest()
         with open(os.path.join(self.dist, "latest.json"), "w") as f:
             json.dump(rec, f, indent=1, sort_keys=True)
-        p = self.get("--unpack-only")
+        p = self.get("--unpack-only", "--allow-unsigned")  # an unsigned stand-in (signatures: test_release_signature.py)
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
         self.assertIn("unpacked INIT 9.9.9-test", p.stdout)
+        self.assertIn("get.sh: warning: --allow-unsigned: the signature is not checked", p.stderr)
+        p = self.get("--unpack-only")  # without it: refused, nothing unpacked
+        self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
+        self.assertIn("is not signed: https://dist.invalid/rel/SHA256SUMS answered HTTP 404", p.stderr)
         self.assertTrue(os.path.isfile(os.path.join(self.app, "9.9.9-test", "VERSION")))
 
 

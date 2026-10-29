@@ -16,11 +16,14 @@
 #                MX_CACHE (default /private/tmp/i5-mx-cache, reused across runs, sha256-checked)
 #   --keep       keep the test homes (MX_DIR, default /private/tmp/i5-mx/run)
 #   --published  no installs: the release's get.sh asset (releases/latest/download/get.sh) must be NEW_GET_SH byte for
-#                byte, and the uninstaller the printed command fetches (main's scripts/uninstall.sh) must be this tree's
+#                byte, and the uninstaller the printed command fetches (main's scripts/uninstall.sh) must be this tree's;
+#                from v0.5.3 the release has SHA256SUMS and SHA256SUMS.sig, lists that get.sh, and the published get.sh
+#                downloads, verifies and unpacks it (--unpack-only, in a scratch home: about 60 MB, nothing installed)
 #
 # Rows (each in its own test home DIR/{h,r,i}; the Root runs as our child with --no-service, never as a service):
 #   fresh    NEW's get.sh on a clean home → one owner line answered by the mock → `init-agent --version` names NEW →
-#            NEW's get.sh again says `init-agent upgrade` (INIT_ROOT_HOME= in front for a test home), and that command exists
+#            NEW's get.sh again says `~/.local/bin/init-agent upgrade` (with its path from v0.5.3, INIT_ROOT_HOME= in front for a
+#            test home), and that command exists
 #   old V    V installed with its own get.sh and running, then NEW's get.sh with no flags, as a user pastes it. The
 #            message must take the branch get.sh promises and every command it prints must exist in that state:
 #              V < 0.4.1   names V, prints the uninstall command; `--upgrade` refuses before any download; the printed
@@ -29,7 +32,7 @@
 #                          ROOT_HOME, INIT_HOME and INIT's launchers to the test home's Trash; a fresh NEW install in the
 #                          same home answers, and init-tui is NEW's
 #              V >= 0.4.1  prints the one-time safe line `/usr/bin/curl -q … | /bin/sh -s -- --upgrade` (0.4.1, 0.5.0) or
-#                          `init-agent upgrade` (0.5.1+), with INIT_ROOT_HOME= when the home is not ~/.init-root; the upgrade with
+#                          `~/.local/bin/init-agent upgrade` (0.5.1+), with INIT_ROOT_HOME= when the home is not ~/.init-root; the upgrade with
 #                          NEW's get.sh is refused while the foreground Root runs, then, after Ctrl-C, upgrades: the
 #                          Root is NEW's, `audit verify --full` passes, the old `init` is gone, the install answers
 # The owner's ~/.init, ~/.init-root, ~/.local/bin, ~/.local/share/init and ~/Library/LaunchAgents (t1_snap) must not
@@ -72,6 +75,20 @@ if [ $PUBLISHED = 1 ]; then
   else log "FAIL published get.sh ($(sha "$T/get.sh")) != $GET_NEW ($(sha "$GET_NEW"))"; rc=1; fi
   if cmp -s "$T/uninstall.sh" "$MX_REPO/scripts/uninstall.sh"; then log "PASS main's uninstall.sh == this tree's ($(sha "$T/uninstall.sh"))"
   else log "FAIL main's uninstall.sh ($(sha "$T/uninstall.sh")) != this tree's ($(sha "$MX_REPO/scripts/uninstall.sh"))"; rc=1; fi
+  # v0.5.3 (docs/release-signing.md): the release is signed, and the published get.sh installs it through its own check
+  # (the download, ssh-keygen -Y verify, the sha256, the unpack; --unpack-only, in a scratch home, nothing installed)
+  for f in SHA256SUMS SHA256SUMS.sig; do
+    /usr/bin/curl -fsSL "${GET_URL%/get.sh}/$f" -o "$T/$f" || { log "FAIL the release has no $f"; rc=1; }
+  done
+  if [ -f "$T/SHA256SUMS.sig" ]; then
+    mkdir -p "$T/assets" && cp "$T/get.sh" "$T/SHA256SUMS" "$T/SHA256SUMS.sig" "$T/assets/"
+    grep -q "^[0-9a-f]\{64\}  get.sh\$" "$T/SHA256SUMS" && (cd "$T/assets" && /usr/bin/shasum -a 256 -c --ignore-missing --quiet SHA256SUMS) \
+      && log "PASS the published get.sh is listed in the signed SHA256SUMS" || { log "FAIL get.sh is not the one SHA256SUMS lists"; rc=1; }
+    if env -i HOME="$T/h" PATH=/usr/bin:/bin:/usr/sbin:/sbin INIT_APP_DIR="$T/h/app" /bin/sh "$T/get.sh" --unpack-only >"$T/unpack.log" 2>&1 \
+      && grep -q '  ok  signature: INIT ' "$T/unpack.log"; then log "PASS the published get.sh verifies and unpacks the release: $(grep '  ok  signature' "$T/unpack.log")"
+    else log "FAIL the published get.sh does not verify the release: $(tail -3 "$T/unpack.log" | tr '\n' ' ')"; rc=1; fi
+  fi
+  chmod -R u+w "$T" 2>/dev/null || true # the unpacked copy is read-only
   rm -rf -- "$T"
   exit $rc
 fi
@@ -195,11 +212,12 @@ run_get() { # LOG ARGS...: NEW's get.sh as a user runs it; prints its exit code
 }
 first_line() { head -n 1 "$1" | cut -c1-200; }
 # Every command line get.sh prints (indented by two spaces) names commands that exist here, and every URL it prints
-# answers. The state is the test home's: PATH is the user's (their bin dir first).
+# answers. The state is the test home's, in a new terminal on a fresh Mac (v0.5.3): `~/` is the test home, and PATH
+# lacks the bin dir, so a bare `init-agent` does not count (get.sh prints `~/.local/bin/init-agent …`).
 printed_commands_exist() { # LOG
-  /usr/bin/python3 -I - "$1" "$BIN:/usr/bin:/bin:/usr/sbin:/sbin" <<'PY'
+  /usr/bin/python3 -I - "$1" "/usr/bin:/bin:/usr/sbin:/sbin" "$H" <<'PY'
 import os, re, shlex, subprocess, sys
-text, path = open(sys.argv[1]).read(), sys.argv[2].split(":")
+text, path, home = open(sys.argv[1]).read(), sys.argv[2].split(":"), sys.argv[3]
 lines = [l.strip() for l in text.splitlines() if l.startswith("  ") and l.strip()]
 if not lines:
     print("no command line in the message"); sys.exit(1)
@@ -214,7 +232,7 @@ for l in lines:
             w = w[1:]
         if not w:
             continue
-        c = w[0]
+        c = home + w[0][1:] if w[0].startswith("~/") else w[0]
         ok = os.access(c, os.X_OK) if "/" in c else any(os.access(os.path.join(d, c), os.X_OK) for d in path)
         if not ok:
             bad.append(f"{c!r} (in: {l})")
@@ -238,7 +256,7 @@ row_fresh() { # DIR
   local v; v="$("${GET_ENV[@]}" "$BIN/init-agent" --version 2>&1 | head -n 1)"
   case "$v" in *"$NVN"*) step "init-agent --version names $NVN" 1 "$v" ;; *) step "init-agent --version names $NVN" 0 "$v" ;; esac
   local rc; rc=$(run_get "$T1_DIR/get-again.log")
-  [ "$rc" = 1 ] && grep -q "INIT $NVN is already installed" "$T1_DIR/get-again.log" && grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?init-agent upgrade$' "$T1_DIR/get-again.log" \
+  [ "$rc" = 1 ] && grep -q "INIT $NVN is already installed" "$T1_DIR/get-again.log" && grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-again.log" \
     && step "get.sh again: init-agent upgrade" 1 "$(first_line "$T1_DIR/get-again.log")" || step "get.sh again: init-agent upgrade" 0 "rc $rc: $(first_line "$T1_DIR/get-again.log")"
   local pc; pc="$(printed_commands_exist "$T1_DIR/get-again.log")" && step "printed commands exist" 1 "$pc" || step "printed commands exist" 0 "$pc"
 }
@@ -262,10 +280,10 @@ row_old() { # V DIR
       && step "get.sh: names $v, prints the uninstall" 1 "$(first_line "$T1_DIR/get-plain.log")" || step "get.sh: names $v, prints the uninstall" 0 "rc $rc: $(cat "$T1_DIR/get-plain.log")"
   elif ver_lt "$v" 0.5.1; then
     # 0.4.1 has no init-agent upgrade, and 0.5.0's runs 0.5.0's own get.sh: both get the one-time safe line (v0.5.1)
-    [ "$rc" = 1 ] && grep -q "INIT $v is already installed" "$T1_DIR/get-plain.log" && grep -qF '/usr/bin/curl -q -fsSL' "$T1_DIR/get-plain.log" && grep -qE '/bin/sh -s -- --upgrade$' "$T1_DIR/get-plain.log" && ! grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?init-agent upgrade$' "$T1_DIR/get-plain.log" \
+    [ "$rc" = 1 ] && grep -q "INIT $v is already installed" "$T1_DIR/get-plain.log" && grep -qF '/usr/bin/curl -q -fsSL' "$T1_DIR/get-plain.log" && grep -qE '/bin/sh -s -- --upgrade$' "$T1_DIR/get-plain.log" && ! grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-plain.log" \
       && step "get.sh: prints the one-time safe upgrade line" 1 "$(first_line "$T1_DIR/get-plain.log")" || step "get.sh: prints the one-time safe upgrade line" 0 "rc $rc: $(cat "$T1_DIR/get-plain.log")"
   else
-    [ "$rc" = 1 ] && grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?init-agent upgrade$' "$T1_DIR/get-plain.log" \
+    [ "$rc" = 1 ] && grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-plain.log" \
       && step "get.sh: init-agent upgrade" 1 "$(first_line "$T1_DIR/get-plain.log")" || step "get.sh: init-agent upgrade" 0 "rc $rc: $(cat "$T1_DIR/get-plain.log")"
   fi
   pc="$(printed_commands_exist "$T1_DIR/get-plain.log")" && step "printed commands exist" 1 "$pc" || step "printed commands exist" 0 "$pc"
@@ -308,7 +326,7 @@ row_old() { # V DIR
       || step "audit verify --full" 0 "$(tail -3 "$T1_DIR/verify.txt" | tr '\n' ' ')"
     start_root up && step "upgraded Root ready" 1 "" || step "upgraded Root ready" 0 "$(tail -3 "$T1_DIR/root-up.out" | tr '\n' ' ')"
     rc=$(run_get "$T1_DIR/get-after.log")
-    [ "$rc" = 1 ] && grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?init-agent upgrade$' "$T1_DIR/get-after.log" && step "get.sh after the upgrade: init-agent upgrade" 1 "" \
+    [ "$rc" = 1 ] && grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-after.log" && step "get.sh after the upgrade: init-agent upgrade" 1 "" \
       || step "get.sh after the upgrade: init-agent upgrade" 0 "rc $rc: $(cat "$T1_DIR/get-after.log")"
     pc="$(printed_commands_exist "$T1_DIR/get-after.log")" && step "printed commands exist after the upgrade" 1 "$pc" || step "printed commands exist after the upgrade" 0 "$pc"
   fi

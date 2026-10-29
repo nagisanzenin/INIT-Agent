@@ -1,0 +1,5 @@
+# INIT release SHA256SUMS v1
+# version: 9.9.9-test
+# expires: 2099-12-31
+6ff77efe3bb872126bf5c3c626201da48931d8b2ee7a86a3e89821208a3316c1  get.sh
+ef17b7d320f2acc023f2018dab381827ba22f9d01b6c4c97894e1bbfe4928313  init-v9.9.9-test-macos-arm64.tar.gz

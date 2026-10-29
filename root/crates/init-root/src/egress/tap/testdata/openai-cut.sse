@@ -1,0 +1,12 @@
+event: response.created
+data: {"response":{"id":"resp_g3","model":"gpt-6.1-sol","object":"response","output":[],"status":"in_progress","usage":null},"sequence_number":0,"type":"response.created"}
+
+event: response.in_progress
+data: {"response":{"id":"resp_g3","model":"gpt-6.1-sol","object":"response","output":[],"status":"in_progress","usage":null},"sequence_number":1,"type":"response.in_progress"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":"1. Rust is a","item_id":"msg_resp_g3","output_index":1,"sequence_number":2,"type":"response.output_text.delta"}
+
+event: response.output_text.delta
+data: {"content_index":0,"delta":" statically typed","item_id":"msg_resp_g3","output_index":1,"sequence_number":3,"type":"response.output_text.delta"}
+

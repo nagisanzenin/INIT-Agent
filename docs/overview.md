@@ -1,6 +1,6 @@
 # INIT Agent: the whole picture
 
-*Status: v0.2, 2026-10-19, after reconciliation rounds 1–2. Area: overview.*
+*Status: v0.2, 2026-10-19, after reconciliation rounds 1–2. Area: overview. §1, §5 and §6's last paragraph were reconciled with the code and docs/foundations.md on 2026-10-29 (v0.5.3, lane L1). §2–§4 still draw the v0.2 design, from before the Root (spec v0.3 Part II): today the Root, not the kernel, holds the keys, the meter, the signed lineage and the rollback (root/root.md), and the kernel is agent-editable from L1.*
 
 This document is a one-file map of the whole system. It holds no new decisions. Every statement points to the doc that owns the detail. Read it first, then go deeper only where you need to.
 
@@ -10,14 +10,14 @@ This document is a one-file map of the whole system. It holds no new decisions. 
 
 **What INIT is:** a coding agent whose own source code is the thing it is allowed to change.
 
-**What it starts as:**
+**What it starts as** (the seed body, `seed/`):
 - one loop;
-- five tools (`read`, `write`, `edit`, `bash`, `ext`);
-- one provider adapter (DeepSeek first);
+- seven tools (`ask_owner`, `bash`, `delegate`, `edit`, `ext`, `read`, `write`; `seed/self.json` `tools`);
+- three provider adapters (DeepSeek, Anthropic, OpenAI; `seed/src/provider/`), of which DeepSeek is tested live;
 - an append-only log;
 - a prompt designed to keep provider caching working.
 
-The whole body is about 20–25k tokens of Rust, small enough for the agent to read in one context.
+The body's source is 433,723 tokens by its own self-map, tests excluded (`seed/self.json` `body_tokens` at 67d5172). The v0.2 design aimed at 20–25k.
 
 **How it grows:**
 
@@ -27,17 +27,18 @@ The whole body is about 20–25k tokens of Rust, small enough for the agent to r
 | T1 | WebAssembly extensions | Hot-swapped |
 | T2 | The Rust core | The kernel gates the change, then hands the live conversation to the new binary |
 
-**What stops it from breaking itself:** a small kernel it can read but not write. The kernel:
-- supervises and rolls back;
-- holds the API keys and the spend cap;
-- runs the evaluation gate on tasks the agent cannot see;
-- records the true lineage.
+**What stops it from breaking itself:** the Root (root/root.md), a separate process the agent can neither write nor signal. The Root:
+- starts every agent process in a sandbox it composes;
+- holds the API keys and meters spend (it caps no money);
+- keeps the signed, hash-chained lineage;
+- rolls the whole system back to the last known-good version, alone (FG-1 in docs/foundations.md);
+- decides autonomy and the known-good pointers from its own records only (FG-2).
 
-That is the whole of governance. Inside the sandbox, the model decides everything else.
+The kernel gates each change and hot-swaps the body. From L1 the agent may change the kernel too, so its gates are quality filters, not guarantees (foundations.md N6). Inside the sandbox, the model decides everything else. docs/foundations.md states what INIT promises and what it does not.
 
 **How it stays current:**
 - When models change, only the provider changes.
-- Every scaffold carries a `Compensates-for:` tag. On a model upgrade, the agent tries to delete each tagged scaffold, and the gate decides.
+- A scaffold may carry a `Compensates-for:` tag (optional since ADR-011). On a model upgrade the agent may try to delete each tagged scaffold, and the change is admitted like any other.
 
 ---
 
@@ -101,16 +102,18 @@ Details: [evolution.md](evolution.md), [kernel/supervise.md](kernel/supervise.md
 
 ## 5. What can never happen, and what is free
 
-**Never.** These rules are enforced by the OS, the compiler or process boundaries, not by the prompt:
+**Never.** These rules are enforced by the OS, the compiler or process boundaries, not by the prompt. Each is a statement in docs/foundations.md:
 
 | Invariant | Enforced by |
 |---|---|
-| The agent writes `kernel/` or reads `vault/` | Seatbelt or Landlock profile ([kernel/sandbox.md](kernel/sandbox.md)) |
-| The agent holds an API key or exceeds the spend cap | Keys live only in the proxy, which also enforces the caps ([kernel/proxy.md](kernel/proxy.md)) |
-| The agent fakes its gate results or rewrites its lineage | The kernel runs the gate and owns the canonical history and notes ([kernel/gate.md](kernel/gate.md), [kernel/supervise.md](kernel/supervise.md)) |
-| The agent corrupts its own memory | `#![forbid(unsafe_code)]`, checked in G0 |
-| A bad self-edit bricks the agent | Overlapped handoff, LKG rollback, crash backoff, then safe mode |
-| An irreversible external action happens without the owner | Network limited to the proxy socket, plus owner approval for external effects |
+| The agent writes or signals the Root, its keys, its record or its stop | the sandbox the Root composes, in every access mode (INV-1, INV-2; assumes A_sb) ([root/root.md](root/root.md)) |
+| The agent holds an API key | keys live only in the Root's egress gateway, which adds them on the way out ([root/egress.md](root/egress.md)) |
+| The agent raises its own autonomy, or moves a known-good pointer, by what it reports | the Root decides from its own records only (FG-2, INV-7) |
+| The agent rewrites its lineage | the Root's signed hash chain (INV-6; a truncation is detected only with `audit verify --head`) |
+| The agent corrupts its own memory | `#![forbid(unsafe_code)]`, kept by the build (G0) |
+| A bad self-edit leaves the system unrecoverable | the Root's rollback to the last known-good tuple and agent state (FG-1) |
+
+**Not promised** (foundations.md §8): that a change helps; that the Root catches harm it cannot observe; that an irreversible effect is undone. In full access, the default (ADR-012), the agent uses the network and your files as you can, and the Root protects INIT, not your files. It limits external requests by action class and meters money without capping it.
 
 **Free.** No permission prompts, rule files, planners, swarms, or limits on which body files may change. The model decides.
 
@@ -125,7 +128,7 @@ The harness's own CPU is at most about 9% of agent time, so INIT aims its perfor
 3. **The tool path.** The sandbox is set up once, file tools run in-process, large outputs spill to files, and a PTY is the first thing to grow.
 4. **Footprint when running many copies.** About 3 MiB of Rust per idle body.
 
-The gate measures cost, time and cache-hit rate. A change that only claims a performance gain is accepted only if it shows one.
+The gate measures cost, time and cache-hit rate. No step requires a change to show a gain (ADR-011 decision 2; foundations.md N1): a claimed gain is measured and reported.
 
 Details: [spec §9](../INIT%20Agent%20spec.md).
 

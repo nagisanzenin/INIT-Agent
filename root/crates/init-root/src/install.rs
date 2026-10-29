@@ -50,6 +50,13 @@ impl Paths {
     pub fn cmd(&self, args: &str) -> String {
         util::root_cmd(&self.rh, args)
     }
+    /// v0.5.3: `init-agent <args>` as the owner types it ([`util::agent_cmd_for`]): the launcher in install.json's
+    /// `bin_dir`, else in `~/.local/bin` (install.sh's default), with no PATH assumed.
+    pub fn agent_cmd(&self, args: &str) -> String {
+        let info: Value = fs::read_to_string(self.r("install.json")).ok().and_then(|s| serde_json::from_str(&s).ok()).unwrap_or_default();
+        let bin = info["bin_dir"].as_str().map(PathBuf::from).unwrap_or_else(|| self.home.join(".local/bin"));
+        util::agent_cmd_for(&bin, crate::sys::passwd_home().as_deref(), args)
+    }
     pub fn i(&self, rel: &str) -> PathBuf {
         self.ih.join(rel)
     }
@@ -223,7 +230,7 @@ pub struct BundleOpts {
     pub no_toolchain: bool,
     /// A release bundle's prebuilt body (docs/ux-v1.md §3.5.1): `--prebuilt-body FILE --prebuilt-sha256 HEX
     /// [--prebuilt-commit SHA]`. The install-mode kernel installs it instead of building the seed, so the install
-    /// needs no toolchain; the genesis tuple's body blob must equal HEX bit for bit.
+    /// needs no toolchain; the genesis tuple's body blob must hash to HEX.
     pub prebuilt: Option<Prebuilt>,
 }
 
@@ -265,7 +272,7 @@ fn drop_prebuilt(p: &Paths) {
     let _ = fs::remove_dir(&dir);
 }
 
-/// The genesis tuple's body is the prebuilt one, bit for bit (and from the recorded commit).
+/// The genesis tuple's body is the prebuilt one, hash-equal to the maintainer's build (and from the recorded commit).
 fn check_prebuilt_tuple(p: &Paths, id: &str, b: &Prebuilt) -> Result<(), String> {
     let t = crate::tuple::load(&p.rh, id).ok_or_else(|| format!("genesis tuple {id} is unreadable"))?;
     if t["body"]["binary"].as_str() != Some(b.sha256.as_str()) {
@@ -379,8 +386,8 @@ pub fn install(p: &Paths, o: &Opts) -> Result<(), (u8, String)> {
 pub fn install_with(p: &Paths, o: &Opts, bo: &BundleOpts) -> Result<(), (u8, String)> {
     let e1 = |e: io::Error| (1u8, e.to_string());
     if p.r("install.json").exists() {
-        return Err((1, "already installed (install.json exists): upgrade it instead, which keeps the evolved body, the lineage, \
-            the keys and the charter (init-agent upgrade, or scripts/install.sh --upgrade from the new release)".into()));
+        return Err((1, format!("already installed (install.json exists): upgrade it instead, which keeps the evolved body, the lineage, \
+            the keys and the charter ({}, or scripts/install.sh --upgrade from the new release)", p.agent_cmd("upgrade"))));
     }
     check_paths(p, &[]).map_err(|m| (1, m))?;
     check_tools(&o.git).map_err(|m| (1, m))?;
@@ -508,7 +515,8 @@ pub fn install_with(p: &Paths, o: &Opts, bo: &BundleOpts) -> Result<(), (u8, Str
         None => println!("  no service file (--no-service)"),
     }
     if let Some((id, tag)) = seeded {
-        let how = if bo.prebuilt.is_some() { "prebuilt body, verified bit for bit" } else { "built from source" };
+        // v0.5.3: the sha256 check proves the file is the one shipped, not that this machine builds the same bytes
+        let how = if bo.prebuilt.is_some() { "prebuilt body, hash-equal to the maintainer's build" } else { "built from source" };
         println!("  seed {tag} installed ({how}): genesis tuple {id}");
     }
     let ev = evolution(p);

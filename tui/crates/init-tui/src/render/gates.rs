@@ -37,7 +37,6 @@ pub struct Step {
     /// When it ended (the notice's `ts`).
     pub end_ms: Option<i64>,
     pub wall_ms: Option<u64>,
-    pub spent_musd: Option<u64>,
     pub cache_permille: Option<u64>,
     pub score: Option<i64>,
     /// A failure's reason, or why a running step runs again (`insufficient`: an escalated re-run).
@@ -51,12 +50,15 @@ pub struct Step {
 }
 
 /// v0.5.2 (user session v0.5.1-new: 17 min 46 s of G0's cold dependency build read as "waited", with
-/// no estimate while it ran): the estimate shown under a running dependency build.
-pub const DEPS_ESTIMATE: &str = "first build of dependencies (not cached yet): usually 10–20 min on an M2";
+/// no estimate while it ran): the estimate shown under a running dependency build. v0.5.3 (lane F): the
+/// measured range, as the kernel's `gate_deps` notice says it. The dependency build alone took 907 s,
+/// 17 min 16 s and 21 min 13 s on an M2 at load 10–23 or beside a release job (docs/guide.md "Time":
+/// MERGE-T2CACHE, user sessions v0.5.1-new and v0.5.2-new); v0.5.2's "usually 10–20 min" had no receipt.
+pub const DEPS_ESTIMATE: &str = "first build of dependencies (not cached yet): 15–21 min on a busy M2";
 
 impl Step {
     fn new(name: &str) -> Step {
-        Step { name: name.into(), st: StepSt::Pending, since_ms: None, end_ms: None, wall_ms: None, spent_musd: None, cache_permille: None, score: None, reason: None,
+        Step { name: name.into(), st: StepSt::Pending, since_ms: None, end_ms: None, wall_ms: None, cache_permille: None, score: None, reason: None,
             build_ms: None, deps_ms: None, deps_mode: None }
     }
     fn is_gate(&self) -> bool {
@@ -285,7 +287,8 @@ impl Track {
                 let s = r.step_mut(&stage);
                 s.since_ms.get_or_insert(prev_end);
                 s.wall_ms = d["wall_ms"].as_u64();
-                s.spent_musd = d["spent_musd"].as_u64();
+                // the notice's `spent_musd` is the kernel's figure, at its own prices: not shown (one price per
+                // request, the Root's: root/egress.md §3.4); /usage has the checks' cost from the ledger
                 s.cache_permille = d["cache_permille"].as_u64();
                 s.score = d["score"].as_i64();
                 s.reason = reason_of(&d["reason"]);
@@ -498,9 +501,6 @@ fn step_row(s: &Step, width: usize, now_ms: i64, detail: bool) -> Line {
         StepSt::Pending => {}
     }
     if detail {
-        if let Some(m) = s.spent_musd.filter(|m| *m > 0) {
-            l.push(format!(" · {}", super::usd(m as i64)), Style::dim());
-        }
         if let Some(c) = s.cache_permille {
             l.push(format!(" · cache {}.{}%", c / 10, c % 10), Style::dim());
         }
@@ -739,6 +739,7 @@ mod tests {
         assert!(live[0].contains("deps □ G0 · G1 ·"), "{live:#?}");
         assert!(live[1].contains("deps dependencies    □ 12 min 3 s"), "{live:#?}");
         assert_eq!(live[2].trim(), DEPS_ESTIMATE, "{live:#?}");
+        assert_eq!(DEPS_ESTIMATE, "first build of dependencies (not cached yet): 15–21 min on a busy M2", "the measured range");
         assert!(live[3].contains("G0  build + tests    ·") && !live.iter().any(|l| l.contains("waited")), "{live:#?}");
         assert!(live.len() <= MAX_ROWS);
         assert!(!t.spending(), "a build spends nothing");
@@ -803,5 +804,26 @@ mod tests {
         start(&mut t, SHA, &T2, T0);
         let done = gate(&mut t, SHA, "G0", Some(false), Some("x\u{1b}[2Jy"), 1, T0 + 1).unwrap();
         assert!(!committed_rows(&done[0], 80, true).iter().any(|l| l.text().contains('\u{1b}')));
+    }
+
+    /// v0.5.3 (the release review): a self-change's expanded steps showed each step's `spent_musd`, the kernel's
+    /// figure at its own prices (DeepSeek's off-peak window included), beside the Root's ledger figure in /usage:
+    /// the two prices for one request that root/egress.md §3.4 removes. No step shows a dollar figure now.
+    #[test]
+    fn steps_show_no_kernel_price() {
+        let mut t = Track::default();
+        start(&mut t, SHA, &["G0", "G1", "G2", "live"], T0);
+        for (i, stage) in ["G0", "G1", "G2"].iter().enumerate() {
+            t.on_notice(&json!({"kind": "gate", "gate_kind": "promote", "gate_id": "j-7", "sha": SHA, "stage": stage, "pass": true, "reason": null,
+                "score": null, "spent_musd": 18_049, "wall_ms": 1_000, "cache_permille": 990}), T0 + 1_000 * (i as i64 + 1));
+        }
+        let live: Vec<String> = t.live_rows(120, T0 + 3_500, 7).iter().map(|l| l.text()).collect();
+        t.on_notice(&json!({"kind": "promoted", "sha": SHA, "handoff": false}), T0 + 4_000);
+        let done = t.on_notice(&json!({"kind": "lkg", "sha": SHA}), T0 + 4_000).unwrap();
+        let rows: Vec<String> = committed_rows(&done[0], 120, true).iter().map(|l| l.text()).collect();
+        assert!(rows[3].contains("■ pass · 1.0 s · cache 99.0%"), "{rows:#?}");
+        for r in live.iter().chain(&rows) {
+            assert!(!r.contains('$'), "a kernel price: {r}");
+        }
     }
 }

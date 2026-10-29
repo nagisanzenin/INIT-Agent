@@ -220,7 +220,9 @@ else
     || die "get.sh did not install Rust 1.97.1 with wasm32-wasip2 and clippy"
   [ -x "$H/.cargo/bin/rustup" ] || die "rustup is not in the test home ($H/.cargo/bin)"
 fi
-grep -q 'prebuilt body, verified bit for bit' "$D/get.log" || die "the install did not use the prebuilt body"
+# the "installed (prebuilt body, …)" line, not install.sh's step title; v0.5.3's wording, or an older bundle's
+grep -qE "installed \(prebuilt body, (hash-equal to the maintainer's build|verified bit for bit)\)" "$D/get.log" \
+  || die "the install did not use the prebuilt body"
 
 if [ -n "${UBE_COLD_BUILD_S:-}" ]; then
   printf '\n[supervise]\nbuild_timeout_cold_s = %d\n' "$UBE_COLD_BUILD_S" >>"$IH/kernel/config.toml"

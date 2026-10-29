@@ -6,7 +6,7 @@ resolver = "3"
 members = ["crates/init-root", "sandbox-profiles"]
 
 [workspace.package]
-version = "0.5.2"
+version = "0.5.3"
 edition = "2024"
 publish = false
 
@@ -17,6 +17,9 @@ serde_json = "=1.0.154"
 toml = "=1.1.8"
 sha2 = "=0.11.1"
 ed25519-dalek = "=3.0.0"              # default features `fast`, `zeroize`
+# release.rs (v0.5.3): the SSHSIG armor and OpenSSH key lines. Already in the build through ureq, with the same
+# features (no `simd-unsafe`, so the crate is `forbid(unsafe_code)`): no new crate and no new code
+base64 = { version = "=0.23.1", default-features = false, features = ["std"] }
 libc = "=0.2.191"
 seccompiler = "=0.5.0"                # Linux only (root/root.md §3.4)
 # egress (root/egress.md §6): blocking HTTPS client, rustls with the `ring` provider; no tokio/hyper

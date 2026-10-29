@@ -1,6 +1,6 @@
 # ADR-011: Reward-free self-extension (trust at creation, gate on generic harm, reversibility instead of reward)
 
-Status: proposed 2026-10-22, PENDING OWNER (open questions below); **supersedes ADR-010** (accepted 2026-10-22, never built beyond W0a); enabled only behind charter `extend.mode = "free"` once the definition of done is met (supersedes ADR-006 decisions 3, 4, 5 and 7 on the free path; redefines ADR-007 decision 3; ADR-007's Root and decisions 1, 2 and 6 are unchanged) · Area: evolution (cross-cuts root and kernel)
+Status: proposed 2026-10-22, PENDING OWNER (open questions below); built and shipped from v0.2.0-preview behind `extend.mode = "free"`, with `"gated"` still the default (charter.rs `Extend`); **supersedes ADR-010** (accepted 2026-10-22, never built beyond W0a); enabled only behind charter `extend.mode = "free"` once the definition of done is met (supersedes ADR-006 decisions 3, 4, 5 and 7 on the free path; redefines ADR-007 decision 3; ADR-007's Root and decisions 1, 2 and 6 are unchanged) · Area: evolution (cross-cuts root and kernel)
 Depends on: ADR-006, ADR-007, ADR-008, ADR-009, ADR-010 (superseded; the reused parts are listed per item), evolution.md (§3.1–§3.3, §3.8–§3.12, §3.14, §3.15), evolution-v2.md (§3.4.6, §3.6, §3.7), kernel/supervise.md (§3.1, §3.3, §3.6, §3.7, §3.14, §3.15), kernel/gate.md (§3.1, §3.12), root/root.md (§3.2.3, §3.5, §3.6.4, §3.7, §3.8, §3.10.5, §3.13, §3.14.1, §3.15, §3.17), root/egress.md (§3.4–§3.6, §3.8), root/sealed-eval.md (§3.3, §3.5), RELEASE_PLAN.md (v0.1.x findings), reports/INIT proof sprint verdict.md (with its erratum), reports/INIT technical report.md, research_notes/INIT và đối thủ thị trường/{coding_agent_market.md, self_evolving_products.md}   Defines: the plastic-surface map and the kernel lane; capability identity (`cap`); change groups; admission checks A0–A5; the Root harm sentinel and the generic harm signals H1–H12 (definitions, thresholds, windows, actions); the Root system snapshot, the Root-run rollback probe and the body mode `check`; the blast-radius budget; the usage ledger; decay, archive, quarantine and the bloat budget; the harm-free record and levels L0–L4 as redefined here; owner grants; the frozen twin and nightly shadow replay; the pointers `settled` and `twin`; the records `change_open`, `change_close`, `harm`, `snapshot`, `restore`, `cap_state`, `cap_use`, `grant_request`, `grant`, `twin`, `twin_report`; the charter section `[extend]`
 
 ## Context
@@ -43,11 +43,13 @@ Freedom without containment fails in the field, and containment that needs a pre
 - resource kills;
 - error spikes.
 
-And any change can be made **mechanically reversible**. So reversibility, a Root-held harm sentinel, attribution and selection by use replace reward.
+And any change can be made **mechanically reversible**. So in admission, reversibility, a Root-held harm sentinel, attribution and selection by use replace reward.
 
 **What this gives up, stated plainly.** At creation INIT will not know whether a capability is useful. It will know whether the capability hurt, how often it is used, and what it costs. Usefulness shows only in the real-use trajectory against a frozen twin, over weeks (Evaluation plan). This ADR makes no claim that self-extensions help.
 
 ## Decision
+
+**What "reward-free" covers.** It describes admission: no change needs a reward, a score or a forecast to go live or to stay (decisions 1, 2 and 9). The autonomy ladder is not reward-free. Its levels are earned from measured outcomes, a clean record the Root observes (decision 7, §7), so it is open to Goodhart pressure; its safety argument is that levels widen speed and blast radius only under reversibility, never the Root's powers (docs/foundations.md N3).
 
 1. **Trust the model at creation.** Any change on the plastic surface (Mechanisms §1) goes live after admission checks A0–A5 (§2). These test only that the change is reversible, within budget, and clear of the Root. The default path has no G4, no S look, no audit draw, no forecast and no reward. `Predicts:`, `Repro:` and `Compensates-for:` become optional.
 2. **Gate on generic harm, never on gain.** The Root's harm sentinel watches every change group through a window, and the running system continuously, with signals H1–H12 (§3). Every signal that can count against the agent is observed by the Root itself. A harm signal rolls back and may quarantine; nothing in this ADR accepts on evidence of gain. A signal the kernel or body reports can only veto (request a rollback, the safe direction) and never counts toward the agent's record.
@@ -55,7 +57,7 @@ And any change can be made **mechanically reversible**. So reversibility, a Root
 4. **Attribution.** Every self-written capability has an identity (`cap`). Every turn records the capabilities it used, observed by the Root where they are visible on the wire. The lineage links harm to change groups and to capabilities (§5).
 5. **Selection by use.** Unused capabilities decay and are archived. Capabilities correlated with harm are quarantined and removed. A bloat budget bounds growth (§6). Nobody defines "useful" in advance; what survives is what gets used without harm.
 6. **Everything except the Root is plastic, the kernel included,** through a kernel lane from L1. It has a Root conformance probe, probation and whole-system rollback, and the gate-of-gates becomes optional (§1.2). The Root stays mechanical: stop and panic, money ceilings, keys and egress, scope, signed lineage, rollback and snapshots, the memory and disk watchdog, the harm sentinel and the ledger. **No level, grant, record, change or proposal gives the agent a path to remove or weaken the Root** (owner rule; ADR-007 decision 6).
-7. **Autonomy from a harm-free record, grants from the owner.** Levels L0–L4 are redefined (§7). They scale rate and blast radius, and they are earned mechanically from Root-written records only. Anything beyond the charter is a grant: the agent may request it, and only the owner can approve it. L0 already allows the whole body surface.
+7. **Autonomy from a harm-free record, grants from the owner.** Levels L0–L4 are redefined (§7). They scale rate and blast radius, and they are earned mechanically from Root-written records only. This is the part of the design that uses measured outcomes: a clean record is the ladder's reward (foundations.md N3, FG-2). Anything beyond the charter is a grant: the agent may request it, and only the owner can approve it. L0 already allows the whole body surface.
 8. **Self-extension in the middle of a task.** A capability can be created, kept and used inside the same task: by reload (T0, T1) and by hot handoff on the same session (T2). Admission costs minutes and no model spend (§2.4).
 9. **Measurement is an instrument, not a gate.** `Measure: g4`, sealed S, G4 v2, the milestone check, agent-written task families and agent-designed experiments stay available on request (§8). Their results feed lessons and the agent's own decisions. They never decide admission, and they never decide a level.
 10. **Honest evaluation is longitudinal.** The only credible evidence is the real-use trajectory compared with a frozen twin, with nightly shadow replay of sampled past tasks under a Root budget (Evaluation plan). It is report-only, and it cannot be benchmarked up front.
@@ -180,14 +182,14 @@ And any change can be made **mechanically reversible**. So reversibility, a Root
 | **A2** | Boot: the candidate boots in a kernel probe, reaches `ready` and makes one tool round trip; the head-prefix check runs unless `Prefix-change: yes` (G2's candidate arm). | kernel probe | ≈ $0.002 | `gate.g2.*` |
 | **A3** | After going live, asynchronously: G3 (scripted self-edit) for `t2`, plus the body's own tests. A failure is a zone veto (H12): the kernel sends `change.veto`. | kernel | ≈ $0.01 | rollback of the group |
 | **A4** | **Rollback probe, run by the Root.** In a Root-owned probe root (§4.3) holding an APFS clone of the live `state/`, the Root boots the candidate body in mode `check`, then the **parent** body in mode `check` on the state the candidate left. Both must write `ready` and exit 0 within 90 s each. | Root | $0 | `extend.rollback_incompatible` |
-| **A5** | Budget: the blast-radius budget (§4.5), the bloat budget (§6.4), no archive or quarantine debt (§6), the disk floor plus 2 GiB, and room for the system snapshot (§4.2) | Root | $0 | `extend.budget`, `extend.bloat`, `extend.archive_debt`, `extend.quarantine_debt`, `extend.snapshot_too_large`, `root.quota` |
+| **A5** | Budget: the blast-radius budget (§4.5), the bloat budget (§6.4), no archive or quarantine debt (§6), the disk floor plus 2 GiB (free disk that cannot be read refuses too, since v0.5.3), and room for the system snapshot (§4.2) | Root | $0 | `extend.budget`, `extend.bloat`, `extend.archive_debt`, `extend.quarantine_debt`, `extend.snapshot_too_large`, `root.quota` |
 
-| Scope | Checks | Typical latency (measured parts from technical report §2.4) |
+| Scope | Checks | Latency (only measured parts; 2026-10-29) |
 |---|---|---|
-| `t0` | A0, A5 | < 1 s plus the snapshot (CoW, ≈ 1 s) |
-| `t1` | A0, A1 (the ext workspace, built from source; never the agent's `.wasm`), A5 | ≈ 1–2 min warm |
-| `t2`, `dep` | A0, A1, A2, A4, A5; then A3 asynchronously | ≈ 6–8 min warm (G0 was 308–337 s on the real model); ≈ 15–20 min cold |
-| `k` | A0, K0 build, Root conformance probe, A5 | ≈ 15–40 min |
+| `t0` | A0, A5 | not timed; the system snapshot is a copy-on-write clone |
+| `t1` | A0, A1 (the ext workspace, built from source; never the agent's `.wasm`), A5 | not timed on the free path |
+| `t2`, `dep` | A0, A1, A2, A4, A5; then A3 asynchronously | not timed on the free path as a whole. Its parts, timed on the gated path on an M2: A1 is G0's build and tests, 126 s warm (MERGE-T2CACHE, load 10–23) and 430 s to 975 s cold (the v0.5.0 and v0.5.2 release checks, the second beside CI; docs/guide.md "Time"); A2 is G2, 19–22 s in the same runs; A4 is bounded at 90 s per arm (snapshot.rs) |
+| `k` | A0, K0 build, Root conformance probe, A5 | not measured |
 
 A1–A3 are kernel-run, so from L1 they are agent code: they filter quality and give no safety guarantee. A0, A4 and A5 are the guarantee.
 
@@ -217,11 +219,11 @@ The path exists today for trials (evolution.md §3.3–§3.5). What changes is t
 - **T1 tool in the middle of a task:**
   1. write `ext/<name>/` from the template, `cargo build`, `initctl reload`, and use it at once as a trial;
   2. commit with `Cap: ext/<name>` and `initctl promote`;
-  3. admission takes about 1–2 minutes;
+  3. admission runs (not timed on the free path; §2.1);
   4. the kept component replaces the trial at the next step boundary, and the task continues.
 - **T2 core change in the middle of a task:**
   1. worktree, commit, promote;
-  2. after admission (about 6–8 minutes warm) the overlapped handoff runs at the next step boundary on the same session log;
+  2. after admission (§2.1 has the measured parts) the overlapped handoff runs at the next step boundary on the same session log;
   3. the prefix stays byte-stable unless `Prefix-change: yes`.
 
   The conversation continues (supervise.md §3.6.4; E2E-3 read 5,888 of 6,696 prompt tokens from cache after a handoff).
@@ -369,7 +371,8 @@ Retention (root.md §3.7.1) pins the tuples of `current`, `lkg`, `settled`, `twi
   - The disk floor still applies.
   - Not on APFS, or another volume than `ROOT_HOME` → refused the same way. Linux needs a reflink or btrfs equivalent; a TODO, like the Linux memwatch.
 - **Retention.** The snapshots of open groups, plus the newest snapshot at or before `lkg`, `settled` and `twin`; at most 16. Older ones are removed by exact path.
-- **Restore (R2).** Only with the zone stopped (`stop`, then a sweep of held instances). For each tree in `S_A`, the Root removes the entries (never following a link, and never touching `state/sessions/` or `state/spill/`) and clones the snapshot's entries back, as `/undo` does (root.md §3.17.4). It then starts the target tuple and appends `restore`.
+- **Restore (R2).** Only with the zone stopped (`stop`, then a sweep of held instances). For each tree in `S_A`, the Root replaces the entries with the snapshot's (never following a link, and never touching `state/sessions/`, `state/spill/` or `vault/traces/`), as `/undo` does (root.md §3.17.4). It then starts the target tuple and appends `restore`.
+  - *v0.5.3 (REL-052 finding 11, FG-1):* all or nothing. Before v0.5.3 the Root removed the live entries and then cloned the snapshot's, so a read-only folder the agent made in its own state (`chmod 555 state/x` with a file in it) stopped R2 with EACCES after earlier entries were gone: the agent could make the Root's rollback fail. Now the snapshot is cloned into a staging directory under `ROOT_HOME/snapshots/sys/`, the live entries move aside and the snapshot's move in by renames that never replace and never follow a link; the agent's read-only folders are made owner-writable for their move through an `O_NOFOLLOW` descriptor, and its lock flags (`uchg`, `uappnd`) are lifted for the move and set again. Before each step the zone must still be stopped. A failed step puts back every step done, so the agent state is exactly as before and the `pre-restore` save is dropped; only a failed put-back keeps the save and the staging tree and says where they are. After the last step every tree must hold exactly the snapshot's entries besides the never-restored ones, else (a process outside the Root's hold wrote meanwhile) every step is put back too: a success always means `S_A` is the snapshot's. The never-restored entries are matched by name at the top of their tree, and every snapshot excludes them, so there is nothing of theirs to compare. Snapshots of state with read-only folders are now pruned too (before v0.5.3 the record went and the tree stayed). The live entries are named under a descriptor of INIT_HOME opened with `O_NOFOLLOW` at every component (lane U, v0.5.3), never by path: the zone can rename `body/`, `state/` and `vault/` (tail Z4 freezes only INIT_HOME itself and the Root's parts of it), and a `setsid` escapee outside the Root's hold can still run while the zone counts as stopped, so a tree swapped for a link during R2 makes its moves fail and every step be put back, never followed. Residual: an ACL the agent sets on its own entry (`chmod +a "everyone deny delete"`) still stops a move; R2 then puts everything back and refuses, saying which entry, instead of leaving the state half-removed.
   - `state/sessions/` is kept, so the conversation survives.
   - Agent state written after the snapshot (memory learned since) is lost from the live tree, but the Root first clones the replaced state to `ROOT_HOME/snapshots/sys/pre-restore-<seq>/`, so a restore can itself be undone.
 - **File-rule exceptions.** These are new exceptions to R-F1 and R-F2 (root.md §3.2.3), alongside ADR-009's workspace snapshots:
@@ -393,9 +396,11 @@ A4 covers state written at boot. A memory migration that happens later, at first
 
 #### 4.4 What is guaranteed, and the limits
 
+This table is the mechanism view. The guarantee itself is FG-1 in docs/foundations.md §7, with its invariants (INV-3, INV-4) and its non-claims (§8); where the two differ, foundations.md is the reference.
+
 | Guarantee | Mechanism | Limit |
 |---|---|---|
-| Any admitted change can be undone to its parent tuple within 120 s at a step boundary, or by the Root even if the kernel refuses | R1; the store keeps parent tuples of open groups | none, while the store holds the blobs (`quotas.store_max_gib` 8; A5 refuses a change whose parent could not be retained) |
+| Any admitted change can be undone to its parent tuple within 120 s at a step boundary, or by the Root even if the kernel refuses | R1; the store keeps parent tuples of open groups; after `ROLLBACK_MS` (120,000, sentinel/engine.rs) without the kernel's rollback the Root rolls the whole system back | none, while the store holds the blobs (`quotas.store_max_gib` 8, charter.rs; A5 refuses a change whose parent could not be retained) |
 | The parent can run on the state the candidate writes at boot | A4, Root-run | not state written later in the window (R2 covers it) |
 | Agent state can return to its pre-group point | R2 | loses agent state written since, from the live tree only (it is kept in `pre-restore-<seq>`); crash-consistent, not transaction-consistent; refused above `snap_max_gib` |
 | Kernel changes are undone with their state | root.md §3.8 `kstate`, plus R2 | as root.md §3.8 |
@@ -410,21 +415,21 @@ A4 covers state written at boot. A memory migration that happens later, at first
 | changes admitted per owner day (re-admissions excluded) | 48 | 96 | 192 | 384 | 384 |
 | changes per group (`group_max`) | 16 | 16 | 24 | 32 | 32 |
 | kernel changes: open · per day | 0 · 0 | 1 · 1 | 1 · 3 | 1 · 6 | 1 · 6 |
-| background spend: the share of `money.day_usd` usable outside owner turns (`ceiling.background`, not demoting) | 30% | 40% | 50% | 60% | 60% |
+| background spend: the share of `money.day_usd` usable outside owner turns (`ceiling.background`, not demoting). **Not enforced:** since the observe-only money policy of 2026-10-23 nothing in the egress reads `background_permille` (charter.rs, grant.rs only) | 30% | 40% | 50% | 60% | 60% |
 | parallel bodies (sub-agents; members read the home, never write the workspace, ADR-009) | `quotas.parallel_bodies` (4) | 4 | 4 | 4 | 4 |
 | members that may write the workspace | grant only | grant only | grant only | grant only | grant only |
 | bloat factor (§6.4) | 1.0 | 1.5 | 2.0 | 3.0 | 3.0 |
 
-- Every value is in the charter's `[extend]` section, with the table above as defaults. The owner may move any of them within bounds (C17), and the agent can only request a grant.
+- Every value is in the charter's `[extend]` section, with the table above as defaults (charter.rs `Extend`; `kernel_open` is `level >= 1` in `Extend::budget`, not a charter value; `quotas.parallel_bodies` is in `[quotas]`). The owner may move any of them within bounds (C17), and the agent can only request a grant.
 - Allowing sub-agents at L0 changes the broker rule: today a second live `body` at L0–L1 is a demoting rule-(b) refusal. From this ADR, members up to `quotas.parallel_bodies` are allowed at every level, and `fleet spawn` drops its L2 requirement. Members still cannot create members (supervise.md §3.14).
 
 #### 4.6 What cannot be undone
 
 Stated plainly:
-- **Money spent** with the provider. It is bounded by the charter ceilings, the background share and H5.
+- **Money spent** with the provider. Since the observe-only money policy of 2026-10-23 no Root ceiling and no background share bounds it (egress/money.rs; §4.5). The meter records every request, and H5 rolls a change back after a cost spike (foundations.md N4).
 - **Data sent to the provider**, including any of the owner's files the agent read (ADR-009's privacy residual). H11 flags volume. The deny list and `read_deny` are the only prevention.
 - **Effects of external-action classes** (`git-push`, `email`, non-GET `http`), once the charter lists such a class and the level reaches its `min_level`. Rules:
-  - such a request is refused (`class.window`, not demoting) while the newest open group is younger than 2 h or has seen fewer than 5 owner turns without a trigger. This replaces F17's "never while provisional", which a frequently self-extending agent would never satisfy;
+  - such a request is refused (`class.window`, not demoting) while the newest open group is younger than 2 h or has seen fewer than 5 owner turns without a trigger. This replaces F17's "never while provisional", which a frequently self-extending agent would never satisfy. **Not built (2026-10-29):** no `class.window` refusal exists; the egress records the effect (next item) and refuses nothing on this rule (egress.rs, the `egress_action` append);
   - every executed effect is an `egress_action` record that now names the caps used in that turn.
 - **Writes outside the workspace in full mode.** ADR-009 takes no home snapshot. A capability that is later rolled back does not undo them. The `/full on` confirmation text says so when a group is open.
 - **Deferred execution in the workspace:** build files, scripts and editor configs the owner later runs (ADR-009's residual list). `/undo` restores them only if the owner uses it.
@@ -556,12 +561,22 @@ No kernel-reported record enters it. In particular `promotion`, gate records and
 
 #### 7.2 Levels (redefined)
 
-| To | Days at level | Owner turns | Clean groups | Direct harm rollbacks in the last 30 closed groups | Other |
+| To | Days at level | Owner turns | Clean groups | Harm rate certified below (v0.5.3) | Other |
 |---|---|---|---|---|---|
-| L1 | 7 | 40 | 10 | ≤ 6 | the baseline ring is full; no demoting event in the last 7 days |
-| L2 | 21 | 150 | 40 | ≤ 4 | no quarantine in the last 14 days; the last 2 weekly twin reports show no regression (Evaluation plan) |
-| L3 | 30 | 400 | 100 | ≤ 3 | 4 consecutive weekly twin reports with no regression |
-| L4 | 30 | 400 | 100 | ≤ 3 | charter `autonomy.max_level = 4` |
+| L1 | 7 | 40 | 10 | 25 % | the baseline ring is full; no demoting event in the last 7 days |
+| L2 | 21 | 150 | 40 | 20 % | no quarantine in the last 14 days; the last 2 weekly twin reports show no regression (Evaluation plan) |
+| L3 | 30 | 400 | 100 | 10 % | 4 consecutive weekly twin reports with no regression |
+| L4 | 30 | 400 | 100 | 5 % | charter `autonomy.max_level = 4` |
+
+**What a level certifies (v0.5.3, owner decision 2026-10-29).** The column replaces "≤ 6 / 4 / 3 direct harm rollbacks
+in the last 30 closed groups", which certified only that the harm rate was below 36 / 28 / 24 % (exact 95 % bounds).
+A climb now needs, at 95 % confidence and valid however often the ledger re-checks, that the rate of *exercised* groups
+ending in a direct harm rollback is below the column's rate. An exercised group is a closed group whose window saw at
+least 5 owner turns, or that ended in a direct harm rollback, counted since the level's entry record from Root records
+only. The test is a betting e-process (ledger.rs `harm_certified`: a mixture of 10 likelihood ratios, exact in big
+integers); a climb needs 15, 25 or 32 exercised groups with 0, 1 or 2 direct harms for L1, and 19 / 32 / 41, 41 / 66 /
+85 and 83 / 135 / 174 for L2, L3 and L4 (build/status/STATS-053.md; foundations.md P-6). The criterion is
+`harm_rate_bound` (`have`: the certified bound in ‰; `need`: the rate; `groups`, `direct`).
 
 What each level adds:
 - the kernel lane (§1.2);
@@ -581,7 +596,7 @@ One level per incident (root.md §3.13.3), on any of:
 - `/panic`, with rollback at resume;
 - a crash loop on the `lkg` tuple (root.md §3.6.4), with rollback to `settled` and system safe mode;
 - quarantine debt still open after 72 h (§6.3), with no further rollback beyond §6.3's;
-- direct harm rollbacks in the last 30 closed groups above twice the current level's threshold: `ladder{direction:"down", cause:"harm_rate"}` with **no rollback**, since nothing beyond the H actions regressed.
+- direct harm rollbacks in the last 30 closed groups above twice the current level's threshold (6, 4, 3 and 3 for L1–L4, the climb thresholds before v0.5.3; ledger.rs `Need.direct_max`): `ladder{direction:"down", cause:"harm_rate"}` with **no rollback**, since nothing beyond the H actions regressed.
 
 Sealed-audit and milestone regressions no longer demote (open question 4).
 
@@ -704,7 +719,7 @@ So the honest claim is longitudinal and comparative: **on the owner's own tasks,
   - four weeks (≈ 168 pairs) detect a 60/40 split about 73% of the time.
 - **Cost.** M7 measured $0.0035 per short sealed run on deepseek-flash. Real owner first turns are larger, about $0.01–0.10 each (estimate). The Root allowance `twin.usd_day` = $0.30 stops the night when it is spent, keeps it out of the zone's day like `sealed.reserve_usd`, and bounds operation to about $9 a month (open question 3).
 - **Privacy.** A replay re-sends to the provider content the owner already sent once, and reads the same workspace. Nothing leaves the machine except those model requests.
-- **Disk.** Clones are CoW. Run roots are removed by exact path. A night is skipped below the disk floor plus 2 GiB.
+- **Disk.** Clones are CoW. Run roots are removed by exact path. A night is skipped below the disk floor plus 2 GiB, or when free disk cannot be read (v0.5.3).
 
 ### Live trajectory (no extra cost)
 

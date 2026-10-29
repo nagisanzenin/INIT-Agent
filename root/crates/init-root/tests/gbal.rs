@@ -295,7 +295,8 @@ fn gbal_goal_prediction_change_reading_outcome_guardrail_rollback_and_stop() {
     let ra = readings.iter().find(|r| r["card"] == "cost_turn" && r["sha"] == a["sha"]).unwrap_or_else(|| panic!("no reading: {readings:?}"));
     let ex = &sc["expect"]["change_a"];
     assert_eq!((ra["verdict"].clone(), ra["registered"].clone()), (ex["verdict"].clone(), ex["registered"].clone()), "{ra}");
-    assert_eq!((ra["n_before"].as_u64(), ra["n_after"].as_u64(), ra["parent_tuple"].as_str()), (Some(6), Some(5), Some(genesis.as_str())));
+    // v0.5.3: the owner's guardrail is on requests_turn, a discrete card: it reads 15 turns, and the forecast waits for it
+    assert_eq!((ra["n_before"].as_u64(), ra["n_after"].as_u64(), ra["parent_tuple"].as_str()), (Some(6), Some(15), Some(genesis.as_str())));
     assert!(ra["delta_milli"].as_i64().unwrap() < 0 && ra["sd_milli"].as_i64().unwrap() > 0 && ra["z_permille"].as_i64().unwrap() >= 2000, "{ra}");
     let ga = readings.iter().find(|r| r["card"] == "requests_turn" && r["sha"] == a["sha"]).expect("A's guardrail reading");
     assert_eq!((ga["verdict"].clone(), ga["action"].clone()), (sc["expect"]["change_a_guard"]["verdict"].clone(), sc["expect"]["change_a_guard"]["action"].clone()));

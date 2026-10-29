@@ -8,7 +8,7 @@
 
 use std::ffi::{CString, c_int};
 use std::io;
-use std::os::fd::{AsRawFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
+use std::os::fd::{AsFd, AsRawFd, BorrowedFd, FromRawFd, IntoRawFd, OwnedFd, RawFd};
 use std::sync::atomic::{AtomicI32, Ordering};
 
 /// A platform without a confinement backend must never execute the requested payload.
@@ -451,6 +451,245 @@ pub fn clonefile_bounded(src: &std::path::Path, dst: &std::path::Path, max_bytes
 #[cfg(not(any(target_os = "macos", target_os = "linux")))]
 pub fn clonefile(_: &std::path::Path, _: &std::path::Path) -> io::Result<()> {
     Err(io::Error::new(io::ErrorKind::Unsupported, "snapshot cloning is not implemented on this OS"))
+}
+
+// ---------------------------------------------------------------------------------------------
+// R-UNDO (v0.5.3, lane U): entries named relative to a directory descriptor the Root holds. The workspace's `/undo`
+// and R2 open the directory they work in once, never following a link at any component, and name every entry in it
+// relative to that descriptor, so a link the zone swaps in at the directory's path (or above it) is never followed.
+// `dir` None: the name is a path, resolved as given (AT_FDCWD), for the Root's own trees under ROOT_HOME.
+
+fn at_fd(dir: Option<BorrowedFd>) -> c_int {
+    dir.map_or(libc::AT_FDCWD, |d| d.as_raw_fd())
+}
+
+fn c_path(p: &std::path::Path) -> io::Result<CString> {
+    use std::os::unix::ffi::OsStrExt;
+    Ok(CString::new(p.as_os_str().as_bytes())?)
+}
+
+fn openat_owned(dir: Option<BorrowedFd>, name: &std::ffi::CStr, flags: c_int) -> io::Result<OwnedFd> {
+    // SAFETY: `name` is NUL-terminated and outlives the call; `dir` is a live descriptor or AT_FDCWD.
+    let fd = unsafe { libc::openat(at_fd(dir), name.as_ptr(), flags | libc::O_CLOEXEC) };
+    if fd < 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: openat returned a new descriptor, owned by nothing else.
+    Ok(unsafe { OwnedFd::from_raw_fd(fd) })
+}
+
+/// The directory `path` names: absolute (from `/`), or relative to `base`. Every component is opened with
+/// `O_DIRECTORY | O_NOFOLLOW`, so no link is followed anywhere on the way and the descriptor is the real directory the
+/// path named at that moment, whatever is later renamed or swapped in at the path. ELOOP or ENOTDIR: a component is
+/// a link or not a directory. An empty relative path is a new descriptor of `base` itself.
+pub fn open_dir_nofollow(base: Option<BorrowedFd>, path: &std::path::Path) -> io::Result<OwnedFd> {
+    use std::os::unix::ffi::OsStrExt;
+    use std::path::Component;
+    let flags = libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW;
+    let abs = path.is_absolute();
+    let mut cur = openat_owned(if abs { None } else { base }, if abs { c"/" } else { c"." }, flags)?;
+    for c in path.components() {
+        match c {
+            Component::RootDir => {}
+            Component::Normal(n) => cur = openat_owned(Some(cur.as_fd()), &CString::new(n.as_bytes())?, flags)?,
+            _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "a path with a . or .. component")),
+        }
+    }
+    Ok(cur)
+}
+
+/// `name` (a directory) in `dir`, opened read-only with `O_DIRECTORY | O_NOFOLLOW`.
+pub fn open_dir_at(dir: Option<BorrowedFd>, name: &std::path::Path) -> io::Result<OwnedFd> {
+    openat_owned(dir, &c_path(name)?, libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW)
+}
+
+/// What `fstatat(dir, name, AT_SYMLINK_NOFOLLOW)` says of the entry itself (never a link's target): its mode, owner
+/// and BSD flags (0 on Linux).
+pub struct Stat {
+    pub mode: u32,
+    pub uid: u32,
+    pub flags: u32,
+}
+
+impl Stat {
+    #[allow(clippy::unnecessary_cast)] // mode_t is u16 on macOS, u32 on Linux
+    pub fn is_dir(&self) -> bool {
+        self.mode & libc::S_IFMT as u32 == libc::S_IFDIR as u32
+    }
+}
+
+#[allow(clippy::unnecessary_cast)] // mode_t is u16 on macOS, u32 on Linux
+pub fn stat_at(dir: Option<BorrowedFd>, name: &std::path::Path) -> io::Result<Stat> {
+    let n = c_path(name)?;
+    let mut st = std::mem::MaybeUninit::<libc::stat>::uninit();
+    // SAFETY: `n` is NUL-terminated; fstatat fully initialises `st` when it returns 0, checked before use.
+    if unsafe { libc::fstatat(at_fd(dir), n.as_ptr(), st.as_mut_ptr(), libc::AT_SYMLINK_NOFOLLOW) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: initialised by the successful fstatat above.
+    let st = unsafe { st.assume_init() };
+    #[cfg(target_os = "macos")]
+    let flags = st.st_flags;
+    #[cfg(not(target_os = "macos"))]
+    let flags = 0;
+    Ok(Stat { mode: st.st_mode as u32, uid: st.st_uid, flags })
+}
+
+/// R-UNDO (v0.5.3): a rename that never replaces: EEXIST when `to` exists (macOS `renameatx_np(RENAME_EXCL)`, Linux
+/// `renameat2(RENAME_NOREPLACE)`), each end relative to its directory (lane U). Like rename(2), it never follows a
+/// link at either end.
+#[cfg(target_os = "macos")]
+pub fn rename_excl_at(from_dir: Option<BorrowedFd>, from: &std::path::Path, to_dir: Option<BorrowedFd>, to: &std::path::Path) -> io::Result<()> {
+    let (f, t) = (c_path(from)?, c_path(to)?);
+    // SAFETY: both names are NUL-terminated strings that outlive the call; each dir is a live descriptor or AT_FDCWD.
+    match unsafe { libc::renameatx_np(at_fd(from_dir), f.as_ptr(), at_fd(to_dir), t.as_ptr(), libc::RENAME_EXCL) } {
+        0 => Ok(()),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+#[cfg(target_os = "linux")]
+pub fn rename_excl_at(from_dir: Option<BorrowedFd>, from: &std::path::Path, to_dir: Option<BorrowedFd>, to: &std::path::Path) -> io::Result<()> {
+    let (f, t) = (c_path(from)?, c_path(to)?);
+    // SAFETY: both names are NUL-terminated strings that outlive the call; each dir is a live descriptor or AT_FDCWD.
+    match unsafe { libc::renameat2(at_fd(from_dir), f.as_ptr(), at_fd(to_dir), t.as_ptr(), libc::RENAME_NOREPLACE) } {
+        0 => Ok(()),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+#[cfg(not(any(target_os = "macos", target_os = "linux")))]
+pub fn rename_excl_at(_: Option<BorrowedFd>, _: &std::path::Path, _: Option<BorrowedFd>, _: &std::path::Path) -> io::Result<()> {
+    Err(io::Error::new(io::ErrorKind::Unsupported, "rename without replace is not implemented on this OS"))
+}
+
+/// `mkdirat(dir, name, mode)`.
+#[allow(clippy::unnecessary_cast)] // mode_t is u16 on macOS, u32 on Linux
+pub fn mkdir_at(dir: Option<BorrowedFd>, name: &std::path::Path, mode: u32) -> io::Result<()> {
+    let n = c_path(name)?;
+    // SAFETY: `n` is NUL-terminated and outlives the call; the mode fits mode_t (the bits a mkdir takes).
+    match unsafe { libc::mkdirat(at_fd(dir), n.as_ptr(), (mode & 0o7777) as libc::mode_t) } {
+        0 => Ok(()),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+
+/// `unlinkat(dir, name, AT_REMOVEDIR)`: an empty directory, never a link's target.
+pub fn rmdir_at(dir: Option<BorrowedFd>, name: &std::path::Path) -> io::Result<()> {
+    let n = c_path(name)?;
+    // SAFETY: `n` is NUL-terminated and outlives the call.
+    match unsafe { libc::unlinkat(at_fd(dir), n.as_ptr(), libc::AT_REMOVEDIR) } {
+        0 => Ok(()),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+
+/// The names in directory `dir` (not `.` and `..`), unsorted, read from the descriptor itself (`fdopendir` on a new
+/// descriptor of it), never from a path.
+pub fn list_at(dir: BorrowedFd) -> io::Result<Vec<std::ffi::OsString>> {
+    use std::os::unix::ffi::OsStrExt;
+    let fd = openat_owned(Some(dir), c".", libc::O_RDONLY | libc::O_DIRECTORY)?;
+    // SAFETY: `fd` is a live directory descriptor; on success the stream owns it (closedir below closes it).
+    let d = unsafe { libc::fdopendir(fd.as_raw_fd()) };
+    if d.is_null() {
+        return Err(io::Error::last_os_error()); // `fd` is still ours, and closed on drop
+    }
+    let _ = fd.into_raw_fd(); // the stream's now
+    let mut names = Vec::new();
+    let r = loop {
+        clear_errno();
+        // SAFETY: `d` is the open stream above, used by this thread only.
+        let e = unsafe { libc::readdir(d) };
+        if e.is_null() {
+            let err = io::Error::last_os_error();
+            break if err.raw_os_error().is_none_or(|n| n == 0) { Ok(()) } else { Err(err) };
+        }
+        // SAFETY: readdir returned an entry whose d_name is NUL-terminated, valid until the next readdir.
+        let n = unsafe { std::ffi::CStr::from_ptr((*e).d_name.as_ptr()) }.to_bytes();
+        if n != b"." && n != b".." {
+            names.push(std::ffi::OsStr::from_bytes(n).to_os_string());
+        }
+    };
+    // SAFETY: closes the stream and its descriptor, once.
+    unsafe { libc::closedir(d) };
+    r.map(|()| names)
+}
+
+fn clear_errno() {
+    // SAFETY: the calling thread's errno, a plain int.
+    #[cfg(target_os = "macos")]
+    unsafe {
+        *libc::__error() = 0;
+    }
+    // SAFETY: as above.
+    #[cfg(target_os = "linux")]
+    unsafe {
+        *libc::__errno_location() = 0;
+    }
+}
+
+/// R-UNDO (v0.5.3): `faccessat(dir, ".", W_OK | X_OK)`: this process may add and remove entries in `dir`.
+pub fn may_write_at(dir: BorrowedFd) -> bool {
+    // SAFETY: a NUL-terminated literal; `dir` is a live descriptor.
+    unsafe { libc::faccessat(dir.as_raw_fd(), c".".as_ptr(), libc::W_OK | libc::X_OK, 0) == 0 }
+}
+
+/// R-UNDO (v0.5.3): an entry's flags ([`Stat`]) hold a lock flag (chflags(1) `uchg`, `uappnd`, `schg`, `sappnd`),
+/// which refuses a rename and an unlink even to its owner. macOS only; Linux's inode attributes are not read here.
+pub fn locked_flags(flags: u32) -> bool {
+    #[cfg(target_os = "macos")]
+    return flags & (libc::UF_IMMUTABLE | libc::UF_APPEND | libc::SF_IMMUTABLE | libc::SF_APPEND) != 0;
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = flags;
+        false
+    }
+}
+
+/// R-UNDO (v0.5.3, lane U): sets the BSD flags of entry `name` in `dir` itself, never following a link, as [`unlock`]
+/// does by path (macOS `setattrlistat(ATTR_CMN_FLAGS, FSOPT_NOFOLLOW)`; macOS has no `lchflagsat`). `unlock`: `flags`
+/// without the owner's lock flags (`uchg`, `uappnd`; a system flag stays, only root may clear it); else `flags`
+/// exactly, to set them back after a move. Linux: nothing.
+#[cfg(target_os = "macos")]
+pub fn set_flags_at(dir: Option<BorrowedFd>, name: &std::path::Path, flags: u32, unlock: bool) -> io::Result<()> {
+    let user = libc::UF_IMMUTABLE | libc::UF_APPEND;
+    if unlock && flags & user == 0 {
+        return Ok(());
+    }
+    let mut v: u32 = if unlock { flags & !user } else { flags };
+    let n = c_path(name)?;
+    let mut al = libc::attrlist { bitmapcount: libc::ATTR_BIT_MAP_COUNT, reserved: 0, commonattr: libc::ATTR_CMN_FLAGS, volattr: 0, dirattr: 0,
+        fileattr: 0, forkattr: 0 };
+    // SAFETY: `n` is NUL-terminated; `al` names one attribute, ATTR_CMN_FLAGS, whose value is the u32 `v` (setattrlist
+    // buffers carry no length field); every pointer outlives the call.
+    match unsafe { libc::setattrlistat(at_fd(dir), n.as_ptr(), (&raw mut al).cast(), (&raw mut v).cast(), 4, libc::FSOPT_NOFOLLOW) } {
+        0 => Ok(()),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+#[cfg(not(target_os = "macos"))]
+pub fn set_flags_at(_: Option<BorrowedFd>, _: &std::path::Path, _: u32, _: bool) -> io::Result<()> {
+    Ok(())
+}
+
+/// R-UNDO (v0.5.3): clears the owner's lock flags (`uchg`, `uappnd`) of `p` itself, never following a link
+/// (`lchflags`), so a tree the Root cloned can be removed; a system flag stays (only root may clear it).
+#[cfg(target_os = "macos")]
+pub fn unlock(p: &std::path::Path, md: &std::fs::Metadata) -> io::Result<()> {
+    use std::os::macos::fs::MetadataExt;
+    use std::os::unix::ffi::OsStrExt;
+    let user = libc::UF_IMMUTABLE | libc::UF_APPEND;
+    if md.st_flags() & user == 0 {
+        return Ok(());
+    }
+    let c = CString::new(p.as_os_str().as_bytes())?;
+    // SAFETY: `c` is NUL-terminated and outlives the call.
+    match unsafe { libc::lchflags(c.as_ptr(), md.st_flags() & !user) } {
+        0 => Ok(()),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+#[cfg(not(target_os = "macos"))]
+pub fn unlock(_: &std::path::Path, _: &std::fs::Metadata) -> io::Result<()> {
+    Ok(())
 }
 
 /// R-UNDO (v0.5.2): the local time zone's offset from UTC at Unix time `t` (seconds; `localtime_r`'s `tm_gmtoff`,

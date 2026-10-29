@@ -8,6 +8,8 @@ use super::engine::{self, Act, Base, Ctx, Engine, Open, Pick};
 use super::stats::{self, HARD, SOFT};
 use serde_json::{Value, json};
 
+mod sim; // lane M #2: the null false-rollback tables (ignored; tests/sim.rs)
+
 // ------------------------------------------------------------------------------------------------ RF-10
 
 fn vectors() -> Value {

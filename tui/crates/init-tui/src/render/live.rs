@@ -966,8 +966,10 @@ pub fn goodbye(info: &Info, width: usize, attached: bool) -> Vec<Line> {
     }
     let spent = info.egress.as_ref().filter(|_| !info.egress_failed).and_then(|e| e["money"]["total_spent_musd"].as_i64()).filter(|m| *m >= 0);
     let money = spent.map(|m| format!(" Metered so far: {} in all (Root ledger, an estimate).", super::usd(m))).unwrap_or_default();
+    // v0.5.3: the launcher by its path (a bare `init-agent` is not found on a fresh Mac's PATH)
     let text = format!(
-        "init-agent closed. The agent keeps running under the Root (idle until it has work): run init-agent to come back; /root stop or /panic there stops it.{money}"
+        "init-agent closed. The agent keeps running under the Root (idle until it has work): run {} to come back; /root stop or /panic there stops it.{money}",
+        info.agent
     );
     wrapped(&text, "· ", Style::dim(), Style::dim(), width)
 }

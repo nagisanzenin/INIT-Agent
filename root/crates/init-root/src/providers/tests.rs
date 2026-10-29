@@ -54,16 +54,24 @@ fn installed(tag: &str, charter_src: &str) -> (PathBuf, std::sync::Arc<Root>) {
 }
 
 #[test]
-fn catalog_only_deepseek_is_live_and_prices_are_exact() {
+fn catalog_live_labels_and_prices_are_exact() {
     assert_eq!(CATALOG.iter().map(|p| (p.id, p.tested)).collect::<Vec<_>>(),
-        vec![("deepseek", "live"), ("gateway", "experimental"), ("anthropic", "experimental"), ("openai", "experimental"), ("local", "experimental")]);
+        vec![("deepseek", "live"), ("gateway", "experimental"), ("anthropic", "experimental"), ("openai", "live"), ("local", "experimental")]);
     let ds = preset("deepseek").unwrap();
     assert_eq!(ds.models.iter().map(|m| m.id).collect::<Vec<_>>(), ["deepseek-flash", "deepseek-v4-pro"]);
-    // v0.5.0 L3: the live label per model; only DeepSeek's models until a qualify run passes for another
-    assert!(CATALOG.iter().all(|p| p.models.iter().all(|m| m.live == (p.id == "deepseek"))));
+    // v0.5.0 L3: the live label per model, set by a passing qualify run: DeepSeek's models and, since 2026-10-29
+    // (build/status/qualify/openai-gpt-6.1-sol-v0.5.2.json), OpenAI's gpt-6.1-sol
+    let live: Vec<(&str, &str)> = CATALOG.iter().flat_map(|p| p.models.iter().filter(|m| m.live).map(move |m| (p.id, m.id))).collect();
+    assert_eq!(live, [("deepseek", "deepseek-flash"), ("deepseek", "deepseek-v4-pro"), ("openai", "gpt-6.1-sol")]);
     let label = |p: &str, m: &str| spec(&req(p, None, Some(m), None, None)).unwrap().tested;
-    assert_eq!((label("deepseek", "deepseek-flash"), label("anthropic", "claude-sonnet-5-5"), label("openai", "gpt-6.1-sol")),
-        ("live", "experimental", "experimental"));
+    assert_eq!((label("deepseek", "deepseek-flash"), label("anthropic", "claude-sonnet-5-5"), label("openai", "gpt-6.1-sol"), label("openai", "gpt-6-astra")),
+        ("live", "experimental", "live", "experimental"));
+    // the qualification was of OpenAI's own host: the openai preset at a gateway's URL is not live-tested
+    assert_eq!(spec(&req("openai", Some("https://gw.example/v1"), Some("gpt-6.1-sol"), None, None)).unwrap().tested, "experimental");
+    // v0.5.3 L6: the minimum cacheable prompt per model (Anthropic 5.5: 512, OpenAI GPT-5.6+: 1,024, DeepSeek: none)
+    assert_eq!(CATALOG.iter().flat_map(|p| p.models.iter().map(move |m| (m.id, min_cacheable(p.id, m.id)))).collect::<Vec<_>>(),
+        [("deepseek-flash", 0), ("deepseek-v4-pro", 0), ("claude-opus-5-5", 512), ("claude-sonnet-5-5", 512), ("gpt-6.1-sol", 1_024), ("gpt-6-astra", 1_024)]);
+    assert_eq!((min_cacheable("gateway", "claude-sonnet-5-5"), min_cacheable("openai", "gpt-9")), (0, 0), "not a catalog row: 0");
     // the charter template's built-in deepseek-flash tariff (µUSD/MTok) is the catalog's
     let t: Table = toml::from_str(&charter::template()).unwrap();
     let f = at(&t, &["actions", "providers", "models", "deepseek-flash"]).as_table().unwrap();
@@ -400,9 +408,9 @@ fn cache_writes_bill_at_the_charter_write_price() {
     // one, against the provider's bill on the totals. Before this change the ledger was 4.9 % under.
     for (p, m) in [("anthropic", "claude-sonnet-5-5"), ("anthropic", "claude-opus-5-5"), ("openai", "gpt-6.1-sol")] {
         let (c, model) = (cat_model(p, m).unwrap(), md(m));
-        let req = TapUsage { input: 36_750, cache_read: 36_015, cache_write: 735, cache_write_1h: 0, output: 213 };
+        let req = TapUsage { input: 36_750, cache_read: 36_015, cache_write: 735, cache_write_1h: 0, output: 213, ..TapUsage::default() };
         let ledger: u64 = (0..102).map(|_| req.cost(&model)).sum();
-        let total = TapUsage { input: 36_750 * 102, cache_read: 36_015 * 102, cache_write: 735 * 102, cache_write_1h: 0, output: 213 * 102 };
+        let total = TapUsage { input: 36_750 * 102, cache_read: 36_015 * 102, cache_write: 735 * 102, cache_write_1h: 0, output: 213 * 102, ..TapUsage::default() };
         let provider = list(&total, c);
         assert!(within_1pct(ledger, provider), "{p}/{m}: T2 volume, ledger {ledger} vs provider {provider} µUSD");
         assert!(ledger >= provider, "{p}/{m}: per-request rounding only ever rounds up");
@@ -436,7 +444,7 @@ fn missing_write_prices_never_under_count_and_deepseek_is_unchanged() {
         let model = tap_compile(&t)["providers"].models[m].clone();
         let (w5, w1) = c.cache_write.unwrap();
         assert!(model.cache_write >= w5.max(w1) && model.cache_write_1h >= w1, "{p}/{m}: the fallback is at or above the list write prices");
-        let cold = TapUsage { input: 21_507, cache_read: 0, cache_write: 21_504, cache_write_1h: 0, output: 87 };
+        let cold = TapUsage { input: 21_507, cache_read: 0, cache_write: 21_504, cache_write_1h: 0, output: 87, ..TapUsage::default() };
         let provider = tap_musd(&[(3, c.input), (21_504, w5), (87, c.output)]);
         assert!(cold.cost(&model) >= provider, "{p}/{m}: never under the provider's bill");
     }

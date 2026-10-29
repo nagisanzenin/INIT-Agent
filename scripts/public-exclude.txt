@@ -20,5 +20,9 @@
 + /build/status/REL*.md
 + /build/status/*.json
 + /build/status/FULLACCESS.md
++ /build/status/STATS-053.md
++ /build/status/qualify/
++ /build/status/qualify/*.json
+- /build/status/qualify/*
 - /build/status/*
 - /build/*
