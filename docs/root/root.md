@@ -418,7 +418,7 @@ The block is `root/sandbox-profiles/profiles/zone-tail-full.sb`, copied verbatim
 (deny process-info* (require-not (target same-sandbox)))
 ```
 
-Residuals (ADR-012): files the owner's own tools run later (shell startup files, PATH directories, editor configs, git hooks) run unsandboxed, so full mode is trusted like the owner's own shell; writes outside the workspace have no `/undo`; renaming an ancestor of a protected path (for example `~/.local/bin` itself) is allowed, because the launcher denies are file denies; and, as in every mode, legacy `launchctl remove dev.init.root` works from inside any Seatbelt sandbox, which ends the Root (it handles the resulting SIGTERM by stopping the zone): the agent can end INIT, not escape it.
+Residuals (ADR-012): files the owner's own tools run later (shell startup files, PATH directories, editor configs, git hooks) run unsandboxed, so full mode is trusted like the owner's own shell; writes outside the workspace have no `/undo`; renaming an ancestor of a protected path (for example `~/.local/bin` itself) is allowed, because the launcher denies are file denies, and the same holds for the read denies: renaming `~/.config` exposes the provider key files under `~/.config/init-agent`, and renaming a parent of a `read_deny` entry exposes that entry (macOS only: Linux pins the ancestors, §3.4.1; v0.5.5 adds denies on the parent folders); and, as in every mode, legacy `launchctl remove dev.init.root` works from inside any Seatbelt sandbox, which ends the Root (it handles the resulting SIGTERM by stopping the zone): the agent can end INIT, not escape it.
 
 On Linux the same set is enforced by the bwrap plan of `init_sandbox_profiles::linux` for a full grant (§3.4.1).
 

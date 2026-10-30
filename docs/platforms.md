@@ -165,7 +165,9 @@ What the code does today. Where it differs from the design below, this subsectio
   This needs meson, ninja, a C compiler and libcap-dev. `install.sh` checks for it, for working user/pid/net
   namespaces, and for util-linux `unshare`, python3 and git ≥ 2.39.4, and says how to fix each.
 - **Bundle:** `init-v<version>-linux-arm64.tar.gz` or `init-v<version>-linux-x86_64.tar.gz`. It is built on Debian 12,
-  so it needs glibc ≥ 2.36. musl is not supported. `get.sh` picks the asset from `uname -m`.
+  but the x86_64 bundle's binaries need only glibc ≥ 2.34, measured with `scripts/glibc-floor.py` on the shipped
+  bundle; `get.sh` refuses an older glibc, or musl, before it downloads anything. `get.sh` picks the asset from
+  `uname -m`.
 - **Launcher:** `init-agent` in `INIT_BIN_DIR` (default `~/.local/bin`). From v0.4.1 no file named `init` is installed on Linux,
   because `~/.local/bin/init` shadows `/sbin/init` in user shells (issue nagisanzenin/INIT-Agent#1). `install.sh` removes
   INIT's old launcher at `init` (checked by path, regular file and content markers), leaves a foreign `init` alone with a

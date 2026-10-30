@@ -15,10 +15,7 @@
 name: fast-linux
 
 on:
-  push:
-    branches: [main]
-    # log, docs and report commits land many times a day; they don't change what this job tests
-    paths-ignore: ['**.md', 'docs/**', 'build/**', 'measurements/**', 'reports/**', 'research_notes/**', 'scenarios/**']
+  # not on every push to main (v0.5.4, the owner: Actions minutes are a hard monthly budget); run it by hand or on a PR
   pull_request:
     paths-ignore: ['**.md', 'docs/**', 'build/**', 'measurements/**', 'reports/**', 'research_notes/**', 'scenarios/**']
   workflow_dispatch:

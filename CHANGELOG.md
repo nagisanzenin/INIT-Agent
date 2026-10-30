@@ -17,8 +17,9 @@ build/status/REL-054.md.
   `cache_creation` lifetimes are billed the same way, and Anthropic's and a Chat gateway's write totals are checked
   against their split as OpenAI's are.
 - An Anthropic cache write without its 5-minute/1-hour split is billed at the dearer write price (`cache_write_unsplit`).
-- OpenAI gpt-6.1-sol stays tested live: its re-qualify on this release passed every check, the cost at +0.0 % against
-  the provider's usage at list price (REL-054 §5.6).
+- OpenAI gpt-6.1-sol stays tested live: its re-qualify on this release passed every check. The cost check compares
+  the completed requests' cost with the provider's usage at list price: +0.0 % (REL-054 §5.6). The run's one request
+  cut by a pause was booked at its reservation, 698,624 µUSD ($0.70), 99 % of the run's Root spend of $0.705.
 
 ### The installer and the upgrade (lane I; REL-053 §7.5)
 - `init-agent upgrade` uses only the home it was installed with, starts as `bash -p` (no `BASH_ENV`, `SHELLOPTS` or
@@ -64,7 +65,17 @@ build/status/REL-054.md.
 - Files `/undo` restored took the group of INIT's own folder (the clones are made there). The snapshot now records each
   entry's own group and the restore sets it on its private copy before the swap, by descriptor, never following a
   link and never changing an owner. A group the owner is not a member of is named in the `/undo` notice; it never
-  stops or half-applies the restore. Snapshots from before v0.5.4 hold no groups. build/status/lanes-054/T.md item 7.
+  stops or half-applies the restore. Snapshots from before v0.5.4 hold no groups.
+
+### Corrections after the release (2026-10-31; build/status/REL-054.md §7.5)
+- Text only, the release unchanged; a v0.5.5 patch fixes the code findings. On macOS in full access a renamed parent
+  folder defeats the launcher and read denies (README, ADR-012, the guide, root.md; a Known limit); until v0.5.5 the
+  uninstall line needs `PATH=/usr/bin:/bin:/usr/sbin:/sbin` in front and the `/undo` notice's `sudo` is typed as
+  `/usr/bin/sudo` (a Known limit; README and guide); the guide's second-install line passes `--no-modify-path` (get.sh's
+  own hint moves to v0.5.5); "+0.0 %" says what it compared and the cut request's $0.70 reservation; the user
+  sessions ran in test homes on the maintainer's Mac; the CI bullet names `real_seed_and_kernel_trees`; README and
+  guide give v0.5.4's OpenAI status; the glibc floor is 2.34 everywhere; no reference to a lanes file that is not
+  public. The notes list each with its reason.
 
 ## v0.5.3-preview (2026-10-29)
 
