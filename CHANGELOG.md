@@ -2,6 +2,70 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.5.4-preview (2026-10-30)
+
+A patch: the v0.5.3 post-release review's installer and upgrade findings, the v0.5.3 user sessions' notes, and an
+installer that puts `init-agent` on `PATH`, and a meter fix the live re-qualify of OpenAI found. The full record is
+build/status/REL-054.md.
+
+### The meter: cache writes billed once (lane T; the live re-qualify)
+- Since v0.5.3 the meter billed OpenAI's cache-write breakdown (`cache_write_tokens_details.ttl_30m_tokens`, new on
+  20 October) a second time at the dearest price, an over-count (a 6,001-token write: $0.076 instead of $0.016). The
+  30-minute write is now the ordinary cache write. Any other part of a write, or a part of the total its breakdown
+  does not explain, is billed once at the dearest price with a `price_drift` alert, and never less than the list
+  price: a property test draws totals that are missing, smaller or larger than the breakdown. Anthropic's unknown
+  `cache_creation` lifetimes are billed the same way, and Anthropic's and a Chat gateway's write totals are checked
+  against their split as OpenAI's are.
+- An Anthropic cache write without its 5-minute/1-hour split is billed at the dearer write price (`cache_write_unsplit`).
+- OpenAI gpt-6.1-sol stays tested live: its re-qualify on this release passed every check, the cost at +0.0 % against
+  the provider's usage at list price (REL-054 §5.6).
+
+### The installer and the upgrade (lane I; REL-053 §7.5)
+- `init-agent upgrade` uses only the home it was installed with, starts as `bash -p` (no `BASH_ENV`, `SHELLOPTS` or
+  exported function from the environment) and hands over to the kept get.sh under `/usr/bin/env -i`. Until 0.5.3 a
+  planted `INIT_ROOT_HOME` made it run another home's get.sh. install.sh and uninstall.sh run as `bash -p` too.
+- get.sh prints `/usr/bin/env -i HOME="$HOME" … init-agent upgrade` to 0.5.1–0.5.3 owners (it printed the plain line
+  to 0.5.1 and 0.5.2 owners); every printed line names `/usr/bin/env`, `/usr/bin/curl -q` and `/bin/bash -p`.
+- New: a fresh install adds a marked `PATH` block to your shell's startup file (`--no-modify-path` skips it); the
+  uninstaller removes exactly that block, and never crashes on a startup file it cannot read. An upgrade never edits
+  startup files.
+- The uninstaller's `panic` advice names the install; its printed line works in fish; it moves the unpacked release
+  (`~/.local/share/init/<version>/`) to the Trash.
+- get.sh refuses a Linux below glibc 2.34 (measured from the bundle) and gives ssh-keygen advice that helps on RHEL 8.
+- A failed upgrade download prints the line that applies to the installed version (`--bundle FILE --sha256 HEX`
+  from 0.5.1 on; get.sh `--from` for 0.4.1 and 0.5.0).
+- The uninstall line and the 0.4.1/0.5.0 upgrade pipe run under `/bin/bash -p` (a planted `SHELLOPTS`/`PS4` could
+  steer `/bin/sh`); the toolchain lines say what was found, and a 1.97 toolchain beside another default is used.
+- The closing toolchain steps keep the owner's default toolchain and `--set` the 1.97 folder; printed pipe lines
+  always name the release's get.sh URL (a planted `INIT_DIST_URL` chose it before).
+- The install matrix's 0.5.1–0.5.3 rows run the line get.sh prints. No harness lets the installer edit a startup
+  file: this release's own bundle build had written the maintainer's `~/.zshrc` (caught by the user-session operator,
+  restored byte for byte, fixed before the tag).
+
+### The app (lane T; the v0.5.3 user sessions)
+- `/help` lists `/rollback` and says it acts at once; the upgrade's new-seed line is explained; the gate track shows
+  one `deps+G0` step while the dependencies build; `/details` says where the whole call is; `/model` and
+  `providers list` show the cache-read price; `this TUI N requests` counts this TUI's own requests, a reconnect's
+  included.
+- From the v0.5.4 user session: `/panic` (or `/root stop`) during a self-change's checks shows the change stopped (it is killed with
+  the kernel and recorded as failed on the restart) instead of a timer that kept counting; a dependency build past
+  its estimate says so.
+- From the v0.5.4 user session as well: a pending G4 row says it scores only with sealed tasks; plain lines under the
+  Root's panic and resume notices; `/details` points to earlier activities; the
+  lineage panel shows the key fingerprint the installer prints; the installer labels each time and gives one total;
+  its closing lines point to `/usage`; the README has the uninstall line.
+- A command that worked shows output of 3 lines or fewer; no `$? before this launch` for replayed turns; the body and
+  kernel start counters and `/root status`'s instances are named apart; "Setup done" says it wrote the charter.
+- The kernel reports each self-change job its restart ended (`gate_stopped`), so a TUI that attaches later shows it
+  stopped; the job record shows the build's real step instead of "queued, 0 %".
+- `/undo` gives each restored entry its own group back; so does the Root's restore of INIT's own state (R2).
+
+### `/undo` keeps each file's group (lane U2; the v0.5.3 user sessions)
+- Files `/undo` restored took the group of INIT's own folder (the clones are made there). The snapshot now records each
+  entry's own group and the restore sets it on its private copy before the swap, by descriptor, never following a
+  link and never changing an owner. A group the owner is not a member of is named in the `/undo` notice; it never
+  stops or half-applies the restore. Snapshots from before v0.5.4 hold no groups. build/status/lanes-054/T.md item 7.
+
 ## v0.5.3-preview (2026-10-29)
 
 The math, scale and safety release: the v0.5.2 post-release review's fixes, the Root's known invariant gaps closed,

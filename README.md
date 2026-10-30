@@ -4,12 +4,13 @@ INIT is a coding agent that rewrites its own harness while it works. The harness
 
 ```sh
 curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh
-~/.local/bin/init-agent
 ```
 
-The first run asks you to pick a provider, paste your key and pick a model. The installer puts `init-agent` in `~/.local/bin`, which a default macOS shell does not have on its `PATH`, so the first run names the full path, as get.sh prints it. To type plain `init-agent` from then on, add the directory to your `PATH` and open a new terminal: `echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc` (for bash, `~/.bashrc` on Linux and `~/.bash_profile` on macOS; for fish, `fish_add_path ~/.local/bin`). The installer prints the line for your shell.
+Then open a new terminal and run `init-agent`. The first run asks you to pick a provider, paste your key and pick a model.
 
 macOS 14+ on Apple silicon; Linux x86_64 is experimental. Upgrades, Linux setup and removal: [Install, upgrade, uninstall](docs/guide.md#install-upgrade-uninstall).
+
+To uninstall (everything goes to the Trash): `/bin/bash -p -c 'f="$(/usr/bin/mktemp)" && /usr/bin/curl -q -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && /bin/bash -p "$f"'` (installed with a custom `INIT_ROOT_HOME`: put `INIT_ROOT_HOME=<that directory>` in front)
 
 ## How it works
 
@@ -50,7 +51,7 @@ A change to the compiled core takes five steps. Prompts, skills and Wasm tools s
 
 No step asks a change to prove it is better, because nobody can write the score for a capability nobody foresaw. The Root checks what it can check for any change: can it be undone, and did it cause harm?
 
-**The Root is the fixed part.** `init-root` is its own service (a LaunchAgent on macOS, a systemd user unit on Linux) with its own directory, `~/.init-root`, which holds your keys, your charter (the settings), its Ed25519 signing key, the signed lineage, the spend ledger and the snapshots. It starts every agent process in a sandbox it composes (Seatbelt on macOS, bubblewrap on Linux), adds your key to each model request and meters it, and signs a record of every promotion, rollback, grant and panic. That sandbox, in every access mode, denies the agent the Root's files, its service file, INIT's launchers and signals to the Root. The Root is 26,010 lines of Rust in v0.5.3, without tests: `init-root` 22,623 and its sandbox profiles 3,387 ([REL-053](build/status/REL-053.md)). [root.md §4.8](docs/root/root.md) gives the command, and counts separately the part that the two guarantees in [foundations.md](docs/foundations.md) rest on, its trusted computing base: 8,246 to 12,298 of those lines.
+**The Root is the fixed part.** `init-root` is its own service (a LaunchAgent on macOS, a systemd user unit on Linux) with its own directory, `~/.init-root`, which holds your keys, your charter (the settings), its Ed25519 signing key, the signed lineage, the spend ledger and the snapshots. It starts every agent process in a sandbox it composes (Seatbelt on macOS, bubblewrap on Linux), adds your key to each model request and meters it, and signs a record of every promotion, rollback, grant and panic. That sandbox, in every access mode, denies the agent the Root's files, its service file, INIT's launchers and signals to the Root. The Root is 26,354 lines of Rust in v0.5.4, without tests: `init-root` 22,967 and its sandbox profiles 3,387 ([REL-054](build/status/REL-054.md)). [root.md §4.8](docs/root/root.md) gives the command, and counts separately the part that the two guarantees in [foundations.md](docs/foundations.md) rest on, its trusted computing base: 8,318 to 12,562 of those lines.
 
 **Why a compiled core and not plugins?** A plugin API fixes in advance where the model may extend the agent. What a stronger model is likely to want to change sits elsewhere: how context is compacted, how the loop retries, how requests are laid out so the prompt cache keeps hitting. That code is the core, so the core is editable (T1 Wasm tools are the plugin path). The cost is time. A no-op core change on a fresh v0.5.0 install, built cold, took 788 s (13.1 min) from G0 to the hot-swap (M2, mock model, load not recorded, [receipt](build/status/bundle-e2e-t2.json)). The v0.5.2 release check took 1,831 s for the same path, with CI running beside it ([receipt](build/status/bundle-e2e-t2-v0.5.2-macos.json)). With a warm dependency cache, a small change's build and G0 took 126 s (M2, load 10–23, measured before v0.5; [MERGE-T2CACHE](build/status/MERGE-T2CACHE.md)), and the later gates were not timed. The guide lists every measurement with its load ([Time](docs/guide.md#install-upgrade-uninstall)).
 

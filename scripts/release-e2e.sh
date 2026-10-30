@@ -82,8 +82,8 @@ printf '#!/bin/sh\necho "a foreign init, not INIT'"'"'s"\n' >"$BIN/init"; chmod 
 cp "$BIN/init" "$D/foreign-init"
 T0=$(ms)
 set +e
-env HOME="$H" INIT_ROOT_HOME="$RH" INIT_HOME="$IH" INIT_BIN_DIR="$BIN" \
-  "$REPO/scripts/install.sh" --yes --no-service --disk-floor 5 --mock-upstream "127.0.0.1:$PORT" ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} \
+env -u ZDOTDIR -u XDG_CONFIG_HOME HOME="$H" INIT_ROOT_HOME="$RH" INIT_HOME="$IH" INIT_BIN_DIR="$BIN" \
+  "$REPO/scripts/install.sh" --yes --no-service --no-modify-path --disk-floor 5 --mock-upstream "127.0.0.1:$PORT" ${PASS_ARGS[@]+"${PASS_ARGS[@]}"} \
   >"$D/install.log" 2>&1 </dev/null
 IRC=$?
 set -e
@@ -187,7 +187,7 @@ st >"$D/status-end.json" || true
 
 # ---------------------------------------------------------------- 5. uninstall: first while the Root runs, then after it stops
 set +e
-printf 'uninstall\n' | env HOME="$H" INIT_ROOT_HOME="$RH" INIT_BIN_DIR="$BIN" "$REPO/scripts/uninstall.sh" >"$D/uninstall-1.log" 2>&1
+printf 'uninstall\n' | env -u ZDOTDIR -u XDG_CONFIG_HOME HOME="$H" INIT_ROOT_HOME="$RH" INIT_BIN_DIR="$BIN" "$REPO/scripts/uninstall.sh" >"$D/uninstall-1.log" 2>&1
 U1=$?
 set -e
 INST_AFTER_STOP="$(st | /usr/bin/python3 -I -c 'import json,sys; print(len(json.load(sys.stdin).get("instances") or []))' 2>/dev/null || echo '?')"
@@ -202,9 +202,9 @@ cp "$IH/work/hello.txt" "$D/hello.txt" 2>/dev/null || true
 cp -R "$RH/egress/usage" "$D/egress-usage" 2>/dev/null || true
 cp "$RH/lineage/lineage.jsonl" "$D/lineage.jsonl" 2>/dev/null || true
 set +e
-printf 'no\n' | env HOME="$H" INIT_ROOT_HOME="$RH" INIT_BIN_DIR="$BIN" "$REPO/scripts/uninstall.sh" >"$D/uninstall-2.log" 2>&1
+printf 'no\n' | env -u ZDOTDIR -u XDG_CONFIG_HOME HOME="$H" INIT_ROOT_HOME="$RH" INIT_BIN_DIR="$BIN" "$REPO/scripts/uninstall.sh" >"$D/uninstall-2.log" 2>&1
 U2=$?
-printf 'uninstall\n' | env HOME="$H" INIT_ROOT_HOME="$RH" INIT_BIN_DIR="$BIN" "$REPO/scripts/uninstall.sh" >"$D/uninstall-3.log" 2>&1
+printf 'uninstall\n' | env -u ZDOTDIR -u XDG_CONFIG_HOME HOME="$H" INIT_ROOT_HOME="$RH" INIT_BIN_DIR="$BIN" "$REPO/scripts/uninstall.sh" >"$D/uninstall-3.log" 2>&1
 U3=$?
 set -e
 log "uninstall #2 (answer 'no'): exit $U2; #3 (typed uninstall): exit $U3"

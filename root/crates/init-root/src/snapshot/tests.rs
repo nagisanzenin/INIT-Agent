@@ -595,3 +595,140 @@ fn a5_room_refuses_when_free_disk_cannot_be_read() {
     let e = room_of(Err(std::io::Error::other("statvfs failed")), floor).unwrap_err();
     assert!(e.0 == "root.quota" && e.1.contains("cannot be read") && e.2["reason"] == "disk", "{e:?}");
 }
+
+/// v0.5.4 (lane U2 round 5): every entry under `dir` (not `dir`) with its own group (lstat: a link's own), sorted.
+#[cfg(target_os = "macos")]
+fn groups_of(dir: &Path) -> Vec<(String, u32)> {
+    let (mut out, mut stack) = (Vec::new(), vec![PathBuf::new()]);
+    while let Some(rel) = stack.pop() {
+        for e in fs::read_dir(dir.join(&rel)).unwrap() {
+            let r = rel.join(e.unwrap().file_name());
+            let m = fs::symlink_metadata(dir.join(&r)).unwrap();
+            if m.is_dir() {
+                stack.push(r.clone());
+            }
+            out.push((r.display().to_string(), m.gid()));
+        }
+    }
+    out.sort();
+    out
+}
+
+/// `dir` and everything under it (never following a link) to group `g`.
+#[cfg(target_os = "macos")]
+fn chgrp_tree(dir: &Path, g: u32) {
+    std::os::unix::fs::lchown(dir, None, Some(g)).unwrap();
+    for (p, _) in groups_of(dir) {
+        std::os::unix::fs::lchown(dir.join(p), None, Some(g)).unwrap();
+    }
+}
+
+/// Up to `n` groups this user can set (from `id -G`, each tried on a probe file in `b`).
+#[cfg(target_os = "macos")]
+fn settable_groups(b: &Path, n: usize) -> Vec<u32> {
+    let out = Command::new("/usr/bin/id").arg("-G").output().unwrap();
+    let probe = b.join("gprobe");
+    fs::write(&probe, "").unwrap();
+    let mut v = Vec::new();
+    for g in String::from_utf8_lossy(&out.stdout).split_whitespace().filter_map(|g| g.parse::<u32>().ok()) {
+        if v.len() < n && !v.contains(&g) && std::os::unix::fs::lchown(&probe, None, Some(g)).is_ok() && fs::metadata(&probe).unwrap().gid() == g {
+            v.push(g);
+        }
+    }
+    fs::remove_file(&probe).unwrap(); // exact path, written above
+    v
+}
+
+/// v0.5.4 (lane U2 round 5, class 2): R2 gives the agent state its own group back. Every clone R2 makes is made in a
+/// folder of ROOT_HOME/snapshots/sys, so before v0.5.4 the snapshot, `pre-restore-<n>` and the restore's stage took
+/// ROOT_HOME's group and the restored state came back with it (round 2's probe: INIT_HOME staff, ROOT_HOME under
+/// /private/tmp, every restored entry wheel). Here ROOT_HOME is group `a` and INIT_HOME group `b`: the snapshot and
+/// the save hold `b`, every restored entry and link is `b`, the conversation is untouched; and a snapshot as v0.5.3
+/// left it (its tree in `a`) also restores as `b`.
+#[cfg(target_os = "macos")]
+#[test]
+fn r2_restores_the_agent_state_in_its_own_group() {
+    let bd = base("r2grp");
+    let gs = settable_groups(&bd, 2);
+    if gs.len() < 2 {
+        eprintln!("SKIP r2_restores_the_agent_state_in_its_own_group: it needs two groups this user can set (id -G), found {gs:?}");
+        let _ = fs::remove_dir_all(&bd); // exact path, created by base()
+        return;
+    }
+    let (a, b) = (gs[0], gs[1]);
+    let (ih, rh) = fixture(&bd);
+    chgrp_tree(&ih, b);
+    chgrp_tree(&rh, a);
+    let outside = bd.join("outside/secret");
+    std::os::unix::fs::lchown(&outside, None, Some(a)).unwrap();
+    let state = |ih: &Path| ["body", "state", "vault"].iter().flat_map(|t| groups_of(&ih.join(t)).into_iter().map(move |(p, g)| (format!("{t}/{p}"), g)))
+        .collect::<Vec<_>>();
+    let all_b = |v: &[(String, u32)]| v.iter().all(|(_, g)| *g == b);
+    take_at(&rh, &ih, "1", "sys", Some(1), 1 << 30).unwrap();
+    let snap = dir(&rh).join("1");
+    assert_eq!(fs::metadata(dir(&rh)).unwrap().gid(), a, "snapshots/sys has ROOT_HOME's group");
+    assert!(all_b(&groups_of(&snap)), "the snapshot holds INIT_HOME's group: {:?}", groups_of(&snap));
+    let session0 = (r(&ih.join("state/sessions/S.jsonl")), fs::symlink_metadata(ih.join("state/sessions/S.jsonl")).unwrap().gid());
+    // the agent's later state: a changed file, a new one
+    w(&ih.join("state/mem/data"), "v2");
+    w(&ih.join("body/new.md"), "new");
+    let out = restore_at(&rh, &ih, "1", &|| false).unwrap();
+    assert!(out.get("groups_kept").is_none(), "{out}");
+    assert_eq!(r(&ih.join("state/mem/data")), "v1");
+    assert!(all_b(&state(&ih)), "every restored entry and link has INIT_HOME's group: {:?}", state(&ih));
+    assert!(is_link(&ih.join("body/outlink")) && fs::symlink_metadata(&outside).unwrap().gid() == a, "a link's target is never touched");
+    assert_eq!((r(&ih.join("state/sessions/S.jsonl")), fs::symlink_metadata(ih.join("state/sessions/S.jsonl")).unwrap().gid()), session0,
+        "the conversation is never restored");
+    assert!(all_b(&groups_of(&dir(&rh).join("pre-restore-1"))), "the save holds INIT_HOME's group: {:?}", groups_of(&dir(&rh).join("pre-restore-1")));
+    // a snapshot as v0.5.3 left it: its tree in ROOT_HOME's group; the restore still gives INIT_HOME's
+    chgrp_tree(&snap, a);
+    w(&ih.join("state/mem/data"), "v3");
+    restore_at(&rh, &ih, "1", &|| false).unwrap();
+    assert_eq!(r(&ih.join("state/mem/data")), "v1");
+    assert!(all_b(&state(&ih)), "a snapshot from before v0.5.4 restores in INIT_HOME's group too: {:?}", state(&ih));
+    unlock_home(&bd);
+    fs::remove_dir_all(&bd).unwrap(); // exact path, created by base()
+}
+
+/// v0.5.4 (lane U2 round 5): INIT_HOME of a group the owner is not a member of (made in /private/tmp: wheel) never
+/// fails a snapshot or a restore: both complete as before v0.5.4 (the clones keep ROOT_HOME's group), and the record
+/// and the result say so (`groups_kept`, with EPERM).
+#[cfg(target_os = "macos")]
+#[test]
+fn r2_with_a_group_it_cannot_set_completes_and_says_so() {
+    let bd = base("r2grk");
+    let Some(&a) = settable_groups(&bd, 1).first() else { panic!("this user can set none of its own groups") };
+    // a folder made in /private/tmp has its group whether or not this user is a member; moved into the test home at once
+    let tmp = PathBuf::from(format!("/private/tmp/init-x4-grk-{}", std::process::id()));
+    fs::create_dir(&tmp).unwrap();
+    let theirs = fs::metadata(&tmp).unwrap().gid();
+    let probe = bd.join("gprobe");
+    fs::write(&probe, "").unwrap();
+    std::os::unix::fs::lchown(&probe, None, Some(a)).unwrap();
+    let member = std::os::unix::fs::lchown(&probe, None, Some(theirs)).is_ok();
+    fs::remove_file(&probe).unwrap(); // exact path, written above
+    if member || theirs == a || fs::rename(&tmp, bd.join("ih")).is_err() {
+        let _ = fs::remove_dir(&tmp); // exact path, made above (empty)
+        eprintln!("SKIP r2_with_a_group_it_cannot_set_completes_and_says_so: /private/tmp's group {theirs} is one this user can set, or another volume");
+        let _ = fs::remove_dir_all(&bd); // exact path, created by base()
+        return;
+    }
+    let (ih, rh) = fixture(&bd);
+    chgrp_tree(&rh, a);
+    assert_eq!(fs::metadata(&ih).unwrap().gid(), theirs);
+    let m = take_at(&rh, &ih, "1", "sys", Some(1), 1 << 30).unwrap();
+    assert_eq!(m["groups_kept"]["errno"], libc::EPERM, "the record says why: {m}");
+    assert_eq!(m["groups_kept"]["gid"], theirs);
+    w(&ih.join("state/mem/data"), "v2");
+    let out = restore_at(&rh, &ih, "1", &|| false).unwrap();
+    assert_eq!(r(&ih.join("state/mem/data")), "v1", "the restore completes");
+    assert_eq!(out["groups_kept"]["errno"], libc::EPERM, "{out}");
+    assert_eq!(out["groups_kept"]["what"], "the restored agent state");
+    assert_eq!(fs::symlink_metadata(ih.join("state/mem/data")).unwrap().gid(), a, "as before v0.5.4: ROOT_HOME's group");
+    // review 6, N3: the owner's alert says so, not only the log
+    let t = restored_text("1", "h1", &out);
+    assert!(t.contains("it keeps ROOT_HOME's group, not INIT_HOME's") && t.contains("not permitted"), "{t}");
+    assert!(!restored_text("1", "h1", &json!({"saved": "pre-restore-1"})).contains("group"), "nothing when the group was set");
+    unlock_home(&bd);
+    fs::remove_dir_all(&bd).unwrap(); // exact path, created by base()
+}

@@ -79,8 +79,10 @@ fn the_bill_is_within_the_hold_and_never_under_the_list_price() {
     }
     let mut cases = 0u64;
     for (name, md) in &models {
-        // the six classes: uncached input, cached input, cache write (5 min or 1 h), output, reasoning, no price
-        for combo in 0u32..64 {
+        // the eight classes: uncached input, cached input, cache write (5 min or 1 h), output, reasoning, no price,
+        // (v0.5.4) a write TTL without a price inside the input (a 12-hour write in the provider's write breakdown), and
+        // (review 4, n1) a write the provider did not split by TTL
+        for combo in 0u32..256 {
             let has = |k: u32| combo & (1 << k) != 0;
             for _ in 0..12 {
                 let bytes = 1 + r.upto(2_000_000);
@@ -91,14 +93,20 @@ fn the_bill_is_within_the_hold_and_never_under_the_list_price() {
                 let mut take = |on: bool, r: &mut Rng| if on { let t = r.upto(room); room -= t; t } else { 0 };
                 let (uncached, cached) = (take(has(0), &mut r), take(has(1), &mut r));
                 let write = take(has(2), &mut r);
+                let uw = take(has(6), &mut r);
+                let us = take(has(7), &mut r);
                 let w1 = if r.next().is_multiple_of(2) { write } else { 0 };
                 let mut out_room = max_out;
                 let mut take_out = |on: bool, r: &mut Rng| if on { let t = r.upto(out_room); out_room -= t; t } else { 0 };
                 let (visible, reasoning) = (take_out(has(3), &mut r), take_out(has(4), &mut r));
-                let unknown = if has(5) { 1 + r.upto(bytes / 2) } else { 0 };
+                let unknown = if has(5) { 1 + r.upto(bytes / 2) } else { 0 } + uw;
                 let output = visible + reasoning; // every family reports reasoning inside its output count
-                let base = Usage { input: uncached + cached + write, cache_read: cached, cache_write: write - w1, cache_write_1h: w1, output, unknown, ..Usage::default() };
-                let priced = list(&[(uncached, md.input), (cached, md.cache_read), (write - w1, md.cache_write), (w1, md.cache_write_1h), (output, md.output)]);
+                let base = Usage { input: uncached + cached + write + uw + us, cache_read: cached, cache_write: write - w1, cache_write_1h: w1,
+                    cache_write_unsplit: us, output, unknown, unknown_write: uw, ..Usage::default() };
+                // v0.5.4 (review 4, n8): at the dearer of the two write prices, as `Usage::cost` prices it; an unsplit write too (n1)
+                let wd = md.cache_write.max(md.cache_write_1h);
+                let priced = list(&[(uncached, md.input), (cached, md.cache_read), (write - w1, md.cache_write), (w1, md.cache_write_1h), (uw, wd), (us, wd),
+                    (output, md.output)]);
                 for partial in [false, true] {
                     let u = Usage { partial, ..base };
                     let (bill, flags) = book(Some(&u), md, hold, max_out, true);
@@ -107,14 +115,19 @@ fn the_bill_is_within_the_hold_and_never_under_the_list_price() {
                     assert!(bill >= priced, "under the list price: {}", ctx());
                     if partial {
                         // the provider may have generated up to the cap: any actual output is covered
-                        let worst = list(&[(uncached, md.input), (cached, md.cache_read), (write - w1, md.cache_write), (w1, md.cache_write_1h), (max_out, md.output)]);
+                        let worst = list(&[(uncached, md.input), (cached, md.cache_read), (write - w1, md.cache_write), (w1, md.cache_write_1h), (uw, wd), (us, wd),
+                            (max_out, md.output)]);
                         assert!(bill >= worst, "a cut stream under its cap's price: {}", ctx());
                     }
                     if unknown > 0 {
                         let out = if partial { max_out } else { output };
+                        // every token once: the write TTL without a price is in `unknown`, not in an input class too
                         let at_dearest = list(&[(uncached, md.input), (cached, md.cache_read), (write - w1, md.cache_write), (w1, md.cache_write_1h),
-                            (out, md.output), (unknown, dearest(md))]);
+                            (us, wd), (out, md.output), (unknown, dearest(md))]);
+                        let floor = list(&[(uncached, md.input), (cached, md.cache_read), (write - w1, md.cache_write), (w1, md.cache_write_1h), (uw, wd),
+                            (us, wd), (out, md.output)]);
                         assert!(bill >= at_dearest.min(hold), "a class without a price under the dearest price: {}", ctx());
+                        assert_eq!(bill, floor.max(at_dearest.min(hold)), "a token billed twice, or not at the dearest price: {}", ctx());
                         assert!(flags.contains(&"price_drift"), "{}", ctx());
                     }
                     assert_eq!(flags.contains(&"usage_partial"), partial, "{}", ctx());
@@ -136,7 +149,7 @@ fn the_bill_is_within_the_hold_and_never_under_the_list_price() {
     // no usage: the hold on a 2xx answer, nothing on a refusal
     assert_eq!(book(None, &models[0].1, 12_345, 1, true).0, 12_345);
     assert_eq!(book(None, &models[0].1, 12_345, 1, false).0, 0);
-    assert!(cases >= 46 * 64 * 12 * 2, "{cases}");
+    assert!(cases >= 46 * 256 * 12 * 2, "{cases}");
 }
 
 /// The uncached-only case the hold covers at one token per byte (a token is at least one byte).
@@ -154,7 +167,7 @@ fn an_uncached_prompt_of_one_token_per_byte_fits_the_hold() {
 #[test]
 fn golden_fixtures_per_codec() {
     let golden: Value = serde_json::from_str(include_str!("tap/testdata/golden.json")).unwrap();
-    let files: [(&str, &str); 12] = [
+    let files: [(&str, &str); 13] = [
         ("deepseek-cache-hit.sse", include_str!("tap/testdata/deepseek-cache-hit.sse")),
         ("deepseek-reasoning-tool.sse", include_str!("tap/testdata/deepseek-reasoning-tool.sse")),
         ("deepseek-cut.sse", include_str!("tap/testdata/deepseek-cut.sse")),
@@ -164,6 +177,8 @@ fn golden_fixtures_per_codec() {
         ("anthropic-cut-after-start.sse", include_str!("tap/testdata/anthropic-cut-after-start.sse")),
         ("anthropic-drift.sse", include_str!("tap/testdata/anthropic-drift.sse")),
         ("openai-cache-write.sse", include_str!("tap/testdata/openai-cache-write.sse")),
+        // v0.5.4: the live qualify's request 1, a 30-minute write (OpenAI's default since 2026-10-20), at the write price
+        ("openai-cache-write-30m.sse", include_str!("tap/testdata/openai-cache-write-30m.sse")),
         ("openai-cache-read.sse", include_str!("tap/testdata/openai-cache-read.sse")),
         ("openai-cut.sse", include_str!("tap/testdata/openai-cut.sse")),
         ("openai-drift.sse", include_str!("tap/testdata/openai-drift.sse")),

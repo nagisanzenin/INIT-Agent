@@ -298,6 +298,12 @@ alongside real bugs:
 - Run the persona's shells and the Root with the **passwd HOME**. Isolate with INIT_ROOT_HOME, INIT_HOME and
   INIT_BIN_DIR. The broker refuses a Root whose HOME is not the passwd home. A persona that restarts the Root from a
   test-HOME shell gets a body that never spawns, and blames the product.
+- **From v0.5.4 the installer edits a shell startup file** (the PATH block, install.sh `path_step`). With the passwd
+  HOME and a test INIT_BIN_DIR that is the owner's real `~/.zshrc` (or `~/.bashrc`, or fish's conf.d). So the harness
+  passes `--no-modify-path` (get.sh `sh -s -- --no-modify-path`), or, to exercise the block itself, exports ZDOTDIR
+  (and XDG_CONFIG_HOME) to a harness folder and SHELL to that shell, and checks the owner's files are unchanged after.
+  Scripts that run the installer with a test HOME use `env -i`, or unset ZDOTDIR and XDG_CONFIG_HOME
+  (release-e2e.sh).
 - Put the persona's project folder **inside the passwd home**, for example `~/init-us-<n>/project`, removed afterwards
   by exact path. The Root refuses a workspace outside the home, so a project under /private/tmp silently becomes "no
   workspace".

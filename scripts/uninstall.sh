@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -p
 # Uninstall INIT: stop it, unload the service, and MOVE its homes to the Trash. Nothing is deleted: you empty
 # the Trash yourself (or put things back from it).
 #
@@ -63,6 +63,12 @@ else
   devno() { stat -c %d "$1"; }
 fi
 ROOT_BIN="$RH/bin/init-root"
+# v0.5.4 (the post-release review of v0.5.3): a command this prints names this install's init-root and its home, as the
+# other scripts' rcmd does. init-root finds its home in INIT_ROOT_HOME, else ~/.init-root, never from its own path, so a
+# bare `<ROOT_HOME>/bin/init-root panic` on a custom home panicked the main install.
+shq() { case "$1" in ''|*[!A-Za-z0-9/._+,:@%=-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;; *) printf '%s' "$1" ;; esac; }
+rcmd() { [ "$RH" = "$PW_HOME/.init-root" ] || printf 'INIT_ROOT_HOME=%s ' "$(shq "$RH")"; printf '%s' "$(shq "$ROOT_BIN")"; [ $# = 0 ] || printf ' %s' "$*"; }
+STOP_WAIT_S=60 # how long the zone gets to stop
 RENV=(env -i HOME="$PW_HOME" INIT_ROOT_HOME="$RH" PATH=/usr/bin:/bin)
 
 [ -e "$RH" ] || [ -e "$IH" ] || die "nothing to uninstall: neither $RH nor $IH exists"
@@ -87,8 +93,8 @@ except Exception: print(0)'
 if [ -x "$ROOT_BIN" ] && [ -S "$RH/run/owner.sock" ] && ! lock_free; then
   say "stopping INIT (init-root stop) …"
   "${RENV[@]}" "$ROOT_BIN" stop >/dev/null 2>&1 || say "  (init-root stop did not answer)"
-  for _ in $(seq 1 120); do [ "$(instances)" = 0 ] && break; sleep 0.5; done
-  [ "$(instances)" = 0 ] || die "the zone did not stop within 60 s; try: $ROOT_BIN panic"
+  for _ in $(seq 1 $((STOP_WAIT_S * 2))); do [ "$(instances)" = 0 ] && break; sleep 0.5; done
+  [ "$(instances)" = 0 ] || die "the zone did not stop within ${STOP_WAIT_S} s; try: $(rcmd panic)"
   say "  the zone is stopped"
 fi
 
@@ -119,6 +125,70 @@ for c in init-agent init; do
 done
 [ $LAUNCHER = 1 ] && [ -f "$BIN_DIR/init-tui" ] && MOVE+=("$BIN_DIR/init-tui")
 [ $REAL = 1 ] && MOVE+=("$PLIST")
+# v0.5.4 (the v0.5.3 user sessions): the release get.sh unpacked for a fresh install, ~/.local/share/init/<version>/
+# (INIT_APP_DIR as for get.sh), stayed behind without a word. It is a download, not owner state: init-root install copies
+# the binaries into ROOT_HOME/bin, install.json records the release's version and hashes, not its folder, and an
+# upgrade unpacks into ROOT_HOME/cache/upgrade/. So each INIT release unpacked there (a folder named as the VERSION
+# inside it, with the bundle's SHA256SUMS and MANIFEST.json) goes to the Trash too, as "init-<version>".
+APP="${INIT_APP_DIR:-$HOME/.local/share/init}"
+RELEASES=()
+for d in "$APP"/*; do
+  [ -d "$d" ] && [ ! -L "$d" ] && [ -f "$d/SHA256SUMS" ] && [ -f "$d/MANIFEST.json" ] && [ -f "$d/VERSION" ] \
+    && [ "$(cat "$d/VERSION")" = "${d##*/}" ] && { MOVE+=("$d"); RELEASES+=("$d"); }
+done
+# v0.5.4: the block install.sh adds to the owner's shell startup file to put BIN_DIR on PATH (its path_step). Only that
+# block goes, from the files install.sh may have written it to, and only when it names this install's BIN_DIR; a file
+# without it is not touched (not even rewritten), and the fish file install.sh created goes when nothing else is left.
+PATH_BEGIN="# >>> INIT: the init-agent command on PATH (scripts/uninstall.sh removes this block) >>>"
+PATH_END="# <<< INIT: the init-agent command on PATH <<<"
+path_blocks() { # list|remove: the startup files holding this install's block (one per line), and with remove, take it out
+  # v0.5.4 (the release review): the block's middle line must be exactly one install.sh writes for this BIN_DIR (a
+  # substring matched another install's ~/.local/bin2); files are read as bytes, so a startup file that is not UTF-8
+  # cannot stop the uninstaller half way; a file that cannot be read or written is named and left as it is.
+  /usr/bin/python3 -I - "$1" "$PATH_BEGIN" "$PATH_END" "$BIN_DIR" "$HOME" "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/init-agent.fish" \
+    "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile" <<'PY'
+import os, re, sys
+mode, begin, end, bindir, home, fish, *rest = sys.argv[1:]
+sh = lambda d: re.sub(r'([\\"$`])', r"\\\1", d)      # install.sh path_line: inside double quotes
+fq = lambda d: "'" + re.sub(r"([\\'])", r"\\\1", d) + "'"  # fish single quotes
+h = home.rstrip("/")
+lines = {'export PATH="%s:$PATH"' % sh(bindir), "contains -- %s $PATH; or set -gx PATH %s $PATH" % (fq(bindir), fq(bindir))}
+if h and bindir.startswith(h + "/") and len(bindir) > len(h) + 1:
+    lines.add('export PATH="$HOME/%s:$PATH"' % sh(bindir[len(h) + 1:]))
+blocks = [("%s\n%s\n%s\n" % (begin, l, end)).encode("utf-8", "surrogateescape") for l in lines]
+for f in dict.fromkeys([fish] + rest):
+    try:
+        with open(f, "rb") as fh:
+            data = fh.read()
+    except FileNotFoundError:
+        continue
+    except Exception as e:
+        print("LEFT\t%s\tcannot read it: %s" % (f, e.__class__.__name__))
+        continue
+    for b in blocks:
+        i = data.find(b)
+        if i >= 0 and (i == 0 or data[i - 1:i] == b"\n"):
+            break
+    else:
+        continue
+    if mode == "list":
+        print("HAS\t%s" % f)
+        continue
+    left = data[:i] + data[i + len(b):]
+    try:
+        if f == fish and not left.strip():
+            os.unlink(f)
+        else:
+            with open(f, "r+b") as fh:  # in place: a startup file that is a link stays one
+                fh.write(left)
+                fh.truncate()
+        print("REMOVED\t%s" % f)
+    except Exception as e:
+        print("LEFT\t%s\tcannot write it: %s" % (f, e.__class__.__name__))
+PY
+}
+RC_SCAN="$(path_blocks list)"
+RC_FILES="$(printf '%s\n' "$RC_SCAN" | sed -n 's/^HAS	//p')"
 mkdir -p "$TRASH"
 for p in "${MOVE[@]}"; do
   [ "$(devno "$p")" = "$(devno "$TRASH")" ] || die "$p is on another volume than $TRASH; move it to the Trash in your file manager instead"
@@ -126,6 +196,8 @@ done
 say ""
 say "This moves to $TRASH (nothing is deleted):"
 for p in "${MOVE[@]}"; do say "  $p"; done
+[ ${#RELEASES[@]} = 0 ] || say "(${APP}/<version>: the release get.sh unpacked for the install; get.sh downloads it again.)"
+[ -z "$RC_FILES" ] || say "It also takes INIT's PATH block (the lines it added to put $BIN_DIR on PATH) out of: $(printf '%s\n' "$RC_FILES" | tr '\n' ' ')"
 say "Your provider key ($RH/keys/providers/) goes with ROOT_HOME. Empty the Trash to delete it for good."
 printf 'Type uninstall to continue: '
 IFS= read -r answer || answer=""
@@ -133,6 +205,7 @@ IFS= read -r answer || answer=""
 STAMP="$(date '+%Y-%m-%d %H.%M.%S')"
 for p in "${MOVE[@]}"; do
   base="$(basename "$p")"
+  case " ${RELEASES[*]-} " in *" $p "*) base="init-$base"; chmod u+w "$p" ;; esac # read-only: a rename needs it on Linux
   dst="$TRASH/$base $STAMP"
   n=1; while [ -e "$dst" ]; do n=$((n + 1)); dst="$TRASH/$base $STAMP $n"; done
   mv -- "$p" "$dst"
@@ -143,6 +216,15 @@ for p in "${MOVE[@]}"; do
   say "  moved $p → $dst"
 done
 if [ $REAL = 1 ] && [ "$OS" != Darwin ]; then systemctl --user daemon-reload 2>/dev/null || true; fi
+[ ${#RELEASES[@]} = 0 ] || rmdir "$APP" 2>/dev/null || true # only when nothing else is left in it
+if [ -n "$RC_FILES" ]; then
+  path_blocks remove | while IFS="$(printf '\t')" read -r what f why; do
+    case "$what" in
+      REMOVED) say "  removed INIT's PATH block from $f" ;;
+      LEFT) say "  left INIT's PATH block in $f ($why): take out the lines between INIT's two PATH markers (# >>> and # <<<) yourself" ;;
+    esac
+  done
+fi
 say "INIT is uninstalled. To undo: move the items back from the Trash. To free the space: empty the Trash."
 
 # ---------------------------------------------------------------- 5. the AppArmor step's files (Linux, root-owned)

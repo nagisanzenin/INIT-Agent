@@ -211,7 +211,7 @@ pub fn line_kind(text: &str, root_rootish: bool) -> LineKind {
 /// destructive command must never be one keystroke from it (`/panic` also asks to confirm, app.rs).
 pub const COMMANDS: &[(&str, &str)] = &[
     ("/usage", "show metered cost and tokens locally"),
-    ("/details", "print the last tool activity: each call, its result, its output's last lines, tokens per request"),
+    ("/details", "print the last tool activity: each call (a long one: the agent's preview), its result, its output's last lines, tokens per request"),
     ("/model", "list the models and switch (the Root restarts the agent)"),
     ("/new", "start a new session (body)"),
     ("/clear", "start a new session (same as /new)"),
@@ -238,6 +238,8 @@ pub const COMMANDS: &[(&str, &str)] = &[
     ("/reject ", "reject a job: /reject <job>"),
     ("/branch ", "branch: /branch <id> [note]"),
     ("/label ", "label an entry: /label <id> <text>"),
+    // v0.5.4 (the release review): it acts at once, so it sits beside the stopping commands, not among the everyday ones
+    ("/rollback", "acts at once, without asking: stops the run and restarts the agent on the version before its newest self-change; /root help lists the forms"),
     ("/resume", "leave panic, halt or stop (Root), or resume the kernel"),
     ("/root stop", "stop the agent (Root; /resume starts it again, no demotion)"),
     ("/panic", "emergency stop: kills every agent process and demotes a level (asks to confirm)"),
@@ -627,6 +629,28 @@ mod tests {
         assert_eq!(canonical("/clear all"), "/clear all", "only the exact command");
         assert_eq!(line_kind(&canonical("/clear"), false), line_kind("/new", false));
         assert!(COMMANDS.iter().any(|c| c.0 == "/clear") && COMMANDS.iter().any(|c| c.0 == "/new"));
+    }
+
+    /// v0.5.4 (user session v0.5.3-new, finding 6): the README lists `/rollback` and `/help` did not. Every command
+    /// in the README's "you:" line is in `/help`.
+    #[test]
+    fn help_lists_every_command_the_readme_names() {
+        let readme = std::fs::read_to_string(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../README.md")).unwrap();
+        let you = readme.lines().find(|l| l.trim_start().starts_with("you:")).expect("the README's `you:` line");
+        let (_, rows) = help_rows();
+        let words: Vec<&str> = you.split(|c: char| c.is_whitespace() || c == '·').filter(|w| w.starts_with('/')).collect();
+        assert!(words.contains(&"/rollback"), "{you}");
+        for w in words {
+            assert!(rows.iter().any(|(c, _)| c == w), "/help lists {w} (README: {you})");
+        }
+        // v0.5.4 (the release review): `/rollback` acts at once (the Root asks no confirmation, interrupts the run and
+        // restarts the zone on the tuple before), says so, and sits just before the stopping commands; Tab on `/r` and
+        // `/ro` still offers `/root status` first
+        let n = COMMANDS.len();
+        let r = COMMANDS.iter().position(|c| c.0 == "/rollback").unwrap();
+        assert_eq!(r, n - STOPPING.len() - 1, "{:?}", COMMANDS[r - 1]);
+        assert!(COMMANDS[r].1.starts_with("acts at once, without asking: stops the run and restarts the agent on the version before"), "{}", COMMANDS[r].1);
+        assert!(COMMANDS.iter().position(|c| c.0 == "/root status").unwrap() < r);
     }
 
     /// TUI-FIX (v0.5.1 user session): Tab on a bare `/` took the first command, which was `/panic`.

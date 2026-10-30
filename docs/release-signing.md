@@ -28,7 +28,7 @@ Every claim below carries one of these statuses (the Math First discipline):
 |---|---|---|---|---|
 | A1 | controls the release page: a stolen GitHub session or token, a malicious collaborator, a fault at GitHub; swaps or adds assets | installs and upgrades take whatever the page lists | **an upgrade from 0.5.3 on refuses it**: the installed Root checks the signature with its own key before get.sh unpacks or runs anything from the download. **A fresh install is not protected**: get.sh itself comes from that page, so its controller can serve a get.sh that pins another key or checks nothing (trust on first use). A user who checks the files against the key fingerprint on the INIT Labs site is protected unless the attacker changes the site too (§4.4: it deploys from the same GitHub account). Immutable releases (§7.1) stop changes to a release already published, so the attacker must publish a new release, which is public | refusal: measured; key secrecy and ed25519: assumed; fresh install: not claimed |
 | A2 | sits on the network path (a proxy with its own root CA, a mis-issued certificate) or runs a mirror that `INIT_DIST_URL` names | as A1 | as A1: upgrades refuse; a fresh install is as safe as the TLS that fetched get.sh | measured / not claimed |
-| A3 | **the agent**, through the owner's shell: in full access (ADR-012) it can write `~/.zshrc`, so the owner's next terminal can carry `INIT_DIST_URL`, a proxy or a CA file of its choosing, and `init-agent upgrade` passes the environment to get.sh | guide.md lists "the shell you type it in" as a limit. Concretely, as this lane found: get.sh read `INIT_DIST_URL` and took the sha256 from that server's latest.json, so the agent could choose the Root that the owner's next upgrade installs (class 1 in release-protocol.md). Measured: the 0.5.1 and 0.5.2 launchers pass a planted `INIT_DIST_URL` on to the kept get.sh | for a planted `INIT_DIST_URL`, an upgrade from 0.5.3 on refuses anything the key did not sign, wherever it came from (a proxy or a CA file is A2). **Not for a planted `INIT_ROOT_HOME`:** `init-agent upgrade` prefers that variable over the home install.sh baked into it, so the agent can make it run another home's `cache/get.sh`, one the agent wrote, which need not check anything (a v0.5.4 fix; until then the `env -i` line of §10 avoids it). The upgrade *into* 0.5.3 from 0.5.1 or 0.5.2 runs that install's own get.sh, so it is still exposed: §10 gives the command that avoids it | `INIT_DIST_URL`: measured (from 0.5.3); a planted `INIT_ROOT_HOME`: not claimed; 0.5.1/0.5.2 → 0.5.3: not claimed |
+| A3 | **the agent**, through the owner's shell: in full access (ADR-012) it can write `~/.zshrc`, so the owner's next terminal can carry `INIT_DIST_URL`, a proxy or a CA file of its choosing, and `init-agent upgrade` passes the environment to get.sh | guide.md lists "the shell you type it in" as a limit. Concretely, as this lane found: get.sh read `INIT_DIST_URL` and took the sha256 from that server's latest.json, so the agent could choose the Root that the owner's next upgrade installs (class 1 in release-protocol.md). Measured: the 0.5.1 and 0.5.2 launchers pass a planted `INIT_DIST_URL` on to the kept get.sh | for a planted `INIT_DIST_URL`, an upgrade from 0.5.3 on refuses anything the key did not sign, wherever it came from (a proxy or a CA file is A2). **From 0.5.4, a planted variable does not reach `init-agent upgrade` at all:** the launcher uses only the home install.sh baked into it (an `INIT_ROOT_HOME` that names another home is ignored, with a note) and runs the kept get.sh under `env -i` with `HOME`, that home and the system `PATH`, so `INIT_DIST_URL`, `INIT_BIN_DIR`, a proxy or a CA variable are dropped too. Until 0.5.3 the launcher preferred an environment `INIT_ROOT_HOME`, so the agent could make it run another home's `cache/get.sh`, one the agent wrote. An upgrade *from* 0.5.1, 0.5.2 or 0.5.3 runs that release's launcher, so it is still exposed unless started with the `env -i` line of §10, which get.sh prints to those installs. The launcher starts as `bash -p` (v0.5.4, the release review), so bash runs no `BASH_ENV` file, no `SHELLOPTS`/`PS4` trace and no exported function before its first line; before that an exported `exec` replaced the `env -i` hand-over. The printed line starts with `/usr/bin/env`, since a `PATH` directory may hold the agent's `env`. Environment only: a startup file the agent wrote runs any code as the owner, before any line the owner types (a function, an alias, a changed `HOME` or `PATH`, or a command of its own), which no printed command can rule out (guide.md, "The shell you type it in"; workspace mode keeps the agent out of those files) | `INIT_DIST_URL`: measured (from 0.5.3); planted variables through `init-agent upgrade`: measured (from 0.5.4; tests/install/test_clean_upgrade.py, test_launcher_env.py); upgrades from 0.5.1-0.5.3 without `env -i`: not claimed; code a startup file runs: not claimed |
 | A4 | offers an older, validly signed release as the newest, to bring back a known flaw (a downgrade) | refused by `init-root upgrade` (v0.5.0), but only after the old bundle's own install.sh started | refused by the installed Root before anything from the download runs (the signed version is older than install.json's); `init-root upgrade` refuses it again. No flag allows it: INIT never downgrades, and going back is an uninstall and a fresh install with `--version` | measured |
 | A5 | offers the installed release, or an old one to a fresh install, as the newest for ever, so a fix never arrives (freeze, replay) | not detected | bounded by `expires` (§5): a newer-than-installed or fresh release past its date is refused unless `--allow-expired`; the installed release offered past its date gets a note. A replay inside the validity window is not detected | refusal: measured; inside the window: not claimed |
 | A6 | steals the release key | — | the thief can sign releases every install that pins the key accepts, given A1 or A2 to deliver them. §8 recommends an offline key behind a passphrase; key 1 is a file on the maintainer's Mac without one (§8, "As done"), so anything that runs as the maintainer there can copy it, including a full-access INIT agent through the shell startup files (A3). The response is in §8.5 | not claimed |
@@ -98,7 +98,7 @@ verifiers.
 |---|---|---|---|
 | fresh install, `curl … get.sh \| sh` | get.sh, with `ssh-keygen -Y verify -f <allowed_signers> -I init-release -n init-release -s SHA256SUMS.sig < SHA256SUMS` | get.sh's `RELEASE_KEYS` | get.sh `sig_by_ssh` |
 | `init-agent upgrade` (0.5.3 and later) | the installed Root: `ROOT_HOME/bin/init-root release verify --sums --sig --file`, run by the kept `ROOT_HOME/cache/get.sh` | compiled into the installed Root | release.rs; get.sh `sig_by_root` |
-| the pipe `curl … get.sh \| sh -s -- --upgrade` on an install before 0.5.3 (its Root has no `release` command) | get.sh, as a fresh install, plus its own downgrade check | that get.sh's `RELEASE_KEYS` (trust on first use, as a fresh install) | get.sh `sig_by_ssh` |
+| the pipe `curl … get.sh \| /bin/bash -p -s -- --upgrade` on an install before 0.5.3 (its Root has no `release` command) | get.sh, as a fresh install, plus its own downgrade check | that get.sh's `RELEASE_KEYS` (trust on first use, as a fresh install) | get.sh `sig_by_ssh` |
 | `--from FILE`, a local bundle | nobody: its sha256 is checked, from `--sha256` (an upgrade) or the `.sha256` beside it (a fresh install), as before | — | unchanged |
 
 **The upgrade's key never comes from the download (proved).** `release verify` takes no key argument. Its keys are
@@ -327,16 +327,20 @@ it weaker when the agent has planted variables in the owner's shell. The release
 owners a clean environment for that one upgrade:
 
 ```sh
-env -i HOME="$HOME" ~/.local/bin/init-agent upgrade
+/usr/bin/env -i HOME="$HOME" ~/.local/bin/init-agent upgrade
 ```
 
-The launcher finds its ROOT_HOME from the value install.sh baked into it, so a custom home needs nothing more. The
-same line is worth keeping for upgrades from 0.5.3: without `env -i`, the 0.5.3 launcher prefers an `INIT_ROOT_HOME`
-in the environment over the baked one, so a planted one runs another home's get.sh unchecked (A3; v0.5.4 fixes the
-order).
+The launcher finds its ROOT_HOME from the value install.sh baked into it, so a custom home needs nothing more; get.sh
+prints the line with `INIT_ROOT_HOME=<that home>` after `/usr/bin/env -i HOME="$HOME"` all the same, which those launchers
+prefer. The same line is needed for every upgrade from 0.5.1, 0.5.2 and 0.5.3, the one to 0.5.4 included: without
+`env -i`, their launcher prefers an `INIT_ROOT_HOME` in the environment over the baked one, so a planted one runs
+another home's get.sh unchecked (A3). From 0.5.4 the launcher does this itself: it upgrades its baked home only and
+runs the kept get.sh under `env -i`, so plain `~/.local/bin/init-agent upgrade` is the line from 0.5.4 on, and get.sh
+prints that.
 Measured for the launcher (the 0.5.1, 0.5.2 and 0.5.3 launchers hand `--upgrade` to the kept get.sh with
-`INIT_DIST_URL` unset and the baked ROOT_HOME). The whole upgrade under `env -i` is to be measured at release, as an
-install-matrix row from 0.5.2.
+`INIT_DIST_URL` unset and the baked ROOT_HOME; the 0.5.4 launcher with nothing but `HOME`, its home and the system
+`PATH`, test_clean_upgrade.py). From v0.5.4 the install matrix's 0.5.1, 0.5.2 and 0.5.3 rows run the `env -i` line get.sh
+prints, with `--bundle NEW --sha256 HEX` added before the publish (the bundle comes from a file, not the release page).
 
 ## 11. Tests and mutation runs
 
@@ -377,9 +381,12 @@ install-matrix row from 0.5.2.
 
 - Key 1 is pinned in get.sh and the Root since v0.5.3 (§8, "As done"), and v0.5.3 was published signed with it. It is
   a file key without a passphrase (A6); an offline key behind a passphrase (§8.1) or a hardware key (§8.6) is not done.
-- `init-agent upgrade` prefers an environment `INIT_ROOT_HOME` over its baked home, so a planted one bypasses the
-  signature check (A3). The fix is v0.5.4's; until then, upgrade with
-  `env -i HOME="$HOME" ~/.local/bin/init-agent upgrade`.
+- Until 0.5.3, `init-agent upgrade` preferred an environment `INIT_ROOT_HOME` over its baked home, so a planted one
+  bypassed the signature check (A3). From 0.5.4 the launcher uses its baked home only and a clean environment; an
+  upgrade from 0.5.1, 0.5.2 or 0.5.3 still runs the old launcher, so it needs
+  `/usr/bin/env -i HOME="$HOME" ~/.local/bin/init-agent upgrade` (get.sh prints it). The other commands of the launcher (the TUI,
+  `init-root attach`) still read `INIT_ROOT_HOME` and `INIT_TUI` from the environment; with full access a planted one
+  is within the documented limit of the owner's shell (A3, "Variables only").
 - The rotation statement (§6) is designed, not built. FIDO keys are not accepted (§8.6).
 - A local bundle is checked by sha256 only, even with signed files beside it.
 - A fresh install trusts the get.sh it downloads (A1, A2); §4.4 is the way around it.

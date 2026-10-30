@@ -491,16 +491,25 @@ fn undo_to(root: &Root, id: Option<&str>, confirmed: bool) -> Result<Value, Err3
     }
     let tid = target["id"].as_str().unwrap_or("").to_string();
     let stage = stage_dir(root);
-    if let Err(u) = restore(&snap_dir(root).join(&tid), &ws, &stage, &mut crate::lineage::env_fault) {
-        return Err(unrestored(root, &ws, &sid, &stage, u));
-    }
+    let kept = match restore(&snap_dir(root).join(&tid), &ws, &stage, &mut crate::lineage::env_fault) {
+        Ok(k) => k,
+        Err(u) => return Err(unrestored(root, &ws, &sid, &stage, u)),
+    };
+    // v0.5.4 (lane U2): the entries whose own group the snapshot could not keep, and those the restore could not set
+    let kept = kept.for_restore(&target);
     let saved = keep_replaced(root, &saved, &stage, &target);
     prune(root, &ws, Some(&tid)); // the snapshot just restored is kept, even when it is the oldest of six
     let st = state(root);
     root.append("access", json!({"access": st.level(), "event": "undo", "full": st.full, "workspace": true}));
+    let ours = fs::metadata(snap_dir(root)).map(|m| m.gid()).ok();
     root.notice_code("info", "snapshot", &format!("[root] /undo restored {} to snapshot {tid}, taken {} {}; the folder as it was is saved as \
-        snapshot {sid}, so /undo {sid} brings it back (/undo list shows every snapshot)", ws.display(), local_of(&target["at"]), trigger(&target)));
-    Ok(json!({"restored": target, "saved": saved}))
+        snapshot {sid}, so /undo {sid} brings it back (/undo list shows every snapshot){}{}", ws.display(), local_of(&target["at"]), trigger(&target),
+        kept.text(&ws, ours), predates(&target, ours)));
+    let mut out = json!({"restored": target, "saved": saved});
+    if kept.any() {
+        out["groups_kept"] = kept.json();
+    }
+    Ok(out)
 }
 
 /// R-UNDO (v0.5.3): one confirmed restore at a time: its save, its pick and its moves.
@@ -843,12 +852,19 @@ fn take(root: &Root, ws: &Path, reason: &str) -> Result<Value, String> {
         .find(|id| !dir.join(id).exists() && !dir.join(format!("{id}.json")).exists()).ok_or("no free snapshot name")?;
     crate::sys::clonefile(ws, &dir.join(&id)).map_err(|e| format!("clonefile: {e}"))?;
     let digest = digest(&dir.join(&id));
-    if !save && let Some(d) = digest.as_deref() && let Some(mut prev) = snaps(root, ws).pop().filter(|p| snap_digest(root, p).as_deref() == Some(d)) {
+    // v0.5.4 (review 5, S1): only into a record that holds the groups (`"groups": 1`): the digest ignores groups, so a
+    // launch folded into a snapshot from before v0.5.4 would restore its files with ROOT_HOME's group, unannounced
+    if !save && let Some(d) = digest.as_deref() && let Some(mut prev) = snaps(root, ws).pop()
+        .filter(|p| p["groups"] == 1 && snap_digest(root, p).as_deref() == Some(d)) {
         remove_clone(root, &dir.join(&id)); // exact path, cloned above: the folder is unchanged since `prev`
         prev["unchanged"] = json!(true);
         return Ok(prev);
     }
-    let s = json!({"at": rfc3339(at), "digest": digest, "id": id, "reason": reason, "workspace": ws});
+    let mut s = json!({"at": rfc3339(at), "digest": digest, "groups": 1, "id": id, "reason": reason, "workspace": ws});
+    let kept = copy_groups(ws, &dir.join(&id)); // the clone took ROOT_HOME's group: each entry gets its own back
+    if kept.any() {
+        s["groups_kept"] = kept.json();
+    }
     write_atomic(&dir.join(format!("{id}.json")), format!("{s}\n").as_bytes(), 0o600).map_err(|e| format!("{id}.json: {e}"))?;
     if !save {
         prune(root, ws, None);
@@ -916,7 +932,15 @@ fn keep_replaced(root: &Root, saved: &Value, stage: &Path, target: &Value) -> Va
     let mut kept = true; // `tree` holds a whole save, and `stage` nothing that is not saved
     if safe_id(sid) && mv(&tree, &clone).is_ok() {
         match crate::sys::clonefile(&old, &tree) {
-            Ok(()) => rec["digest"] = json!(digest(&tree)),
+            Ok(()) => {
+                rec["digest"] = json!(digest(&tree));
+                let kept = copy_groups(&old, &tree); // `old` holds the workspace's own entries, with their own groups
+                match rec.as_object_mut() {
+                    Some(o) if kept.any() => drop(o.insert("groups_kept".into(), kept.json())),
+                    Some(o) => drop(o.remove("groups_kept")),
+                    None => {}
+                }
+            }
             Err(e) => {
                 util::log(&root.p.rh, "warn", &format!("snapshot {sid}: what the restore replaced could not be cloned ({e}); the clone taken \
                     before the pick is kept"));
@@ -1037,7 +1061,8 @@ fn now_digest(root: &Root, ws: &Path) -> Option<String> {
 /// workspace folder is writable, no entry is locked (an immutable or append-only flag), and a read-only folder is the
 /// owner's. Then the workspace's entries move to `old` and `new`'s into the workspace, each by a rename that never
 /// replaces ([`crate::sys::rename_excl_at`]) and never follows a link ([`move_entry`]); a move that fails puts back,
-/// newest first, every move made. On success `old` holds the replaced entries and `new` is gone. The workspace
+/// newest first, every move made. On success `old` holds the replaced entries and `new` is gone, and the result names
+/// the entries whose own group could not be set on `new` (v0.5.4, [`copy_groups`], before any move). The workspace
 /// directory itself stays (an owner shell inside it keeps a valid cwd). `fault` runs before each move (test builds:
 /// the INIT_FAULT points `root.undo.out` and `root.undo.in`). The moves and their put-back are R2's too
 /// ([`crate::snapshot::swap`]); here without `force`, so the owner's own lock flags refuse the restore.
@@ -1048,7 +1073,7 @@ fn now_digest(root: &Root, ws: &Path) -> Option<String> {
 /// path; the Root, which is not sandboxed, then moved entries out of (and the snapshot's into) whatever the link
 /// named. Now a link at the path when the restore starts refuses it, and one swapped in later is never followed: the
 /// restore completes in the folder it opened, wherever that folder now is.
-fn restore(src: &Path, ws: &Path, stage: &Path, fault: &mut dyn FnMut(&str) -> std::io::Result<()>) -> Result<(), Unrestored> {
+fn restore(src: &Path, ws: &Path, stage: &Path, fault: &mut dyn FnMut(&str) -> std::io::Result<()>) -> Result<Kept, Unrestored> {
     use Unrestored::{Refused, RolledBack, Stuck};
     use crate::snapshot::Op;
     use std::os::fd::AsFd;
@@ -1071,6 +1096,9 @@ fn restore(src: &Path, ws: &Path, stage: &Path, fault: &mut dyn FnMut(&str) -> s
     let mk = |d: &Path| fs::DirBuilder::new().mode(0o700).create(d);
     mk(stage).and_then(|()| mk(&old)).map_err(|e| Refused(format!("{}: {e}", stage.display())))?;
     crate::sys::clonefile(src, &new).map_err(|e| Refused(format!("the snapshot could not be copied ({e})")))?;
+    // v0.5.4 (lane U2): the copy took the stage's group; each entry gets the snapshot's (its own) back, in the private
+    // stage, before anything in the workspace moves. A group that cannot be set is reported, never a reason to stop.
+    let kept = copy_groups(src, &new);
     let sorted = |mut v: Vec<std::ffi::OsString>| {
         v.sort();
         v
@@ -1106,7 +1134,221 @@ fn restore(src: &Path, ws: &Path, stage: &Path, fault: &mut dyn FnMut(&str) -> s
         return Err(if left.is_empty() { RolledBack(what) } else { Stuck(format!("{what}, and putting back {} failed", left.join(", "))) });
     }
     let _ = fs::remove_dir(&new); // empty now
-    Ok(())
+    Ok(kept)
+}
+
+/// v0.5.4 (lane U2, class 2): the entries whose own group a copy could not give back ([`copy_groups`]): how many, and
+/// the first [`Kept::SHOWN`] by their path in the tree and the group they should have.
+/// Review 6, N2: the `/undo` notice's sentence for a snapshot taken before v0.5.4 (a record without `"groups": 1`),
+/// which recorded no groups: its entries come back with the group its tree has, INIT's folder's ("" otherwise).
+fn predates(target: &Value, ours: Option<u32>) -> String {
+    if target["groups"] == 1 {
+        return String::new();
+    }
+    let ours = ours.map_or_else(|| "INIT's folder's group".into(), |g| format!("the group of INIT's folder ({})", crate::sys::group_name(g)));
+    format!(". This snapshot predates v0.5.4 and kept no groups, so what it restored has {ours}, whatever group each entry had")
+}
+
+/// v0.5.4 (review 5, N1): why a group could not be set, from `chgrp_at`'s errno and the entry's flags.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Why {
+    /// EPERM, no lock flag: the owner is not a member of the group (the only other EPERM of a chown by the owner)
+    NotMember,
+    /// EPERM on an entry with a lock flag (`uchg`, `uappnd`): even its owner cannot change it
+    Locked,
+    /// any other errno
+    Errno(i32),
+}
+
+impl Why {
+    fn of(e: &std::io::Error, flags: u32) -> Why {
+        match e.raw_os_error() {
+            Some(libc::EPERM) if crate::sys::locked_flags(flags) => Why::Locked,
+            Some(libc::EPERM) => Why::NotMember,
+            Some(n) => Why::Errno(n),
+            None => Why::Errno(0),
+        }
+    }
+}
+
+#[derive(Default)]
+struct Kept {
+    n: usize,
+    some: Vec<(PathBuf, u32, Why)>,
+    /// v0.5.4 (review 5, S2): entries the walk could not check (a folder that cannot be opened, listed or searched, an
+    /// entry gone or renamed meanwhile): they keep the copy's group, which may not be their own
+    skipped: usize,
+    skipped_some: Vec<PathBuf>,
+}
+
+impl Kept {
+    const SHOWN: usize = 5;
+
+    /// What a restore of snapshot `target` reports: what its record kept (`groups_kept`) and what the restore's own walk
+    /// (`self`) could not set. Review 6, N1: a folder the snapshot's walk skipped is in the snapshot too, so the
+    /// restore's walk skips it again: for a record with the groups (`"groups": 1`) the record's `skipped` alone is
+    /// counted, once; a record from before v0.5.4 has none, and the restore's walk's is.
+    fn for_restore(mut self, target: &Value) -> Kept {
+        if target["groups"] == 1 {
+            (self.skipped, self.skipped_some) = (0, Vec::new());
+        }
+        self.merge(Kept::from_json(&target["groups_kept"]));
+        self
+    }
+
+    fn any(&self) -> bool {
+        self.n > 0 || self.skipped > 0
+    }
+
+    fn skip(&mut self, rel: PathBuf) {
+        self.skipped = self.skipped.saturating_add(1);
+        if self.skipped_some.len() < Self::SHOWN {
+            self.skipped_some.push(rel);
+        }
+    }
+
+    fn add(&mut self, rel: PathBuf, gid: u32, why: Why) {
+        self.n = self.n.saturating_add(1);
+        if self.some.len() < Self::SHOWN {
+            self.some.push((rel, gid, why));
+        }
+    }
+
+    fn merge(&mut self, o: Kept) {
+        self.n = self.n.saturating_add(o.n);
+        for e in o.some {
+            if self.some.len() < Self::SHOWN && !self.some.contains(&e) {
+                self.some.push(e);
+            }
+        }
+        self.skipped = self.skipped.saturating_add(o.skipped);
+        for e in o.skipped_some {
+            if self.skipped_some.len() < Self::SHOWN && !self.skipped_some.contains(&e) {
+                self.skipped_some.push(e);
+            }
+        }
+    }
+
+    fn json(&self) -> Value {
+        // `to_string_lossy`: json! of a Path that is not UTF-8 would panic (APFS names are UTF-8, but never panic here)
+        let why = |w: &Why| match w {
+            Why::NotMember => json!({"why": "not_member"}),
+            Why::Locked => json!({"why": "locked"}),
+            Why::Errno(n) => json!({"why": "errno", "errno": n}),
+        };
+        json!({"n": self.n, "some": self.some.iter().map(|(p, g, w)| {
+            let mut e = why(w);
+            e["path"] = json!(p.to_string_lossy());
+            e["gid"] = json!(g);
+            e
+        }).collect::<Vec<_>>(),
+            "skipped": {"n": self.skipped, "some": self.skipped_some.iter().map(|p| p.to_string_lossy()).collect::<Vec<_>>()}})
+    }
+
+    /// From a snapshot record's `groups_kept` (none in a record from before v0.5.4).
+    fn from_json(v: &Value) -> Kept {
+        let some = v["some"].as_array().into_iter().flatten().take(Self::SHOWN)
+            .filter_map(|e| {
+                let why = match e["why"].as_str() {
+                    Some("locked") => Why::Locked,
+                    Some("errno") => Why::Errno(e["errno"].as_i64().and_then(|n| i32::try_from(n).ok()).unwrap_or(0)),
+                    _ => Why::NotMember, // "not_member", or a record from before N1
+                };
+                Some((PathBuf::from(e["path"].as_str()?), u32::try_from(e["gid"].as_u64()?).ok()?, why))
+            }).collect();
+        let count = |v: &Value| v.as_u64().map_or(0, |n| usize::try_from(n).unwrap_or(usize::MAX));
+        let skipped_some = v["skipped"]["some"].as_array().into_iter().flatten().take(Self::SHOWN).filter_map(|e| Some(PathBuf::from(e.as_str()?)))
+            .collect();
+        Kept { n: count(&v["n"]), some, skipped: count(&v["skipped"]["n"]), skipped_some }
+    }
+
+    /// The `/undo` notice's sentence for these entries ("" for none). `ours`: the group of ROOT_HOME/snapshots.
+    fn text(&self, ws: &Path, ours: Option<u32>) -> String {
+        let skipped = if self.skipped == 0 {
+            String::new()
+        } else {
+            let list: Vec<String> = self.skipped_some.iter().map(|p| if p.as_os_str().is_empty() { ".".into() } else { p.display().to_string() }).collect();
+            let more = if self.skipped > list.len() { format!(" and {} more", self.skipped - list.len()) } else { String::new() };
+            format!(". The group of {} restored {} could not be checked (a folder that cannot be opened or listed, which stands for \
+                everything in it, or an entry gone meanwhile), so {} may have INIT's folder's group instead of {} own: {}{more}", self.skipped,
+                if self.skipped == 1 { "entry" } else { "entries" }, if self.skipped == 1 { "it" } else { "they" },
+                if self.skipped == 1 { "its" } else { "their" }, list.join(", "))
+        };
+        if self.n == 0 {
+            return skipped;
+        }
+        let ours = ours.map_or_else(|| "INIT's folder's group".into(), |g| format!("the group of INIT's folder ({})", crate::sys::group_name(g)));
+        let item = |p: &Path, g: u32| format!("{} ({})", p.display(), crate::sys::group_name(g));
+        let (gq, pq) = (|g: u32| util::sh_word(&crate::sys::group_name(g)), |p: &Path| util::sh_word(&ws.join(p).to_string_lossy()));
+        let mut parts = Vec::new();
+        let members: Vec<&(PathBuf, u32, Why)> = self.some.iter().filter(|e| e.2 == Why::NotMember).collect();
+        if let Some((p, g, _)) = members.first() {
+            let list: Vec<String> = members.iter().map(|(p, g, _)| item(p, *g)).collect();
+            parts.push(format!("{}: you are not a member of that group (an administrator can set one back: sudo chgrp -h {} {})", list.join(", "),
+                gq(*g), pq(p)));
+        }
+        for (p, g, w) in &self.some {
+            match w {
+                Why::Locked => parts.push(format!("{}: it is locked (an immutable or append-only flag), so chflags nouchg {} comes first, then \
+                    chgrp -h {} {}", item(p, *g), pq(p), gq(*g), pq(p))),
+                Why::Errno(n) => parts.push(format!("{}: could not be set (errno {n})", item(p, *g))),
+                Why::NotMember => {}
+            }
+        }
+        let more = if self.n > self.some.len() { format!("; and {} more", self.n - self.some.len()) } else { String::new() };
+        format!(". {} restored {} kept {ours}, not {} own, as the system refused to set it: {}{more}{skipped}",
+            self.n, if self.n == 1 { "entry" } else { "entries" }, if self.n == 1 { "its" } else { "their" }, parts.join("; "))
+    }
+}
+
+/// v0.5.4 (lane U2, class 2): give each entry of `dst`, a tree the Root just cloned under ROOT_HOME (a snapshot, the
+/// restore's stage, the saved state), the group of the entry at the same place in `src`. `clonefile(2)` by a user
+/// without the privilege to change ownership gives the clone the group of the folder it is made in (BSD
+/// inheritance), so a file `/undo` restored came back with ROOT_HOME's group (hello.py: staff to wheel under a /tmp
+/// ROOT_HOME). Both trees are opened once and every folder in them is reached from those descriptors, one
+/// `O_DIRECTORY | O_NOFOLLOW` component at a time ([`crate::sys::open_dir_nofollow`]), never by a path that could
+/// follow a link; every entry is stat'ed and its group set with `AT_SYMLINK_NOFOLLOW`, so a link gets its own group
+/// and its target is never touched. Only `dst`'s entries change, and only their group: the owner uid never.
+/// `dst` is listed (the Root's own tree) and `src` only stat'ed by those names, so an entry the zone adds to the
+/// workspace meanwhile is never visited, and one it changes can only give a clone entry a group the owner could set
+/// anyway (a user without privilege may set only a group they are a member of). A group that cannot be set (EPERM:
+/// the owner is not a member of it) leaves that entry's group as the copy made it and is counted in the result; so
+/// is (as `skipped`, review 5) a folder that cannot be opened or listed in either tree and an entry that cannot be
+/// stat'ed in both. Never an error: a group never fails a snapshot or a restore.
+fn copy_groups(src: &Path, dst: &Path) -> Kept {
+    use crate::sys::{chgrp_at, list_at, open_dir_nofollow, stat_at};
+    use std::os::fd::AsFd;
+    let mut kept = Kept::default();
+    let (Ok(s0), Ok(d0)) = (open_dir_nofollow(None, src), open_dir_nofollow(None, dst)) else {
+        kept.skip(PathBuf::new()); // the whole tree
+        return kept;
+    };
+    // folders by their path in the tree, each opened from the tops when its turn comes: two descriptors at a time
+    let mut stack = vec![PathBuf::new()];
+    while let Some(rel) = stack.pop() {
+        let (Ok(s), Ok(d)) = (open_dir_nofollow(Some(s0.as_fd()), &rel), open_dir_nofollow(Some(d0.as_fd()), &rel)) else {
+            kept.skip(rel); // what is in it (a mode 000 folder, or one swapped meanwhile)
+            continue;
+        };
+        let Ok(names) = list_at(d.as_fd()) else {
+            kept.skip(rel);
+            continue;
+        };
+        for n in names {
+            let name = Path::new(&n);
+            let (Ok(ss), Ok(ds)) = (stat_at(Some(s.as_fd()), name), stat_at(Some(d.as_fd()), name)) else {
+                kept.skip(rel.join(name)); // gone or renamed meanwhile, or in a folder that is not searchable
+                continue;
+            };
+            if ss.gid != ds.gid && let Err(e) = chgrp_at(d.as_fd(), name, ss.gid) {
+                kept.add(rel.join(name), ss.gid, Why::of(&e, ds.flags)); // the errno kept, worded by its cause (review 5, N1)
+            }
+            if ss.is_dir() && ds.is_dir() {
+                stack.push(rel.join(name));
+            }
+        }
+    }
+    kept
 }
 
 /// What stops an entry from moving ([`restore`]'s check before any move).
@@ -1260,6 +1502,79 @@ mod msg_tests {
         fs::remove_dir_all(&top).unwrap(); // exact path, created above
     }
 
+    /// v0.5.4 (review 5, S2): what the group walk cannot check is counted and named, never passed over in silence: a
+    /// folder of the copy it cannot open (mode 0300: not readable) and an entry gone from the source meanwhile.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_group_walk_counts_what_it_cannot_check() {
+        let top = swap_fixture("skip");
+        let (src, dst) = (top.join("w/ws"), top.join("snap"));
+        fs::create_dir(dst.join("shut")).unwrap();
+        fs::create_dir(src.join("shut")).unwrap();
+        fs::write(dst.join("gone.txt"), "only in the copy\n").unwrap();
+        fs::set_permissions(dst.join("shut"), fs::Permissions::from_mode(0o300)).unwrap();
+        let k = copy_groups(&src, &dst);
+        fs::set_permissions(dst.join("shut"), fs::Permissions::from_mode(0o700)).unwrap();
+        assert_eq!((k.n, k.skipped), (0, 2), "{:?}", k.skipped_some);
+        let mut named = k.skipped_some.clone();
+        named.sort();
+        assert_eq!(named, [PathBuf::from("gone.txt"), PathBuf::from("shut")]);
+        let t = k.text(&src, None);
+        assert!(t.contains("The group of 2 restored entries could not be checked") && t.contains("gone.txt") && t.contains("shut"), "{t}");
+        let back = Kept::from_json(&k.json());
+        assert_eq!((back.skipped, back.skipped_some.len()), (2, 2), "the record keeps them");
+        assert_eq!(copy_groups(&top.join("none"), &dst).skipped, 1, "a tree that cannot be opened is one skipped entry");
+        fs::remove_dir_all(&top).unwrap(); // exact path, created above
+    }
+
+    /// Review 6, N1: a folder the snapshot's walk skipped is in the snapshot, so the restore's walk skips it again; it
+    /// counts once (v0.5.4 before this: "shut and 1 more", for one folder). A real one cannot be made here: clonefile
+    /// refuses a folder it cannot read (EACCES), so the snapshot of such a workspace fails before any walk.
+    #[test]
+    fn a_folder_the_snapshot_skipped_counts_once() {
+        let one = || {
+            let mut k = Kept::default();
+            k.skip(PathBuf::from("shut"));
+            k
+        };
+        let k = one().for_restore(&json!({"groups": 1, "groups_kept": one().json()}));
+        assert_eq!((k.skipped, k.skipped_some.len()), (1, 1));
+        let t = k.text(Path::new("/w"), None);
+        assert!(t.contains("The group of 1 restored entry could not be checked") && t.contains("stands for everything in it") && !t.contains("more"), "{t}");
+        assert_eq!(one().for_restore(&json!({})).skipped, 1, "a record from before v0.5.4 has none: the restore's walk counts");
+    }
+
+    /// v0.5.4 (review 5, N1): a copy whose file is locked (`uchg`) keeps its group, and the notice says it is locked and
+    /// that `chflags nouchg` comes first, not that the owner is not a member of the group.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_locked_entry_is_named_as_locked() {
+        use std::os::unix::fs::{MetadataExt, lchown};
+        let top = swap_fixture("lock");
+        let (src, dst) = (top.join("w/ws"), top.join("snap"));
+        let mine = fs::metadata(dst.join("README")).unwrap().gid();
+        // a group this user can set, other than the copy's
+        let out = std::process::Command::new("/usr/bin/id").arg("-G").output().unwrap();
+        let set = String::from_utf8_lossy(&out.stdout).split_whitespace().filter_map(|g| g.parse::<u32>().ok())
+            .any(|g| g != mine && lchown(src.join("README"), None, Some(g)).is_ok());
+        if !set {
+            eprintln!("SKIP a_locked_entry_is_named_as_locked: no second group this user can set (id -G)");
+            fs::remove_dir_all(&top).unwrap(); // exact path, created above
+            return;
+        }
+        let flag = |f: &str| assert!(std::process::Command::new("/usr/bin/chflags").arg(f).arg(dst.join("README")).status().unwrap().success());
+        flag("uchg");
+        let k = copy_groups(&src, &dst);
+        flag("nouchg");
+        assert_eq!(fs::metadata(dst.join("README")).unwrap().gid(), mine, "a locked entry keeps the copy's group");
+        assert_eq!(k.n, 1);
+        assert_eq!(k.some[0].2, Why::Locked, "{:?}", k.some);
+        let t = k.text(&src, None);
+        assert!(t.contains("it is locked") && t.contains("chflags nouchg") && !t.contains("not a member"), "{t}");
+        assert_eq!(Kept::from_json(&k.json()).some[0].2, Why::Locked, "the record keeps the cause");
+        fs::remove_dir_all(&top).unwrap(); // exact path, created above
+    }
+
     /// Lane U: a link at the workspace's path, or at a folder above it, when the restore starts refuses it before
     /// anything is made or moved; c4797cc followed it and restored the folder it named.
     #[cfg(target_os = "macos")]
@@ -1276,7 +1591,7 @@ mod msg_tests {
             let e = match restore(&snap, &ws, &stage, &mut |_| Ok(())) {
                 Err(Unrestored::Refused(m)) => m,
                 Err(Unrestored::RolledBack(m) | Unrestored::Stuck(m)) => panic!("not refused: {m}"),
-                Ok(()) => panic!("{} was restored through a link", ws.display()),
+                Ok(_) => panic!("{} was restored through a link", ws.display()),
             };
             assert!(e.starts_with(&format!("{} ", ws.display())) && e.contains(why), "{e}");
             assert!(!stage.exists(), "nothing is made before the workspace is open");

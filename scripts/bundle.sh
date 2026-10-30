@@ -131,7 +131,7 @@ cleanup
 mkdir -p "$UB"
 log "installing the release into scratch homes $UB/{r,h} so the install-mode kernel builds the body (minutes)"
 set +e
-env INIT_ROOT_HOME="$UB/r" INIT_HOME="$UB/h" INIT_BIN_DIR="$UB/b" "$REPO/scripts/install.sh" --reuse --yes --no-service \
+env INIT_ROOT_HOME="$UB/r" INIT_HOME="$UB/h" INIT_BIN_DIR="$UB/b" "$REPO/scripts/install.sh" --reuse --yes --no-service --no-modify-path \
   --disk-floor 1 --mock-upstream 127.0.0.1:9 >"$UB/install.log" 2>&1
 rc=$?
 set -e

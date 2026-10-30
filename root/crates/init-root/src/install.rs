@@ -301,8 +301,10 @@ pub fn evolution(p: &Paths) -> Value {
     }
     json!({"tiers": ["T0"], "toolchain": tc,
         "hint": format!("Self-evolution is limited to T0 (skills, prompts, extension source): no Rust toolchain is configured. \
-            T1/T2 (rebuilding itself) need Rust 1.97.1. The owner runs: {RUSTUP_CMD}; then stops the Root ({}), runs {} \
-            and starts the Root again ({})", stop_hint(p), p.cmd("toolchain --set"), start_hint(p))})
+            T1/T2 (rebuilding itself) need Rust 1.97.1. The owner runs: {RUSTUP_CMD} (with rustup already installed, \
+            instead: rustup toolchain install 1.97.1 --profile minimal --component clippy --target wasm32-wasip2, which \
+            leaves the default toolchain alone); then stops the Root ({}), runs {} and starts the Root again ({})",
+            stop_hint(p), p.cmd("toolchain --set \"$(~/.cargo/bin/rustup run 1.97.1 rustc --print sysroot)\""), start_hint(p))})
 }
 
 /// `init-root toolchain [--set [DIR]]`: show the toolchain, or record one (default: `~/.cargo/bin/rustup which rustc`,
@@ -883,6 +885,9 @@ mod tests {
         assert_eq!(v["tiers"], json!(["T0"]));
         let hint = v["hint"].as_str().unwrap();
         assert!(hint.contains(RUSTUP_CMD) && hint.contains(&p.cmd("toolchain --set")), "{hint}");
+        // v0.5.4 (review of lane J): an existing rustup's default is left alone, and --set names 1.97.1's folder (a bare
+        // --set records the default toolchain, which may be another version)
+        assert!(hint.contains("rustup toolchain install 1.97.1 ") && hint.contains(&p.cmd("toolchain --set \"$(~/.cargo/bin/rustup run 1.97.1 rustc --print sysroot)\"")), "{hint}");
         // ROOT-MSG: `init-root stop` stops only the agent, so `toolchain --set` (it needs the Root's lock) would be refused
         assert!(hint.contains("stops the Root (Ctrl-C in the terminal where it runs)") && !hint.contains(" stop && "), "{hint}");
         // with the service: the Root is stopped by unloading it, so it starts again by loading it (install.sh's sequence;

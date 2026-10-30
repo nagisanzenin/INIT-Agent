@@ -180,8 +180,8 @@ When PATH already has `~/.local/bin`, the last line is `Start INIT:  init`.
 
 #### 3.2.5 PATH fix-ups
 
-- The installer never edits shell startup files: under `| sh` its stdin is the script, so it cannot ask.
-- It prints the export line for the current terminal and the absolute path that works now.
+- **Changed in v0.5.4 (owner's decision, rustup and uv style):** the installer edits the shell's startup file by default, and `--no-modify-path` opts out. The earlier rule ("never edits shell startup files: under `| sh` its stdin is the script, so it cannot ask") left every new user one copied line short of a working `init-agent`, and the README's install block carried that line for every shell. Not asking is what rustup and uv do too: the edit is a marked block, made only when the command's directory is not on `PATH`, made once, named in the install output, and removed by the uninstaller. As built (scripts/install.sh `path_step`): zsh `${ZDOTDIR:-~}/.zshrc`, bash `~/.bashrc` on Linux or the login file on macOS (`~/.bash_profile`, else `~/.bash_login` or `~/.profile` when one exists), fish `~/.config/fish/conf.d/init-agent.fish`, any other shell `~/.profile`; the real `INIT_BIN_DIR`, quoted for that shell. The plan below (a first-run offer in the TUI, a backup file) is not built.
+- It prints the absolute path that works in the current terminal.
 - The first run checks PATH. The launcher knows whether it was found through PATH (it compares how it was invoked with a PATH lookup of `init`) and passes `--path-missing` to the TUI. Screen 1 then offers `p`: "Add ~/.local/bin to your PATH in ~/.zshrc". The edit is a marked block, appended through a temp file and a rename, with a one-time backup `~/.zshrc.init-backup`:
   ```sh
   # >>> INIT (added by init; `init uninstall` removes this block) >>>

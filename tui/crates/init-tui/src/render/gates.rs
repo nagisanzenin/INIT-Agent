@@ -54,7 +54,20 @@ pub struct Step {
 /// measured range, as the kernel's `gate_deps` notice says it. The dependency build alone took 907 s,
 /// 17 min 16 s and 21 min 13 s on an M2 at load 10–23 or beside a release job (docs/guide.md "Time":
 /// MERGE-T2CACHE, user sessions v0.5.1-new and v0.5.2-new); v0.5.2's "usually 10–20 min" had no receipt.
-pub const DEPS_ESTIMATE: &str = "first build of dependencies (not cached yet): 15–21 min on a busy M2";
+/// v0.5.4 (the release review): it sits under `deps+G0`, whose timer counts both, so it says it is the dependencies' part.
+pub const DEPS_ESTIMATE: &str = "the dependencies alone: 15–21 min on a busy M2 (first build, not cached yet)";
+/// v0.5.4 (user session v0.5.4 A: the range stayed on screen at 32 min): the estimate's upper bound, and what the
+/// row says once the step has run longer.
+pub const DEPS_UPPER_MS: i64 = 21 * 60_000;
+/// v0.5.4 (round 8, user session v0.5.4 A): a pending G4 read as if a sealed test would check the change.
+pub const G4_PENDING: &str = "scored only if INIT has sealed tasks (none on a fresh install)";
+/// v0.5.4 (lane K, review 7): the merged step's timer runs from G0's start (the export, the dependencies, the body build and
+/// G0's tests), while the range is the dependencies' alone; so the row names the time it passed, not "the estimate".
+/// Round 2 (review SF2): "still building" first, and the row fits 80 columns (its 4-column indent included), so a cut
+/// never takes the words that say nothing is stuck.
+pub const DEPS_PAST: &str = "still building · past 21 min (dependencies alone: 15–21 min on a busy M2)";
+/// v0.5.4 (lane K): the restarted kernel ended the change's job (`gate_stopped`, reason `kernel_restart`).
+pub const BY_RESTART: &str = "when the agent restarted";
 
 impl Step {
     fn new(name: &str) -> Step {
@@ -112,6 +125,11 @@ pub enum Outcome {
     Refused { stage: String, reason: String },
     /// It went live, then was rolled back (a failed G4, an expiry, `initctl rollback`).
     RolledBack { stage: Option<String>, reason: String, to: String, to_lkg: bool },
+    /// v0.5.4 (user session v0.5.4 A: the panel counted on after /panic and /resume): the Root stopped the agent
+    /// (`by`: "by /panic", "by a halt"). A panic kills every instance the Root holds, the kernel that ran the checks and
+    /// their builds included (root panic.rs `zone.kill_all`; tests/wp21.rs), and the restarted kernel marks the job
+    /// `failed`, `kernel_restart` (kernel-serve jobs.rs `JobStore::open`) without a notice: the change never finishes.
+    Stopped { by: &'static str },
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -188,7 +206,18 @@ impl Run {
     fn split_g0(&mut self, ts: i64) {
         let Some(gi) = self.steps.iter().position(|s| s.name == "G0") else { return };
         let g = self.steps[gi].clone();
-        let (Some(build), Some(tests)) = (g.build_ms, g.wall_ms) else { return };
+        let (Some(build), Some(tests)) = (g.build_ms, g.wall_ms) else {
+            // v0.5.4 (the release review): a G0 that failed at the body build sends no build_ms, only deps_ms; a
+            // dependency build it finished (`stub`) ends with its own time instead of being left "·"
+            if let (Some(deps), Some("stub")) = (g.deps_ms, g.deps_mode.as_deref())
+                && let Some(d) = self.steps.iter_mut().find(|s| s.name == "deps" && s.st == StepSt::Running)
+            {
+                let end = d.since_ms.map_or(ts, |s| (s + deps as i64).min(ts));
+                (d.st, d.wall_ms, d.end_ms, d.deps_mode) = (StepSt::Pass, Some(deps), Some(end), g.deps_mode.clone());
+                self.steps[gi].since_ms = Some(end);
+            }
+            return;
+        };
         let deps = g.deps_ms.unwrap_or(0).min(build);
         let built_now = self.steps.iter().any(|s| s.name == "deps") || (matches!(g.deps_mode.as_deref(), Some("stub" | "cold")) && deps >= 1000);
         if !built_now {
@@ -236,6 +265,9 @@ impl Run {
 #[derive(Debug, Default)]
 pub struct Track {
     pub runs: Vec<Run>,
+    /// The shas of the changes that ended, newest last (at most [`MAX_RUNS`]): a `gate_stopped` for one of them is taken
+    /// without a second line (a panic ended it here, then the restarted kernel says so too).
+    ended: Vec<String>,
 }
 
 impl Track {
@@ -246,6 +278,9 @@ impl Track {
     fn take_done(&mut self) -> Vec<Run> {
         let (done, keep): (Vec<Run>, Vec<Run>) = std::mem::take(&mut self.runs).into_iter().partition(|r| r.outcome.is_some());
         self.runs = keep;
+        self.ended.extend(done.iter().map(|r| r.sha.clone()));
+        let over = self.ended.len().saturating_sub(MAX_RUNS);
+        self.ended.drain(..over);
         done
     }
 
@@ -336,6 +371,27 @@ impl Track {
                     r.start_next(name, ts_ms);
                 }
             }
+            // v0.5.4 (lane K, user session v0.5.4 A): the kernel's cold start marked the change's job `failed`,
+            // `kernel_restart` (kernel-serve `JobStore::open`; a kernel swap's job it reattached sends none). Live, or in
+            // the replay of a later attach: the change ends as stopped. One that already ended here (a panic, a halt, a
+            // stop) is not ended twice; one this TUI never saw start is a plain notice.
+            "gate_stopped" => {
+                if d["gate_kind"].as_str().is_some_and(|k| k != "promote" && k != "g4") {
+                    return None;
+                }
+                let gid = d["gate_id"].as_str().filter(|g| !g.is_empty());
+                let open = self.runs.iter_mut().rev()
+                    .find(|r| r.outcome.is_none() && ((!sha.is_empty() && r.sha == sha) || (gid.is_some() && r.gate_id.as_deref() == gid)));
+                match open {
+                    // round 2 (review SF1): the restart finished the change's handoff, so it runs (`live`)
+                    Some(r) => {
+                        r.live |= d["live"] == true;
+                        r.finish(Outcome::Stopped { by: BY_RESTART }, ts_ms);
+                    }
+                    None if !sha.is_empty() && self.ended.iter().any(|e| e == sha) => {}
+                    None => return None,
+                }
+            }
             "provisional" if self.run_mut(sha).is_some() => {}
             "lkg" if self.run_mut(sha).is_some() => {
                 let r = self.run_mut(sha).expect("checked");
@@ -356,6 +412,15 @@ impl Track {
             _ => return None,
         }
         Some(self.take_done())
+    }
+
+    /// v0.5.4: the Root stopped the agent (a panic or a halt): every change in flight ends `Stopped`, its timer and its
+    /// estimate with it. Returns the changes that ended, to commit as one line each.
+    pub fn stop_all(&mut self, by: &'static str, ts_ms: i64) -> Vec<Run> {
+        for r in self.runs.iter_mut().filter(|r| r.outcome.is_none()) {
+            r.finish(Outcome::Stopped { by }, ts_ms);
+        }
+        self.take_done()
     }
 
     /// The change drawn live: the newest without an outcome.
@@ -422,14 +487,23 @@ fn cell(st: StepSt) -> (&'static str, Style) {
     }
 }
 
+/// v0.5.4 (user sessions v0.5.2-new and v0.5.3-new, finding 1: "deps □ 15 min 19 s" while G0 had run for
+/// 2 min 27 s): the kernel says when the dependency build starts, not when it ends, and G0 follows it in the
+/// same slot. So while it runs, the dependency build and G0 are one step in flight, `deps+G0`, and G0's own
+/// cell and row are not drawn; G0's notice splits them into their true times ([`Run::split_g0`]).
+fn deps_with_g0(s: &Step) -> bool {
+    s.name == "deps" && s.st == StepSt::Running
+}
+
 /// `G0 ■ G1 ■ G2 □ G3 · hand-off · G4 ·`
 fn strip(r: &Run) -> Line {
     let mut l = Line::new();
-    for (i, s) in r.steps.iter().enumerate() {
+    let merged = r.steps.iter().any(deps_with_g0);
+    for (i, s) in r.steps.iter().enumerate().filter(|(_, s)| !(merged && s.name == "G0")) {
         if i > 0 {
             l.push(" ", Style::PLAIN);
         }
-        let n = if s.is_gate() || s.name == "deps" { s.name.as_str() } else { "live" };
+        let n = if deps_with_g0(s) { "deps+G0" } else if s.is_gate() || s.name == "deps" { s.name.as_str() } else { "live" };
         l.push(format!("{n} "), Style::fg(Role::Mute));
         let (g, st) = step_cell(s);
         l.push(g, st);
@@ -454,12 +528,15 @@ fn split(left: Line, right: Line, width: usize) -> Line {
     row.truncate(width)
 }
 
-/// One step's row: `    G2  boot probe        □ 2.9 s` (the time ticks while it runs).
-fn step_row(s: &Step, width: usize, now_ms: i64, detail: bool) -> Line {
+/// One step's row: `    G2  boot probe        □ 2.9 s` (the time ticks while it runs). `open`: the change is still in
+/// flight, so a pending step may still run.
+fn step_row(s: &Step, width: usize, now_ms: i64, detail: bool, open: bool) -> Line {
     let mut l = Line::from_span("    ", Style::PLAIN);
-    let name = step_name(&s.name);
+    // v0.5.4 (the release review): the merged step's label keeps to the label column (a longer one cut the timer under
+    // about 57 columns and shifted the cell)
+    let (name, lab) = if deps_with_g0(s) { ("deps+G0", "dependencies") } else { (step_name(&s.name), label(&s.name)) };
     l.push(format!("{name:<3} "), Style::fg(Role::Dim));
-    l.push(format!("{:<w$}", label(&s.name), w = LABEL_W.saturating_sub(name.chars().count().saturating_sub(3))), Style::fg(Role::Mute));
+    l.push(format!("{:<w$}", lab, w = LABEL_W.saturating_sub(name.chars().count().saturating_sub(3))), Style::fg(Role::Mute));
     let (g, st) = step_cell(s);
     l.push(format!(" {g} "), st);
     let took = s.took_ms(now_ms).map(secs);
@@ -498,6 +575,9 @@ fn step_row(s: &Step, width: usize, now_ms: i64, detail: bool) -> Line {
                 l.push(": one more run", Style::dim());
             }
         }
+        // v0.5.4 (round 8): the kernel plans G4 whether or not sealed tasks exist; it scores only when they do
+        // v0.5.4 (lane K, review 7): not on a change that ended (refused, stopped, rolled back): its G4 will not run
+        StepSt::Pending if s.name == "G4" && open => l.push(G4_PENDING, Style::dim()),
         StepSt::Pending => {}
     }
     if detail {
@@ -531,11 +611,14 @@ fn block(r: &Run, width: usize, now_ms: i64, max_rows: usize) -> Vec<Line> {
     let room = max_rows.saturating_sub(1 + usize::from(waiting) + usize::from(deps)).max(1);
     let n = r.steps.len();
     let at = r.steps.iter().position(|s| s.st != StepSt::Pass).unwrap_or(n.saturating_sub(1));
-    let skip = (at + 2).saturating_sub(room).min(n.saturating_sub(room));
-    for s in r.steps.iter().skip(skip).take(room) {
-        rows.push(step_row(s, width, now_ms, false));
+    // one step of look-ahead when there is room for it, never past the step in flight (v0.5.4, the release review: a
+    // one-row window under 12 terminal rows showed the step after it)
+    let skip = (at + 2).saturating_sub(room).min(at).min(n.saturating_sub(room));
+    for s in r.steps.iter().filter(|s| !(deps && s.name == "G0")).skip(skip).take(room) {
+        rows.push(step_row(s, width, now_ms, false, true));
         if s.name == "deps" && s.st == StepSt::Running && rows.len() < max_rows {
-            rows.push(Line::from_span(format!("    {DEPS_ESTIMATE}"), Style::dim()).truncate(width));
+            let past = s.took_ms(now_ms).is_some_and(|t| t > DEPS_UPPER_MS);
+            rows.push(Line::from_span(format!("    {}", if past { DEPS_PAST } else { DEPS_ESTIMATE }), Style::dim()).truncate(width));
         }
     }
     if waiting && rows.len() < max_rows {
@@ -582,6 +665,23 @@ pub fn committed_rows(r: &Run, width: usize, expanded: bool) -> Vec<Line> {
                 None => dim(&mut l, " · nothing changed".into()),
             }
         }
+        Some(Outcome::Stopped { by }) => {
+            l.push(format!("■ stopped {by} "), Style::fg(Role::Harm));
+            dim(&mut l, sha12(&r.sha));
+            let what = if r.live && *by == BY_RESTART {
+                // v0.5.4 (lane K): the agent runs again already; no /resume is to come
+                " · it had gone live; /root status shows which version runs now"
+            } else if r.live {
+                // round 9 (review 7): which version runs after /resume depends on how it stopped and on the mode
+                " · it had gone live; /root status shows which version runs after /resume"
+            } else {
+                " · its checks were stopped with the agent, so this change did not go live and will not continue"
+            };
+            dim(&mut l, what.into());
+            if let Some(t) = total {
+                dim(&mut l, format!(" · {t}"));
+            }
+        }
         Some(Outcome::RolledBack { stage, reason, to, to_lkg }) => {
             let at = stage.as_ref().map(|s| format!(" at {s}")).unwrap_or_default();
             l.push(format!("✕ rolled back{at} "), Style::fg(Role::Harm));
@@ -595,7 +695,7 @@ pub fn committed_rows(r: &Run, width: usize, expanded: bool) -> Vec<Line> {
     let mut rows = vec![l.truncate(width)];
     if expanded {
         let end = r.end_ms.unwrap_or(r.start_ms);
-        rows.extend(r.steps.iter().map(|s| step_row(s, width, end, true)));
+        rows.extend(r.steps.iter().map(|s| step_row(s, width, end, true, r.outcome.is_none())));
         let mut ids = format!("    sha {}", r.sha);
         if let Some(p) = &r.parent {
             ids.push_str(&format!(" · from {p}"));
@@ -736,11 +836,17 @@ mod tests {
         start(&mut t, SHA, &["G0", "G1", "G2", "G3", "live", "G4"], T0);
         assert_eq!(t.on_notice(&json!({"kind": "gate_deps", "gate_id": "j-7", "sha": SHA}), T0 + 5_000), Some(vec![]));
         let live: Vec<String> = t.live_rows(80, T0 + 723_000, MAX_ROWS).iter().map(|l| l.text()).collect();
-        assert!(live[0].contains("deps □ G0 · G1 ·"), "{live:#?}");
-        assert!(live[1].contains("deps dependencies    □ 12 min 3 s"), "{live:#?}");
+        // v0.5.4 (user session v0.5.3-new, finding 1): the kernel does not say when the dependency build ends, and G0
+        // follows it: one step in flight, never "deps □" beside a G0 that is said to be waiting
+        assert!(live[0].contains("deps+G0 □ G1 · G2 ·") && !live[0].contains("G0 ·"), "{live:#?}");
+        assert!(live[1].contains("deps+G0 dependencies □ 12 min 3 s"), "{live:#?}");
         assert_eq!(live[2].trim(), DEPS_ESTIMATE, "{live:#?}");
-        assert_eq!(DEPS_ESTIMATE, "first build of dependencies (not cached yet): 15–21 min on a busy M2", "the measured range");
-        assert!(live[3].contains("G0  build + tests    ·") && !live.iter().any(|l| l.contains("waited")), "{live:#?}");
+        assert_eq!(DEPS_ESTIMATE, "the dependencies alone: 15–21 min on a busy M2 (first build, not cached yet)", "the measured range, as a part");
+        // v0.5.4 (the release review): the row keeps its columns, so the timer is not cut on a narrow terminal
+        let narrow: Vec<String> = t.live_rows(40, T0 + 723_000, MAX_ROWS).iter().map(|l| l.text()).collect();
+        assert!(narrow[1].trim_end().ends_with("□ 12 min 3 s"), "{narrow:#?}");
+        assert_eq!(narrow[1].find('□'), live[3].find('·'), "the cell lines up with the next row's: {narrow:#?} {live:#?}");
+        assert!(live[3].contains("G1  self-map") && !live.iter().any(|l| l.contains("G0  build") || l.contains("waited")), "{live:#?}");
         assert!(live.len() <= MAX_ROWS);
         assert!(!t.spending(), "a build spends nothing");
         // G0 ends: its notice's wall is the tests only; build_ms and deps_ms are the rest of the job's G0
@@ -749,6 +855,9 @@ mod tests {
                 "score": null, "spent_musd": 0, "wall_ms": 152_648, "cache_permille": null, "build_ms": build, "deps_ms": deps, "deps_mode": mode}), at)
         };
         g0(&mut t, 1_066_524, 1_036_000, "stub", T0 + 1_219_172);
+        // G0's notice splits the step in flight into the dependency build and G0, each with its own cell
+        let live: Vec<String> = t.live_rows(80, T0 + 1_220_000, MAX_ROWS).iter().map(|l| l.text()).collect();
+        assert!(live[0].contains("deps ■ G0 ■ G1 □") && !live.iter().any(|l| l.contains("deps+G0")), "{live:#?}");
         gate(&mut t, SHA, "G1", Some(true), None, 2_565, T0 + 1_221_737);
         assert!(t.spending(), "G2's probes spend");
         gate(&mut t, SHA, "G2", Some(true), None, 24_179, T0 + 1_245_916);
@@ -773,6 +882,89 @@ mod tests {
         let r = t.current().unwrap();
         assert_eq!((r.steps[0].name.as_str(), r.steps[0].took_ms(0), r.steps[0].waited_ms()), ("G0", Some(184_648), Some(5_352)));
         assert!(!r.steps.iter().any(|s| s.name == "deps"));
+    }
+
+    /// v0.5.4 (round 8): the kernel plans G4 whether or not sealed tasks exist, so a pending G4 says it scores only when
+    /// they do, instead of reading as if a sealed test will check the change.
+    #[test]
+    fn a_pending_g4_says_when_it_scores() {
+        let mut t = Track::default();
+        start(&mut t, SHA, &T2, T0);
+        let rows: Vec<String> = t.live_rows(120, T0 + 1_000, MAX_ROWS).iter().map(|l| l.text()).collect();
+        let g4 = rows.iter().find(|l| l.contains("G4  scored vs LKG")).expect("the G4 row");
+        assert!(g4.contains(G4_PENDING), "{g4}");
+        assert!(rows.iter().filter(|l| l.contains(G4_PENDING)).count() == 1, "only G4: {rows:#?}");
+        // v0.5.4 (lane K, review 7): a change that ended before G4 (refused, stopped) never runs it: no note on its G4 row
+        let refused = gate(&mut t, SHA, "G0", Some(false), Some("gate.g0.test"), 1_000, T0 + 60_000).unwrap();
+        let mut t = Track::default();
+        start(&mut t, SHA, &T2, T0);
+        let stopped = t.stop_all("by /panic", T0 + 60_000);
+        for r in refused.iter().chain(&stopped) {
+            let rows: Vec<String> = committed_rows(r, 120, true).iter().map(|l| l.text()).collect();
+            let g4 = rows.iter().find(|l| l.contains("G4  scored vs LKG")).expect("the G4 row");
+            assert!(!g4.contains(G4_PENDING), "{rows:#?}");
+        }
+    }
+
+    /// v0.5.4 (user session v0.5.4 A): the dependency build's estimate stayed on screen at 32 min, and after /panic and
+    /// /resume the panel kept counting. Past the range the row says so; a panic ends the change in flight, its timer and
+    /// its estimate with it.
+    #[test]
+    fn a_blown_estimate_says_so_and_a_panic_stops_the_change() {
+        let mut t = Track::default();
+        start(&mut t, SHA, &["G0", "G1", "G2", "G3", "live", "G4"], T0);
+        t.on_notice(&json!({"kind": "gate_deps", "gate_id": "j-7", "sha": SHA}), T0 + 5_000);
+        let rows = |t: &Track, at: i64| -> Vec<String> { t.live_rows(100, at, MAX_ROWS).iter().map(|l| l.text()).collect() };
+        assert!(rows(&t, T0 + 20 * 60_000).iter().any(|l| l.trim() == DEPS_ESTIMATE), "within the range: the estimate");
+        let late = rows(&t, T0 + 32 * 60_000 + 44_000);
+        assert!(late.iter().any(|l| l.trim() == DEPS_PAST) && !late.iter().any(|l| l.contains(DEPS_ESTIMATE)), "{late:#?}");
+        assert!(DEPS_PAST.starts_with("still building · past 21 min") && DEPS_PAST.contains("dependencies alone: 15–21 min"));
+        // round 2 (review SF2): whole at 80 columns
+        let at80: Vec<String> = t.live_rows(80, T0 + 32 * 60_000 + 44_000, MAX_ROWS).iter().map(|l| l.text()).collect();
+        assert!(at80.iter().any(|l| l == &format!("    {DEPS_PAST}")), "{at80:#?}");
+        // the Root's PANIC notice: the change ends, nothing is drawn live any more
+        let done = t.stop_all("by /panic", T0 + 32 * 60_000 + 44_000);
+        assert_eq!((done.len(), t.in_flight(), rows(&t, T0 + 34 * 60_000 + 47_000).len()), (1, false, 0));
+        let line = committed_rows(&done[0], 200, false)[0].text();
+        assert!(line.starts_with("■ stopped by /panic ") && line.contains("did not go live and will not continue") && line.contains("32 min 44 s"),
+            "{line}");
+        assert!(!line.contains("owner_socket") && !line.contains("held-only"), "{line}");
+        assert!(t.stop_all("by /panic", T0 + 40 * 60_000).is_empty(), "nothing left to stop");
+        // a change that had gone live says what /resume runs
+        let mut t = Track::default();
+        start(&mut t, SHA, &T2, T0);
+        t.on_notice(&json!({"kind": "promoted", "sha": SHA, "handoff": true, "handoff_ms": 900}), T0 + 60_000);
+        let done = t.stop_all("by /panic", T0 + 90_000);
+        assert!(committed_rows(&done[0], 200, false)[0].text().contains("it had gone live; /root status shows which version runs after /resume"));
+    }
+
+    /// v0.5.4 (the release review): a G0 that failed at the body build sends `deps_ms` but no `build_ms`; the
+    /// dependency build it finished then ends with its own time, and is not left "·" next to G0's ✕.
+    #[test]
+    fn a_failed_body_build_still_ends_the_dependency_build() {
+        let mut t = Track::default();
+        start(&mut t, SHA, &["G0", "G1", "G2", "G3", "live", "G4"], T0);
+        t.on_notice(&json!({"kind": "gate_deps", "gate_id": "j-7", "sha": SHA}), T0 + 5_000);
+        let done = t.on_notice(&json!({"kind": "gate", "gate_kind": "promote", "gate_id": "j-7", "sha": SHA, "stage": "G0", "pass": false,
+            "reason": "gate.build.failed", "score": null, "spent_musd": 0, "wall_ms": 40_000, "cache_permille": null, "deps_ms": 780_000,
+            "deps_mode": "stub"}), T0 + 830_000).unwrap();
+        let rows: Vec<String> = committed_rows(&done[0], 100, true).iter().map(|l| l.text()).collect();
+        assert!(rows[1].contains("deps dependencies    ■ built · 13 min"), "{rows:#?}");
+        assert!(rows[2].contains("G0  build + tests    ✕ failed · 40") && !rows.iter().any(|l| l.contains("deps dependencies    ·")), "{rows:#?}");
+    }
+
+    /// v0.5.4 (the release review): on a terminal under 12 rows the block has one step row, and it is the step in
+    /// flight, not the one after it.
+    #[test]
+    fn a_one_row_window_shows_the_step_in_flight() {
+        let mut t = Track::default();
+        start(&mut t, SHA, &T2, T0);
+        gate(&mut t, SHA, "G0", Some(true), None, 1_000, T0 + 1_000);
+        gate(&mut t, SHA, "G1", Some(true), None, 1_000, T0 + 2_000);
+        for h in [6, 8, 11] {
+            let rows: Vec<String> = t.live_rows(80, T0 + 5_000, Track::rows_for(h)).iter().map(|l| l.text()).collect();
+            assert!(rows.iter().skip(1).any(|l| l.contains("G2  boot probe") && l.contains("□")), "{h} rows: {rows:#?}");
+        }
     }
 
     #[test]

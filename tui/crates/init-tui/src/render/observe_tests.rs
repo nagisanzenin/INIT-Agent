@@ -85,6 +85,36 @@ fn failed_call_tail_live_frozen_and_expanded() {
     out.push_str(&format!("-- frozen single call\n{}", grid(&rows, 80)));
     let rows = live::block_rows(&t.get(i).unwrap().kind, 80, at(1.0), &RowOpts { verbose: false, expanded: true, spin: 0, first: false });
     out.push_str(&format!("-- transcript view (expanded)\n{}", grid(&rows, 80)));
+    // v0.5.4 (user session: "I ran it once (the output is above)" over a bare `✓ exit 0, 3 lines`): a single call
+    // that worked shows its whole output when it is 3 lines or fewer; a longer one shows none (Ctrl-O has it)
+    for (n, out_) in [(3, "v0.5.3-preview\n3f9c0a1\nclean"), (4, "a\nb\nc\nd")] {
+        let mut t = Transcript::default();
+        t.display(&call(DisplayKind::ToolStart, "c1", "bash", "init-agent --version; git rev-parse --short HEAD; git status -s", None, None), at(0.0), NOW_MS);
+        t.display(&call(DisplayKind::ToolEnd, "c1", "bash", &format!("exit 0, {n} lines"), Some(true), Some(out_)), at(0.4), NOW_MS);
+        t.end_activity(at(0.5));
+        let i = t.last_activity().unwrap();
+        let rows = live::block_rows(&t.get(i).unwrap().kind, 80, at(1.0), &RowOpts { verbose: false, expanded: false, spin: 0, first: false });
+        let text: Vec<String> = rows.iter().map(Line::text).collect();
+        if n <= live::SHORT_OUTPUT {
+            assert!(text.len() == 1 + n && text[1..].iter().zip(out_.lines()).all(|(r, l)| r.ends_with(&format!("│ {l}"))), "{text:#?}");
+        } else {
+            assert_eq!(text.len(), 1, "{text:#?}");
+        }
+        out.push_str(&format!("-- frozen single call that worked, {n} lines\n{}", grid(&rows, 80)));
+    }
+    // v0.5.4 (lane K, review 7): a 2-line detail under `exit 0, 12 lines` is the tail the body cut at 2,000 bytes: not
+    // shown inline as if it were the whole output; a summary with no line count keeps the short output
+    let wide = "語".repeat(200);
+    for (summary, d, inline) in [("exit 0, 12 lines", format!("{wide}…\n{wide}…"), false), ("exit 0, 2 lines", "a\nb".to_string(), true),
+        ("2 lines", "a\nb".to_string(), true)] {
+        let mut t = Transcript::default();
+        t.display(&call(DisplayKind::ToolStart, "c1", "bash", "cat notes.txt", None, None), at(0.0), NOW_MS);
+        t.display(&call(DisplayKind::ToolEnd, "c1", "bash", summary, Some(true), Some(&d)), at(0.4), NOW_MS);
+        t.end_activity(at(0.5));
+        let i = t.last_activity().unwrap();
+        let rows = live::block_rows(&t.get(i).unwrap().kind, 80, at(1.0), &RowOpts { verbose: false, expanded: false, spin: 0, first: false });
+        assert_eq!(rows.len(), if inline { 3 } else { 1 }, "{summary}: {:#?}", rows.iter().map(Line::text).collect::<Vec<_>>());
+    }
     golden("observe_failed_tail", &out);
 }
 
@@ -164,11 +194,31 @@ fn details_show_what_they_say() {
     let rows: Vec<String> = live::activity_rows(a, 100, now, &RowOpts { verbose: false, expanded: false, spin: 0, first: false }).iter().map(|l| l.text()).collect();
     let all = rows.join("\n");
     assert!(all.contains("call: set -eu\n") && all.contains("cat > hello.py <<'EOF'") && all.contains("print('hello')…"), "{all}");
-    assert!(all.contains(live::CALL_CUT), "{all}");
+    assert!(all.contains("(the agent's preview: the first lines of the call only;"), "{all}");
     assert!(all.contains("output (last 2 lines):") && all.contains("│ hello") && all.contains("│ today is Wednesday 28 October 2026"), "{all}");
     assert!(all.contains(&format!("output: {}", live::NO_OUTPUT)), "an older body sends none, and the details say so: {all}");
     // the collapsed row: the first line, never `␤`
     let Step::Tool(tool) = &a.steps[0] else { panic!() };
     let row = live::tool_row(tool, 100, now, 0).text();
     assert!(row.contains("bash   set -eu…") && !row.contains('␤'), "{row}");
+}
+
+/// v0.5.4 (user session v0.5.3-new, finding 2): the keys screen said Ctrl-O · /details "print it in full", and
+/// the details showed the agent's preview of a long call. No surface promises the whole call; the preview says
+/// where it is (the agent's session log, under the call's id).
+#[test]
+fn details_say_where_the_whole_call_is() {
+    assert!(!crate::keys::HELP.iter().any(|(_, d)| d.contains("in full")), "the keys screen promises no full call");
+    assert!(crate::proto::COMMANDS.iter().any(|(c, d)| *c == "/details" && d.contains("a long one: the agent's preview")));
+    let now = Instant::now();
+    let mut t = Transcript::default();
+    t.display(&call(DisplayKind::ToolStart, "c1", "bash", "set -eu\ncat > x.py <<'EOF'…", None, None), now, NOW_MS);
+    t.display(&call(DisplayKind::ToolEnd, "c1", "bash", "exit 0, 0 lines", Some(true), None), now, NOW_MS);
+    t.end_activity(now);
+    t.details(NOW_MS).unwrap();
+    let Kind::Activity(a) = &t.blocks.back().unwrap().kind else { panic!("a details copy") };
+    let rows: Vec<String> = live::activity_rows(a, 200, now, &RowOpts { verbose: false, expanded: false, spin: 0, first: false }).iter().map(|l| l.text()).collect();
+    let all = rows.join(" ");
+    assert!(all.contains("the agent's preview: the first lines of the call only; the whole call is in the agent's session log, \
+        INIT_HOME/state/sessions/ (~/.init/state/sessions/ by default), under its call_id"), "{all}");
 }

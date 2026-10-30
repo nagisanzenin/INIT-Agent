@@ -35,7 +35,7 @@ import tempfile
 import unittest
 
 from test_get_download import FAKE_CURL, FAKE_UNAME, host_target
-from test_printed_commands import functions, run_pipe, shq
+from test_printed_commands import GET_URL, functions, run_pipe, shq
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 GET = os.path.join(REPO, "scripts", "get.sh")
@@ -193,7 +193,7 @@ class GetSh(unittest.TestCase):
         e = p.stderr
         self.assertIn("INIT 0.5.1 is already installed in %s: the init-agent command in %s opens it. A second install, in %s,"
                       " would take that over and leave this one behind. Upgrade it instead" % (self.other, self.bin, self.rh), e)
-        line = "INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade" % shq(self.other)  # v0.5.3: with its path
+        line = '/usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade' % shq(self.other)  # v0.5.3: with its path
         self.assertIn("\n  %s\n" % line, e)
         self.assertIn("own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, without the service: sh -s -- -- --no-service.", e)
         self.assertNotIn("init-agent upgrade\n", e.replace(line + "\n", ""))
@@ -210,7 +210,7 @@ class GetSh(unittest.TestCase):
         stand_in(os.path.join(elsewhere, "init-agent"))
         p = self.get()
         self.assert_refused_before_anything(p)
-        line = "INIT_ROOT_HOME=%s %s upgrade" % (shq(self.other), shq(os.path.join(elsewhere, "init-agent")))
+        line = '/usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s %s upgrade' % (shq(self.other), shq(os.path.join(elsewhere, "init-agent")))
         self.assertIn("\n  %s\n" % line, p.stderr)
         self.assertEqual(run_printed(self, line, self.home), "home=%s|args=upgrade" % self.other)
 
@@ -220,17 +220,17 @@ class GetSh(unittest.TestCase):
         fake_install(self.other, "0.5.0")
         p = self.get()
         self.assert_refused_before_anything(p)
-        pipe = "/usr/bin/curl -q -fsSL %s/get.sh | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade" % (DIST, shq(self.other))
+        pipe = "/usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade" % (GET_URL, shq(self.other))
         self.assertIn("INIT 0.5.0 is already installed in %s: the init-agent command" % self.other, p.stderr)
         self.assertIn("\n  %s\n" % pipe, p.stderr)
-        self.assertEqual(run_pipe(self, pipe, DIST + "/get.sh", self.home), "home=%s|args=--upgrade" % self.other)
+        self.assertEqual(run_pipe(self, pipe, GET_URL, self.home), "home=%s|args=--upgrade" % self.other)
         shutil.rmtree(self.other)
         os.remove(os.path.join(self.t, "curl.log"))
         fake_install(self.other, "0.3.1")
         p = self.get()
         self.assertEqual(p.returncode, 1, p.stderr)
         self.assertIn("INIT 0.3.1 is installed in %s: the init-agent command" % self.other, p.stderr)
-        self.assertIn('&& INIT_ROOT_HOME=%s bash "$f"' % shq(self.other), p.stderr)
+        self.assertIn("\n  INIT_ROOT_HOME=%s /bin/bash -p -c 'f=" % shq(self.other), p.stderr)
         self.assertEqual(self.fetched(), [], "a release before 0.4.1 needs no download to say so")
 
     def test_no_refusal_without_an_install_there_or_with_a_separate_setup(self):
@@ -276,10 +276,10 @@ class GetSh(unittest.TestCase):
         e = p.stderr
         self.assertIn("INIT 0.5.1 is installed in %s: the init-agent command in %s opens it. It is not in %s, the home this "
                       "upgrade looked in (INIT_ROOT_HOME was not set). Upgrade it with:\n" % (self.other, self.bin, self.rh), e)
-        agent = "INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade" % shq(self.other)
-        pipe = "/usr/bin/curl -q -fsSL %s/get.sh | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade" % (DIST, shq(self.other))
-        self.assertIn("\n  %s\n(or, as you ran it, with its home given to sh: %s)\n" % (agent, pipe), e)
-        self.assertEqual(run_pipe(self, pipe, DIST + "/get.sh", self.home), "home=%s|args=--upgrade" % self.other)
+        agent = '/usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade' % shq(self.other)
+        pipe = "/usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade" % (GET_URL, shq(self.other))
+        self.assertIn("\n  %s\n(or, as you ran it, with its home given to bash: %s)\n" % (agent, pipe), e)
+        self.assertEqual(run_pipe(self, pipe, GET_URL, self.home), "home=%s|args=--upgrade" % self.other)
         stand_in(os.path.join(self.bin, "init-agent"))
         self.assertEqual(run_printed(self, agent, self.home), "home=%s|args=upgrade" % self.other)
 
@@ -290,28 +290,28 @@ class GetSh(unittest.TestCase):
         p = self.get("--upgrade", "--from", bundle, "--sha256", "a" * 64, "--", "--probe-timeout", "60")
         self.assert_upgrade_refused(p)
         tail = "--sha256 %s -- --probe-timeout 60" % ("a" * 64)
-        agent = "INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade --bundle %s %s" % (shq(self.other), shq(bundle), tail)
-        pipe = "/usr/bin/curl -q -fsSL %s/get.sh | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade --from %s %s" % (DIST, shq(self.other), shq(bundle), tail)
-        self.assertIn("\n  %s\n(or, as you ran it, with its home given to sh: %s)\n" % (agent, pipe), p.stderr)
-        self.assertEqual(run_pipe(self, pipe, DIST + "/get.sh", self.home), "home=%s|args=--upgrade --from %s %s" % (self.other, bundle, tail))
+        agent = '/usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade --bundle %s %s' % (shq(self.other), shq(bundle), tail)
+        pipe = "/usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade --from %s %s" % (GET_URL, shq(self.other), shq(bundle), tail)
+        self.assertIn("\n  %s\n(or, as you ran it, with its home given to bash: %s)\n" % (agent, pipe), p.stderr)
+        self.assertEqual(run_pipe(self, pipe, GET_URL, self.home), "home=%s|args=--upgrade --from %s %s" % (self.other, bundle, tail))
         p = self.get("--upgrade", "--version", "0.5.3")
-        self.assertIn("\n  INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade --version 0.5.3\n" % shq(self.other), p.stderr)
+        self.assertIn('\n  /usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade --version 0.5.3\n' % shq(self.other), p.stderr)
 
     def test_upgrade_gives_each_release_its_line_for_that_home(self):
         put_launcher(self.bin, self.other)
         fake_install(self.other, "0.5.0")
         p = self.get("--upgrade")
         self.assert_upgrade_refused(p)
-        pipe = "/usr/bin/curl -q -fsSL %s/get.sh | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade" % (DIST, shq(self.other))
+        pipe = "/usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade" % (GET_URL, shq(self.other))
         self.assertIn("INIT 0.5.0 is installed in %s: the init-agent command in %s opens it. It is not in %s" % (self.other, self.bin, self.rh), p.stderr)
-        self.assertTrue(p.stderr.endswith("Upgrade it with its home given to sh:\n  %s\n" % pipe), p.stderr)
+        self.assertTrue(p.stderr.endswith("Upgrade it with its home given to bash:\n  %s\n" % pipe), p.stderr)
         shutil.rmtree(self.other)
         fake_install(self.other, "0.3.1")
         p = self.get("--upgrade")
         self.assert_upgrade_refused(p)
         self.assertIn("INIT 0.3.1 is installed in %s: the init-agent command" % self.other, p.stderr)
         self.assertIn("An upgrade from a release before 0.4.1 is not supported", p.stderr)
-        self.assertIn('&& INIT_ROOT_HOME=%s bash "$f"' % shq(self.other), p.stderr)
+        self.assertIn("\n  INIT_ROOT_HOME=%s /bin/bash -p -c 'f=" % shq(self.other), p.stderr)
         # nothing installed anywhere: the plain answer
         shutil.rmtree(self.other)
         p = self.get("--upgrade")
@@ -322,7 +322,7 @@ class GetSh(unittest.TestCase):
     def test_no_bundle_for_this_target_is_said_before_the_upgrade_line(self):
         others = [t for t in ("macos-arm64", "linux-arm64", "linux-x86_64") if t != TARGET]
         for version, tail in (("0.4.1", "Run this once, from your own shell (0.4.1 has no init-agent upgrade):\n  /usr/bin/curl"),
-                              ("0.5.1", ":\n  INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade\n" % shq(self.rh))):
+                              ("0.5.1", ':\n  /usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade\n' % shq(self.rh))):
             with self.subTest(version=version):
                 self.latest(others)
                 fake_install(self.rh, version)
@@ -346,7 +346,7 @@ class GetSh(unittest.TestCase):
                 p = self.get()
                 self.assertEqual(p.returncode, 1, p.stderr)
                 self.assertIn("INIT 0.5.1 is already installed in %s. Upgrade it instead, which keeps what INIT has become:\n"
-                              "  INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade\n" % (self.rh, shq(self.rh)), p.stderr)
+                              '  /usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade\n' % (self.rh, shq(self.rh)), p.stderr)
                 self.assertNotIn("no bundle", p.stderr)
 
     def test_an_unreachable_release_keeps_the_plain_upgrade_advice(self):
@@ -427,7 +427,7 @@ class Functions(unittest.TestCase):
         rh = "INIT_ROOT_HOME=%s " % shq(other)
         self.assertIn("INIT 0.5.1 is already installed in %s: the init-agent command in %s opens it. A second install, in %s,"
                       " would take that over and leave this one behind. Upgrade it to v" % (other, bin_dir, os.path.join(home, ".init-root")), e)
-        self.assertIn("\n  %s~/.local/bin/init-agent upgrade        (or: %s%s --upgrade)\n" % (rh, rh, shq(INSTALL)), e)
+        self.assertIn('\n  /usr/bin/env -i HOME="$HOME" %s~/.local/bin/init-agent upgrade        (or: %s%s --upgrade)\n' % (rh, rh, shq(INSTALL)), e)
         self.assertIn("own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, and pass --no-service.", e)
         self.assertNotIn("/install.json exists", e)
 

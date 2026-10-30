@@ -120,7 +120,7 @@ class UpgradeGuards(unittest.TestCase):
             self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
             self.assertIn("INIT 0.3.1 is installed", p.stderr)
             self.assertIn("before 0.4.1 is not supported", p.stderr)
-            self.assertIn("\n  INIT_ROOT_HOME=%s bash %s\n" % (shq(self.rh), shq(os.path.join(SCRIPTS, "uninstall.sh"))), p.stderr)
+            self.assertIn("\n  INIT_ROOT_HOME=%s /bin/bash -p %s\n" % (shq(self.rh), shq(os.path.join(SCRIPTS, "uninstall.sh"))), p.stderr)
             self.assertNotIn("init-agent upgrade", p.stderr)
 
     def test_install_over_041_or_050_points_to_install_sh_upgrade_and_the_safe_line(self):
@@ -132,7 +132,7 @@ class UpgradeGuards(unittest.TestCase):
             self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
             self.assertIn("INIT %s is already installed" % version, p.stderr)
             self.assertIn("\n  %s%s --upgrade\n" % (rh, shq(os.path.join(SCRIPTS, "install.sh"))), p.stderr)
-            self.assertIn("once from your own shell: /usr/bin/curl -q -fsSL https://releases.invalid/init/get.sh | %s/bin/sh -s --"
+            self.assertIn("once from your own shell: /usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | %s/bin/bash -p -s --"
                           " --upgrade\n" % rh, p.stderr)
             self.assertNotIn("\n  init-agent upgrade", p.stderr)
             self.assertNotIn("\n  %sinit-agent upgrade" % rh, p.stderr)
@@ -140,7 +140,7 @@ class UpgradeGuards(unittest.TestCase):
         p = self.run_script(["/bin/bash", os.path.join(SCRIPTS, "install.sh"), "--yes", "--no-service"])
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
         # v0.5.3: with its path (INIT_BIN_DIR is HOME/bin here; ~/.local/bin is not on a fresh Mac's PATH)
-        self.assertIn("\n  %s~/bin/init-agent upgrade        (or: %s%s --upgrade)\n" % (rh, rh, shq(os.path.join(SCRIPTS, "install.sh"))), p.stderr)
+        self.assertIn('\n  /usr/bin/env -i HOME="$HOME" %s~/bin/init-agent upgrade        (or: %s%s --upgrade)\n' % (rh, rh, shq(os.path.join(SCRIPTS, "install.sh"))), p.stderr)
         self.assertNotIn("/usr/bin/curl", p.stderr)
 
     def test_launcher_without_a_kept_get_sh(self):
@@ -148,7 +148,7 @@ class UpgradeGuards(unittest.TestCase):
         p = self.run_script(["/bin/bash", os.path.join(SCRIPTS, "init-agent"), "upgrade"])
         self.assertEqual(p.returncode, 69, p.stderr)
         self.assertIn("/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh |"
-                      " INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade\n" % shq(self.rh), p.stderr)
+                      " INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade\n" % shq(self.rh), p.stderr)
 
     def test_launcher_runs_the_kept_get_sh_with_its_flags(self):
         cache = os.path.join(self.rh, "cache")
@@ -200,7 +200,7 @@ time.sleep(300)
 
 class UpgradeServiceUnderEnvI(unittest.TestCase):
     """install.sh --upgrade's stop and start of the systemd user unit (v0.5.3, the release review). The release notes
-    give `env -i HOME="$HOME" ~/.local/bin/init-agent upgrade`, which clears XDG_RUNTIME_DIR and
+    give `/usr/bin/env -i HOME="$HOME" ~/.local/bin/init-agent upgrade`, which clears XDG_RUNTIME_DIR and
     DBUS_SESSION_BUS_ADDRESS: every `systemctl --user` failed, silently, and the upgrade stopped the agent, then said
     "the Root did not stop within 60 s". install.sh now defaults XDG_RUNTIME_DIR on Linux, and a service command that
     fails is reported with what it said and the state INIT is left in. install.sh's functions and that line run alone
@@ -238,7 +238,7 @@ class UpgradeServiceUnderEnvI(unittest.TestCase):
             pass
 
     def run_fns(self, call, **env):
-        src = "set -euo pipefail\n" + self.xdg + functions(INSTALL, *self.FNS) + '\nIENV=(env -i HOME="$HOME" PATH=/usr/bin:/bin)\n' + call
+        src = "set -euo pipefail\n" + self.xdg + functions(INSTALL, *self.FNS) + '\nIENV=(/usr/bin/env -i HOME="$HOME" PATH=/usr/bin:/bin)\n' + call
         # as under `env -i HOME=… init-agent upgrade`: no XDG_RUNTIME_DIR, no DBUS_SESSION_BUS_ADDRESS
         base = {"PATH": "%s:/usr/bin:/bin" % os.path.join(self.tmp, "fake"), "HOME": self.tmp, "LANG": "C", "OS": "Linux", "SVC": "1",
                 "RH": self.rh, "PW_HOME": self.tmp, "WORK": os.path.join(self.tmp, "w"), "ROOT_BIN": os.path.join(self.rh, "bin", "init-root"),
@@ -283,6 +283,29 @@ class UpgradeServiceUnderEnvI(unittest.TestCase):
         self.assertIn("  warning: systemctl --user start init-root.service failed: Failed to start init-root.service: Unit "
                       "init-root.service not found.\n  The Root is not running. Start it: systemctl --user start init-root.service"
                       "   (or, in a terminal of its own: %s start --foreground)\n" % q, p.stdout)
+
+
+class UpgradeDoneMessage(unittest.TestCase):
+    """v0.5.4 (user sessions v0.5.2-returning and v0.5.3-returning, finding 2): the upgrade's closing message said
+    "Not done by this release: offering its new seed to INIT", which no owner could read. It now says what is kept
+    running, what is not merged, and that there is nothing to do."""
+
+    def test_the_seed_line_says_what_it_means_and_what_to_do(self):
+        with open(os.path.join(REPO, "scripts", "install.sh")) as f:
+            text = f.read()
+        done = text[text.index("INIT is upgraded to v$VERSION"):]
+        done = " ".join(done[:done.index("EOF")].split())
+        self.assertNotIn("offering its new seed", done)
+        self.assertIn("INIT keeps running the body it evolved: this release's new starting body (its prompts, skills and "
+                      "tools) is not merged into it. Nothing for you to do; merging is planned.", done)
+
+    def test_the_time_is_named_for_what_it_measures(self):
+        # v0.5.4 (review 6): "INIT is upgraded to vX (N s)" counted install.sh's run only, under get.sh's download; it is
+        # labelled as the fresh install's line is, and get.sh prints the whole run's total (test_install_summary)
+        with open(os.path.join(REPO, "scripts", "install.sh")) as f:
+            text = f.read()
+        self.assertIn("\nINIT is upgraded to v$VERSION (install.sh took $(( ELAPSED / 60 )) min $(( ELAPSED % 60 )) s). ", text)
+        self.assertNotRegex(text, r"is upgraded to v\$VERSION \(\$\(\( \$\(date")
 
 
 if __name__ == "__main__":

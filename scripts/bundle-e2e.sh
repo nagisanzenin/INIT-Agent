@@ -198,7 +198,7 @@ T0=$(ms)
 set +e
 env -i HOME="$H" PATH="$NORUST_PATH" TMPDIR="$D/tmp/" LANG=en_US.UTF-8 INIT_ROOT_HOME="$RH" INIT_HOME="$IH" \
   RUSTUP_HOME="$H/.rustup" CARGO_HOME="$H/.cargo" \
-  /bin/sh "$REPO/scripts/get.sh" --from "$TGZ" ${GET_ARGS[@]+"${GET_ARGS[@]}"} -- --no-service --disk-floor 5 \
+  /bin/sh "$REPO/scripts/get.sh" --from "$TGZ" --no-modify-path ${GET_ARGS[@]+"${GET_ARGS[@]}"} -- --no-service --disk-floor 5 \
   ${MOCK_ARGS[@]+"${MOCK_ARGS[@]}"} \
   >"$D/get.log" 2>&1 </dev/null
 GRC=$?

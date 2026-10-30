@@ -605,7 +605,12 @@ fn start(h: &Handle, sv: &Services, proxy: &Arc<KernelProxy>, slot: &Slot, exe_s
     let _ = jobs.srv.set(srv.clone());
     let upgrades = backend.upgrade.clone();
     kernel_supervise::kupgrade::set_swap_hook(Arc::new(move |event| upgrades.on_swap(event)));
-    backend.upgrade.recover(sv, srv.jobs());
+    // v0.5.4 (lane K): each gate job this start ended (`kernel_restart`) is an owner event, so the TUI's panel ends the
+    // change, live and in the Root's replay ([`restart_events`]: the kernel-upgrade recovery first).
+    let events = restart_events(srv.jobs(), srv.recovered(), || backend.upgrade.recover(sv, srv.jobs()), || h.latest().map(|s| s.current.sha));
+    for d in events {
+        h.send(Cmd::OwnerEvent { kind: "gate_stopped".into(), data: d });
+    }
     // §3.7: a job the restart interrupted leaves its candidate ref behind.
     let git = kernel_supervise::git::Git::body(&sv.cfg.supervise.git, &sv.home);
     for j in srv.recovered() {
@@ -658,6 +663,16 @@ fn start(h: &Handle, sv: &Services, proxy: &Arc<KernelProxy>, slot: &Slot, exe_s
     Ok(())
 }
 
+/// v0.5.4 (lane K): the `gate_stopped` events of a cold start, in the one safe order. `recover` (the kernel-upgrade
+/// recovery) runs first: it may reattach a swap's job, which is then no longer failed and gets no event (round 2, review
+/// note 3: this order is pinned by a test). `current` is read after it: the body sha running once the cold start is
+/// over, which may be a candidate whose handoff the cold start finished (review SF1: `live` in the event).
+fn restart_events(jobs: &kernel_serve::JobStore, recovered: &[String], recover: impl FnOnce(), current: impl FnOnce() -> Option<String>) -> Vec<Value> {
+    recover();
+    let current = current();
+    recovered.iter().filter_map(|j| jobs.record(j)).filter_map(|r| kernel_supervise::supervisor::restart_event(&r, current.as_deref())).collect()
+}
+
 /// The 60 s provisional watch (WP8b `provisional_watch`): resubmit unacknowledged accept records
 /// and commit LKG after the ack (G-46); roll back a provisional version older than
 /// `evolution.provisional_max_age_s` (F16). Ends with the supervisor.
@@ -690,5 +705,40 @@ pub fn shutdown(slot: &Slot) {
     g.early = None;
     if let Some(srv) = g.srv.take() {
         srv.shutdown();
+    }
+}
+
+#[cfg(test)]
+mod restart_tests {
+    use super::*;
+
+    /// Round 2 (review note 3 and SF1): the events come after the upgrade recovery, so a swap's job it reattached gets
+    /// none; a job whose candidate is what runs after the restart is `live`.
+    #[test]
+    fn recovery_first_then_the_events() {
+        let d = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-homes/w7b/restart-events");
+        let _ = std::fs::remove_dir_all(&d);
+        std::fs::create_dir_all(&d).unwrap();
+        let (a, k, ran) = ("06be87a1234567890abc".to_string(), "a".repeat(40), "1111222233334444".to_string());
+        {
+            let (store, _) = kernel_serve::JobStore::open(&d, kernel_serve::JobConfig::default()).unwrap();
+            let lane = LaneCtx::live();
+            let p = store.create(&lane, "promote", json!({"ref": "evo/x"})).unwrap();
+            p.set_sha(&a);
+            p.progress(JobState::Gating, Some(Stage::Build), 10, None, "deps+G0");
+            let swap = store.create(&lane, "kernel.promote", json!({"ref": "kevo/x"})).unwrap();
+            swap.set_sha(&k);
+            swap.progress(JobState::AwaitingSwap, Some(Stage::Prepare), 90, None, "Root accepted swap");
+            let q = store.create(&lane, "promote", json!({"ref": "evo/y"})).unwrap();
+            q.set_sha(&ran);
+            q.progress(JobState::HandingOff, Some(Stage::Handoff), 95, None, "overlapped handoff");
+        } // the kernel dies: the second promote inside its handoff's commit, which the cold start then finishes
+        let (store, recovered) = kernel_serve::JobStore::open(&d, kernel_serve::JobConfig::default()).unwrap();
+        assert_eq!(recovered, ["j-000001", "j-000002", "j-000003"]);
+        let events = restart_events(&store, &recovered, || assert!(store.resume_kernel_swap("j-000002", &k, Some("s-000001")).is_some()),
+            || Some(ran.clone()));
+        let got: Vec<(&str, bool)> = events.iter().map(|e| (e["gate_id"].as_str().unwrap(), e["live"] == true)).collect();
+        assert_eq!(got, [("j-000001", false), ("j-000003", true)], "{events:?}");
+        let _ = std::fs::remove_dir_all(&d);
     }
 }

@@ -233,11 +233,7 @@ fn forward(cx: &Ctx, st: &St, h: &http::Head, body: &[u8], w: &mut &UnixStream) 
         return refuse(st, w, "class.disabled", "test mode requires loopback; production loopback requires explicit local provider".into());
     }
     let turn = h.get("x-init-purpose").is_none_or(|p| p == "turn");
-    let c = *st.caps.lock().unwrap_or_else(|e| e.into_inner());
-    let over = |cap: u64, used: u64| cap > 0 && used >= cap;
-    let hit = [("turns", turn && over(c.turns, st.turns.load(SeqCst))), ("tokens_out", over(c.tokens_out, st.tokens.1.load(SeqCst))),
-        ("tokens_in", over(c.tokens_in, st.tokens.0.load(SeqCst)))].into_iter().find(|x| x.1).map(|x| x.0);
-    if let Some(cap) = hit {
+    if let Some(cap) = cap_hit(st, turn) {
         st.capped.fetch_add(1, SeqCst);
         st.cap_hit.lock().unwrap_or_else(|e| e.into_inner()).get_or_insert(cap);
         st.refused.fetch_add(1, SeqCst);
@@ -300,6 +296,7 @@ fn forward(cx: &Ctx, st: &St, h: &http::Head, body: &[u8], w: &mut &UnixStream) 
     let data = if matches!(code, 401 | 403) { br#"{"error":{"code":"upstream.auth","message":"body withheld"}}"#.to_vec() } else { data };
     let mut t = Tap::new(r.family, ctype.contains("event-stream"));
     t.feed(&data);
+    t.settle(); // v0.5.4 (review 4, n5): a non-streamed body's drift fields are known before they are read
     let drift = t.drift();
     let (usage, finish) = t.finish();
     // v0.5.3 L6: the live forwarder's booking rule (a cut body's output at its cap, a class without a price at the
@@ -309,10 +306,7 @@ fn forward(cx: &Ctx, st: &St, h: &http::Head, body: &[u8], w: &mut &UnixStream) 
     let _ = st.spent.fetch_update(SeqCst, SeqCst, |s| Some(s.saturating_add(cost)));
     settle(cx, reserved, cost);
     st.requests.fetch_add(1, SeqCst);
-    let u = usage.unwrap_or_default();
-    st.tokens.0.fetch_add(u.input, SeqCst);
-    st.tokens.1.fetch_add(u.output, SeqCst);
-    st.cached.fetch_add(u.cache_read.min(u.input), SeqCst);
+    count(st, &usage.unwrap_or_default());
     *st.last.lock().unwrap_or_else(|e| e.into_inner()) = (finish.or(Some("other")), now_ms());
     st.inflight.fetch_sub(1, SeqCst);
     let now = now_ms();
@@ -339,6 +333,25 @@ fn tag(cx: &Ctx, v: &mut Value) {
 }
 
 /// Releases a hold in the lane's pool and books its cost.
+/// M7: the first per-run cap the run's actuals have reached (turns only for a turn request).
+fn cap_hit(st: &St, turn: bool) -> Option<&'static str> {
+    let c = *st.caps.lock().unwrap_or_else(|e| e.into_inner());
+    let over = |cap: u64, used: u64| cap > 0 && used >= cap;
+    [("turns", turn && over(c.turns, st.turns.load(SeqCst))), ("tokens_out", over(c.tokens_out, st.tokens.1.load(SeqCst))),
+        ("tokens_in", over(c.tokens_in, st.tokens.0.load(SeqCst)))].into_iter().find(|x| x.1).map(|x| x.0)
+}
+
+/// A settled response's tokens into the run's counters, saturating (v0.5.4 final review N4): a Chat usage can carry
+/// u64::MAX input since review 4b, and a wrapping add would bring the counter back under the `tokens_in` cap.
+fn count(st: &St, u: &super::tap::Usage) {
+    let add = |a: &AtomicU64, n: u64| {
+        let _ = a.fetch_update(SeqCst, SeqCst, |x| Some(x.saturating_add(n)));
+    };
+    add(&st.tokens.0, u.input);
+    add(&st.tokens.1, u.output);
+    add(&st.cached, u.cache_read.min(u.input));
+}
+
 fn settle(cx: &Ctx, r: u64, cost: u64) {
     match &cx.pool {
         Pool::Reserve(_) => money::sealed_settle(&cx.usage, r, cost),
@@ -353,6 +366,28 @@ mod tests {
 
     /// Review F3 on sealed lanes: `LANE_CONNS` connections are served at once; one more gets 503 `root.busy` and is
     /// closed by the accept thread; once they close, the lane serves again.
+    /// v0.5.4 final review N4: the counters saturate. The review 4b body (hit u64::MAX + miss 2, through the real tap)
+    /// after a first request of 5 input tokens: a wrapping add left the counter at 4, under any `tokens_in` cap, so the
+    /// cap never fired; saturated, the next request is refused at the cap.
+    #[test]
+    fn token_counters_saturate_so_the_cap_still_fires() {
+        let st = St { caps: Mutex::new(Caps { tokens_in: 1_000, ..Caps::default() }), ..St::default() };
+        let body = |s: &str| {
+            let mut t = Tap::new(super::super::tap::Family::Chat, false);
+            t.feed(s.as_bytes());
+            t.finish().0.unwrap()
+        };
+        count(&st, &body(r#"{"choices":[{"finish_reason":"stop"}],"usage":{"prompt_tokens":5,"completion_tokens":1}}"#));
+        assert_eq!(cap_hit(&st, true), None);
+        let huge = body(r#"{"choices":[{"finish_reason":"stop"}],"usage":{"prompt_cache_hit_tokens":18446744073709551615,"prompt_cache_miss_tokens":2,"completion_tokens":5}}"#);
+        assert_eq!(huge.input, u64::MAX);
+        count(&st, &huge);
+        assert_eq!((st.tokens.0.load(SeqCst), st.tokens.1.load(SeqCst), st.cached.load(SeqCst)), (u64::MAX, 6, u64::MAX));
+        assert_eq!(cap_hit(&st, true), Some("tokens_in"));
+        count(&st, &huge);
+        assert_eq!(st.tokens.0.load(SeqCst), u64::MAX, "stays at the top");
+    }
+
     #[test]
     fn lane_connections_are_capped() {
         // CARGO_TARGET_DIR can point elsewhere, leaving no source-tree target.

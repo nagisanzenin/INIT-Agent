@@ -5,7 +5,7 @@
     G2  boot probe       □ 2.9 s                                                |....ddddmmmmmmmmmmmmmmmmwwwwwwww                                                
     G3  self-edit probe  ·                                                      |....ddddmmmmmmmmmmmmmmmmmmm                                                     
     hand-off             ·                                                      |....dddddddddmmmmmmmmmmmmmm                                                     
-    G4  scored vs LKG    ·                                                      |....ddddmmmmmmmmmmmmmmmmmmm                                                     
+    G4  scored vs LKG    · scored only if INIT has sealed tasks (none on a fres…|....ddddmmmmmmmmmmmmmmmmmmmddddddddddddddddddddddddddddddddddddddddddddddddddddd
 -- kept: G2 running (50)
 ◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ …  12 s|ww............ddddddddddddddddd..mmmp.mmmp.d..wwww
     G0  build + tests    ■ pass · 9.1 s           |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd           
@@ -13,7 +13,7 @@
     G2  boot probe       □ 2.9 s                  |....ddddmmmmmmmmmmmmmmmmwwwwwwww                  
     G3  self-edit probe  ·                        |....ddddmmmmmmmmmmmmmmmmmmm                       
     hand-off             ·                        |....dddddddddmmmmmmmmmmmmmm                       
-    G4  scored vs LKG    ·                        |....ddddmmmmmmmmmmmmmmmmmmm                       
+    G4  scored vs LKG    · scored only if INIT ha…|....ddddmmmmmmmmmmmmmmmmmmmddddddddddddddddddddddd
 -- kept: G2 running, a 12-row terminal (4 rows)
 ◇ self-change 06be87a12345 · t2  G0 ■ G1 ■ G2 □ G3 · live · G4 ·            12 s|ww............ddddddddddddddddd..mmmp.mmmp.mmmw.mmmm.mmmmmm.mmmm............wwww
     G1  self-map         ■ pass · 0.4 s                                         |....ddddmmmmmmmmmmmmmmmmpppppppdddddddd                                         

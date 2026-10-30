@@ -3,7 +3,8 @@
 //! - Ids are `j-` + 6 digits, monotonic per `INIT_HOME` (`state/kernel/jobs/seq` plus the
 //!   records on disk).
 //! - Records live at `state/kernel/jobs/<id>.json`, rewritten atomically on every state or stage
-//!   change (not on progress ticks). The newest 200 are kept; older terminal records are deleted
+//!   change and on a new progress `msg` (a gate's step within a stage: v0.5.4), not on ticks that
+//!   only move `pct`. The newest 200 are kept; older terminal records are deleted
 //!   by exact path.
 //! - A job does not depend on any connection; `wait` reattaches.
 //! - `wait` returns at a terminal state, `awaiting_boundary` or `awaiting_swap`.
@@ -51,6 +52,15 @@ impl Default for JobConfig {
 /// A progress frame without its timestamp (repeated ticks are skipped).
 type FrameKey = (Option<u64>, String, u8, Option<Stage>, JobState);
 
+/// (state, stage count, progress stage, progress msg): a record is written when this changes. v0.5.4 (user session
+/// v0.5.4 A): the msg is in it, so a gate's step within one stage reaches the file. A 32-minute dependency build said
+/// "queued", 0 %, on disk, because `queued` and the build are both stage `build`.
+type PersistKey = (JobState, usize, Option<Stage>, Option<String>);
+
+fn persist_key(rec: &JobRecord) -> PersistKey {
+    (rec.state.clone(), rec.stages.len(), rec.progress.as_ref().and_then(|p| p.stage.clone()), rec.progress.as_ref().map(|p| p.msg.clone()))
+}
+
 /// Significant progress changes (stage or state) kept per job for waiters.
 const SIG_KEPT: usize = 64;
 
@@ -65,8 +75,8 @@ struct Job {
     sig: VecDeque<(u64, RecordProgress)>,
     /// Connections that will write a final response for this job at its milestone.
     pending_finals: u32,
-    /// (state, stage count, progress stage) at the last write.
-    persisted: Option<(JobState, usize, Option<Stage>)>,
+    /// What the record on disk shows: (state, stage count, progress stage, progress msg).
+    persisted: Option<PersistKey>,
 }
 
 impl Job {
@@ -97,12 +107,12 @@ impl Shared {
         self.dir.join(format!("{id}.json"))
     }
 
-    /// Write the record if its state, stage list or progress stage changed (or `force`).
+    /// Write the record if its state, stage list, progress stage or progress msg changed (or `force`).
     fn persist(&self, job: &mut Job, force: bool) {
         if !job.visible {
             return;
         }
-        let key = (job.rec.state.clone(), job.rec.stages.len(), job.rec.progress.as_ref().and_then(|p| p.stage.clone()));
+        let key = persist_key(&job.rec);
         if !force && job.persisted.as_ref() == Some(&key) {
             return;
         }
@@ -253,8 +263,7 @@ impl JobStore {
                 pending_finals: 0,
                 persisted: None,
             };
-            let key = (job.rec.state.clone(), job.rec.stages.len(), job.rec.progress.as_ref().and_then(|p| p.stage.clone()));
-            job.persisted = Some(key);
+            job.persisted = Some(persist_key(&job.rec));
             if dirty {
                 fsx::write_json(&dir.join(format!("{id}.json")), &job.rec)?;
             }
@@ -888,6 +897,33 @@ mod tests {
         assert_eq!(d.id(), "j-000004");
         let disk: JobRecord = init_proto::files::decode(&std::fs::read(h.join("j-000001.json")).unwrap()).unwrap();
         assert_eq!(disk.reason.as_deref(), Some("kernel_restart"));
+        std::fs::remove_dir_all(&h).unwrap();
+    }
+
+    /// v0.5.4 (lane K, user session v0.5.4 A): the record on disk follows a gate's steps inside one stage (`queued`, the
+    /// dependency build, the body build are all `build`); a tick that only moves `pct` is not written. An older reader
+    /// still decodes the file: its fields are the same.
+    #[test]
+    fn the_record_on_disk_follows_the_gates_steps() {
+        let h = home("steps");
+        let (s, _) = JobStore::open(&h, cfg()).unwrap();
+        let j = s.create(&LaneCtx::live(), "promote", serde_json::json!({"ref": "evo/a"})).unwrap();
+        let disk = || -> (String, u8, Option<Stage>) {
+            let r: JobRecord = init_proto::files::decode(&std::fs::read(h.join("j-000001.json")).unwrap()).unwrap();
+            let p = r.progress.unwrap();
+            (p.msg, p.pct, p.stage)
+        };
+        j.progress(JobState::Gating, Some(Stage::Build), 0, None, "queued for the build slot");
+        assert_eq!(disk(), ("queued for the build slot".into(), 0, Some(Stage::Build)));
+        j.progress(JobState::Gating, Some(Stage::Build), 10, None, "deps+G0: building the dependencies");
+        assert_eq!(disk(), ("deps+G0: building the dependencies".into(), 10, Some(Stage::Build)), "a new step within `build` is written");
+        j.progress(JobState::Gating, Some(Stage::Build), 12, None, "deps+G0: building the dependencies");
+        assert_eq!(disk().1, 10, "a pct-only tick is not written");
+        j.progress(JobState::Gating, Some(Stage::G0), 30, None, "G0: the body's tests and clippy");
+        assert_eq!(disk(), ("G0: the body's tests and clippy".into(), 30, Some(Stage::G0)));
+        let v: Value = serde_json::from_slice(&std::fs::read(h.join("j-000001.json")).unwrap()).unwrap();
+        let keys: Vec<&str> = v.as_object().unwrap().keys().map(String::as_str).collect();
+        assert_eq!(keys, ["args", "cmd", "created_at", "error", "finished_at", "id", "lane", "progress", "result", "sha", "stages", "state", "v"]);
         std::fs::remove_dir_all(&h).unwrap();
     }
 

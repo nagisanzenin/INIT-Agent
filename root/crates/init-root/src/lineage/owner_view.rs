@@ -9,7 +9,7 @@
 use super::verify::{chain, check_head};
 use super::TAIL;
 use crate::link::{Refusal, Root, lock};
-use crate::util::{hex, rfc3339};
+use crate::util::rfc3339;
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::fs;
@@ -78,7 +78,9 @@ pub fn tail(root: &Root, args: &Value) -> Result<Value, Refusal> {
     let rows: Vec<Value> = lines[lines.len().saturating_sub(n)..].iter().map(|l| serde_json::from_str::<Value>(l).map_or_else(|_| json!({"kind": "?"}), |r| row(&r))).collect();
     let verify = json!({
         "error": error, "head_hash": head.as_ref().map(|h| h.hash.clone()), "head_seq": head.as_ref().map(|h| h.seq),
-        "key": hex(&vk.to_bytes())[..16].to_string(), "ms": ms, "ok": ok, "records": records,
+        // v0.5.4 (round 8): the key's fingerprint as the installer prints it (sha256 of the public key; its first 16 of 32
+        // hex digits), not the public key's own first bytes: one key, one id
+        "key": crate::util::sha256_hex(&vk.to_bytes())[..16].to_string(), "ms": ms, "ok": ok, "records": records,
         "sigs_checked": records - from + u64::from(from > 0), "verified_full_at": full_at.map(rfc3339),
     });
     Ok(json!({"records": records, "rows": rows, "verify": verify}))
@@ -126,7 +128,9 @@ mod tests {
         assert_eq!(a["verify"]["ok"], true, "{a}");
         assert_eq!(a["verify"]["error"], Value::Null);
         assert_eq!(a["verify"]["records"], a["records"]);
-        assert_eq!(a["verify"]["key"].as_str().map(str::len), Some(16));
+        let vk = lock(&root.lin).as_ref().unwrap().sk.verifying_key();
+        let fp = crate::util::sha256_hex(&vk.to_bytes());
+        assert_eq!(a["verify"]["key"].as_str(), Some(&fp[..16]), "the installer's fingerprint (its first 32 hex) starts with it");
         assert_eq!(tail(&root, &json!({"n": 500})).unwrap()["rows"].as_array().map(Vec::len), Some(a["records"].as_u64().unwrap().min(MAX_ROWS) as usize));
         // Alter the lkg record's data in place: rule 4 (the hash) fails at its seq.
         let file = root.p.r("lineage/lineage.jsonl");

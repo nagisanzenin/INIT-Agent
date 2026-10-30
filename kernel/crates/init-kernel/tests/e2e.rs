@@ -179,6 +179,8 @@ fn wait_for<T>(what: &str, t: Duration, mut f: impl FnMut() -> Option<T>) -> T {
 struct Owner {
     w: UnixStream,
     r: BufReader<UnixStream>,
+    /// The structured `data` of every notice read so far (TUI-OBSERVE).
+    data: Vec<Value>,
 }
 
 impl Owner {
@@ -187,7 +189,7 @@ impl Owner {
         s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
         let mut w = s.try_clone().unwrap();
         w.write_all(b"{\"t\":\"attach\",\"client\":\"wp7b\",\"replay\":true}\n").unwrap();
-        Owner { w, r: BufReader::new(s) }
+        Owner { w, r: BufReader::new(s), data: Vec::new() }
     }
 
     fn line(&mut self, text: &str) {
@@ -205,6 +207,9 @@ impl Owner {
                 Ok(0) => panic!("owner socket closed while waiting for {what}"),
                 Ok(_) => {
                     let v: Value = serde_json::from_str(&line).unwrap_or_default();
+                    if v["t"] == "notice" && v["data"].is_object() {
+                        self.data.push(v["data"].clone());
+                    }
                     let text = v["text"].as_str().or_else(|| v["frame"]["text"].as_str()).or_else(|| v["display"]["text"].as_str()).unwrap_or("");
                     if pred(text) {
                         return;
@@ -364,6 +369,23 @@ fn initctl_status_and_t0_promote_under_init_fakeroot() {
     );
     wait_for("init-mockllm socket", Duration::from_secs(20), || mock_sock.exists().then_some(()));
 
+    // v0.5.4 (lane K): a self-change whose kernel died in its dependency build (no event at that moment); this kernel's
+    // cold start marks it `failed`, `kernel_restart`, and tells the owner.
+    let planted = "06be87a1234567890abc06be87a1234567890abc";
+    std::fs::create_dir_all(home.join("state/kernel/jobs")).unwrap();
+    std::fs::write(home.join("state/kernel/jobs/j-000001.json"), serde_json::to_vec(&json!({"v": 1, "id": "j-000001", "cmd": "promote",
+        "lane": "live", "state": "running", "args": {"ref": "evo/x"}, "created_at": "2026-10-30T08:00:00.000Z", "finished_at": null,
+        "progress": {"eta_s": null, "msg": "deps+G0: building the dependencies", "pct": 10, "stage": "build", "state": "gating",
+            "ts": "2026-10-30T08:00:05.000Z"},
+        "result": null, "error": null, "sha": planted, "stages": []})).unwrap()).unwrap();
+    // round 2 (review SF1): a self-change whose kernel died inside the handoff's commit, after `main` moved: the
+    // cold start finishes the handoff, so its candidate (here X, the version that runs) went live
+    std::fs::write(home.join("state/kernel/jobs/j-000002.json"), serde_json::to_vec(&json!({"v": 1, "id": "j-000002", "cmd": "promote",
+        "lane": "live", "state": "running", "args": {"ref": "evo/y"}, "created_at": "2026-10-30T08:00:00.000Z", "finished_at": null,
+        "progress": {"eta_s": null, "msg": "overlapped handoff", "pct": 95, "stage": "handoff", "state": "handing_off",
+            "ts": "2026-10-30T08:00:05.000Z"},
+        "result": null, "error": null, "sha": x, "stages": []})).unwrap()).unwrap();
+
     // The fake Root starts the real kernel.
     let rh = home.join("rh");
     let t0 = Instant::now();
@@ -388,6 +410,16 @@ fn initctl_status_and_t0_promote_under_init_fakeroot() {
     let mut owner = Owner::connect(&rh.join("run/owner.sock"));
     owner.until("the body's ready", Duration::from_secs(90), |t| t.starts_with("ready"));
     let ready_ms = t0.elapsed().as_millis();
+    // v0.5.4 (lane K): the planted job's `gate_stopped`, on the owner channel (live, or in the attach replay)
+    if owner.data.iter().filter(|d| d["kind"] == "gate_stopped").count() < 2 {
+        owner.until("gate_stopped", Duration::from_secs(60), |t| t.contains("went live while the kernel restarted"));
+    }
+    let stopped: Vec<&Value> = owner.data.iter().filter(|d| d["kind"] == "gate_stopped").collect();
+    assert_eq!(stopped, [&json!({"kind": "gate_stopped", "gate_id": "j-000001", "gate_kind": "promote", "live": false, "reason": "kernel_restart",
+        "sha": planted, "stage": "build"}), &json!({"kind": "gate_stopped", "gate_id": "j-000002", "gate_kind": "promote", "live": true,
+        "reason": "kernel_restart", "sha": x, "stage": "handoff"})]);
+    let rec: Value = serde_json::from_slice(&std::fs::read(home.join("state/kernel/jobs/j-000001.json")).unwrap()).unwrap();
+    assert_eq!((rec["state"].as_str(), rec["reason"].as_str()), (Some("failed"), Some("kernel_restart")));
 
     // FIX6: run/kernel.sock accepts before the body is ready (it is bound right after
     // run/kernel.lock, before the cold start); until the server is up it answers the typed

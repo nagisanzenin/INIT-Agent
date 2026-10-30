@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -p
 # `init-agent`: open INIT (docs/tui.md §2). Installed by scripts/install.sh into INIT_BIN_DIR (default ~/.local/bin).
 # Named `init` before v0.4.1; renamed because `init` shadows /sbin/init on Linux (nagisanzenin/INIT-Agent#1).
 #
@@ -27,8 +27,11 @@
 # zone can write INIT_HOME, and the agent must never be able to substitute the owner's client). Without a TUI,
 # `init-root attach` is the plain owner terminal (root/root.md §3.15): type a line and press Enter; Ctrl-C
 # interrupts the current turn, Ctrl-D detaches.
-# ROOT_HOME is $INIT_ROOT_HOME, else the value install.sh wrote below, else ~/.init-root. INIT_HOME is the one
-# ROOT_HOME/install.json names, else $INIT_HOME, else ~/.init.
+# ROOT_HOME is $INIT_ROOT_HOME, else the value install.sh wrote below, else ~/.init-root; for `upgrade`, only the value
+# install.sh wrote (v0.5.4). INIT_HOME is the one ROOT_HOME/install.json names, else $INIT_HOME, else ~/.init.
+# bash -p (v0.5.4, the release review): without it bash runs code from the environment before the first line of this
+# file: the file BASH_ENV names, SHELLOPTS=xtrace with a PS4 that runs a command, and exported functions (one named
+# `exec` replaced the hand-over below). Privileged mode ignores all three; macOS bash 3.2 and bash 5 alike.
 # Before it hands over (the TUI, init-root attach, or the kept get.sh), the launcher runs no program found on PATH, only
 # bash builtins: with full access the agent can write the owner's PATH directories (ADR-012), and this runs as the owner.
 set -euo pipefail
@@ -55,9 +58,9 @@ rh_env() { local pw; pw="$(pw_home)"; [ -n "$pw" ] && [ "$RH" = "$pw/.init-root"
 # INIT_AGENT_LAUNCHER for the lines it prints (its quit line).
 SELF="$HERE/${0##*/}"
 tilde() { local h="${HOME%/}"; if [ -n "$h" ] && [[ "$1" == "$h"/?* ]]; then printf '~/%s' "$(shq "${1#"$h"/}")"; else shq "$1"; fi; }
-# The upgrade that runs the current get.sh with the system's curl and sh (docs/guide.md "Upgrade"; get.sh's up_pipe)
+# The upgrade that runs the current get.sh with the system's curl and bash -p (docs/guide.md "Upgrade"; get.sh's up_pipe)
 up_pipe() { # [get.sh args]
-  printf '/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | %s/bin/sh' "$(rh_env)"
+  printf '/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | %s/bin/bash -p' "$(rh_env)"
   [ $# = 0 ] || printf ' -s -- %s' "$*"
 }
 
@@ -79,6 +82,21 @@ done
 
 if [ "${1:-}" = upgrade ]; then
   shift
+  # v0.5.4 (the post-release review of v0.5.3): the upgrade replaces the Root, so it takes nothing from the environment,
+  # which a full-access agent can set through the owner's shell startup files (docs/release-signing.md A3). Until 0.5.3
+  # an INIT_ROOT_HOME there won over the home baked in above, and so ran another home's cache/get.sh, one the agent
+  # wrote, which need check nothing; and get.sh got the whole environment (INIT_DIST_URL, INIT_BIN_DIR, …). Now the
+  # upgrade uses the baked home only, and get.sh runs under env -i with HOME, that home and the system PATH.
+  # INIT_DIST_URL goes too: the installed Root's key decides what installs, but a server of the agent's choosing could
+  # still offer a validly signed older release that is newer than this one, or nothing newer, inside its validity (A5).
+  # (A copy with no home baked in, the repository's own scripts/init-agent, is never installed as it is; it keeps
+  # $INIT_ROOT_HOME, else ~/.init-root.)
+  if [ -n "$INIT_ROOT_HOME_DEFAULT" ] && [ "$RH" != "$INIT_ROOT_HOME_DEFAULT" ]; then
+    echo "init-agent upgrade: note: INIT_ROOT_HOME=$RH in this shell's environment is ignored; this upgrades the INIT in" >&2
+    echo "  $INIT_ROOT_HOME_DEFAULT, the home this launcher was installed for. (If you did not set it, something else did:" >&2
+    echo "  look at your shell's startup files.)" >&2
+  fi
+  RH="${INIT_ROOT_HOME_DEFAULT:-$RH}"
   PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH # the upgrade replaces the Root: system tools only (get.sh sets it too)
   GET="$RH/cache/get.sh"
   if [ ! -f "$GET" ] && [ ! -f "$RH/install.json" ]; then
@@ -103,7 +121,7 @@ if [ "${1:-}" = upgrade ]; then
       *) echo "init-agent upgrade: unknown argument $1 (see $(tilde "$SELF") upgrade --help)" >&2; exit 64 ;;
     esac
   done
-  exec /bin/sh "$GET" "${args[@]}"
+  exec /usr/bin/env -i HOME="${HOME:-}" INIT_ROOT_HOME="$RH" PATH="$PATH" /bin/sh "$GET" "${args[@]}"
 fi
 if [ "${1:-}" = --which ]; then
   if [ -n "$TUI" ]; then echo "$TUI"; else echo "$ROOT_BIN attach"; fi

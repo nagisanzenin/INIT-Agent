@@ -556,6 +556,9 @@ pub struct Tool {
     pub parent: Option<String>,
     /// v0.5.2: it started in the attach replay: its start time and duration are not known here.
     pub replayed: bool,
+    /// v0.5.4 (the release review): that replay was a reconnect's, so it ran during this launch, while this TUI was
+    /// disconnected, not before this launch.
+    pub reconnect: bool,
 }
 
 impl Tool {
@@ -597,6 +600,8 @@ pub struct Activity {
     /// v0.5.2 (user session v0.5.1-new: "ran 5 tools in 0.0 s" for calls that took 3 min 46 s): it came
     /// in the attach replay, so its times are not known here.
     pub replayed: bool,
+    /// v0.5.4: a reconnect's replay (see [`Tool::reconnect`]).
+    pub reconnect: bool,
 }
 
 /// Counters of an activity.
@@ -610,7 +615,7 @@ pub struct Counts {
 
 impl Activity {
     fn new(now: Instant, now_ms: i64) -> Activity {
-        Activity { steps: Vec::new(), started: now, start_ms: now_ms, thinking: None, frozen: None, full: false, replayed: false }
+        Activity { steps: Vec::new(), started: now, start_ms: now_ms, thinking: None, frozen: None, full: false, replayed: false, reconnect: false }
     }
     /// Every call, sub-task calls included (the details view, `/details`).
     pub fn all_tools(&self) -> impl DoubleEndedIterator<Item = &Tool> {
@@ -767,6 +772,8 @@ pub struct Transcript {
     pub last_display: Option<Instant>,
     /// v0.5.2: the frames handled now are the attach replay (their times are not known).
     pub replaying: bool,
+    /// v0.5.4: that replay is a reconnect's (the frames ran during this launch).
+    pub replay_reconnect: bool,
 }
 
 impl Transcript {
@@ -855,6 +862,7 @@ impl Transcript {
         if self.open_activity().is_none() {
             let mut a = Activity::new(now, now_ms);
             a.replayed = self.replaying;
+            a.reconnect = self.replaying && self.replay_reconnect;
             let i = self.push(Kind::Activity(a), now_ms);
             self.open_act = Some(i);
         }
@@ -958,7 +966,8 @@ impl Transcript {
             if self.last_boot.is_some_and(|p| p != b) {
                 self.close_open(now);
                 self.close_tools(now);
-                self.push(Kind::Divider(format!("body restarted (boot {b})")), now_ms);
+                // v0.5.4 (user session: this "boot 3" and /root status's kernel "boot 2" are different counts)
+                self.push(Kind::Divider(format!("body restarted (body start {b})")), now_ms);
             }
             self.last_boot = Some(b);
         }
@@ -1031,10 +1040,10 @@ impl Transcript {
                 let call_id = d.call_id.clone().unwrap_or_default();
                 let name = d.name.clone().unwrap_or_else(|| "tool".into());
                 self.bytes += d.text.len();
-                let replayed = self.replaying;
+                let (replayed, reconnect) = (self.replaying, self.replaying && self.replay_reconnect);
                 let a = self.activity(now, now_ms);
                 a.end_thinking(now);
-                a.steps.push(Step::Tool(Tool { call_id, name, start_text: d.text.clone(), ok: None, summary: None, detail: d.detail.clone(), started: now, start_ms: now_ms, dur: None, out: None, out_at: None, parent: d.parent.clone(), replayed }));
+                a.steps.push(Step::Tool(Tool { call_id, name, start_text: d.text.clone(), ok: None, summary: None, detail: d.detail.clone(), started: now, start_ms: now_ms, dur: None, out: None, out_at: None, parent: d.parent.clone(), replayed, reconnect }));
             }
             DisplayKind::ToolProgress => {
                 let cid = d.call_id.clone().unwrap_or_default();
@@ -1067,10 +1076,10 @@ impl Transcript {
                     }
                     None => {
                         let name = d.name.clone().unwrap_or_else(|| "tool".into());
-                        let replayed = self.replaying;
+                        let (replayed, reconnect) = (self.replaying, self.replaying && self.replay_reconnect);
                         let a = self.activity(now, now_ms);
                         a.end_thinking(now);
-                        a.steps.push(Step::Tool(Tool { call_id: cid, name, start_text: String::new(), ok: Some(d.ok.unwrap_or(false)), summary: Some(d.text.clone()), detail: d.detail.clone(), started: now, start_ms: now_ms, dur: Some(Duration::ZERO), out: None, out_at: None, parent: d.parent.clone(), replayed }));
+                        a.steps.push(Step::Tool(Tool { call_id: cid, name, start_text: String::new(), ok: Some(d.ok.unwrap_or(false)), summary: Some(d.text.clone()), detail: d.detail.clone(), started: now, start_ms: now_ms, dur: Some(Duration::ZERO), out: None, out_at: None, parent: d.parent.clone(), replayed, reconnect }));
                     }
                 }
             }
@@ -1241,6 +1250,11 @@ impl Tally {
             None => self.cache_unknown += 1,
         }
     }
+    /// v0.5.4: two tallies as one (line mode's summary rate covers the replay it printed too).
+    pub fn plus(&self, o: &Tally) -> Tally {
+        Tally { requests: self.requests + o.requests, input: self.input + o.input, output: self.output + o.output, cached: self.cached + o.cached,
+            cache_input: self.cache_input + o.cache_input, cache_unknown: self.cache_unknown + o.cache_unknown }
+    }
     pub fn cache(&self) -> CacheRate {
         if self.cache_input == 0 {
             return CacheRate::Unknown;
@@ -1294,9 +1308,12 @@ pub struct Info {
     pub home: Option<String>,
     /// v0.5.3: `init-agent` as the owner types it to come back ([`crate::app::agent_cmd`]).
     pub agent: String,
-    /// Tokens of the current (or last) turn, and of everything this TUI has seen.
+    /// Tokens of the current (or last) turn, and of the requests this TUI saw as they ran. v0.5.4 (user sessions
+    /// v0.5.2 and v0.5.3, "this TUI N requests" after a relaunch): the requests read from a replay ran before this TUI
+    /// attached, so they are in `replayed`, not `session`.
     pub turn: Tally,
     pub session: Tally,
+    pub replayed: Tally,
     /// The Root's `total_spent_musd` when the turn began (for the turn's estimated cost).
     turn_start_musd: Option<i64>,
     /// TUI-FIX (v0.5.1): the ledger total when the turn's run ended; later spend (a self-change's
@@ -1313,9 +1330,14 @@ pub struct Info {
     /// v0.5.2: the frames being handled now are a replay (what happened while this TUI was not
     /// attached): a turn seen there has no measured cost.
     pub replaying: bool,
+    /// v0.5.4 (the release review): that replay is a reconnect's (after a Root restart or a dropped socket), so its
+    /// frames ran during this launch: its requests are this TUI's, and its labels say "while disconnected".
+    pub replay_reconnect: bool,
     /// v0.5.2 (user sessions v0.5.1: a replayed turn read `$0.000`): this turn ran, at least in part,
     /// before this TUI attached, so the ledger's change since then is not its cost.
     pub turn_replayed: bool,
+    /// v0.5.4: part of it came in the first attach's replay, so it ran before this launch (else only a reconnect's).
+    pub turn_before_launch: bool,
     /// v0.5.2 (user session v0.5.1-new: after `/panic` and `/resume` the status bar kept the dropped
     /// body's id): the kernel's last `state` frame is from before a panic, a resume or a kernel restart,
     /// so its body id is not shown until a fresh `state` frame or a kernel `/status` line says which
@@ -1329,6 +1351,9 @@ pub struct Info {
 
 /// v0.5.2: the cost of a turn that ran before this TUI attached (it is in the Root's total).
 pub const REPLAYED_COST: &str = "$? before this launch";
+/// v0.5.4 (the release review): the cost of a turn that came only in a reconnect's replay: it ran during this launch,
+/// while this TUI was disconnected (a Root restart, a dropped socket), not before it.
+pub const RECONNECT_COST: &str = "$? while disconnected";
 
 /// TUI-FIX (v0.5.1 user session: "/usage: evolution checks today $0.00" while the gate's probes were
 /// two thirds of the bill). The Root does not split its ledger by purpose yet (Root requirement in
@@ -1372,13 +1397,16 @@ impl Default for Info {
             agent: crate::app::DEFAULT_AGENT.to_string(),
             turn: Tally::default(),
             session: Tally::default(),
+            replayed: Tally::default(),
             turn_start_musd: None,
             turn_end_musd: None,
             turn_closing: false,
             turn_gate: false,
             gate_spending: false,
             replaying: false,
+            replay_reconnect: false,
             turn_replayed: false,
+            turn_before_launch: false,
             body_stale: false,
             kernel_inst: None,
             gates: GateSpend::default(),
@@ -1560,6 +1588,7 @@ impl Info {
         self.turn_closing = false;
         self.turn_gate = self.gate_spending;
         self.turn_replayed = self.replaying;
+        self.turn_before_launch = self.replaying && !self.replay_reconnect;
     }
 
     /// An owner line reached the kernel: a new turn unless it steers the running one.
@@ -1576,8 +1605,10 @@ impl Info {
             self.turn_start_musd = self.spent();
         }
         self.turn_replayed |= self.replaying;
+        self.turn_before_launch |= self.replaying && !self.replay_reconnect;
         self.turn.add(&u);
-        self.session.add(&u);
+        // v0.5.4: a reconnect's replay ran during this launch, so its requests are this TUI's
+        if self.replaying && !self.replay_reconnect { self.replayed.add(&u) } else { self.session.add(&u) }
         Some(u)
     }
 
@@ -1598,11 +1629,12 @@ impl Info {
     /// replay) was `$0.000`, as the ledger did not move while it was replayed: its cost is not known
     /// here, and says so (`$? before this launch`; `≥$0.002` when part of it ran since).
     pub fn turn_cost(&self) -> String {
+        let unseen = if self.turn_before_launch { REPLAYED_COST } else { RECONNECT_COST };
         let cost = match (self.turn_musd(), self.turn_replayed) {
-            (None, true) => REPLAYED_COST.into(),
+            (None, true) => unseen.into(),
             (None, false) => "$?".into(),
             (Some(m), true) if m > 0 => format!("≥{}", crate::render::usd(m)),
-            (Some(_), true) => REPLAYED_COST.into(),
+            (Some(_), true) => unseen.into(),
             (Some(m), false) => crate::render::usd(m),
         };
         if self.turn_gate { format!("{cost} incl. checks") } else { cost }
@@ -1833,7 +1865,7 @@ mod tests {
         let mut b = d(DisplayKind::Text, "x");
         b.boot_seq = Some(2);
         t.display(&b, now, 0);
-        assert!(t.blocks.iter().any(|b| matches!(&b.kind, Kind::Divider(s) if s == "body restarted (boot 2)")));
+        assert!(t.blocks.iter().any(|b| matches!(&b.kind, Kind::Divider(s) if s == "body restarted (body start 2)")));
     }
 
     fn tool_d(kind: DisplayKind, id: &str, name: &str, text: &str, ok: Option<bool>) -> Display {

@@ -1,0 +1,123 @@
+{
+ "cap_musd": 2200000,
+ "checks": {
+  "budget": {
+   "detail": "goal G-000002 usd=2.200000; Root spend since start 704950 \u00b5USD (settled); stopped: no",
+   "pass": true
+  },
+  "cache": {
+   "detail": "cache read per request (Root ledger): [5669, 5858, 6011, None, 6235]",
+   "pass": true
+  },
+  "cost": {
+   "detail": "ledger 6326 \u00b5USD vs provider usage at list price 6326 \u00b5USD: +0.0 %; cache writes 586 tokens; not compared: 1 cut request(s) the ledger charged 698624 \u00b5USD",
+   "pass": true
+  },
+  "pause_resume": {
+   "detail": "interrupt after 2850 ms; 'paused' shown: True; idle 41 ms after; resume reply 139 chars; provider errors: none",
+   "pass": true
+  },
+  "streaming": {
+   "detail": "79 text deltas, first after 1857 ms, turn 2437 ms",
+   "pass": true
+  },
+  "tokens": {
+   "detail": "4 completed requests in the ledger, 4 in the session log; (input, cache read, cache write, output) equal",
+   "pass": true
+  },
+  "tool_round_trip": {
+   "detail": "1 tool call(s) ran; reply has the digest e40d1a727f8c9440",
+   "pass": true
+  }
+ },
+ "model": "gpt-6.1-sol",
+ "pass": true,
+ "provider": "openai",
+ "reference_price_musd_per_mtok": {
+  "cache_read": 100000,
+  "cache_write": 2500000,
+  "cache_write_1h": 2500000,
+  "input": 2000000,
+  "output": 10000000
+ },
+ "requests": 5,
+ "spent_musd": 704950,
+ "steps": {
+  "goal_stop": {
+   "notices": [
+    "[root] goal G-000002: stop"
+   ]
+  },
+  "pause": {
+   "busy": true,
+   "first_text_ms": 2850,
+   "idle": true,
+   "idle_after_interrupt_ms": 41,
+   "infos": [
+    "paused \u00b7 type to continue, or say what to do instead"
+   ],
+   "interrupted_after_ms": 2850,
+   "notices": [],
+   "reply": "1. Rust is a stat",
+   "say": "Do not use any tool. Write a numbered list of 120 short, different facts about the Rust programming ",
+   "t0_ms": 1793364645118,
+   "t1_ms": 1793364648009,
+   "tools": [],
+   "wall_ms": 2891
+  },
+  "resume": {
+   "busy": true,
+   "first_text_ms": 4150,
+   "idle": true,
+   "infos": [],
+   "notices": [],
+   "reply": "2. Rust uses ownership to manage memory.\n3. Cargo is Rust\u2019s build tool and package manager.\n4. Rust supports pattern matching with `match`.",
+   "say": "Please continue, but write only three more items of that list, then stop.",
+   "t0_ms": 1793364649013,
+   "t1_ms": 1793364653751,
+   "tools": [],
+   "wall_ms": 4739
+  },
+  "stream": {
+   "busy": true,
+   "first_text_ms": 1857,
+   "idle": true,
+   "infos": [],
+   "notices": [],
+   "reply": "1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40",
+   "say": "Reply in plain text and do not use any tool: write the whole numbers from 1 to 40 in order, separate",
+   "t0_ms": 1793364635355,
+   "t1_ms": 1793364637790,
+   "tools": [],
+   "wall_ms": 2437
+  },
+  "tool": {
+   "busy": true,
+   "first_text_ms": 6991,
+   "idle": true,
+   "infos": [],
+   "notices": [],
+   "reply": "e40d1a727f8c9440",
+   "say": "Use your bash tool to run exactly this command, unchanged: `printf %s qualify-41f0dc7102f1d4fc | { s",
+   "t0_ms": 1793364637790,
+   "t1_ms": 1793364645118,
+   "tools": [
+    [
+     "tool_start",
+     "printf %s qualify-41f0dc7102f1d4fc | { sha256sum 2>/dev/null || shasum -a 256; }"
+    ],
+    [
+     "tool_end",
+     "exit 0, 1 line"
+    ]
+   ],
+   "wall_ms": 7331
+  }
+ },
+ "stopped": null,
+ "v": 1,
+ "window_utc": [
+  "2026-10-30T12:50:24",
+  "2026-10-30T12:50:57"
+ ]
+}

@@ -138,3 +138,46 @@ fn promote_and_rollback_through_kernel_serve_jobs() {
     assert_eq!(sup.0.lock().unwrap().as_slice(), ["t true".to_string()]);
     let _ = std::fs::remove_dir_all(&h);
 }
+
+/// v0.5.4 (lane K, user session v0.5.4 A): the cold start marks unfinished jobs `failed`, `kernel_restart`; init-kernel's
+/// serve.rs then sends the owner a `gate_stopped` event for each gate job that ended so (`supervisor::restart_event` over
+/// `recovered()`, after the kernel-upgrade recovery). A kernel swap's job that `resume_kernel_swap` reattached is not
+/// stopped, so it gets none; a job that was already finished gets none either.
+#[test]
+fn a_cold_start_stops_gate_jobs_but_not_a_reattached_kernel_swap() {
+    let _wd = init_testkit::watchdog::arm("a_cold_start_stops_gate_jobs_but_not_a_reattached_kernel_swap", WD);
+    let d = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../target/test-homes/w8b/restart-ev");
+    let _ = std::fs::remove_dir_all(&d);
+    std::fs::create_dir_all(&d).unwrap();
+    let cfg = JobConfig { flush_timeout: Duration::from_millis(100), ..JobConfig::default() };
+    let lane = LaneCtx::live();
+    let (sha, ksha) = ("06be87a1234567890abc".to_string(), "a".repeat(40));
+    {
+        let (store, _) = JobStore::open(&d, cfg).unwrap();
+        // a promote in its dependency build, an asynchronous G4, a kernel upgrade awaiting its swap, and a finished gate
+        let p = store.create(&lane, "promote", json!({"ref": "evo/x"})).unwrap();
+        p.set_sha(&sha);
+        assert!(p.progress(JobState::Gating, Some(Stage::Build), 10, None, "deps+G0: building the dependencies"));
+        let g4 = store.create(&lane, "g4", json!({"sha": "1111222233334444", "promote_job": "j-000000"})).unwrap();
+        assert!(g4.progress(JobState::Gating, Some(Stage::G4), 10, None, "G4"));
+        let k = store.create(&lane, "kernel.promote", json!({"ref": "kevo/x"})).unwrap();
+        k.set_sha(&ksha);
+        assert!(k.progress(JobState::AwaitingSwap, Some(Stage::Prepare), 90, None, "Root accepted swap"));
+        let done = store.create(&lane, "promote", json!({"ref": "evo/y"})).unwrap();
+        done.succeed_value(json!({}));
+    } // the kernel dies here: nothing ends the four jobs' threads
+    let (store, recovered) = JobStore::open(&d, cfg).unwrap();
+    assert_eq!(recovered, ["j-000001", "j-000002", "j-000003"]);
+    // init-kernel's order: the upgrade recovery reattaches the swap's job, then the events
+    assert!(store.resume_kernel_swap("j-000003", &ksha, Some("s-000001")).is_some());
+    let events: Vec<Value> = recovered.iter().filter_map(|j| store.record(j)).filter_map(|r| kernel_supervise::supervisor::restart_event(&r, Some("3f9c0a1b2c4d5e6f"))).collect();
+    assert_eq!(events, [
+        json!({"gate_id": "j-000001", "gate_kind": "promote", "live": false, "reason": "kernel_restart", "sha": sha, "stage": "build"}),
+        json!({"gate_id": "j-000002", "gate_kind": "g4", "live": false, "reason": "kernel_restart", "sha": "1111222233334444", "stage": "G4"}),
+    ]);
+    // the owner's frame data, as the supervisor's `owner_event` sends it
+    let (_, text, data) = kernel_supervise::supervisor::owner_notice_view("gate_stopped", &events[0], &Value::Null);
+    assert_eq!(data["kind"], "gate_stopped");
+    assert!(text.starts_with("[kernel] the checks of self-change 06be87a12345 (j-000001) stopped when the kernel restarted"), "{text}");
+    let _ = std::fs::remove_dir_all(&d);
+}

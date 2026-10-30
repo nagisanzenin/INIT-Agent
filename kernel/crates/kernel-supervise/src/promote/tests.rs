@@ -306,6 +306,8 @@ fn deps_cache_stub_then_warm_hit_then_corrupt_falls_back() {
     let slot = BuildSlot::configured(&e.home, &e.cfg.supervise);
     let cache = DepsCache::new(&e.home);
     let log = e.home.join("state/kernel/gate/j-1/build.log");
+    // v0.5.4 (lane K): the job's progress steps prepare_deps reports
+    let steps: Mutex<Vec<String>> = Mutex::new(Vec::new());
     // Export `sha` (optionally making its vendor/ look newer), prepare the deps, build the candidate.
     let round = |sha: &str, newer_vendor: bool| {
         slot.reset().unwrap();
@@ -316,7 +318,7 @@ fn deps_cache_stub_then_warm_hit_then_corrupt_falls_back() {
                 std::fs::File::options().write(true).open(slot.src().join(f)).unwrap().set_modified(t).unwrap();
             }
         }
-        let prep = stages::prepare_deps(&e, &slot, &git, sha, "j-1", crate::build::SLOT_EPOCH_S).unwrap();
+        let prep = stages::prepare_deps(&e, &slot, &git, sha, "j-1", crate::build::SLOT_EPOCH_S, &|stage, _, msg| steps.lock().unwrap().push(format!("{stage} {msg}"))).unwrap();
         let b = slot.run_build(e.spawner.as_ref(), &slot.build_request(crate::build::SLOT_EPOCH_S, &e.cfg.sandbox), prep.mode != "cold", &log);
         let text = std::fs::read_to_string(&log).unwrap_or_default();
         assert!(b.ok, "{b:?}\n{text}\n{prep:?}");
@@ -334,6 +336,8 @@ fn deps_cache_stub_then_warm_hit_then_corrupt_falls_back() {
     assert!(cache.lookup(&key).is_none(), "nothing is published before G0 passes");
     // v0.5.2 (R-TUI): the owner hears that the dependency build started (the gate track's `deps` step)
     assert_eq!(sup.events.lock().unwrap().as_slice(), ["gate_deps j-1"]);
+    // v0.5.4 (lane K): and the job's record says the dependencies are building, not "queued"
+    assert_eq!(steps.lock().unwrap().as_slice(), [format!("build {}", stages::STEP_DEPS)]);
     assert!(cache.publish(&key, p1.staged.as_deref().unwrap()).unwrap());
     let fps: Vec<String> = std::fs::read_dir(cache.lookup(&key).unwrap().join("debug/.fingerprint")).unwrap().flatten().map(|d| d.file_name().to_string_lossy().into_owned()).collect();
     assert!(fps.iter().any(|f| f.starts_with("tinydep-")) && !fps.iter().any(|f| f.starts_with("init-body-")), "{fps:?}");
@@ -343,6 +347,7 @@ fn deps_cache_stub_then_warm_hit_then_corrupt_falls_back() {
     assert_eq!(out2, "two dep\n");
     assert!(log2.contains("Compiling init-body") && !log2.contains("Compiling tinydep"), "{log2}");
     assert_eq!(sup.events.lock().unwrap().len(), 1, "a warm hit builds no dependencies, so no event");
+    assert_eq!(steps.lock().unwrap().len(), 1, "nor a dependency step");
     // 3. Corrupt entry: rejected, deleted, rebuilt from the stub.
     let rlib = std::fs::read_dir(cache.lookup(&key).unwrap().join("debug/deps")).unwrap().flatten().map(|d| d.path()).find(|p| p.extension().is_some_and(|x| x == "rlib")).unwrap();
     std::fs::write(&rlib, b"poisoned").unwrap();

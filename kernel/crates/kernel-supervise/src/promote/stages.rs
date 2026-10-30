@@ -273,7 +273,18 @@ fn stub_build(env: &Env, slot: &BuildSlot, job: &str, epoch: i64) -> Result<Resu
 /// (or a corrupt entry, which is deleted) build the stub in the slot and stage its target as
 /// `<key>.tmp`. Anything that goes wrong leaves an empty target: a cold build. `Err` only when the
 /// export could not be restored.
-pub fn prepare_deps(env: &Env, slot: &BuildSlot, git: &Git, sha: &str, job: &str, epoch: i64) -> Result<DepsPrep, String> {
+/// v0.5.4 (lane K): the gate's step within `build` and `G0`, for the job's progress (`stage`, `pct`, `msg`), so the job
+/// record says what runs: the dependency build, the body build, G0's tests. A no-op where nothing tracks it.
+pub type Steps<'a> = &'a dyn Fn(Stage, u8, &str);
+
+/// What the job's progress says while the dependencies build (a cache miss): the TUI's `deps+G0`.
+pub const STEP_DEPS: &str = "deps+G0: building the dependencies (not cached yet: 15–21 min on a busy M2, once)";
+/// The body build, after the dependencies (built now or from the cache).
+pub const STEP_BODY: &str = "deps+G0: building the body";
+/// G0's own checks.
+pub const STEP_G0: &str = "G0: the body's tests and clippy";
+
+pub fn prepare_deps(env: &Env, slot: &BuildSlot, git: &Git, sha: &str, job: &str, epoch: i64, step: Steps<'_>) -> Result<DepsPrep, String> {
     let t0 = Instant::now();
     let cache = DepsCache::new(&env.home);
     let mut note = String::new();
@@ -306,6 +317,7 @@ pub fn prepare_deps(env: &Env, slot: &BuildSlot, git: &Git, sha: &str, job: &str
     // estimate, while it runs (a cold one took 15-21 min on a busy M2, docs/guide.md "Time"; it read
     // as G0 "waited" before)
     env.sup.owner_event("gate_deps", json!({"gate_id": job, "sha": sha}));
+    step(Stage::Build, 10, STEP_DEPS);
     match stub_build(env, slot, job, epoch)? {
         Ok(n) => note.push_str(&n),
         Err(e) => {
@@ -329,13 +341,18 @@ pub fn prepare_deps(env: &Env, slot: &BuildSlot, git: &Git, sha: &str, job: &str
 /// `advisory`: ADR-011 A1 on the free path, clippy and the body's tests do not fail G0; their
 /// failures are in the record's `advisory` list and steps (A3 reads the `test` step).
 pub fn build_and_g0(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Path, advisory: bool) -> Result<Built, StageFail> {
-    build_and_g0_until(env, job, sha, parent, out_dir, advisory, &AtomicBool::new(false))
+    build_and_g0_until(env, job, sha, parent, out_dir, advisory, &AtomicBool::new(false), &|_, _, _| {})
+}
+
+/// [`build_and_g0`] that reports its steps ([`Steps`]): the promote pipeline's job.
+pub fn build_and_g0_steps(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Path, advisory: bool, step: Steps<'_>) -> Result<Built, StageFail> {
+    build_and_g0_until(env, job, sha, parent, out_dir, advisory, &AtomicBool::new(false), step)
 }
 
 /// [`build_and_g0`] that stops when `stop` is set: the body build is killed through the Root
 /// ([`StopSpawner`]) and G0 runs no further command ([`StopG0`]). A3 uses it (F7).
 #[allow(clippy::too_many_arguments)]
-fn build_and_g0_until(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Path, advisory: bool, stop: &AtomicBool) -> Result<Built, StageFail> {
+fn build_and_g0_until(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &Path, advisory: bool, stop: &AtomicBool, step: Steps<'_>) -> Result<Built, StageFail> {
     let git = env.git();
     let slot = BuildSlot::configured(&env.home, &env.cfg.supervise);
     let t0 = Instant::now();
@@ -345,7 +362,8 @@ fn build_and_g0_until(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &P
     // A fixed SOURCE_DATE_EPOCH, not the commit's time (build::SLOT_EPOCH_S): cc's build scripts
     // track it, so a per-commit value would rebuild wasmtime on every promote.
     let epoch = crate::build::SLOT_EPOCH_S;
-    let deps = prepare_deps(env, &slot, &git, sha, job, epoch).map_err(|e| fail("gate.build.failed", e))?;
+    let deps = prepare_deps(env, &slot, &git, sha, job, epoch, step).map_err(|e| fail("gate.build.failed", e))?;
+    step(Stage::Build, 20, STEP_BODY);
     let warm = deps.mode != "cold";
     let cache = DepsCache::new(&env.home);
     let discard = || {
@@ -366,6 +384,7 @@ fn build_and_g0_until(env: &Env, job: &str, sha: &str, parent: &str, out_dir: &P
     }
     let build_ms = t0.elapsed().as_millis() as u64;
     // G0.
+    step(Stage::G0, 30, STEP_G0);
     let spec_env = g0_env_spec(env, &slot, epoch);
     let mut spec = kernel_gate::g0::G0Spec::new(slot.src(), spec_env, job_vault(env, job).join("g0"));
     spec.total_timeout = Duration::from_secs(env.gate.g0_timeout_s);
@@ -758,7 +777,7 @@ fn g3_until(env: &Env, job: &str, cand: &Candidate, cand_built: &Built, cand_pre
         let t_inner = Instant::now();
         let stopped = || if stop.load(Ordering::SeqCst) { Err(fail("stopped", "the change was rolled back while its G3 ran".into())) } else { Ok(()) };
         stopped()?;
-        let built = build_and_g0_until(env, &inner_job, &c3, &cand.sha, &inner_out, false, stop).map_err(|f| fail("inner_g0", format!("{}: {}", f.code, f.detail)))?;
+        let built = build_and_g0_until(env, &inner_job, &c3, &cand.sha, &inner_out, false, stop, &|_, _, _| {}).map_err(|f| fail("inner_g0", format!("{}: {}", f.code, f.detail)))?;
         stopped()?;
         let build = Duration::from_millis(built.record["build_ms"].as_u64().unwrap_or(0));
         let g1o = g1(env, &inner_job, &BuildSlot::new(&env.home).src(), &built, &v, &cand.sha).map_err(|f| fail("inner_g1", format!("{}: {}", f.code, f.detail)))?;

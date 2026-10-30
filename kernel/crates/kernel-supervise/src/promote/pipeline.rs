@@ -109,7 +109,7 @@ pub fn promote(env: Arc<Env>, args: &PromoteArgs, job: Arc<dyn Job>) -> Result<V
             return Err(e);
         }
     };
-    job.progress(JobState::Gating, Some(Stage::Build), 0, "queued");
+    job.progress(JobState::Gating, Some(Stage::Build), 0, "queued for the build slot");
     let sha = f.sha.clone();
     let env2 = env.clone();
     std::thread::Builder::new()
@@ -183,9 +183,11 @@ fn g0_to_g3(env: &Env, job: &dyn Job, rec: &mut Record, sha: &str, running: &str
     let jid = job.id();
     let _slot = env.slot_lock.lock().unwrap_or_else(|e| e.into_inner());
     let t = Instant::now();
-    job.progress(JobState::Gating, Some(Stage::Build), 5, "export and build");
+    job.progress(JobState::Gating, Some(Stage::Build), 5, "deps+G0: exporting the candidate");
     // ADR-011 A1: on the free path clippy and the body's tests are advisory (A3 may veto later).
-    let built = stages::build_and_g0(env, &jid, sha, running, &job_cache(env, &jid), env.free_link().is_some());
+    // v0.5.4 (lane K): the job's progress follows the build's steps (the dependencies, the body, G0's tests).
+    let step = |stage: Stage, pct: u8, msg: &str| job.progress(JobState::Gating, Some(stage), pct, msg);
+    let built = stages::build_and_g0_steps(env, &jid, sha, running, &job_cache(env, &jid), env.free_link().is_some(), &step);
     let built = match built {
         Ok(b) => b,
         Err(f) => {

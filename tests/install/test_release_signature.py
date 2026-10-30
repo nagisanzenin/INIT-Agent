@@ -94,7 +94,7 @@ class FreshInstall(unittest.TestCase):
     def again(self, flag):
         """The line get.sh prints to run this again with `flag`: this run's homes (a scratch HOME, so INIT_ROOT_HOME
         too) and its arguments (get() passes --unpack-only)."""
-        return ("/usr/bin/curl -q -fsSL https://dist.invalid/rel/get.sh | INIT_ROOT_HOME=%s INIT_APP_DIR=%s /bin/sh -s -- "
+        return ("/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | INIT_ROOT_HOME=%s INIT_APP_DIR=%s /bin/bash -p -s -- "
                 "--unpack-only %s" % (shq(os.path.join(self.tmp, ".init-root")), shq(self.app), flag))
 
     def unpacked(self):
@@ -185,7 +185,7 @@ class FreshInstall(unittest.TestCase):
 
     def test_the_line_with_the_flag_keeps_this_runs_arguments_and_homes(self):
         # the release review of v0.5.3: `--version 0.5.2 -- --no-service` with the three homes set was offered
-        # `curl …/latest/download/get.sh | /bin/sh -s -- --allow-unsigned`: the latest release, the service, the
+        # `curl …/latest/download/get.sh | /bin/bash -p -s -- --allow-unsigned`: the latest release, the service, the
         # default homes. The line keeps the run's arguments and homes, and run as printed it installs what was asked.
         report = os.path.join(self.tmp, "install-run.txt")
         stub = ('#!/bin/sh\nprintf "args=%%s|rh=%%s|ih=%%s|bin=%%s\\n" "$*" "${INIT_ROOT_HOME-unset}" "${INIT_HOME-unset}" '
@@ -203,8 +203,8 @@ class FreshInstall(unittest.TestCase):
         p = subprocess.run(["/bin/sh", self.get_sh, *args], env=env, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
         self.refused(p, "this release (INIT 9.9.6-test) is not signed")
         line = p.stderr.splitlines()[-1].strip()
-        head = "/usr/bin/curl -q -fsSL https://dist.invalid/rel/latest/download/get.sh | "
-        self.assertEqual(line, head + "INIT_ROOT_HOME=%s INIT_HOME=%s INIT_BIN_DIR=%s INIT_APP_DIR=%s /bin/sh -s -- --version 9.9.6-test "
+        head = "/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | "
+        self.assertEqual(line, head + "INIT_ROOT_HOME=%s INIT_HOME=%s INIT_BIN_DIR=%s INIT_APP_DIR=%s /bin/bash -p -s -- --version 9.9.6-test "
                          "--no-rust --allow-unsigned -- --no-service --disk-floor 5"
                          % (shq(homes["INIT_ROOT_HOME"]), shq(homes["INIT_HOME"]), shq(homes["INIT_BIN_DIR"]), shq(self.app)))
         # as printed, in a new terminal: no homes in its environment, this get.sh in place of the download
@@ -325,13 +325,13 @@ class Upgrade(unittest.TestCase):
         base = {"PATH": "/usr/bin:/bin", "LANG": "C", "HOME": self.tmp, "UPGRADE": "1", "RH": self.rh, "TMP": self.work,
                 "TGZ": os.path.join(self.work, self.name), "FILE": self.name, "HAVE": have, "ALLOW_EXPIRED": "0",
                 "RELEASE_KEYS": self.pub1, "OS": os.uname().sysname, "UNPACK_ONLY": "0", "BIN_DIR": os.path.join(self.tmp, ".local", "bin"),
-                "DIST_URL": "https://dist.invalid/rel/latest/download", "DIST0": "https://dist.invalid/rel/latest/download",
+                "DIST_URL": "https://dist.invalid/rel/latest/download", "GET_URL": "https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh",
                 "RISK_UNSIGNED": "RISK", "SIGNED": "", "SUMSHA": "", "EXP": "", "BY": "", "KEYFP": "", "STUB_LOG": self.log}
         base.update(env)
         return base
 
     def agent_line(self, flag):
-        return "INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade %s" % (shq(self.rh), flag)
+        return '/usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade %s' % (shq(self.rh), flag)
 
     # ---------------------------------------------------------------- with a stand-in Root: get.sh's handling
     KEYS = '{"keys":[{"fingerprint":"SHA256:abc"}],"namespace":"init-release"}'
@@ -396,8 +396,8 @@ class Upgrade(unittest.TestCase):
         self.signed("0.5.4-preview", PAST)
         p = self.call("sig_by_root || sig_by_ssh", have="0.5.2")
         self.assertIn("expired on %s" % PAST, p.stderr)
-        self.assertIn("add --allow-expired:\n  /usr/bin/curl -q -fsSL https://dist.invalid/rel/latest/download/get.sh | "
-                      "INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade --allow-expired" % shq(self.rh), p.stderr, "0.5.2: the pipe")
+        self.assertIn("add --allow-expired:\n  /usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | "
+                      "INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade --allow-expired" % shq(self.rh), p.stderr, "0.5.2: the pipe")
 
     def test_the_upgrade_lines_keep_this_runs_arguments(self):
         # the release review of v0.5.3: the line with the flag dropped the run's arguments on an upgrade too. Its block
@@ -407,7 +407,7 @@ class Upgrade(unittest.TestCase):
         src = functions(signing.GET, *GET_FNS) + "\n" + block + "again --allow-unsigned"
         tag = "https://dist.invalid/rel/download/v0.5.4-preview"  # where --version pointed DIST_URL
         url, hexd = "https://dist.invalid/m/init-v0.5.4-preview-%s.tar.gz" % TARGET, "ab" * 32
-        argv = dict(RELEASE="0.5.4", FROM=url, WANT=hexd, NO_RUST="0", ALLOW_UNSIGNED="0", ALLOW_EXPIRED="1", DIST_URL=tag)
+        argv = dict(RELEASE="0.5.4", FROM=url, WANT=hexd, NO_RUST="0", NO_MODIFY_PATH="0", ALLOW_UNSIGNED="0", ALLOW_EXPIRED="1", DIST_URL=tag)
         line = lambda have, **env: subprocess.run(["/bin/sh", "-c", src, "get.sh", "--probe-timeout", "300"],
                                                   env=self.env(have, **argv, **env), capture_output=True, text=True,
                                                   timeout=60).stdout
@@ -429,15 +429,15 @@ class Upgrade(unittest.TestCase):
                            capture_output=True, text=True, timeout=60)
         self.assertEqual((r.returncode, read(out).splitlines()), (0, want), r.stderr)
         # before 0.5.3: the get.sh this run came from (not the --version tag's), piped
-        head = "/usr/bin/curl -q -fsSL https://dist.invalid/rel/latest/download/get.sh | "
+        head = "/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | "
         pipe = line("0.5.2")
-        self.assertEqual(pipe, head + "INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade %s" % (shq(self.rh), given % "--from"))
+        self.assertEqual(pipe, head + "INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade %s" % (shq(self.rh), given % "--from"))
         os.remove(out)
         r = subprocess.run(["/bin/sh", "-c", "printf '%%s' %s | %s" % (shq(record), pipe[len(head):])],
                            env={"PATH": "/usr/bin:/bin", "HOME": self.tmp}, capture_output=True, text=True, timeout=60)
         self.assertEqual((r.returncode, read(out).splitlines()), (0, want), r.stderr)
         # --unpack-only, which init-agent upgrade does not take: the pipe
-        self.assertEqual(line("0.5.3", UNPACK_ONLY="1"), head + "INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade %s" % (
+        self.assertEqual(line("0.5.3", UNPACK_ONLY="1"), head + "INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade %s" % (
             shq(self.rh), (given % "--from").replace(" --allow-expired", " --unpack-only --allow-expired")))
 
     def test_only_the_installed_version_string_is_current(self):

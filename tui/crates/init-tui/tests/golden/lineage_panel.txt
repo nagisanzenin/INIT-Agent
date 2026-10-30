@@ -3,7 +3,7 @@
   asking the Root…                                                                                  |dddddddddddddddddd                                                                                  
 -- verify ok
 ── lineage (signed by the Root) · newest 7 of 412: seq 405–411                                      |llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
-  verify ✓ 412 records (seq 0–411) · every signature · head 411 #0a1b2c3d4e5f · key 3f9c0a1b2c4d5e6f|..ppppppppdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddmmmmmmmmmmmmmmmmmmmmmmm
+  verify ✓ 412 records (seq 0–411) · every signature · head 411 #0a1b2c3d4e5f · key fingerprint 3f9…|..ppppppppdddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddmmmmmmmmmmmmmmmmmmmmmmd
      405 gate          accept g0_g3 06be87a12345                                kernel #a1b2c3d4e5f6|mmmmmmmmm..............ppppppppppppppppppppppppp...............................mmmmmmmmmmmmmmmmmmmmm
      406 promotion     live, provisional 06be87a12345                           kernel #b2c3d4e5f6a1|mmmmmmmmm..............dddddddddddddddddddddddddddddd..........................mmmmmmmmmmmmmmmmmmmmm
      407 gate          reject probe_exit 77aa00bb11cc                           kernel #c3d4e5f6a1b2|mmmmmmmmm..............hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh..........................mmmmmmmmmmmmmmmmmmmmm
@@ -13,7 +13,7 @@
      411 turns␛[2J                                                                root #0a1b2c3d4e5f|mmmmmmmmm.....d..................................................................mmmmmmmmmmmmmmmmmmm
 -- verify failed
 ── lineage (signed by the Root) · newest 7 of 412: seq 405–411                                      |llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
-  verify ✕ at seq 407: 4: hash does not recompute · key 3f9c0a1b2c4d5e6f                            |..hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhmmmmmmmmmmmmmmmmmmmmmmm                            
+  verify ✕ at seq 407: 4: hash does not recompute · key fingerprint 3f9c0a1b2c4d5e6f                |..hhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhhmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmmm                
      405 gate          accept g0_g3 06be87a12345                                kernel #a1b2c3d4e5f6|mmmmmmmmm..............ppppppppppppppppppppppppp...............................mmmmmmmmmmmmmmmmmmmmm
      406 promotion     live, provisional 06be87a12345                           kernel #b2c3d4e5f6a1|mmmmmmmmm..............dddddddddddddddddddddddddddddd..........................mmmmmmmmmmmmmmmmmmmmm
      407 gate          reject probe_exit 77aa00bb11cc                           kernel #c3d4e5f6a1b2|mmmmmmmmm..............hhhhhhhhhhhhhhhhhhhhhhhhhhhhhh..........................mmmmmmmmmmmmmmmmmmmmm

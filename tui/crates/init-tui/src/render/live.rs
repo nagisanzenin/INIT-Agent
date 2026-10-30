@@ -55,6 +55,12 @@ fn wrapped(text: &str, prefix: &str, style: Style, pstyle: Style, width: usize) 
 
 /// v0.5.2: what replay frames are timed as (they all arrive at once on attach).
 pub const BEFORE_LAUNCH: &str = "before this launch";
+/// v0.5.4 (the release review): a reconnect's replay ran during this launch, while this TUI was disconnected.
+pub const WHILE_DISCONNECTED: &str = "while disconnected";
+
+fn unseen(reconnect: bool) -> &'static str {
+    if reconnect { WHILE_DISCONNECTED } else { BEFORE_LAUNCH }
+}
 
 /// ` · 0.4 s`, or nothing for a call that came in the attach replay (its time is not known here).
 fn took(t: &Tool, d: Option<Duration>) -> String {
@@ -111,8 +117,11 @@ fn first_line(s: &str) -> String {
 /// v0.5.2 (user sessions v0.5.1: `/details` "in full" showed only `call: set -eu…`): what the
 /// details say when the agent sent less than all of a call. The body's preview of a call is its first
 /// lines (`…` marks the cut); its output comes as `detail`: the last lines, for a failure and for a
-/// shell command that ran.
-pub const CALL_CUT: &str = "(the agent's preview: the first lines of the call only)";
+/// shell command that ran. v0.5.4 (user session v0.5.3-new, finding 2: the keys screen said "print it in full"):
+/// it says where the whole call is, the agent's session log, which holds each call's input under its call_id.
+pub const CALL_CUT: &str =
+    "(the agent's preview: the first lines of the call only; the whole call is in the agent's session log, INIT_HOME/state/sessions/ \
+     (~/.init/state/sessions/ by default), under its call_id)";
 pub const NO_OUTPUT: &str = "none sent (this agent's version sends output only for a failure)";
 
 /// A tool call expanded (transcript view, §3.6).
@@ -131,7 +140,7 @@ fn tool_expanded(t: &Tool, width: usize, now: Instant, spin: usize) -> Vec<Line>
     };
     rows.extend(field("result", &format!("{ok} · {}", t.summary.as_deref().unwrap_or("")), Style::PLAIN));
     let d = t.dur.map_or_else(|| format!("{} so far", crate::time::dur(now.duration_since(t.started))), crate::time::dur);
-    let time = if t.replayed { format!("{BEFORE_LAUNCH} (not known here)") } else { format!("started {} · {d}", crate::time::utc_hms(t.start_ms)) };
+    let time = if t.replayed { format!("{} (not known here)", unseen(t.reconnect)) } else { format!("started {} · {d}", crate::time::utc_hms(t.start_ms)) };
     rows.extend(field("time", &time, Style::PLAIN));
     match &t.detail {
         // v0.5.2: a successful call's output too, when the agent sent it (its last lines)
@@ -154,10 +163,39 @@ pub const KEEP_DONE: usize = 3;
 pub const FAIL_TAIL: usize = 10;
 pub const FAIL_TAIL_LIVE: usize = 3;
 
+/// v0.5.4 (user session: the agent said "the output is above" over a bare `✓ exit 0, 3 lines`): a call that
+/// worked and printed at most this many lines shows them under its own row, as a failure's tail does.
+pub const SHORT_OUTPUT: usize = 3;
+
 /// TUI-OBSERVE: under a failed call, the last lines of its output (`detail`, §3.6), so "the output
 /// above says why" is true on screen. Nothing for a call that succeeded or sent no detail.
 pub fn fail_tail(t: &Tool, width: usize, indent_by: usize, max: usize) -> Vec<Line> {
     let Some(d) = t.detail.as_deref().filter(|_| t.failed()) else { return Vec::new() };
+    tail_rows(d, width, indent_by, max)
+}
+
+/// v0.5.4: under a single call that worked, its whole output when it is [`SHORT_OUTPUT`] lines or fewer, so
+/// "the output is above" is true on screen for a short one too. Nothing for a longer output (Ctrl-O has it).
+/// v0.5.4 (lane K, review 7): the body's `detail` is the output's last lines, at most 2,000 bytes (seed tools/mod.rs
+/// `DETAIL_MAX`), and no frame field says it was cut: 200-character lines of 4-byte text fit only 2. So a short detail
+/// under a summary that counts more lines (`exit 0, 12 lines`) is a tail, and shows nothing inline (Ctrl-O has it).
+pub fn short_output(t: &Tool, width: usize, indent_by: usize) -> Vec<Line> {
+    match t.detail.as_deref() {
+        Some(d) if t.ok == Some(true) && d.lines().count() <= SHORT_OUTPUT && !summary_lines(t.summary.as_deref()).is_some_and(|n| n > d.lines().count()) => {
+            tail_rows(d, width, indent_by, SHORT_OUTPUT)
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// The output's line count in a shell call's summary, `exit 0, 12 lines` (seed tools/bash.rs), or None.
+fn summary_lines(s: Option<&str>) -> Option<usize> {
+    let (n, rest) = s?.strip_prefix("exit ")?.split_once(", ")?.1.split_once(' ')?;
+    rest.starts_with("line").then(|| n.parse().ok()).flatten()
+}
+
+/// The last `max` lines of `d`, dim behind a `│` rule.
+fn tail_rows(d: &str, width: usize, indent_by: usize, max: usize) -> Vec<Line> {
     let lines: Vec<&str> = d.lines().collect();
     let skip = lines.len().saturating_sub(max);
     lines[skip..]
@@ -314,7 +352,7 @@ fn activity_summary(a: &Activity, width: usize) -> Line {
     let c = a.counts();
     let mut left = Line::from_span("◇ ", Style::mute());
     let s = if c.calls == 1 { "" } else { "s" };
-    let when = if a.replayed { BEFORE_LAUNCH.to_string() } else { format!("in {}", crate::time::elapsed(a.frozen.unwrap_or_default())) };
+    let when = if a.replayed { unseen(a.reconnect).to_string() } else { format!("in {}", crate::time::elapsed(a.frozen.unwrap_or_default())) };
     left.push(format!("ran {} tool{s} {when}", c.calls), Style::PLAIN);
     let names: Vec<String> = a.names().into_iter().map(|(n, k)| if k > 1 { format!("{n} ×{k}") } else { n }).collect();
     if !names.is_empty() {
@@ -342,7 +380,7 @@ fn activity_full(a: &Activity, width: usize, now: Instant, spin: usize) -> Vec<L
     let c = a.counts();
     let s = if c.calls == 1 { "" } else { "s" };
     let el = a.frozen.map_or_else(|| format!("{} so far", crate::time::elapsed(now.duration_since(a.started))), crate::time::elapsed);
-    let el = if a.replayed { BEFORE_LAUNCH.to_string() } else { format!("{el} · started {}", crate::time::utc_hms(a.start_ms)) };
+    let el = if a.replayed { unseen(a.reconnect).to_string() } else { format!("{el} · started {}", crate::time::utc_hms(a.start_ms)) };
     head.push(format!("{} tool call{s} · {} failed · {el}", c.calls, c.failed), Style::PLAIN);
     let mut rows = vec![head.truncate(width)];
     let w = width.saturating_sub(2);
@@ -380,6 +418,7 @@ pub fn activity_rows(a: &Activity, width: usize, now: Instant, o: &RowOpts) -> V
         if let [t] = tools.as_slice() {
             let mut rows = vec![tool_row(t, width, now, o.spin)];
             rows.extend(fail_tail(t, width, 2, FAIL_TAIL));
+            rows.extend(short_output(t, width, 2));
             rows.extend(nested(a, t, width, o.spin));
             return rows;
         }

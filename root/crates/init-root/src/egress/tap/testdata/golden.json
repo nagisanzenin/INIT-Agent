@@ -52,7 +52,7 @@
   }
  },
  "anthropic-drift.sse": {
-  "bill_musd": 301182,
+  "bill_musd": 215166,
   "finish": "stop",
   "flags": [
    "price_drift"
@@ -64,10 +64,10 @@
   "req_bytes": 90000,
   "usage": {
    "cache_read": 0,
-   "cache_write_1h": 21504,
    "input": 21507,
    "output": 12,
-   "unknown": 21504
+   "unknown": 21504,
+   "unknown_write": 21504
   }
  },
  "deepseek-cache-hit.sse": {
@@ -145,6 +145,22 @@
    "cache_write": 640,
    "input": 22150,
    "output": 140
+  }
+ },
+ "openai-cache-write-30m.sse": {
+  "bill_musd": 15929,
+  "finish": "stop",
+  "flags": [],
+  "hold_musd": 507680,
+  "list_musd": 15929,
+  "max_out": 32768,
+  "model": "gpt-6.1-sol",
+  "req_bytes": 90000,
+  "usage": {
+   "cache_read": 0,
+   "cache_write": 6001,
+   "input": 6049,
+   "output": 83
   }
  },
  "openai-cache-write.sse": {

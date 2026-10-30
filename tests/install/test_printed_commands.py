@@ -64,6 +64,11 @@ NAMES_THE_PROGRAM = [
 # word). Every other bare `init-agent` is one, and must carry its path. The program's own name before a colon, in its
 # messages (`init-agent: …`, `init-agent upgrade: …`), is not a command either.
 NAMES_INIT_AGENT = [
+    ("install.sh", 'PATH_BEGIN="# >>> INIT: the init-agent command on PATH'),   # v0.5.4: the PATH block's markers
+    ("install.sh", 'PATH_END="# <<< INIT: the init-agent command on PATH'),
+    ("install.sh", "(in a new terminal, init-agent alone:"),                     # what plain init-agent needs: a new terminal
+    ("uninstall.sh", 'PATH_BEGIN="# >>> INIT: the init-agent command on PATH'),
+    ("uninstall.sh", 'PATH_END="# <<< INIT: the init-agent command on PATH'),
     ("install.sh", 'WHY="0.4.1 has no init-agent upgrade"'),            # why the safe line: no such subcommand
     ("install.sh", "0.5.0's own init-agent upgrade runs"),
     ("install.sh", "(from 0.4.1 or 0.5.0, init-agent upgrade does not apply:"),
@@ -404,8 +409,9 @@ class PrintedCommands(unittest.TestCase):
                 at = lambda head: next(l for l in lines if l.startswith(head))
                 self.assertTrue(at("Next: ").startswith("Next: ~/.local/bin/init-agent   ("), out)
                 up = at("Upgrade:     ")[len("Upgrade:     "):].split(" (keeps")[0]
-                self.assertEqual(up, env_part + "~/.local/bin/init-agent upgrade", out)
-                self.assertEqual(self.run_printed(up, home), "home=%s|args=upgrade" % (rh if env_part else "unset"))
+                # v0.5.4: this release's launcher upgrades the home baked into it, whatever the environment says
+                self.assertEqual(up, "~/.local/bin/init-agent upgrade", out)
+                self.assertEqual(self.run_printed(up, home), "home=unset|args=upgrade")
                 confine = re.search(r"To confine it: (.*?), /full off", out.replace("\n", " "))
                 self.assertIsNotNone(confine, out)
                 self.assertEqual(confine.group(1), "~/.local/bin/init-agent --workspace")
@@ -439,12 +445,12 @@ class PrintedCommands(unittest.TestCase):
                                 "SHELL": shell, "OS": osname}, **extra)
                     out = self.closing(env)
                     self.assertIn("(%s is not on your PATH; to type just init-agent, add: %s)" % (bin_dir, want), out)
-                    # the step 6 note says the same
-                    note = re.search(r'^case ":\$PATH:" in \*":\$BIN_DIR:"\*\) ;; \*\) say "  note: .*$', read(INSTALL), re.M)
-                    self.assertIsNotNone(note, "install.sh has no step 6 PATH note")
-                    p = subprocess.run(["/bin/bash", "-c", functions(INSTALL, "shq", "tilde", "path_add") + "\nsay() { printf '%s\\n' \"$*\"; }\n"
-                                        + note.group(0)], env=dict(env, PATH="/usr/bin:/bin"), capture_output=True, text=True, timeout=30)
-                    self.assertEqual(p.stdout, "  note: %s is not on your PATH; add it: %s\n" % (bin_dir, want), p.stderr)
+                    # the step 6 note says the same (v0.5.4: with --no-modify-path; without it, step 6 adds the block,
+                    # test_path_block.py)
+                    p = subprocess.run(["/bin/bash", "-c", functions(INSTALL, "shq", "tilde", "path_add", "path_file", "path_line", "path_step")
+                                        + "\nsay() { printf '%s\\n' \"$*\"; }\nNO_MODIFY_PATH=1 path_step"],
+                                       env=dict(env, PATH="/usr/bin:/bin"), capture_output=True, text=True, timeout=30)
+                    self.assertEqual(p.stdout, "  note: %s is not on your PATH (--no-modify-path: left as it is); add it: %s\n" % (bin_dir, want), p.stderr)
                     for f in files:
                         os.remove(os.path.join(home, f))
             # the hint, run as printed, puts the directory on PATH in that shell's new terminals
@@ -520,7 +526,7 @@ class LauncherPrints(unittest.TestCase):
         self.assertIn("is 0.4.1, or its copy was removed", e)
         self.assertNotIn("and earlier", e)
         line = e.splitlines()[-1]
-        self.assertEqual(line, "  /usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade" % (GET_URL, shq(self.rh)))
+        self.assertEqual(line, "  /usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade" % (GET_URL, shq(self.rh)))
         self.assertEqual(run_pipe(self, line.strip(), GET_URL, self.home), "home=%s|args=--upgrade" % self.rh)
 
     def test_the_passwd_home_under_every_bash(self):
@@ -549,7 +555,7 @@ class LauncherPrints(unittest.TestCase):
         e = self.launch("upgrade")
         self.assertIn("INIT is not installed in %s (no install.json there), so there is nothing to upgrade" % self.rh, e)
         line = e.splitlines()[-1]
-        self.assertEqual(line, "  /usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/sh" % (GET_URL, shq(self.rh)))
+        self.assertEqual(line, "  /usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/bash -p" % (GET_URL, shq(self.rh)))
         self.assertEqual(run_pipe(self, line.strip(), GET_URL, self.home), "home=%s|args=" % self.rh)
 
     def installed_launcher(self):

@@ -20,6 +20,12 @@ pub(crate) use {classes::compile as tap_compile, tap::{Family as TapFamily, Tap 
 pub use lane::{Caps, sealed_lane, twin_lane};
 pub use money::owner_day;
 
+/// v0.5.4 (user session v0.5.3-new, finding 8): each model's cache-read price (µUSD per 1M tokens) as the meter bills
+/// it: the charter's actions compiled as `Cfg::load` compiles them (`cache_read_musd_per_mtok`, else the input price).
+pub fn cache_read_prices(actions: &toml::Table) -> BTreeMap<String, u64> {
+    classes::compile(actions).remove("providers").map(|c| c.models.into_iter().map(|(m, x)| (m, x.cache_read)).collect()).unwrap_or_default()
+}
+
 use crate::charter::Charter;
 use crate::install::VERSION;
 use crate::link::{Root, lock};
@@ -674,6 +680,7 @@ impl Egress {
         if ok && !head_only {
             ok = w.write_all(b"0\r\n\r\n").is_ok();
         }
+        tap.settle(); // v0.5.4 (review 4, n5): a non-streamed body's drift fields are known before they are read
         let drift = tap.drift();
         let (usage, finish, calls) = tap.finish_calls();
         // L6 (money.rs `book`): never zero for a stream without usage (RT-C7), a cut stream's output at its cap, a class

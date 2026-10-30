@@ -1079,3 +1079,233 @@ fn undo_never_defaults_to_a_state_an_undo_replaced() {
     let back = e["data"]["snapshot"]["id"].as_str().unwrap();
     assert!(back == p1 || back == second, "back to the state restored by its id: {e}");
 }
+
+/// v0.5.4 (lane U2): every entry under `dir` (not `dir` itself) with its own group, links' own (lstat), sorted.
+fn groups(dir: &Path) -> Vec<(String, u32)> {
+    use std::os::unix::fs::MetadataExt;
+    let (mut out, mut stack) = (Vec::new(), vec![PathBuf::new()]);
+    while let Some(rel) = stack.pop() {
+        for e in fs::read_dir(dir.join(&rel)).unwrap() {
+            let r = rel.join(e.unwrap().file_name());
+            let md = fs::symlink_metadata(dir.join(&r)).unwrap();
+            if md.is_dir() {
+                stack.push(r.clone());
+            }
+            out.push((r.display().to_string(), md.gid()));
+        }
+    }
+    out.sort();
+    out
+}
+
+fn gid(p: &Path) -> u32 {
+    use std::os::unix::fs::MetadataExt;
+    fs::symlink_metadata(p).unwrap().gid()
+}
+
+/// The name of the group of `p` (stat(1)).
+fn group_of(p: &Path) -> String {
+    let o = Command::new("/usr/bin/stat").args(["-f", "%Sg"]).arg(p).output().unwrap();
+    String::from_utf8_lossy(&o.stdout).trim().to_string()
+}
+
+/// The entry's own group (a link's own, never its target's).
+fn chgrp(p: &Path, g: u32) {
+    std::os::unix::fs::lchown(p, None, Some(g)).unwrap();
+}
+
+/// Up to `n` groups this user can set (from `id -G`, each tried on a probe file in `dir`), in `id -G`'s order.
+fn my_groups(dir: &Path, n: usize) -> Vec<u32> {
+    let out = Command::new("/usr/bin/id").arg("-G").output().unwrap();
+    let probe = dir.join("gprobe");
+    fs::write(&probe, "").unwrap();
+    let mut v = Vec::new();
+    for g in String::from_utf8_lossy(&out.stdout).split_whitespace().filter_map(|g| g.parse::<u32>().ok()) {
+        if v.len() < n && !v.contains(&g) && std::os::unix::fs::lchown(&probe, None, Some(g)).is_ok() && gid(&probe) == g {
+            v.push(g);
+        }
+    }
+    fs::remove_file(&probe).unwrap(); // exact path, written above
+    v
+}
+
+/// v0.5.4 (lane U2, class 2): `/undo` gives every entry it restores its own group back. `clonefile(2)` by the owner
+/// gives a clone the group of the folder it is made in (BSD inheritance), so in v0.5.3 the snapshot, the restore's
+/// stage and the saved state all took ROOT_HOME's group, and the files came back with it (hello.py: staff to wheel
+/// under a /tmp ROOT_HOME). Here ROOT_HOME's group is `ours` and the project's entries have two others. A link gets its
+/// own group back and its target is never touched (`out` names a file outside the project of yet another group).
+#[cfg(target_os = "macos")]
+#[test]
+fn undo_gives_each_entry_its_own_group_back() {
+    let h = home("grp");
+    let gs = my_groups(&h.dir, 3);
+    if gs.len() < 3 {
+        eprintln!("SKIP undo_gives_each_entry_its_own_group_back: it needs three groups this user can set (id -G), found {gs:?}");
+        return;
+    }
+    let (ours, g1, g2) = (gs[0], gs[1], gs[2]);
+    chgrp(&h.dir, ours); // ROOT_HOME, made under it by the install, takes this group
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    let target = h.dir.join("other/target.txt");
+    fs::write(&target, "outside\n").unwrap();
+    chgrp(&target, g1);
+    std::os::unix::fs::symlink(&target, proj.join("out")).unwrap();
+    std::os::unix::fs::symlink("README", proj.join("lin")).unwrap();
+    for (p, g) in [("", g2), ("src", g1), ("src/a.txt", g1), ("README", g2), ("out", g2), ("lin", g1)] {
+        chgrp(&proj.join(p), g);
+    }
+    h.install(false, "");
+    assert_eq!(gid(&h.rh), ours, "ROOT_HOME has the home's group");
+    let _d = h.daemon("");
+    let want = groups(&proj);
+    let first = h.ok("workspace.set", json!({"cwd": proj.to_str().unwrap()}))["access"]["snapshot"]["id"].as_str().unwrap().to_string();
+    assert_eq!(gid(&h.rh.join("snapshots")), ours);
+    assert_eq!(groups(&h.rh.join("snapshots").join(&first)), want, "the snapshot keeps each entry's own group");
+    // the agent's edits: a file rewritten, one removed, one added (it takes the project's group, g2)
+    fs::write(proj.join("src/a.txt"), "edited\n").unwrap();
+    fs::remove_file(proj.join("README")).unwrap(); // exact path, written by home()
+    fs::write(proj.join("new.txt"), "new\n").unwrap();
+    let edited = groups(&proj);
+    let r = h.ok("undo", json!({"confirm": "confirm"}));
+    assert_eq!(groups(&proj), want, "every restored entry has its own group, each link its own");
+    assert_eq!(fs::read_to_string(proj.join("src/a.txt")).unwrap(), "v1\n");
+    assert_eq!(gid(&target), g1, "a link's target is never touched");
+    assert!(r.get("groups_kept").is_none(), "every group was set: {r}");
+    // the state the /undo replaced keeps its groups too, and comes back by its id with them
+    let saved = r["saved"]["id"].as_str().unwrap().to_string();
+    assert_eq!(groups(&h.rh.join("snapshots").join(&saved)), edited, "the saved state keeps each entry's own group");
+    let mut a = Attach::new(&h);
+    a.say(&format!("/undo {saved} confirm"));
+    let done = a.notice(&format!("[root] /undo restored {} to snapshot {saved},", proj.display()));
+    assert!(!done.contains("kept the group"), "{done}");
+    assert_eq!(groups(&proj), edited);
+    assert_eq!(gid(&target), g1, "a link's target is never touched");
+    only_snapshots(&h);
+}
+
+/// v0.5.4 (lane U2): a group the owner cannot set (one they are not a member of: an entry made in /private/tmp, whose
+/// group is wheel) never fails or half-applies the restore: the folder comes back exact, those entries keep
+/// ROOT_HOME's group, and the result and the notice say which, with the command that sets one back.
+#[cfg(target_os = "macos")]
+#[test]
+fn undo_says_which_entries_kept_inits_group() {
+    let h = home("grk");
+    let Some(&ours) = my_groups(&h.dir, 1).first() else {
+        panic!("this user can set none of its own groups");
+    };
+    chgrp(&h.dir, ours);
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    // a folder made in /private/tmp has its group (BSD inheritance) whether or not this user is a member; it is moved
+    // into the project at once, so nothing stays outside the test home
+    let tmp = PathBuf::from(format!("/private/tmp/init-sbx009-grk-{}", std::process::id()));
+    fs::create_dir(&tmp).unwrap();
+    let theirs = gid(&tmp);
+    let theirs_name = group_of(&tmp);
+    let probe = h.dir.join("gprobe");
+    fs::write(&probe, "").unwrap();
+    chgrp(&probe, ours);
+    let member = std::os::unix::fs::lchown(&probe, None, Some(theirs)).is_ok();
+    fs::remove_file(&probe).unwrap(); // exact path, written above
+    if member || theirs == ours || fs::rename(&tmp, proj.join("theirs")).is_err() {
+        let _ = fs::remove_dir(&tmp); // exact path, made above (empty)
+        eprintln!("SKIP undo_says_which_entries_kept_inits_group: /private/tmp's group {theirs} is one this user can set, or another volume");
+        return;
+    }
+    fs::write(proj.join("theirs/w.txt"), "theirs\n").unwrap();
+    assert_eq!(gid(&proj.join("theirs/w.txt")), theirs);
+    for p in ["", "src", "src/a.txt", "README"] {
+        chgrp(&proj.join(p), ours);
+    }
+    h.install(false, "");
+    let _d = h.daemon("");
+    let (before, want) = (tree(&proj), groups(&proj));
+    let first = h.ok("workspace.set", json!({"cwd": proj.to_str().unwrap()}))["access"]["snapshot"]["id"].as_str().unwrap().to_string();
+    let rec: Value = serde_json::from_str(&fs::read_to_string(h.rh.join("snapshots").join(format!("{first}.json"))).unwrap()).unwrap();
+    assert_eq!(rec["groups_kept"]["n"], 2, "the snapshot records the entries whose group it could not keep: {rec}");
+    fs::write(proj.join("theirs/w.txt"), "edited\n").unwrap();
+    fs::write(proj.join("src/a.txt"), "edited\n").unwrap();
+    let mut a = Attach::new(&h);
+    let v = h.req("undo", json!({"confirm": "confirm"}));
+    assert_eq!(v["ok"], true, "the restore completes: {v}");
+    assert_eq!(tree(&proj), before, "the folder is otherwise exact");
+    let kept = &v["result"]["groups_kept"];
+    assert_eq!(kept["n"], 2, "{v}");
+    let named: Vec<(&str, u64)> = kept["some"].as_array().unwrap().iter().map(|e| (e["path"].as_str().unwrap(), e["gid"].as_u64().unwrap())).collect();
+    assert_eq!(named, [("theirs", u64::from(theirs)), ("theirs/w.txt", u64::from(theirs))]);
+    let expect: Vec<(String, u32)> = want.iter().map(|(p, g)| (p.clone(), if p.starts_with("theirs") { ours } else { *g })).collect();
+    assert_eq!(groups(&proj), expect, "the others have their own group; those two INIT's folder's");
+    let done = a.notice(&format!("[root] /undo restored {} to snapshot {first},", proj.display()));
+    assert!(done.contains(&format!("2 restored entries kept the group of INIT's folder ({}), not their own", group_of(&h.rh))), "{done}");
+    assert!(done.contains(&format!("theirs/w.txt ({theirs_name})")), "{done}");
+    assert!(done.contains(&format!("sudo chgrp -h {theirs_name} {}", shown::sh_word(&proj.join("theirs").to_string_lossy()))), "{done}");
+    only_snapshots(&h);
+}
+
+/// v0.5.4 (review 5, S1): a launch never folds into a snapshot from before v0.5.4. The digest ignores groups, so a
+/// launch whose content matched a v0.5.3 snapshot reused it, and its files (cloned with ROOT_HOME's group, and no
+/// record of their own) came back with that group, unannounced. Now a record without `"groups": 1` is never reused:
+/// the launch takes a new snapshot, and `/undo` gives each file its own group.
+#[cfg(target_os = "macos")]
+#[test]
+fn a_launch_never_reuses_a_snapshot_from_before_the_groups() {
+    let h = home("grs");
+    let gs = my_groups(&h.dir, 2);
+    if gs.len() < 2 {
+        eprintln!("SKIP a_launch_never_reuses_a_snapshot_from_before_the_groups: it needs two groups this user can set (id -G), found {gs:?}");
+        return;
+    }
+    let (ours, g1) = (gs[0], gs[1]);
+    chgrp(&h.dir, ours);
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    for p in ["", "src", "src/a.txt", "README"] {
+        chgrp(&proj.join(p), g1);
+    }
+    h.install(false, "");
+    let _d = h.daemon("");
+    let want = groups(&proj);
+    let first = h.ok("workspace.set", json!({"cwd": proj.to_str().unwrap()}))["access"]["snapshot"]["id"].as_str().unwrap().to_string();
+    // as v0.5.3 left it: no `groups` mark in the record, and the tree in ROOT_HOME's group
+    let (tree_dir, rec_path) = (h.rh.join("snapshots").join(&first), h.rh.join("snapshots").join(format!("{first}.json")));
+    let mut rec: Value = serde_json::from_str(&fs::read_to_string(&rec_path).unwrap()).unwrap();
+    assert_eq!(rec["groups"], 1, "a new record is marked: {rec}");
+    rec.as_object_mut().unwrap().remove("groups");
+    fs::write(&rec_path, format!("{rec}\n")).unwrap();
+    for (p, _) in groups(&tree_dir) {
+        chgrp(&tree_dir.join(p), ours);
+    }
+    let again = h.ok("workspace.set", json!({"cwd": proj.to_str().unwrap()}))["access"]["snapshot"].clone();
+    assert!(again["unchanged"] != true && again["id"] != first.as_str(), "a launch never folds into an unmarked record: {again}");
+    fs::write(proj.join("src/a.txt"), "edited\n").unwrap();
+    let r = h.ok("undo", json!({"confirm": "confirm"}));
+    assert_eq!(r["restored"]["id"], again["id"], "{r}");
+    assert_eq!(groups(&proj), want, "every file has its own group back");
+    assert!(r.get("groups_kept").is_none(), "nothing kept or skipped: {r}");
+}
+
+/// Review 6, N2: `/undo` of a snapshot from before v0.5.4 (a record without `"groups": 1`) says that it kept no groups:
+/// its entries come back with INIT's folder's group, whatever group each had, and before this nothing said so.
+#[cfg(target_os = "macos")]
+#[test]
+fn undo_of_a_snapshot_from_before_the_groups_says_so() {
+    let h = home("grn");
+    h.install(false, "");
+    let _d = h.daemon("");
+    let proj = fs::canonicalize(h.dir.join("proj")).unwrap();
+    let first = h.ok("workspace.set", json!({"cwd": proj.to_str().unwrap()}))["access"]["snapshot"]["id"].as_str().unwrap().to_string();
+    let rec_path = h.rh.join("snapshots").join(format!("{first}.json"));
+    let mut rec: Value = serde_json::from_str(&fs::read_to_string(&rec_path).unwrap()).unwrap();
+    rec.as_object_mut().unwrap().remove("groups"); // as v0.5.3 wrote it
+    fs::write(&rec_path, format!("{rec}\n")).unwrap();
+    fs::write(proj.join("src/a.txt"), "edited\n").unwrap();
+    let mut a = Attach::new(&h);
+    let v = h.req("undo", json!({"confirm": "confirm"}));
+    assert_eq!(v["result"]["restored"]["id"], first.as_str(), "{v}");
+    let done = a.notice(&format!("[root] /undo restored {} to snapshot {first},", proj.display()));
+    assert!(done.contains(&format!("This snapshot predates v0.5.4 and kept no groups, so what it restored has the group of INIT's folder ({})",
+        group_of(&h.rh.join("snapshots")))), "{done}");
+    // and a snapshot with the groups says nothing of the kind
+    let saved = v["result"]["saved"]["id"].as_str().unwrap().to_string();
+    a.say(&format!("/undo {saved} confirm"));
+    let back = a.notice(&format!("[root] /undo restored {} to snapshot {saved},", proj.display()));
+    assert!(!back.contains("predates"), "{back}");
+}

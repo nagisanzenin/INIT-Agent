@@ -286,6 +286,9 @@ fn requests_end_to_end_on_a_test_home() {
     fs::create_dir_all(p.i("kernel")).unwrap();
     let v = list(&p).unwrap();
     assert_eq!((v["ready"].clone(), v["selected"]["provider"].clone()), (json!(false), json!("deepseek")));
+    // v0.5.4 (user session v0.5.3-new, finding 8): the cache-read price is listed, at the meter's price
+    let flash = v["models"].as_array().unwrap().iter().find(|m| m["model"] == "deepseek-flash").unwrap();
+    assert_eq!((flash["input_usd"].as_str(), flash["cache_read_usd"].as_str(), flash["output_usd"].as_str()), (Some("0.30"), Some("0.006"), Some("1.20")));
     assert_eq!(v["providers"][0]["key"], "missing");
     let real = "sk-0123456789abcdefREAL";
     let mut frame = json!({"v": 1, "id": "t-1", "cmd": "keys.set", "args": {"provider": "deepseek", "secret": real}});
@@ -308,6 +311,9 @@ fn requests_end_to_end_on_a_test_home() {
     assert_eq!((u["changed"].as_bool(), u["restart"].as_str()), (Some(true), Some("next_start")), "no zone runs in this test");
     let l = list(&p).unwrap();
     assert_eq!(l["selected"], json!({"provider": "gateway", "model": "m-x"}));
+    // a price without a cache-read part: the meter bills cache reads at the input price, and the list says so
+    let mx = l["models"].as_array().unwrap().iter().find(|m| m["model"] == "m-x").unwrap();
+    assert_eq!((mx["input_usd"].as_str(), mx["cache_read_usd"].as_str()), (Some("1.00"), Some("1.00")));
     assert_eq!(l["ready"], false, "the gateway has no key yet");
     assert!(use_req(&root, &json!({"provider": "nope", "model": "m-x"})).is_err());
     assert!(use_req(&root, &json!({"provider": "gateway", "model": "not-priced"})).is_err());

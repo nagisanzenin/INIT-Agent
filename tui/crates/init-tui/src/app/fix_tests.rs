@@ -277,7 +277,9 @@ fn quitting_leaves_no_input_box_and_says_what_keeps_running() {
     assert!(!after.contains("live total est") && !after.contains("Enter send"), "no status bar or hint line left: {after}");
     assert!(after.contains("Hello from the agent."), "the conversation stays: {after}");
     assert!(after.contains("init-agent closed. The agent keeps running under the Root"), "{after}");
-    assert!(after.contains("to come back") && after.contains("$0.046 in all"), "{after}");
+    // the wrap point moves with the test binary's path (the command names it), so match across line breaks
+    let flat = after.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flat.contains("to come back") && flat.contains("$0.046 in all"), "{after}");
 }
 
 /// User session v0.5.0-returning: the Root-unreachable line said to run `init-root start`, which is not
@@ -393,7 +395,9 @@ fn panic_and_resume_tell_the_truth() {
     assert!(!bar_text(&a).contains("9aa7d39624ce"), "no body runs while panicked: {}", bar_text(&a));
     // the resume: a success, never ✕
     frame(&mut a, json!({"t": "notice", "level": "alert", "code": "resume", "src": "root", "text": "[root] resumed after panic at level L0; the zone restarts on the audited-good tuple", "ts": "x"}));
-    let rows: Vec<String> = live::block_rows(&a.t.blocks.back().unwrap().kind, 100, Instant::now(), &live::RowOpts { verbose: false, expanded: false, spin: 0, first: false })
+    // v0.5.4 (round 8): a plain [tui] line follows the Root's resume line
+    let notice = a.t.blocks.iter().rev().find(|b| !matches!(b.kind, Kind::Info(_))).unwrap();
+    let rows: Vec<String> = live::block_rows(&notice.kind, 100, Instant::now(), &live::RowOpts { verbose: false, expanded: false, spin: 0, first: false })
         .iter().map(|l| l.text()).collect();
     assert!(rows[0].starts_with("✓ [root] resumed after panic") && !rows.iter().any(|l| l.contains('✕')), "{rows:#?}");
     a.handle(Ev::Status(status("running", "k2", "tb75a7fb288b4", "tb75a7fb288b4")));
@@ -405,6 +409,143 @@ fn panic_and_resume_tell_the_truth() {
     // and a fresh state frame from the new kernel too
     frame(&mut a, json!({"t": "state", "busy": false, "mode": "normal", "sha12": "4c332dd485ce", "src": "kernel"}));
     assert!(bar_text(&a).contains("body 4c332dd485ce"), "{}", bar_text(&a));
+}
+
+/// v0.5.4 (user session v0.5.4 A): after /panic ("killed 3 processes in 3 instances") and /resume the self-change
+/// panel kept counting at 32:44, 33:20, 34:47. The panic killed the kernel that ran the checks; the panel says so.
+#[test]
+fn a_panic_stops_the_self_change_in_flight() {
+    let (mut a, _r, _rx) = live();
+    let sha = "9aa7d39624ce0011";
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": "2026-10-30T08:00:00Z", "text": "[kernel] gate started",
+        "data": {"kind": "gate_start", "gate_id": "j-1", "sha": sha, "scope": "t2", "steps": ["G0", "G1", "G2", "G3", "handoff", "G4"]}}));
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": "2026-10-30T08:00:05Z", "text": "[kernel] building the dependencies",
+        "data": {"kind": "gate_deps", "gate_id": "j-1", "sha": sha}}));
+    assert!(a.t.gates.in_flight());
+    frame(&mut a, json!({"t": "notice", "level": "alert", "src": "root", "code": "panic", "ts": "2026-10-30T08:32:44Z",
+        "text": "PANIC at 2026-10-30T08:32:44Z via owner_socket: killed 3 processes in 3 instances; egress closed; level 0→0"}));
+    assert!(!a.t.gates.in_flight(), "nothing counts on after the panic");
+    let gate = a.t.blocks.iter().rev().find_map(|b| if let Kind::Gate(r) = &b.kind { Some(r.clone()) } else { None }).expect("the change's line");
+    let line = crate::render::gates::committed_rows(&gate, 200, false)[0].text();
+    assert!(line.starts_with("■ stopped by /panic 9aa7d39624ce") && line.contains("32 min 44 s"), "{line}");
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "root", "code": "resume", "ts": "2026-10-30T08:33:20Z",
+        "text": "✓ [root] resumed after panic at level L0"}));
+    assert!(!a.t.gates.in_flight());
+    // a change still in flight at a resume (its panic not seen here) ran in the kernel the resume replaced
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": "2026-10-30T08:40:00Z", "text": "[kernel] gate started",
+        "data": {"kind": "gate_start", "gate_id": "j-2", "sha": "1111111111112222", "scope": "t1", "steps": ["G0", "G1", "G2", "G3", "live", "G4"]}}));
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "root", "code": "resume", "ts": "2026-10-30T08:41:00Z",
+        "text": "✓ [root] resumed after panic at level L0"}));
+    assert!(!a.t.gates.in_flight());
+    let gate = a.t.blocks.iter().rev().find_map(|b| if let Kind::Gate(r) = &b.kind { Some(r.clone()) } else { None }).unwrap();
+    assert!(crate::render::gates::committed_rows(&gate, 200, false)[0].text().starts_with("■ stopped when the agent restarted 111111111111"));
+}
+
+/// v0.5.4 (round 8, user session v0.5.4 A): the Root's PANIC and resume lines are relayed word for word ("via
+/// owner_socket", "held-only build", "audited-good tuple"); one plain line follows each. `/details` points to the earlier
+/// activities. (Round 9: the bare-`confirm` rewrite after `/undo <id>` is removed: the Root's answer reaches every client
+/// and replays, so it was not this TUI's own.)
+#[test]
+fn round_8_plain_lines_and_details_hint() {
+    use crate::app::{DETAILS_EARLIER, PANIC_PLAIN, RESUME_PLAIN};
+    let infos = |a: &App| a.t.blocks.iter().filter_map(|b| if let Kind::Info(t) = &b.kind { Some(t.clone()) } else { None }).collect::<Vec<_>>();
+    let (mut a, _r, _rx) = live();
+    frame(&mut a, json!({"t": "notice", "level": "alert", "src": "root", "code": "panic", "ts": "2026-10-30T08:32:13Z",
+        "text": "PANIC at 2026-10-30T08:32:13Z via owner_socket: killed 3 processes in 3 instances; egress closed; level 0→0. To restart: type \
+        /resume in init-agent, or run ~/.init-root/bin/init-root resume. (held-only build: a process that left its group is reported, not killed)"}));
+    assert_eq!(infos(&a).last().map(String::as_str), Some(PANIC_PLAIN));
+    assert!(!PANIC_PLAIN.contains("owner_socket") && !PANIC_PLAIN.contains("held-only"));
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "root", "code": "resume", "ts": "2026-10-30T08:32:48Z",
+        "text": "[root] resumed after panic at level L0; the zone restarts on the audited-good tuple"}));
+    assert_eq!(infos(&a).last().map(String::as_str), Some(RESUME_PLAIN));
+    // a kernel look-alike gets no plain line
+    let n = infos(&a).len();
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "text": "PANIC at x (held-only build: …)"}));
+    assert_eq!(infos(&a).len(), n);
+    // /details: one activity, no hint; two, the hint
+    let act = |a: &mut App, id: &str| {
+        frame(a, json!({"t": "state", "busy": true, "src": "kernel"}));
+        frame(a, json!({"t": "display", "kind": "tool_start", "call_id": id, "name": "bash", "text": "ls", "boot_seq": 1, "src": "kernel"}));
+        frame(a, json!({"t": "display", "kind": "tool_end", "call_id": id, "name": "bash", "text": "exit 0, 1 line", "ok": true, "boot_seq": 1, "src": "kernel"}));
+        frame(a, json!({"t": "display", "kind": "text", "text": "done", "boot_seq": 1, "src": "kernel"}));
+        frame(a, json!({"t": "state", "busy": false, "src": "kernel"}));
+    };
+    act(&mut a, "c1");
+    enter(&mut a, "/details");
+    assert!(!infos(&a).iter().any(|t| t == DETAILS_EARLIER), "one activity: nothing earlier");
+    act(&mut a, "c2");
+    enter(&mut a, "/details");
+    assert_eq!(infos(&a).last().map(String::as_str), Some(DETAILS_EARLIER));
+    assert!(DETAILS_EARLIER.contains("Ctrl-O") && DETAILS_EARLIER.contains("j/k") && DETAILS_EARLIER.contains("Enter"));
+}
+
+/// v0.5.4 (round 6): `/root stop` (or `init-root stop`) stops the kernel with no notice about the change it was checking;
+/// the Root's status then says the slot is `stopped`. A kernel crash loop is the Root's `kernel_crash_loop` alert. Either
+/// ends the change in flight. A status that repeats a down slot never ends a change started after it.
+#[test]
+fn a_stopped_agent_stops_the_self_change_in_flight() {
+    let status = |slot: &str| Ev::Status(json!({"slot": slot, "mode": "normal", "level": 0, "kernel": {"ready": slot == "running", "instance": "k-1"}}));
+    let start = |a: &mut App, sha: &str, at: &str| {
+        frame(a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": at, "text": "[kernel] gate started",
+            "data": {"kind": "gate_start", "gate_id": "j-1", "sha": sha, "scope": "t2", "steps": ["G0", "G1", "G2", "G3", "handoff", "G4"]}}));
+    };
+    let last = |a: &App| {
+        let r = a.t.blocks.iter().rev().find_map(|b| if let Kind::Gate(r) = &b.kind { Some(r.clone()) } else { None }).expect("a change's line");
+        crate::render::gates::committed_rows(&r, 200, false)[0].text()
+    };
+    let (mut a, _r, _rx) = live();
+    a.handle(status("running"));
+    start(&mut a, "9aa7d39624ce0011", "2026-10-30T08:00:00Z");
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "root", "ts": "2026-10-30T08:10:00Z",
+        "text": "[root] stopping the agent (the Root keeps running); type /resume to start it again"}));
+    a.handle(status("stopping"));
+    assert!(a.t.gates.in_flight(), "still stopping: the kernel may yet answer");
+    a.handle(status("stopped"));
+    assert!(!a.t.gates.in_flight());
+    assert!(last(&a).starts_with("■ stopped when the agent stopped 9aa7d39624ce"), "{}", last(&a));
+    // a later answer that still says `stopped` does not end a change that started after it
+    start(&mut a, "1111111111112222", "2026-10-30T08:20:00Z");
+    a.handle(status("stopped"));
+    assert!(a.t.gates.in_flight(), "no new transition");
+    // the Root's crash-loop alert
+    a.handle(status("running"));
+    frame(&mut a, json!({"t": "notice", "level": "alert", "src": "root", "code": "kernel_crash_loop", "ts": "2026-10-30T08:30:00Z",
+        "text": "[root] kernel crash loop: rolling back to the LKG tuple"}));
+    assert!(!a.t.gates.in_flight());
+    assert!(last(&a).starts_with("■ stopped when the agent restarted 111111111111"), "{}", last(&a));
+}
+
+/// v0.5.4 (the release review): every attach's replay was labelled "before this launch", so after a Root restart or a
+/// dropped socket while this TUI was open, the requests and tools of this launch read "not counted: replayed from
+/// before this launch" and "$? before this launch". Only the first attach's replay is from before this launch; a
+/// reconnect's is this TUI's, with its cost and times still unknown here ("while disconnected").
+#[test]
+fn a_reconnects_replay_is_this_launchs() {
+    let money = |m: i64| Ev::Egress(json!({"money": {"enforced": false, "policy": "observe", "total_spent_musd": m, "day_spent_musd": m}}));
+    let (mut a, _r, _rx) = live();
+    a.handle(money(48_518));
+    // the socket drops and the TUI attaches again; the Root replays the turn that ran meanwhile
+    a.feed.on_disconnect();
+    a.feed.on_attach(None, None);
+    frame(&mut a, json!({"t": "state", "busy": true, "src": "kernel"}));
+    frame(&mut a, json!({"t": "display", "kind": "tool_start", "call_id": "c1", "name": "bash", "text": "ls", "boot_seq": 1, "src": "kernel"}));
+    frame(&mut a, json!({"t": "display", "kind": "tool_end", "call_id": "c1", "name": "bash", "text": "exit 0, 1 line", "ok": true, "boot_seq": 1, "src": "kernel"}));
+    frame(&mut a, json!({"t": "display", "kind": "turn_end", "text": "tokens: in 16000 (cached 11776), out 110", "boot_seq": 1, "src": "kernel"}));
+    frame(&mut a, json!({"t": "state", "busy": false, "src": "kernel"}));
+    frame(&mut a, json!({"t": "replay_end"}));
+    a.handle(money(48_518));
+    let b = bar_text(&a);
+    assert!(b.contains("$? while disconnected") && !b.contains("before this launch") && b.contains("session cache"), "{b}");
+    let (_, rows) = crate::render::status::usage_rows(&a.info);
+    let row = |k: &str| rows.iter().find(|(r, _)| r == k).unwrap().1.clone();
+    assert!(row("this TUI").starts_with("1 request since it attached: input 16000 (11776 cached), output 110") && !row("this TUI").contains("replayed"),
+        "{}", row("this TUI"));
+    assert!(row("last turn").contains("while this TUI was disconnected from the Root") && !row("last turn").contains("before"), "{}", row("last turn"));
+    let Some(Kind::Activity(act)) = a.t.blocks.iter().rev().map(|b| &b.kind).find(|k| matches!(k, Kind::Activity(_))) else { panic!("an activity") };
+    let opts = live::RowOpts { verbose: false, expanded: true, spin: 0, first: false };
+    let text: Vec<String> = live::activity_rows(act, 100, Instant::now(), &opts).iter().map(|l| l.text()).collect();
+    let text = text.join("\n");
+    assert!(text.contains("while disconnected") && !text.contains("before this launch"), "{text}");
 }
 
 /// v0.5.1-new and -returning, item 4: after a relaunch the replayed turn read "$0.000" (and once
@@ -426,7 +567,10 @@ fn a_replayed_turn_is_never_free_and_checks_are_only_named_when_they_ran() {
     frame(&mut a, json!({"t": "replay_end"}));
     a.handle(money(48_518)); // the poll after the run's end: the ledger did not move while it replayed
     let b = bar_text(&a);
-    assert!(b.contains("$? before this launch") && !b.contains("$0.000 ") && !b.contains("incl. checks"), "{b}");
+    // v0.5.4 (user session: `$? before this launch` read as "the cost is unknown"): the bar draws no turn segment
+    // for a turn seen only in the replay; the Root's total stays, and /usage says what the turn was
+    assert!(!b.contains("before this launch") && !b.contains("turn in") && !b.contains("$0.000 ") && !b.contains("incl. checks"), "{b}");
+    assert!(b.contains("$0.049 live total est"), "{b}");
     let (_, rows) = crate::render::status::usage_rows(&a.info);
     let last = &rows.iter().find(|(k, _)| k == "last turn").unwrap().1;
     assert!(last.contains("$? before this launch") && last.contains("before this TUI attached"), "{last}");
@@ -608,4 +752,111 @@ fn panic_names_what_the_resume_really_drops() {
     // a Root before v0.5.3 (no `resume` block): audited-good, as before
     let old = panic_ask_text(Some(&status("running", "k1", "t06f78dd675f4", "tb75a7fb288b4")));
     assert!(old.contains("newer than the audited-good tb75a7fb288b4"), "{old}");
+}
+
+/// v0.5.4 (lane K, user session v0.5.4 A): a kernel that starts again (an ordinary crash, a `/root stop` and start, a
+/// resume) marks the change's job `failed`, `kernel_restart`, and now says so: the owner event `gate_stopped` (init-kernel
+/// serve.rs, `supervisor::restart_event`). The frames are the kernel's own, as the Root relays them (`src` stamped
+/// `kernel`). Live, and in the replay of a TUI that attaches later, the change ends "when the agent restarted" and
+/// nothing counts; a change a panic already ended gets no second line; one this TUI never saw is a plain notice.
+#[test]
+fn a_restarted_kernel_stops_the_self_change_live_and_in_a_replay() {
+    let sha = "9aa7d39624ce0011";
+    let start = |a: &mut App, sha: &str, id: &str, at: &str| {
+        frame(a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": at, "text": format!("[kernel] gate started for {}: G0 G1 G2 G3 handoff G4 (t2)", &sha[..12]),
+            "data": {"kind": "gate_start", "gate_id": id, "gate_kind": "promote", "sha": sha, "parent": "3f9c0a1b2c4d5e6f", "scope": "t2",
+                "steps": ["G0", "G1", "G2", "G3", "handoff", "G4"]}}));
+    };
+    let deps = |a: &mut App, sha: &str, id: &str, at: &str| {
+        frame(a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": at,
+            "text": format!("[kernel] building the dependencies for {} (not cached yet): 15–21 min on a busy M2, once", &sha[..12]),
+            "data": {"kind": "gate_deps", "gate_id": id, "sha": sha}}));
+    };
+    let stopped = |a: &mut App, sha: &str, id: &str, kind: &str, at: &str| {
+        let what = if kind == "g4" { "G4 of" } else { "the checks of self-change" };
+        frame(a, json!({"t": "notice", "level": "warn", "src": "kernel", "ts": at,
+            "text": format!("[kernel] {what} {} ({id}) stopped when the kernel restarted; it will not continue", &sha[..12]),
+            "data": {"kind": "gate_stopped", "gate_id": id, "gate_kind": kind, "reason": "kernel_restart", "sha": sha, "stage": "build"}}));
+    };
+    let gates = |a: &App| -> Vec<String> {
+        a.t.blocks.iter().filter_map(|b| if let Kind::Gate(r) = &b.kind { Some(crate::render::gates::committed_rows(r, 200, false)[0].text()) } else { None }).collect()
+    };
+    let notices = |a: &App| -> Vec<String> {
+        a.t.blocks.iter().filter_map(|b| if let Kind::Notice { text, .. } = &b.kind { Some(text.clone()) } else { None }).collect()
+    };
+    // live: the kernel crashed 20 min into the dependency build and started again
+    let (mut a, _r, _rx) = live();
+    start(&mut a, sha, "j-000001", "2026-10-30T08:00:00Z");
+    deps(&mut a, sha, "j-000001", "2026-10-30T08:00:05Z");
+    assert!(a.t.gates.in_flight());
+    stopped(&mut a, sha, "j-000001", "promote", "2026-10-30T08:20:00Z");
+    assert!(!a.t.gates.in_flight(), "nothing counts on after the restart");
+    assert_eq!(gates(&a).len(), 1);
+    let line = &gates(&a)[0];
+    assert!(line.starts_with("■ stopped when the agent restarted 9aa7d39624ce") && line.contains("did not go live and will not continue")
+        && line.contains("20 min"), "{line}");
+    assert!(!notices(&a).iter().any(|t| t.contains("stopped when the kernel restarted")), "one line, not a notice too");
+    // a G4 that the restart ended, after the change went live
+    let sha2 = "1111222233334444";
+    start(&mut a, sha2, "j-000002", "2026-10-30T09:00:00Z");
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": "2026-10-30T09:20:00Z", "text": "[kernel] promoted",
+        "data": {"kind": "promoted", "sha": sha2, "handoff": true, "handoff_ms": 900}}));
+    assert!(a.t.gates.in_flight(), "G4 runs");
+    stopped(&mut a, sha2, "j-000003", "g4", "2026-10-30T09:25:00Z");
+    assert!(!a.t.gates.in_flight());
+    assert!(gates(&a)[1].contains("it had gone live; /root status shows which version runs now"), "{}", gates(&a)[1]);
+
+    // a TUI that attaches after the restart: the Root's ring replays the old kernel's notices and the new one's event
+    let (mut a, _r, _rx) = attached();
+    start(&mut a, sha, "j-000001", "2026-10-30T08:00:00Z");
+    deps(&mut a, sha, "j-000001", "2026-10-30T08:00:05Z");
+    stopped(&mut a, sha, "j-000001", "promote", "2026-10-30T08:20:00Z");
+    frame(&mut a, json!({"t": "replay_end"}));
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "root", "text": "[root] attached: slot running, level L0, 0 queued.", "ts": "x"}));
+    assert!(a.feed.is_live());
+    assert!(!a.t.gates.in_flight(), "the replayed change is not counting");
+    assert_eq!(gates(&a).len(), 1);
+    assert!(gates(&a)[0].starts_with("■ stopped when the agent restarted 9aa7d39624ce") && gates(&a)[0].contains("20 min"), "{}", gates(&a)[0]);
+
+    // a panic ended it first: the restarted kernel's event adds no second line
+    let (mut a, _r, _rx) = attached();
+    start(&mut a, sha, "j-000001", "2026-10-30T08:00:00Z");
+    frame(&mut a, json!({"t": "notice", "level": "alert", "src": "root", "code": "panic", "ts": "2026-10-30T08:32:44Z",
+        "text": "PANIC at 2026-10-30T08:32:44Z via owner_socket: killed 3 processes in 3 instances; egress closed; level 0→0"}));
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "root", "code": "resume", "ts": "2026-10-30T08:33:20Z",
+        "text": "✓ [root] resumed after panic at level L0"}));
+    stopped(&mut a, sha, "j-000001", "promote", "2026-10-30T08:33:25Z");
+    frame(&mut a, json!({"t": "replay_end"}));
+    assert_eq!(gates(&a).len(), 1, "{:?}", gates(&a));
+    assert!(gates(&a)[0].starts_with("■ stopped by /panic"), "{}", gates(&a)[0]);
+    assert!(!notices(&a).iter().any(|t| t.contains("stopped when the kernel restarted")));
+    // a change this TUI never saw start (the Root's ring lost it): the kernel's line, as a notice
+    stopped(&mut a, "5555666677778888", "j-000009", "promote", "2026-10-30T08:40:00Z");
+    assert!(notices(&a).iter().any(|t| t.contains("555566667777 (j-000009) stopped when the kernel restarted")), "{:?}", notices(&a));
+    assert!(!a.t.gates.in_flight() && gates(&a).len() == 1);
+}
+
+/// Round 2 (review SF1): the kernel died inside the handoff's commit, after `main` moved and before its `promoted`
+/// notice; the cold start finished the handoff, so the candidate runs. The kernel's `gate_stopped` then says `live`, and
+/// the line says the change went live instead of "did not go live".
+#[test]
+fn a_change_the_restart_put_live_says_so() {
+    let sha = "9aa7d39624ce0011";
+    let (mut a, _r, _rx) = live();
+    frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": "2026-10-30T08:00:00Z", "text": "[kernel] gate started for 9aa7d39624ce: G0 G1 G2 G3 handoff G4 (t2)",
+        "data": {"kind": "gate_start", "gate_id": "j-000001", "gate_kind": "promote", "sha": sha, "parent": "3f9c0a1b2c4d5e6f", "scope": "t2",
+            "steps": ["G0", "G1", "G2", "G3", "handoff", "G4"]}}));
+    for (i, st) in ["G0", "G1", "G2", "G3"].iter().enumerate() {
+        frame(&mut a, json!({"t": "notice", "level": "info", "src": "kernel", "ts": format!("2026-10-30T08:0{}:00Z", i + 1), "text": format!("[kernel] gate {st} pass"),
+            "data": {"kind": "gate", "gate_kind": "promote", "gate_id": "j-000001", "sha": sha, "stage": st, "pass": true, "reason": null, "score": null,
+                "spent_musd": 0, "wall_ms": 1000, "cache_permille": null}}));
+    }
+    frame(&mut a, json!({"t": "notice", "level": "warn", "src": "kernel", "ts": "2026-10-30T08:06:00Z",
+        "text": "[kernel] self-change 9aa7d39624ce (j-000001) went live while the kernel restarted; its job ended with the restart",
+        "data": {"kind": "gate_stopped", "gate_id": "j-000001", "gate_kind": "promote", "live": true, "reason": "kernel_restart", "sha": sha, "stage": "handoff"}}));
+    assert!(!a.t.gates.in_flight());
+    let gate = a.t.blocks.iter().rev().find_map(|b| if let Kind::Gate(r) = &b.kind { Some(r.clone()) } else { None }).expect("the change's line");
+    let line = crate::render::gates::committed_rows(&gate, 200, false)[0].text();
+    assert!(line.starts_with("■ stopped when the agent restarted 9aa7d39624ce") && line.contains("it had gone live; /root status shows which version runs now")
+        && !line.contains("did not go live"), "{line}");
 }

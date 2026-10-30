@@ -3,7 +3,7 @@
 # then a pass/fail table. COSTS MONEY: at most the cap you give (a run is about $0.10-0.40 of real provider spend on
 # Sonnet 5.5 or GPT-6.1 Sol; the ledger also books a reservation for the request the pause cuts, see "cost" below).
 #
-#   scripts/qualify-provider.sh --cap-usd N [--provider P --model M] [--price IN,CACHED,WRITE,OUT] [--out DIR] [--yes]
+#   scripts/qualify-provider.sh --cap-usd N [--provider P --model M] [--price IN,CACHED,WRITE,OUT[,WRITE_1H]] [--out DIR] [--yes]
 #
 #   --cap-usd N   required, 0 < N <= 10 (USD). The session runs inside `/goal "…" usd=N`: the Root meters every request
 #                 against it and stops the goal at N. This script also stops the session (a pause, then /goal stop)
@@ -12,8 +12,9 @@
 #                 its reservation, about $0.35 on GPT-6.1 Sol, although the provider bills only what it generated.
 #   --provider P --model M   what you expect to be selected; the script refuses if `init-root model use` chose
 #                 something else (it never changes your selection)
-#   --price …     the provider's list price in USD per 1M tokens (input, cached input, cache write, output), when the
-#                 built-in table below is out of date or the model is not in it
+#   --price …     the provider's list price in USD per 1M tokens (input, cached input, cache write, output, and the
+#                 1-hour cache write; without it, the cache write's price), when the built-in table below is out of date
+#                 or the model is not in it
 #   --out DIR     where the verdict and the logs go (default ~/init-qualify/<provider>-<model>-<UTC time>)
 #   --yes         do not ask before spending
 #
@@ -37,7 +38,9 @@
 #   tokens    every completed request's input, cache read, cache write and output are the same in the ledger (the Root's tap) and in
 #             the session log (the body's decoder): two parsers of the same provider bytes agree;
 #   cost      the ledger's cost of the completed requests is within 5 % of the provider-reported usage priced at the
-#             provider's list price (cache writes at the write price). Requests the pause cut are listed, not compared
+#             provider's list price. Cache writes are priced by class, as the Root's ledger splits them: 5 minutes (or a
+#             provider's one class) at the write price, 1 hour at the 1-hour price, a write the provider did not split by
+#             TTL at the dearer of the two, a TTL without a price at the dearest price. Requests the pause cut are listed, not compared
 #             (the Root charges what it saw or, with no usage, the reservation). The Root bills cache writes at the
 #             charter's write prices (`providers add` writes the catalog's); a charter row without them bills writes at
 #             2× input, which this check then reports as an over-count;
@@ -50,7 +53,7 @@ set -euo pipefail
 umask 077
 
 CAP=""; PROV=""; MODEL=""; PRICE=""; OUT=""; YES=0
-usage() { sed -n '2,15p' "$0" >&2; exit 64; }
+usage() { sed -n '2,19p' "$0" >&2; exit 64; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --cap-usd) CAP="${2:-}"; shift 2 || usage ;;
@@ -99,17 +102,18 @@ case "$KEY" in present|not_required) ;; *) refuse "no key for $SP (state: $KEY).
 
 # ---------------------------------------------------------------- the reference price (µUSD per 1M tokens)
 # The providers' list prices, standard tier, from reports/INIT v1 providers UX vision.md Table A (read 2026-10-20):
-# input, cached input, cache write (5-minute TTL for Anthropic; OpenAI's one write class), output. DeepSeek at its peak
+# input, cached input, cache write (5-minute TTL for Anthropic; OpenAI's one write class), output, and the 1-hour write
+# (Anthropic: 2× input; the others have one write class, so it is the write price). DeepSeek at its peak
 # price, which the Root always bills. This is the reference the ledger is compared with, kept apart from the Root's
 # own catalog on purpose. Above 272K input tokens OpenAI reprices the whole request (4/0.20/15 for gpt-6.1-sol): the
 # script flags such a request instead of pricing it.
 case "$SP/$SM" in
-  anthropic/claude-sonnet-5-5) REF="2000000 100000 2500000 10000000" ;;
-  anthropic/claude-opus-5-5)   REF="4000000 200000 5000000 20000000" ;;
-  openai/gpt-6.1-sol)          REF="2000000 100000 2500000 10000000" ;;
-  openai/gpt-6-astra)          REF="10000000 1000000 12500000 50000000" ;;
-  deepseek/deepseek-flash)     REF="300000 6000 300000 1200000" ;;
-  deepseek/deepseek-v4-pro)    REF="1320000 44000 1320000 3960000" ;;
+  anthropic/claude-sonnet-5-5) REF="2000000 100000 2500000 10000000 4000000" ;;
+  anthropic/claude-opus-5-5)   REF="4000000 200000 5000000 20000000 8000000" ;;
+  openai/gpt-6.1-sol)          REF="2000000 100000 2500000 10000000 2500000" ;;
+  openai/gpt-6-astra)          REF="10000000 1000000 12500000 50000000 12500000" ;;
+  deepseek/deepseek-flash)     REF="300000 6000 300000 1200000 300000" ;;
+  deepseek/deepseek-v4-pro)    REF="1320000 44000 1320000 3960000 1320000" ;;
   *) REF="" ;;
 esac
 if [ -n "$PRICE" ]; then
@@ -117,10 +121,10 @@ if [ -n "$PRICE" ]; then
 import sys
 from decimal import Decimal
 p = [int(Decimal(x.strip()) * 1_000_000) for x in sys.argv[1].split(",")]
-assert len(p) == 4 and all(x >= 0 for x in p)
-print(*p)' "$PRICE")" || RC=64 refuse "--price $PRICE: give IN,CACHED,WRITE,OUT in USD per 1M tokens, for example 2.00,0.10,2.50,10.00"
+assert len(p) in (4, 5) and all(x >= 0 for x in p)
+print(*(p + p[2:3])[:5])' "$PRICE")" || RC=64 refuse "--price $PRICE: give IN,CACHED,WRITE,OUT[,WRITE_1H] in USD per 1M tokens, for example 2.00,0.10,2.50,10.00,4.00"
 fi
-[ -n "$REF" ] || refuse "no reference price for $SP/$SM: pass --price IN,CACHED,WRITE,OUT (USD per 1M tokens, the provider's list price)"
+[ -n "$REF" ] || refuse "no reference price for $SP/$SM: pass --price IN,CACHED,WRITE,OUT[,WRITE_1H] (USD per 1M tokens, the provider's list price)"
 
 CLIENT=("$RH/bin/init-root" attach)
 for c in "${BIN_DIR:+$BIN_DIR/init-agent}" "$HOME/.local/bin/init-agent"; do
@@ -132,7 +136,7 @@ mkdir -p "$OUT"
 cat <<EOF
 provider: $SP/$SM ($TESTED); key: $KEY (never read here); Root: $RH; INIT_HOME: $IH
 client:   ${CLIENT[*]}
-price:    $REF µUSD per 1M tokens (input, cached, cache write, output)
+price:    $REF µUSD per 1M tokens (input, cached, cache write, output, 1-hour write)
 results:  $OUT
 EOF
 if [ $YES = 0 ]; then
@@ -147,7 +151,7 @@ import hashlib, json, os, queue, re, secrets, signal, subprocess, sys, threading
 
 root_bin, rh, ih, home, out, cap, prov, model, ref, client = sys.argv[1:11]
 cap = int(cap)
-P_IN, P_CR, P_CW, P_OUT = (int(x) for x in ref.split())
+P_IN, P_CR, P_CW, P_OUT, P_W1 = (int(x) for x in ref.split())
 client = json.loads(client)
 MAX_REQUESTS = 16
 NONCE = os.environ.get("QUALIFY_NONCE") or secrets.token_hex(8)
@@ -426,7 +430,10 @@ crs = [int((e or {}).get("usage", {}).get("cache_read") or 0) if e and e.get("us
 check("cache", len(crs) >= 2 and (crs[1] or 0) > 0, f"cache read per request (Root ledger): {crs}")
 pairs = list(zip(done, full))
 tok_ok = len(done) == len(full) and len(done) >= 3 and all(
-    (e["usage"].get("input"), e["usage"].get("cache_read"), e["usage"].get("cache_write", 0) + e["usage"].get("cache_write_1h", 0),
+    # v0.5.4: a write TTL the Root has no price for is in `unknown_write`, and a write the provider did not split by TTL in
+    # `cache_write_unsplit`, both out of the two write classes
+    (e["usage"].get("input"), e["usage"].get("cache_read"), e["usage"].get("cache_write", 0) + e["usage"].get("cache_write_1h", 0)
+     + e["usage"].get("unknown_write", 0) + e["usage"].get("cache_write_unsplit", 0),
      e["usage"].get("output")) ==
     (m["usage"]["input_tokens"] + m["usage"]["cache_read_tokens"] + m["usage"]["cache_write_tokens"],
      m["usage"]["cache_read_tokens"], m["usage"]["cache_write_tokens"], m["usage"]["output_tokens"]) for (_, e), m in pairs)
@@ -434,14 +441,20 @@ check("tokens", tok_ok, f"{len(done)} completed requests in the ledger, {len(ful
       f"(input, cache read, cache write, output) {'equal' if tok_ok else 'DIFFER'}")
 
 
-def list_price(u):
-    w, r = u["cache_write_tokens"], u["cache_read_tokens"]
-    s = u["input_tokens"] * P_IN + w * P_CW + r * P_CR + u["output_tokens"] * P_OUT
+def list_price(e, u):
+    """The body's usage `u` at list price. Its writes are one total; the ledger record `e` (whose totals the tokens check
+    proves equal) splits them by class, each at the meter's price for it (root/egress.md §3.4): 1 hour at the 1-hour
+    price, a write with no TTL split at the dearer write price, a TTL without a price at the dearest price, the rest
+    (5 minutes, or a provider's one class) at the write price."""
+    w1, us, uw = (int(e.get(k) or 0) for k in ("cache_write_1h", "cache_write_unsplit", "unknown_write"))
+    w5 = max(u["cache_write_tokens"] - w1 - us - uw, 0)
+    s = (u["input_tokens"] * P_IN + u["cache_read_tokens"] * P_CR + w5 * P_CW + w1 * P_W1 + us * max(P_CW, P_W1)
+         + uw * max(P_IN, P_CR, P_CW, P_W1, P_OUT) + u["output_tokens"] * P_OUT)
     return -(-s // 1_000_000)
 
 
 ledger_cost = sum(int(e.get("cost_musd") or 0) for (_, e), _ in pairs)
-ref_cost = sum(list_price(m["usage"]) for _, m in pairs)
+ref_cost = sum(list_price(e["usage"], m["usage"]) for (_, e), m in pairs)
 writes = sum(m["usage"]["cache_write_tokens"] for _, m in pairs)
 big = [m["usage"]["input_tokens"] + m["usage"]["cache_read_tokens"] + m["usage"]["cache_write_tokens"] for _, m in pairs]
 big = [b for b in big if prov == "openai" and b > 272_000]
@@ -453,7 +466,7 @@ check("cost", tok_ok and delta is not None and abs(delta) <= 0.05 and not big,
       f"charged {sum(int((e or {}).get('cost_musd') or 0) for _, e in cut)} µUSD" + (f"; over 272K input: {big}" if big else ""))
 ok = all(c["pass"] for c in checks.values())
 verdict = {"v": 1, "provider": prov, "model": model, "cap_musd": cap, "window_utc": [t0_iso, time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime())],
-           "reference_price_musd_per_mtok": {"input": P_IN, "cache_read": P_CR, "cache_write": P_CW, "output": P_OUT},
+           "reference_price_musd_per_mtok": {"input": P_IN, "cache_read": P_CR, "cache_write": P_CW, "cache_write_1h": P_W1, "output": P_OUT},
            "requests": len(reqs), "spent_musd": None if spent1 is None or spent0 is None else spent1 - spent0,
            "checks": checks, "steps": {k: {x: y for x, y in v.items() if x != "texts"} for k, v in steps.items()},
            "stopped": stopped, "pass": ok}

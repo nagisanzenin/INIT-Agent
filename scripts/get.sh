@@ -10,7 +10,10 @@
 #   --sha256 HEX      the bundle's expected sha256; default: latest.json's, or the <bundle>.sha256 next to it (a URL's,
 #                     or a local file's on a fresh install). An upgrade from a local file needs --sha256
 #   --unpack-only     verify and unpack, do not install
-#   --no-rust         skip the Rust toolchain (INIT then rewrites only its skills and prompts, tier T0)
+#   --no-rust         install no Rust toolchain. install.sh still records rustup's Rust 1.97.x if it finds it on PATH
+#                     (tiers T0+T1+T2); without it, INIT rewrites only its skills and prompts (tier T0)
+#   --no-modify-path  leave your shell's startup file alone (install.sh's flag; without it the install puts the
+#                     init-agent command's directory on PATH for new terminals, in a marked block uninstall.sh removes)
 #   --upgrade         upgrade the installed INIT to this bundle (docs/guide.md "Upgrade"). With INIT installed, its
 #                     agent may have written whatever the owner can (full access): the PATH directories, the working
 #                     directory, the folder a bundle sits in. So an upgrade runs the system tools (PATH
@@ -18,7 +21,7 @@
 #                     the unpacked copy go under ROOT_HOME/cache/upgrade/ (the agent cannot write ROOT_HOME in any
 #                     access mode); a local bundle's sha256 comes from --sha256 only. Then that copy's
 #                     scripts/install.sh --upgrade runs. No Rust step. From 0.5.1 `init-agent upgrade` runs this; from
-#                     0.4.1 or 0.5.0: /usr/bin/curl -q -fsSL <get.sh URL> | /bin/sh -s -- --upgrade
+#                     0.4.1 or 0.5.0: /usr/bin/curl -q -fsSL <get.sh URL> | /bin/bash -p -s -- --upgrade
 #   --version V       that release instead of the latest: the tag v<V>, else v<V>-preview (0.5.0 finds v0.5.0-preview;
 #                     0.5.0-preview is taken as it is)
 #   --allow-unsigned  install a download whose signature cannot be checked (no SHA256SUMS.sig, a release before 0.5.3,
@@ -41,30 +44,33 @@
 # touching your shell files or your default toolchain). The provider, key and model are chosen on the first run of
 # `init-agent` (the TUI's setup). Nothing here needs sudo or a key.
 #
-# INIT_DIST_URL defaults to the latest GitHub release of nagisanzenin/INIT-Agent. POSIX sh: it runs under sh, dash and
-# zsh's sh mode.
+# INIT_DIST_URL defaults to the latest GitHub release of nagisanzenin/INIT-Agent. POSIX sh: it runs under sh, dash,
+# zsh's sh mode and bash -p (the lines it prints run it so).
 set -eu
 umask 022
 
 DIST_URL="${INIT_DIST_URL:-https://github.com/nagisanzenin/INIT-Agent/releases/latest/download}"
-DIST0="$DIST_URL" # as given: --version changes DIST_URL to that release's directory
+# The get.sh every printed line runs: always the published one (v0.5.4, the review of lane J). INIT_DIST_URL chooses
+# this run's downloads (a mirror, the tests); a planted one must not choose the script a pasted line runs.
+GET_URL=https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh
 # The release key (v0.5.3; docs/release-signing.md): the OpenSSH form of the ed25519 key the maintainer signs each
 # release's SHA256SUMS with, one line per key, the newest first. The installed Root pins the same lines (release.rs
 # RELEASE_KEYS; a test checks that they agree). Empty in a copy made before the key ceremony: it verifies no download.
 RELEASE_KEYS='ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIKMhJt8xvzNDPIJZg1WUaKzOPzqdtZj66Paubkbgqjf+ INIT release key 1 (2026-10)'
-FROM=""; WANT=""; WANT_FROM=""; UNPACK_ONLY=0; NO_RUST=0; UPGRADE=0; RELEASE=""; ALLOW_UNSIGNED=0; ALLOW_EXPIRED=0
+FROM=""; WANT=""; WANT_FROM=""; UNPACK_ONLY=0; NO_RUST=0; NO_MODIFY_PATH=0; UPGRADE=0; RELEASE=""; ALLOW_UNSIGNED=0; ALLOW_EXPIRED=0
 while [ $# -gt 0 ]; do
   case "$1" in
     --from) FROM="$2"; shift 2 ;;
     --sha256) WANT="$2"; WANT_FROM=owner; shift 2 ;;
     --unpack-only) UNPACK_ONLY=1; shift ;;
     --no-rust) NO_RUST=1; shift ;;
+    --no-modify-path) NO_MODIFY_PATH=1; shift ;;
     --upgrade) UPGRADE=1; shift ;;
     --version) RELEASE="$2"; shift 2 ;;
     --allow-unsigned) ALLOW_UNSIGNED=1; shift ;;
     --allow-expired) ALLOW_EXPIRED=1; shift ;;
     --) shift; break ;;
-    -h|--help) sed -n '2,45p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,48p' "$0"; exit 0 ;;
     *) echo "get.sh: unknown argument $1 (see --help)" >&2; exit 64 ;;
   esac
 done
@@ -96,6 +102,7 @@ AGAIN_P=""; AGAIN_A=""; AGAIN_I=""
 [ -z "$WANT" ] || { AGAIN_P="$AGAIN_P --sha256 $(shq "$WANT")"; AGAIN_A="$AGAIN_A --sha256 $(shq "$WANT")"; }
 [ $UNPACK_ONLY = 0 ] || AGAIN_P="$AGAIN_P --unpack-only"
 [ $NO_RUST = 0 ] || AGAIN_P="$AGAIN_P --no-rust"
+[ $NO_MODIFY_PATH = 0 ] || AGAIN_P="$AGAIN_P --no-modify-path"
 [ $ALLOW_UNSIGNED = 0 ] || { AGAIN_P="$AGAIN_P --allow-unsigned"; AGAIN_A="$AGAIN_A --allow-unsigned"; }
 [ $ALLOW_EXPIRED = 0 ] || { AGAIN_P="$AGAIN_P --allow-expired"; AGAIN_A="$AGAIN_A --allow-expired"; }
 [ $# = 0 ] || { AGAIN_I=" --"; for a in "$@"; do AGAIN_I="$AGAIN_I $(shq "$a")"; done; }
@@ -120,6 +127,20 @@ case "$OS" in
       x86_64|amd64) TARGET=linux-x86_64 ;;
       *) die "no Linux bundle for $(uname -m) (aarch64 and x86_64 only)" ;;
     esac
+    # v0.5.4 (the post-release review of v0.5.3): the bundle's binaries need a glibc at least as new as the one they
+    # were built against, else they do not start ("version `GLIBC_2.34' not found"). GLIBC_MIN is measured, never
+    # guessed: scripts/glibc-floor.py on the release's Linux x86_64 bundle (v0.5.3: 2.34 for every binary, by that
+    # reader and by objdump -p). Checked before anything is downloaded. Not for aarch64, which has no 0.5.x bundle.
+    GLIBC_MIN=2.34
+    if [ "$TARGET" = linux-x86_64 ] && [ $UNPACK_ONLY = 0 ]; then
+      GV="$(getconf GNU_LIBC_VERSION 2>/dev/null | sed -n 's/^glibc \([0-9][0-9]*\.[0-9][0-9]*\).*/\1/p')"
+      # no getconf: glibc's ldd says "ldd (GNU libc) 2.35" (or "(Ubuntu GLIBC 2.35-0ubuntu3) 2.35"); musl's does not
+      [ -n "$GV" ] || GV="$(ldd --version 2>&1 | sed -n '1{/GNU libc\|GLIBC/s/.* \([0-9][0-9]*\.[0-9][0-9]*\)$/\1/p;}')"
+      [ -n "$GV" ] || die "this Linux reports no GNU C library (getconf GNU_LIBC_VERSION; musl, as on Alpine, is not glibc): INIT's Linux x86_64 bundle needs glibc $GLIBC_MIN or newer. Nothing was installed."
+      if [ "${GV%%.*}" -lt "${GLIBC_MIN%%.*}" ] || { [ "${GV%%.*}" = "${GLIBC_MIN%%.*}" ] && [ "${GV#*.}" -lt "${GLIBC_MIN#*.}" ]; }; then
+        die "this Linux has glibc $GV, and INIT's Linux x86_64 bundle needs glibc $GLIBC_MIN or newer: its programs would not start here. Nothing was installed. glibc $GLIBC_MIN or newer comes with, for example, Ubuntu 22.04, Debian 12, Fedora 35, RHEL 9 (and its rebuilds) and Amazon Linux 2023; Ubuntu 20.04, Debian 11, RHEL 8 and Amazon Linux 2 are older."
+      fi
+    fi
     for t in git tar sha256sum; do command -v "$t" >/dev/null || die "$t is missing: install it with your package manager"; done
     [ -x /usr/bin/python3 ] || die "/usr/bin/python3 is missing: install python3 with your package manager"
     [ -x /usr/bin/bwrap ] || die "/usr/bin/bwrap is missing: INIT needs bubblewrap 0.13.0 or newer (docs/platforms.md, Linux install)"
@@ -158,11 +179,23 @@ except Exception: pass' "$RH/install.json" 2>/dev/null || true)"
 # The upgrade as the owner types it, with get.sh's arguments after --upgrade (already quoted). From 0.5.1:
 # `init-agent upgrade` (up_agent; --from is its --bundle), which runs the get.sh this install kept. From 0.4.1 (no
 # init-agent upgrade) or 0.5.0 (whose init-agent upgrade runs 0.5.0's get.sh, without 0.5.1's fixes): this get.sh,
-# fetched again and run with the system's curl and sh (up_pipe; docs/guide.md "Upgrade"). INIT_ROOT_HOME goes to sh.
-up_agent() { printf '%s%s upgrade' "$(rh_env)" "$(agent)"; [ $# = 0 ] || printf ' %s' "$*"; }
-up_pipe() { # the get.sh this run came from (DIST0: --version points DIST_URL at an older release, whose get.sh may
-  # not take the flags again adds)
-  printf '/usr/bin/curl -q -fsSL %s | %s/bin/sh -s -- --upgrade' "$(shq "$DIST0/get.sh")" "$(rh_env)"
+# fetched again and run with the system's curl and bash (up_pipe; docs/guide.md "Upgrade"). INIT_ROOT_HOME goes to bash.
+# v0.5.4 (the post-release review of v0.5.3): until 0.5.3, `init-agent upgrade` preferred an INIT_ROOT_HOME in the
+# environment over the home install.sh baked into it, and handed the whole environment to the kept get.sh: a variable
+# the agent planted in the owner's shell startup files (full access) chose which get.sh ran (docs/release-signing.md
+# A3). So for an install before 0.5.4 (or one whose version cannot be read) the line runs that launcher under env -i,
+# with this INIT's home named inside it; from 0.5.4 the launcher takes its baked home only and cleans the environment
+# itself.
+up_agent() {
+  if [ -n "${HAVE:-}" ] && ! ver_lt "$HAVE" 0.5.4; then printf '%s upgrade' "$(agent)"
+  else printf '/usr/bin/env -i HOME="$HOME" %s%s upgrade' "$(rh_env)" "$(agent)"; fi # /usr/bin: PATH may start with a dir the agent wrote
+  [ $# = 0 ] || printf ' %s' "$*"
+}
+up_pipe() { # the published get.sh (GET_URL; not an older release's, whose get.sh may not take the flags again adds).
+  # v0.5.4 (review 6): /bin/bash -p, not /bin/sh. macOS's /bin/sh is bash 3.2 as sh, which honours a planted
+  # SHELLOPTS=xtrace (its PS4 runs before every command, after the signature check) and imports exported functions
+  # (one named curl wins over PATH); bash -p takes neither, nor BASH_ENV.
+  printf '/usr/bin/curl -q -fsSL %s | %s/bin/bash -p -s -- --upgrade' "$GET_URL" "$(rh_env)"
   [ $# = 0 ] || printf ' %s' "$*"
 }
 # --version V: the release's tags carry a label (v0.5.0-preview); `init-root --version` and the site say 0.5.0. So a
@@ -276,7 +309,12 @@ latest_without_target() { # the latest release's version when its latest.json li
   fi
   rm -f -- "$lj"
 }
-UNINSTALL='f="$(mktemp)" && curl -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && '"$(rh_env)"'bash "$f"'
+# The uninstaller as one line that sh, bash, zsh and fish all read the same way (v0.5.4: `f="$(mktemp)" && …` is not
+# fish): /bin/bash -p runs the steps, and fish reads the single-quoted part as one word, since it holds no ' or \.
+# INIT_ROOT_HOME= in front (fish 3.1 or newer reads that form too) reaches uninstall.sh through bash.
+# The tools by their system paths (a PATH directory may be the agent's) and bash -p (no BASH_ENV, SHELLOPTS or exported
+# functions), still one single-quoted word.
+UNINSTALL="$(rh_env)"'/bin/bash -p -c '"'"'f="$(/usr/bin/mktemp)" && /usr/bin/curl -q -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && /bin/bash -p "$f"'"'"
 too_old() { # <version>: the upgrade starts at 0.4.1, the oldest release it was tested from
   die "INIT $1 is installed ${ELSEWHERE:-in $RH}. An upgrade from a release before 0.4.1 is not supported: uninstall it first, then run this again. The uninstaller moves INIT, its record and your provider key to the Trash (nothing is deleted):
   $UNINSTALL$SECOND"
@@ -293,12 +331,12 @@ if [ $UPGRADE = 1 ]; then
     [ $ALLOW_EXPIRED = 0 ] || { UPA="$UPA --allow-expired"; UPB="$UPB --allow-expired"; }
     if [ $# -gt 0 ]; then UPA="$UPA --"; UPB="$UPB --"; for a in "$@"; do UPA="$UPA $(shq "$a")"; UPB="$UPB $(shq "$a")"; done; fi
     if [ -n "$HAVE" ] && ver_lt "$HAVE" 0.5.1; then # 0.4.1 and 0.5.0: this get.sh, piped, as the owner ran it
-      die "INIT $HAVE is installed $ELSEWHERE. Upgrade it with its home given to sh:
+      die "INIT $HAVE is installed $ELSEWHERE. Upgrade it with its home given to bash:
   $(up_pipe ${UPA:+"${UPA# }"})"
     fi
     die "INIT ${HAVE:+$HAVE }is installed $ELSEWHERE. Upgrade it with:
   $(up_agent ${UPB:+"${UPB# }"})
-(or, as you ran it, with its home given to sh: $(up_pipe ${UPA:+"${UPA# }"}))"
+(or, as you ran it, with its home given to bash: $(up_pipe ${UPA:+"${UPA# }"}))"
   fi
   [ -f "$RH/install.json" ] || die "INIT is not installed in $RH (no install.json): run this without --upgrade to install it"
   [ -d "$RH/cache" ] && [ ! -L "$RH/cache" ] || die "$RH/cache is not a directory"
@@ -363,7 +401,7 @@ no_bundle() { # <url> <http code>: the release has no bundle for this machine (u
   [ ! -f "$TMP/latest.json" ] || LISTED="$(sed -n 's/^ *"sha256_\([a-z0-9_-]*\)": .*/\1/p; s/^ *"target": "\([a-z0-9_-]*\)".*/\1/p' \
     "$TMP/latest.json" | sort -u)"
   case " $(echo $LISTED) " in *" $TARGET "*) # listed but missing: an upload in progress, or a broken release
-    die "$1 answered HTTP $2, although latest.json lists a $TARGET bundle; the release may still be uploading. Try again in a few minutes, or use --from <bundle.tar.gz>" ;;
+    die "$1 answered HTTP $2, although latest.json lists a $TARGET bundle; the release may still be uploading. Try again in a few minutes, or $(from_hint)" ;;
   esac
   {
     printf 'get.sh: there is no INIT bundle for this machine (%s, target %s) in this release:\n' "$PLATFORM" "$TARGET"
@@ -391,18 +429,23 @@ RISK_UNSIGNED="the bundle is then checked by its sha256 alone, which comes from 
 again() { # <flag>: this run with <flag> added, as the owner types it: its arguments (AGAIN_*), and on a fresh install
   # the homes it was given (on an upgrade they come from the install)
   if [ $UPGRADE = 0 ]; then
-    printf '/usr/bin/curl -q -fsSL %s | %s%s%s%s/bin/sh -s -- %s' "$(shq "$DIST0/get.sh")" "$(rh_env)" \
+    printf '/usr/bin/curl -q -fsSL %s | %s%s%s%s/bin/bash -p -s -- %s' "$GET_URL" "$(rh_env)" \
       "${INIT_HOME:+INIT_HOME=$(shq "$INIT_HOME") }" "${INIT_BIN_DIR:+INIT_BIN_DIR=$(shq "$INIT_BIN_DIR") }" \
       "${INIT_APP_DIR:+INIT_APP_DIR=$(shq "$INIT_APP_DIR") }" "${AGAIN_P# }${AGAIN_P:+ }$1$AGAIN_I"
   elif [ -n "${HAVE:-}" ] && ! ver_lt "$HAVE" 0.5.3 && [ $UNPACK_ONLY = 0 ]; then up_agent "${AGAIN_A# }${AGAIN_A:+ }$1$AGAIN_I"
   else up_pipe "${AGAIN_P# }${AGAIN_P:+ }$1$AGAIN_I"; fi
 }
-no_verifier() { # <why>: get.sh has no way to check the signature here
-  case "$OS" in
-    Darwin) HOW="macOS ships it as /usr/bin/ssh-keygen; put /usr/bin on your PATH" ;;
-    *) HOW="install OpenSSH's client (Debian, Ubuntu: sudo apt install openssh-client; Fedora, RHEL: sudo dnf install openssh-clients; Arch: sudo pacman -S openssh; Alpine: sudo apk add openssh-keygen)" ;;
+# v0.5.4 (the post-release review of v0.5.3): the advice is true per case. ssh-keygen -Y verify, and the
+# allowed-signers file with its namespaces= option that this check passes it, came with OpenSSH 8.1 (2019). A missing
+# ssh-keygen is a package to install; an ssh-keygen older than 8.1 is the system's own OpenSSH, which installing again
+# does not change (RHEL 8 ships 8.0, Amazon Linux 2 7.4; both are also below GLIBC_MIN, so get.sh refuses them first).
+no_verifier() { # <why> <missing|old>: get.sh has no way to check the signature here
+  case "$OS/$2" in
+    Darwin/*) HOW="macOS ships it as /usr/bin/ssh-keygen; put /usr/bin on your PATH, then run this again" ;;
+    */missing) HOW="install it (Debian, Ubuntu: sudo apt install openssh-client; Fedora, RHEL: sudo dnf install openssh; Arch: sudo pacman -S openssh), then run this again" ;;
+    *) HOW="this system's OpenSSH is older, and reinstalling its package does not change that. A newer release of your distribution has it; or check the release by hand on a machine that has it (docs/release-signing.md section 4.4)" ;;
   esac
-  die "cannot check this release's signature: $1. get.sh checks it with ssh-keygen -Y verify (OpenSSH 8.1 or newer): $HOW, then run this again. Nothing was installed. To install without the check, knowing that $RISK_UNSIGNED, add --allow-unsigned:
+  die "cannot check this release's signature: $1. get.sh checks it with ssh-keygen -Y verify, which needs OpenSSH 8.1 or newer: $HOW. Nothing was installed. To install without the check, knowing that $RISK_UNSIGNED, add --allow-unsigned:
   $(again --allow-unsigned)"
 }
 sig_fetch() { # <base URL>: the release's SHA256SUMS and SHA256SUMS.sig, from beside the bundle, into TMP
@@ -451,12 +494,12 @@ sig_by_ssh() { # ssh-keygen -Y verify with this get.sh's RELEASE_KEYS (a fresh i
   # 0.5.3, whose Root cannot check it), then the version, the expiry and this bundle's line, read here
   [ -n "$RELEASE_KEYS" ] || die "this get.sh pins no release key (a copy made before the release key existed), so it can verify no download. Nothing was installed. Use the get.sh of a published release, or, knowing that $RISK_UNSIGNED, add --allow-unsigned:
   $(again --allow-unsigned)"
-  command -v ssh-keygen >/dev/null 2>&1 || no_verifier "ssh-keygen is not installed"
+  command -v ssh-keygen >/dev/null 2>&1 || no_verifier "ssh-keygen is not installed" missing
   printf '%s\n' "$RELEASE_KEYS" | sed -n 's|^\(ssh-ed25519 [A-Za-z0-9+/=]*\).*|init-release namespaces="init-release" \1|p' >"$TMP/allowed_signers"
   if ! ssh-keygen -Y verify -f "$TMP/allowed_signers" -I init-release -n init-release -s "$TMP/SHA256SUMS.sig" \
     <"$TMP/SHA256SUMS" >"$TMP/verify.out" 2>&1; then
     case "$(cat "$TMP/verify.out")" in
-      *"illegal option"*|*"unknown option"*|*"invalid option"*) no_verifier "this ssh-keygen has no -Y verify (OpenSSH before 8.1)" ;;
+      *"illegal option"*|*"unknown option"*|*"invalid option"*) no_verifier "this ssh-keygen has no -Y verify (OpenSSH before 8.1)" old ;;
     esac
     die "the signature of SHA256SUMS does not verify with INIT's release key (ssh-keygen: $(head -n 2 "$TMP/verify.out" | tr '\n' ' ')): the files on the server are not the ones the maintainer signed, or they were signed with another key. Nothing was installed. Please report it: https://github.com/nagisanzenin/INIT-Agent/issues"
   fi
@@ -487,6 +530,33 @@ signature() { # <base URL>: fetch and verify; sets SIGNED, EXP, SUMSHA, KEYFP, B
   if [ $UPGRADE = 0 ] || ! sig_by_root; then sig_by_ssh; fi
 }
 
+# v0.5.4 (the release review; review 6): what to do when the download fails, by the install and by how this run
+# started. A fresh install takes --from. From 0.5.1 an upgrade is `init-agent upgrade`, which takes --bundle and
+# --sha256 (a local bundle downloads nothing). From 0.5.4 that launcher runs this file, ROOT_HOME/cache/get.sh, under
+# env -i, so this run has none of the shell's proxy variables (HTTPS_PROXY, SSL_CERT_FILE, …) and, behind a proxy, the
+# bundle is downloaded by hand. Run from the owner's shell (the pipe, or by hand), it had them. 0.4.1 has no
+# init-agent upgrade, and 0.5.0's runs 0.5.0's own get.sh: those get this get.sh again, piped, with --from (up_pipe).
+from_hint() {
+  if [ $UPGRADE = 0 ]; then printf 'use --from <bundle.tar.gz>'; return; fi
+  F='<the bundle file>'; S='<its sha256 from the release page>'
+  # the run's other arguments, as `again` keeps them (the review of lane J): its flags for the pipe (--version, --from and
+  # --sha256 are the bundle's now), and install.sh's after -- for both lines
+  K=""; [ $UNPACK_ONLY = 0 ] || K="$K --unpack-only"; [ $NO_RUST = 0 ] || K="$K --no-rust"
+  [ $NO_MODIFY_PATH = 0 ] || K="$K --no-modify-path"; [ $ALLOW_UNSIGNED = 0 ] || K="$K --allow-unsigned"
+  [ $ALLOW_EXPIRED = 0 ] || K="$K --allow-expired"
+  if [ -n "${HAVE:-}" ] && ver_lt "$HAVE" 0.5.1; then
+    printf 'download the bundle and its sha256 from the release page yourself (this upgrade ran in your shell, so its proxy variables, if any, were used) and run this get.sh on that file:\n  %s' \
+      "$(up_pipe --from "$F" --sha256 "$S$K$AGAIN_I")"
+  # by the 0.5.4+ launcher, under env -i: none of the shell's proxy or CA variables (which curl reads) is set
+  elif [ "$0" = "$RH/cache/get.sh" ] && [ -z "${HTTPS_PROXY:-}${https_proxy:-}${ALL_PROXY:-}${all_proxy:-}${SSL_CERT_FILE:-}${SSL_CERT_DIR:-}${CURL_CA_BUNDLE:-}" ]; then
+    printf 'download the bundle and its sha256 from the release page yourself (this upgrade ran without your shell'"'"'s proxy and CA variables) and run:\n  %s' \
+      "$(up_agent --bundle "$F" --sha256 "$S$AGAIN_I")"
+  else
+    printf 'download the bundle and its sha256 from the release page yourself and run (a local bundle downloads nothing):\n  %s' \
+      "$(up_agent --bundle "$F" --sha256 "$S$AGAIN_I")"
+    [ -n "${HAVE:-}" ] || printf '\n(from INIT 0.4.1 or 0.5.0: %s)' "$(up_pipe --from "$F" --sha256 "$S$K$AGAIN_I")"
+  fi
+}
 LOCAL=0 # 1: --from a local file, checked by its sha256 only
 case "$FROM" in
   http://*) die "refusing a plain-http URL: $FROM" ;;
@@ -500,7 +570,7 @@ case "$FROM" in
         case "$CODE/$HTTP" in
           0/*) DIST_URL="$BASE/download/$t"; break ;;
           22/404) ;;
-          *) die "cannot fetch $BASE/download/$t/latest.json (curl exit $CODE, HTTP ${HTTP:-none}); check the connection, or use --from <bundle.tar.gz>" ;;
+          *) die "cannot fetch $BASE/download/$t/latest.json (curl exit $CODE, HTTP ${HTTP:-none}); check the connection, or $(from_hint)" ;;
         esac
       done
       if [ -z "$DIST_URL" ]; then
@@ -510,7 +580,7 @@ case "$FROM" in
         esac
       fi
     elif [ -z "$FROM" ]; then
-      fetch "$DIST_URL/latest.json" "$TMP/latest.json" || die "cannot fetch $DIST_URL/latest.json (or use --from <bundle.tar.gz>)"
+      fetch "$DIST_URL/latest.json" "$TMP/latest.json" || die "cannot fetch $DIST_URL/latest.json; check the connection, or $(from_hint)"
     fi
     if [ -z "$FROM" ]; then
       LVER="$(sed -n 's/^ *"version": "\([0-9A-Za-z.-]*\)".*/\1/p' "$TMP/latest.json")"
@@ -531,7 +601,7 @@ case "$FROM" in
     case "$CODE/$HTTP" in
       0/*) ;;
       22/404|22/410) no_bundle "$FROM" "$HTTP" ;;
-      *) die "download failed: $FROM (curl exit $CODE, HTTP ${HTTP:-none}); check the connection, or use --from <bundle.tar.gz>" ;;
+      *) die "download failed: $FROM (curl exit $CODE, HTTP ${HTTP:-none}); check the connection, or $(from_hint)" ;;
     esac
     [ -n "$WANT" ] || { fetch "$FROM.sha256" "$TMP/$FILE.sha256" && WANT="$(cut -d' ' -f1 "$TMP/$FILE.sha256")" && WANT_FROM="$FILE.sha256"; } || true
     TGZ="$TMP/$FILE" ;;
@@ -596,11 +666,20 @@ else
   chmod -R a-w "$DEST" # read-only: the code INIT runs as you (docs/ux-v1.md §3.2.3 step 6)
   ok "unpacked INIT $VERSION in $DEST"
 fi
-say "  $(( $(date +%s) - T0 )) s so far"
+# v0.5.4 (user session A): one install printed three times that read alike ("installed in 24 s", "(0 min 30 s)",
+# "installed in 36 s (after the download)", which included the download). Each is now named for what it measures, and
+# the last line is the total, split into its parts.
+T_GOT=$(date +%s)
+say "  download, checks and unpack: $(( T_GOT - T0 )) s"
 [ $UNPACK_ONLY = 0 ] || { say "Unpacked only. Install: $DEST/scripts/install.sh --yes"; exit 0; }
 if [ $UPGRADE = 1 ]; then
   say ""
   "$DEST/scripts/install.sh" --upgrade --yes "$@" || exit $?
+  # v0.5.4 (review 6): install.sh's last line counts its own time only; this is the whole run's, split as a fresh
+  # install's is (no Rust step in an upgrade)
+  T_END=$(date +%s)
+  say ""
+  say "This upgrade took $(( T_END - T0 )) s in all: download, checks and unpack $(( T_GOT - T0 )) s · install.sh $(( T_END - T_GOT )) s."
   exit 0
 fi
 
@@ -616,7 +695,7 @@ if [ $NO_RUST = 0 ]; then
     curl -q --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs \
       | sh -s -- -y --quiet --no-modify-path --profile minimal --component clippy --default-toolchain "$RUST_TC" --target wasm32-wasip2 \
         >"$TMP/rustup.log" 2>&1 \
-      || { tail -5 "$TMP/rustup.log" >&2; die "installing Rust failed; rerun with --no-rust to install without self-rewrite (T0 only), or install rustup yourself"; }
+      || { tail -5 "$TMP/rustup.log" >&2; die "installing Rust failed; rerun with --no-rust to install without it (INIT then rewrites only its skills and prompts, T0, unless a Rust $RUST_TC is on your PATH), or install rustup yourself"; }
     RUSTUP="$CARGO_BIN/rustup"
   else
     say "  ..  making sure rustup has Rust $RUST_TC with wasm32-wasip2 (your default toolchain is left alone)"
@@ -630,17 +709,23 @@ if [ $NO_RUST = 0 ]; then
   # install.sh records the toolchain rustup resolves; pin it to the one above for this run only.
   PATH="$(dirname "$RUSTUP"):$PATH"; RUSTUP_TOOLCHAIN="$RUST_TC"; export PATH RUSTUP_TOOLCHAIN
 else
-  say "  --  no Rust (--no-rust): INIT will rewrite only its skills and prompts (T0). Later: install Rust $RUST_TC, then, with the Root stopped, $(rcmd toolchain --set) (the install's last lines give the steps)"
+  # v0.5.4 (the v0.5.3 and v0.5.4 user sessions): this said "INIT will rewrite only its skills and prompts (T0)", and a
+  # few lines later install.sh recorded the Rust it found on PATH (T0+T1+T2). get.sh does not know what install.sh will
+  # find, so it says only what it did; install.sh's toolchain line and init-root's "self-evolution:" line say the tier.
+  # v0.5.4 (review 6): "a Rust 1.97.1 toolchain", where install.sh takes any 1.97.x, and rustup's only
+  say "  --  no Rust installed (--no-rust). The install below looks for rustup's Rust 1.97.x on your PATH and says what it found: with it, INIT rewrites its tools and core too (T1, T2); without, its skills and prompts (T0), and the install's last lines give the steps to add Rust later"
 fi
 
 # ---------------------------------------------------------------- install (non-interactive, defaults)
+T_RUST=$(date +%s)
 say ""
-"$DEST/scripts/install.sh" --yes "$@" || die "install failed; fix the cause above, then run: $DEST/scripts/install.sh --yes $*"
+NMP=""; [ $NO_MODIFY_PATH = 0 ] || NMP=--no-modify-path # install.sh's flag, passed on
+"$DEST/scripts/install.sh" --yes $NMP "$@" || die "install failed; fix the cause above, then run: $DEST/scripts/install.sh --yes${NMP:+ $NMP} $*"
 RH="${INIT_ROOT_HOME:-$HOME/.init-root}"
 BIN="${INIT_BIN_DIR:-$HOME/.local/bin}"
 cat <<EOF
 
-INIT $VERSION installed in $(( $(date +%s) - T0 )) s (after the download).
+INIT $VERSION installed in $(( $(date +%s) - T0 )) s in all: download, checks and unpack $(( T_GOT - T0 )) s · Rust $([ $NO_RUST = 1 ] && echo "none (--no-rust)" || echo "$(( T_RUST - T_GOT )) s") · install.sh $(( $(date +%s) - T_RUST )) s.
 Start it:
   $(tilde "$BIN/init-agent")
 The first run asks for the provider, your key (hidden) and the model, then opens the chat.

@@ -251,7 +251,7 @@ t1_install() { # TARBALL DIR
   env -i HOME="$H" PATH="$T1_PW_HOME/.cargo/bin:/usr/bin:/bin:/usr/sbin:/sbin" TMPDIR="$T1_DIR/tmp/" LANG=en_US.UTF-8 \
     INIT_ROOT_HOME="$RH" INIT_HOME="$IH" INIT_BIN_DIR="$BIN" \
     RUSTUP_HOME="$T1_PW_HOME/.rustup" CARGO_HOME="$T1_PW_HOME/.cargo" RUSTUP_TOOLCHAIN="$T1_RUST" \
-    /bin/sh "$getsh" --from "$tgz" --no-rust -- --no-service --disk-floor 5 --mock-upstream "127.0.0.1:$PORT" \
+    /bin/sh "$getsh" --from "$tgz" --no-rust $(grep -q -- --no-modify-path "$getsh" && echo --no-modify-path) -- --no-service --disk-floor 5 --mock-upstream "127.0.0.1:$PORT" \
     >"$T1_DIR/get.log" 2>&1 </dev/null
   grc=$?
   set -e

@@ -17,12 +17,13 @@ https://127.0.0.1:1/, which refuses at once.) Needs a host get.sh accepts (macOS
 /usr/bin/bwrap and /usr/bin/python3); anything else skips. Stdlib only.
 """
 import os
+import re
 import platform
 import subprocess
 import tempfile
 import unittest
 
-from test_printed_commands import run_pipe, shq
+from test_printed_commands import GET_URL, run_pipe, shq
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 GET = os.path.join(REPO, "scripts", "get.sh")
@@ -32,7 +33,8 @@ DIST = "https://127.0.0.1:1/rel/latest/download"
 
 def pipe(rh):
     """The upgrade get.sh prints for 0.4.1 and 0.5.0 (up_pipe)."""
-    return "/usr/bin/curl -q -fsSL %s/get.sh | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade" % (DIST, shq(rh))
+    # v0.5.4 (the review of lane J): the published get.sh, never the INIT_DIST_URL of the run (DIST here)
+    return "/usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade" % (GET_URL, shq(rh))
 
 
 def host_ok():
@@ -101,11 +103,14 @@ class InstalledRelease(unittest.TestCase):
             self.assertNotIn("curl ran", p.stderr)
 
     def test_051_and_later_get_init_agent_upgrade(self):
-        for version in ("0.5.1", "0.6.2", "1.0.0"):
+        # v0.5.4: before 0.5.4 the launcher's upgrade took INIT_ROOT_HOME and the rest from the environment, so the line
+        # runs it under env -i with the home inside; from 0.5.4 the launcher uses its baked home only
+        for version, env_i in (("0.5.1", True), ("0.5.3", True), ("0.5.4", False), ("1.0.0", False)):
             p = self.run_get(version)
+            line = '/usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade' % shq(self.rh) if env_i else "~/.local/bin/init-agent upgrade"
             self.assertEqual(p.returncode, 1, (version, p.stderr))
             self.assertIn("INIT %s is already installed" % version, p.stderr)
-            self.assertIn("\n  INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade\n" % shq(self.rh), p.stderr)
+            self.assertIn("\n  %s\n" % line, p.stderr)
             self.assertNotIn("/usr/bin/curl", p.stderr)
             self.assertNotIn("curl ran", p.stderr)
 
@@ -115,10 +120,10 @@ class InstalledRelease(unittest.TestCase):
             p = self.run_get(version, rh_name=name)
             line = p.stderr.splitlines()[-1].strip()
             self.assertEqual(line, pipe(self.rh), p.stderr)
-            self.assertEqual(run_pipe(self, line, DIST + "/get.sh", self.home), "home=%s|args=--upgrade" % self.rh)
+            self.assertEqual(run_pipe(self, line, GET_URL, self.home), "home=%s|args=--upgrade" % self.rh)
         p = self.run_get("0.5.1", rh_name=name)
         line = p.stderr.splitlines()[-1].strip()
-        self.assertEqual(line, "INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade" % shq(self.rh))
+        self.assertEqual(line, '/usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade' % shq(self.rh))
         with tempfile.TemporaryDirectory() as home:  # a stand-in init-agent in ~/.local/bin, which is not on PATH
             os.makedirs(os.path.join(home, ".local", "bin"))
             with open(os.path.join(home, ".local", "bin", "init-agent"), "w") as f:
@@ -128,13 +133,41 @@ class InstalledRelease(unittest.TestCase):
                                capture_output=True, text=True, timeout=30)
             self.assertEqual(q.stdout.strip(), "home=%s|args=upgrade" % self.rh, line + q.stderr)
         p = self.run_get("0.3.1", rh_name=name)
-        self.assertIn(' && INIT_ROOT_HOME=%s bash "$f"' % shq(self.rh), p.stderr, "the uninstaller finds this ROOT_HOME")
+        self.assertIn("\n  INIT_ROOT_HOME=%s /bin/bash -p -c 'f=" % shq(self.rh), p.stderr, "the uninstaller finds this ROOT_HOME")
+
+    def test_the_uninstall_line_reads_the_same_in_sh_bash_zsh_and_fish(self):
+        # v0.5.4 (the post-release review of v0.5.3): `f="$(mktemp)" && …` is not fish. The line is /bin/sh -c with one
+        # single-quoted word that holds no ' or \ (fish 3.1 or newer also reads the INIT_ROOT_HOME= prefix), so every one
+        # of these shells hands sh the same text; it parses in sh, bash and zsh, and runs as printed
+        p = self.run_get("0.3.1")
+        line = next(l.strip() for l in p.stderr.splitlines() if "uninstall.sh -o" in l)
+        m = re.fullmatch(r"(INIT_ROOT_HOME=[^\s'\\]+ )?/bin/bash -p -c '([^'\\]*)'", line)
+        self.assertIsNotNone(m, line)
+        for sh in ("/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash"):
+            with self.subTest(shell=sh):
+                if not os.path.exists(sh):  # v0.5.4 (review 6): a shell this host lacks is a visible skip, not a pass
+                    self.skipTest("%s is not on this host" % sh)
+                q = subprocess.run([sh, "-n", "-c", line], capture_output=True, text=True, timeout=30)
+                self.assertEqual(q.returncode, 0, (sh, q.stderr))
+        # v0.5.4 (the release review): system paths for mktemp and curl (-q: no ~/.curlrc), bash -p (no BASH_ENV,
+        # SHELLOPTS or exported functions); no tool is found on PATH, where a directory may be the agent's
+        body = m.group(2)
+        for want in ('f="$(/usr/bin/mktemp)"', "/usr/bin/curl -q -fsSL %s -o" % UNINSTALL, '/bin/bash -p "$f"'):
+            self.assertIn(want, body)
+        with tempfile.TemporaryDirectory() as d:  # the download replaced by a copy of a stand-in uninstaller
+            stand_in = os.path.join(d, "u.sh")
+            with open(stand_in, "w") as f:
+                f.write('echo "home=$INIT_ROOT_HOME"\n')
+            run = line.replace("/usr/bin/curl -q -fsSL %s -o" % UNINSTALL, "/bin/cp %s" % stand_in)
+            q = subprocess.run(["/bin/zsh" if os.path.exists("/bin/zsh") else "/bin/sh", "-c", run],
+                               env={"PATH": "/usr/bin:/bin", "HOME": self.home}, capture_output=True, text=True, timeout=30)
+            self.assertEqual(q.stdout.strip(), "home=%s" % self.rh, run + q.stderr)
 
     def test_unreadable_version_lists_every_path(self):
         p = self.run_get(None)
         self.assertEqual(p.returncode, 1, p.stderr)
         self.assertIn("its version could not be read", p.stderr)
-        for s in ("From 0.5.1: INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade." % shq(self.rh),
+        for s in ("From 0.5.1: /usr/bin/env -i HOME=\"$HOME\" INIT_ROOT_HOME=%s ~/.local/bin/init-agent upgrade." % shq(self.rh),
                   "From 0.4.1 or 0.5.0: %s." % pipe(self.rh), UNINSTALL):
             self.assertIn(s, p.stderr)
 
@@ -146,6 +179,10 @@ class InstalledRelease(unittest.TestCase):
         self.assertNotIn("not supported", p.stderr)
         self.assertIn("cannot fetch https://127.0.0.1:1/rel/latest/download/latest.json", p.stderr)
         self.assertNotIn("curl ran", p.stderr)
+        # v0.5.4 (review 6): the way on is this get.sh again, piped, on a bundle downloaded by hand; 0.4.1 has no
+        # init-agent upgrade
+        self.assertIn("\n  %s --from <the bundle file> --sha256 <its sha256 from the release page>\n" % pipe(self.rh), p.stderr)
+        self.assertNotIn("init-agent upgrade --bundle", p.stderr)
 
 
 if __name__ == "__main__":

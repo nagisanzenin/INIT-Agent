@@ -56,3 +56,10 @@ The promote did not start; the output above says why.                           
         │ line 5                                                                |..llllllll......                                                                
         │ line 6                                                                |..llllllll......                                                                
         │ exit status 1                                                         |..llllllll.............                                                         
+-- frozen single call that worked, 3 lines
+◇ bash   init-agent --version; git rev-parse --short…  ✓ exit 0, 3 lines · 0.4 s|mm..................................................d..ddddddddddddddddddddddddd
+  │ v0.5.3-preview                                                              |lllldddddddddddddd                                                              
+  │ 3f9c0a1                                                                     |llllddddddd                                                                     
+  │ clean                                                                       |llllddddd                                                                       
+-- frozen single call that worked, 4 lines
+◇ bash   init-agent --version; git rev-parse --short…  ✓ exit 0, 4 lines · 0.4 s|mm..................................................d..ddddddddddddddddddddddddd

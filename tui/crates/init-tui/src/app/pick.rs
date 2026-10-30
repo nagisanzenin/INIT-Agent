@@ -413,7 +413,8 @@ mod tests {
         answer(&mut a, Op::Add, json!({"provider": "deepseek", "model": "deepseek-v4-pro", "changed": true}));
         answer(&mut a, Op::Use, json!({"provider": "deepseek", "model": "deepseek-v4-pro", "changed": true, "restart": "now"}));
         let b = blocks(&a).join("\n");
-        assert!(b.contains("✓ model deepseek/deepseek-v4-pro: selected; the agent restarts with it") && b.contains("Setup done."), "{b}");
+        assert!(b.contains("✓ model deepseek/deepseek-v4-pro: selected; the agent restarts with it")
+            && b.contains("Setup done (your charter, charter.toml, now lists this provider and model)."), "{b}");
         assert!(sent(&mut r).is_empty(), "nothing on the attach connection: setup uses its own requests");
         assert!(!b.contains("test-abc"));
     }

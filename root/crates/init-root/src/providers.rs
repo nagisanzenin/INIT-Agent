@@ -680,6 +680,9 @@ pub fn list(p: &Paths) -> Result<Value, String> {
     let (_, k) = kernel_cfg(p);
     let (sp, sm) = selected(&k);
     let test_mode = l.ch.root.test_mode;
+    // v0.5.4 (user session v0.5.3-new, finding 8): the cache-read price, as the meter bills it from the active charter
+    let billed = crate::egress::cache_read_prices(&l.ch.actions);
+    let cache_read = |mid: &str| billed.get(mid).map(|m| usd(*m));
     let provs = cls.get("providers").and_then(toml::Value::as_table).cloned().unwrap_or_default();
     let models = cls.get("models").and_then(toml::Value::as_table).cloned().unwrap_or_default();
     let mut pv = Vec::new();
@@ -699,7 +702,8 @@ pub fn list(p: &Paths) -> Result<Value, String> {
             let n = |f: &str| md.get(f).and_then(toml::Value::as_integer).unwrap_or(0).max(0) as u64;
             let tested = cat_model(pid, mid).map_or(tested, |c| if c.live { "live" } else { "experimental" }); // per model
             mv.push(json!({"provider": pid, "model": mid, "selected": *pid == sp && *mid == sm, "tested": tested, "key": ks,
-                "input_usd": usd(n("input_musd_per_mtok")), "output_usd": usd(n("output_musd_per_mtok")), "min_level": n("min_level")}));
+                "input_usd": usd(n("input_musd_per_mtok")), "cache_read_usd": cache_read(mid), "output_usd": usd(n("output_musd_per_mtok")),
+                "min_level": n("min_level")}));
         }
     }
     let ready = mv.iter().any(|m| m["selected"] == true && matches!(m["key"].as_str(), Some("present" | "not_required")));
@@ -895,12 +899,12 @@ fn print_list(p: &Paths, v: &Value, only: Option<&str>, models_only: bool) {
             println!("  {:<14} {:<10} key {:<12} {t}", p["id"].as_str().unwrap_or(""), p["api"].as_str().unwrap_or(""), p["key"].as_str().unwrap_or(""));
         }
     }
-    println!("Configured models (USD per 1M tokens, input/output):");
+    println!("Configured models (USD per 1M tokens, input/cache read/output):");
     for m in v["models"].as_array().into_iter().flatten().filter(|m| only.is_none_or(|o| m["provider"] == o)) {
         let sel = if m["selected"] == true { "*" } else { " " };
         let t = if m["tested"] == "live" { "" } else { "  experimental (not live-tested)" };
-        println!("  {sel} {}/{}  ${}/${}{t}", m["provider"].as_str().unwrap_or(""), m["model"].as_str().unwrap_or(""),
-            m["input_usd"].as_str().unwrap_or(""), m["output_usd"].as_str().unwrap_or(""));
+        println!("  {sel} {}/{}  ${}/${}/${}{t}", m["provider"].as_str().unwrap_or(""), m["model"].as_str().unwrap_or(""),
+            m["input_usd"].as_str().unwrap_or(""), m["cache_read_usd"].as_str().unwrap_or("?"), m["output_usd"].as_str().unwrap_or(""));
     }
     println!("Catalog (to add one: {}):", p.cmd("providers add <preset> [--base-url URL] [--model ID]"));
     for c in v["catalog"].as_array().into_iter().flatten().filter(|c| only.is_none_or(|o| c["preset"] == o)) {

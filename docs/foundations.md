@@ -209,9 +209,9 @@ action classes, which FG-1's bound on X_irr uses. All formal effort (property te
 on the TCB.
 
 **Size.** root/root.md §4.8 counts the TCB separately from the whole Root, by file, with the command and the commit.
-At the tag v0.5.3-preview the files that are wholly TCB hold 8,246 lines, `release.rs`'s 253 included. With the eight
-files that hold a TCB part beside other code, it is at most 12,298. The whole Root is 26,010: `init-root` 22,623 and its
-sandbox profiles 3,387 (`init-root` was 20,334 in v0.5.0). The release protocol re-counts both at the tagged commit
+At the tag v0.5.4-preview (code 2fc78f5) the files that are wholly TCB hold 8,318 lines, `release.rs`'s 253 included.
+With the eight files that hold a TCB part beside other code, it is at most 12,562. The whole Root is 26,354: `init-root`
+22,967 and its sandbox profiles 3,387 (v0.5.3: 8,246, 12,298 and 26,010; `init-root` was 20,334 in v0.5.0). The release protocol re-counts both at the tagged commit
 (release-protocol.md §4.4).
 
 ## 11. How this file is used

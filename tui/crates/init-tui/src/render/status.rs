@@ -41,16 +41,28 @@ pub fn usage_rows(info: &Info) -> (String, Vec<(String, String)>) {
         ("self-changes", self_change_cost(info)),
         ("policy", format!("{policy} /stop stops the current run; /panic stops all agent activity; Ctrl-C interrupts.")),
     ];
-    if info.session.requests == 0 {
+    let (s, r) = (&info.session, &info.replayed);
+    if s.requests == 0 && r.requests == 0 {
         rows.push(("this TUI", "no token lines seen yet".into()));
     } else {
-        let s = &info.session;
-        rows.push(("this TUI", format!("{}: input {} ({} cached), output {}", plural(s.requests, "request"), s.input, s.cached, s.output)));
-        rows.push(("cache hit", format!("{} (token-weighted: cached / input; ? when the provider reports no cache field)", s.cache().show())));
+        // v0.5.4 (user sessions v0.5.2 and v0.5.3): the requests this TUI saw run; a replay's are named apart
+        let mut own = match s.requests {
+            0 => "no requests since it attached".to_string(),
+            n => format!("{} since it attached: input {} ({} cached), output {}", plural(n, "request"), s.input, s.cached, s.output),
+        };
+        if r.requests > 0 {
+            own.push_str(&format!(" · not counted: {} replayed from before this launch (input {}, {} cached, output {}; in the Root's total above)",
+                plural(r.requests, "request"), r.input, r.cached, r.output));
+        }
+        rows.push(("this TUI", own));
+        if s.requests > 0 {
+            rows.push(("cache hit", format!("{} (token-weighted: cached / input; ? when the provider reports no cache field)", s.cache().show())));
+        }
         let mut last = format!("{}: {}", plural(info.turn.requests, "request"), info.turn_line());
         if info.turn_replayed {
-            // v0.5.2: why a replayed turn has no figure
-            last.push_str(" (it ran, at least in part, before this TUI attached; a turn's cost is measured only while the TUI watches it, and the Root's total includes it)");
+            // v0.5.2: why a replayed turn has no figure (v0.5.4: a reconnect's replay ran during this launch)
+            let when = if info.turn_before_launch { "before this TUI attached" } else { "while this TUI was disconnected from the Root" };
+            last.push_str(&format!(" (it ran, at least in part, {when}; a turn's cost is measured only while the TUI watches it, and the Root's total includes it)"));
         }
         rows.push(("last turn", last));
     }
@@ -194,7 +206,9 @@ pub fn bar(info: &Info, width: usize, now: Instant, now_ms: i64, _spin: usize, n
     };
     left.push(Field { drop: 6, line: model });
     // tokens this turn, the cache-hit rate (turn and session, token-weighted) and the turn's
-    // estimated cost: one live segment instead of a token line per request (§3.9)
+    // estimated cost: one live segment instead of a token line per request (§3.9). v0.5.4 (user session: after
+    // a relaunch `$? before this launch` read as "the cost is unknown"): not for a turn seen only in the attach
+    // replay; `/usage` says what it was, and the Root's total beside it still counts it
     if info.session.requests > 0 {
         let t = &info.turn;
         let mut l = Line::from_span("turn ", Style::mute());
@@ -204,7 +218,9 @@ pub fn bar(info: &Info, width: usize, now: Instant, now_ms: i64, _spin: usize, n
         l.push(" · ", Style::mute());
         l.push(info.turn_cost(), Style::PLAIN);
         left.push(Field { drop: 4, line: l });
-        left.push(Field { drop: 7, line: Line::from_span(format!("session cache {}", info.session.cache().show()), Style::dim()) });
+        if info.session.requests > 0 {
+            left.push(Field { drop: 7, line: Line::from_span(format!("session cache {}", info.session.cache().show()), Style::dim()) });
+        }
     }
     if egress.is_some_and(observe_only) {
         let total = egress.and_then(|e| money(e, "total_spent_musd")).filter(|m| *m >= 0)
@@ -486,6 +502,36 @@ mod usage_tests {
         none.on_egress(json!({"money": {"enforced": false, "total_spent_musd": 5, "day_spent_musd": 5, "day_spent_by_scope_musd": {"live": 5}}}));
         assert!(usage_summary(&none).contains("self-changes $0.000 today"), "{}", usage_summary(&none));
         assert!(!bar(&none, 240, t0, 0, 0, false).text().contains("checks"));
+    }
+
+    /// v0.5.4 (user sessions v0.5.2 and v0.5.3, finding 4): after a relaunch "this TUI 11 requests" counted the 10
+    /// replayed from the first launch. The row counts the requests this TUI saw run, and names a replay's apart.
+    #[test]
+    fn this_tui_counts_only_its_own_requests() {
+        let t0 = Instant::now();
+        let mut info = Info::default();
+        info.on_egress(json!({"money": {"enforced": false, "policy": "observe", "total_spent_musd": 48_516}}));
+        info.replaying = true;
+        info.on_state(json!({"busy": true}), t0);
+        info.on_tokens("tokens: in 13200 (cached 11776), out 61");
+        info.on_tokens("tokens: in 12800 (cached 11776), out 54");
+        info.replaying = false;
+        info.on_state(json!({"busy": false}), t0);
+        let s = usage_summary(&info);
+        assert!(s.contains("this TUI     no requests since it attached · not counted: 2 requests replayed from before this launch \
+            (input 26000, 23552 cached, output 115; in the Root's total above)"), "{s}");
+        assert!(!s.contains("cache hit"), "no rate for requests this TUI did not see: {s}");
+        let b = bar(&info, 240, t0, 0, 0, false).text();
+        // v0.5.4 (user session: `$? before this launch` read as "the cost is unknown"): no turn segment for them
+        assert!(!b.contains("turn in") && !b.contains("before this launch") && !b.contains("session cache"), "{b}");
+        // a request seen live counts; the replayed two stay apart
+        info.on_state(json!({"busy": true}), t0);
+        info.on_tokens("tokens: in 16000 (cached 11776), out 110");
+        let s = usage_summary(&info);
+        assert!(s.contains("this TUI     1 request since it attached: input 16000 (11776 cached), output 110 · not counted: 2 requests replayed"), "{s}");
+        assert!(s.contains("cache hit    73.6%"), "{s}");
+        let b = bar(&info, 240, t0, 0, 0, false).text();
+        assert!(b.contains("turn in ") && b.contains("session cache 73.6%"), "{b}");
     }
 
     /// TUI-FIX (v0.5.1): the agent's slot in words a stranger reads, beside `root ok`.

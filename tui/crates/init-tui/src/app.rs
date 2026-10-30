@@ -236,6 +236,12 @@ pub(crate) fn start_hint_on(root_home: &std::path::Path, home: Option<&str>, os:
 
 /// TUI-FIX (v0.5.1 user session): `/panic` asks first, in TTY mode. What it does, how to confirm,
 /// how to cancel; the Root's own semantics are unchanged (root/root.md §3.9).
+/// v0.5.4 (round 8): what the Root's PANIC line means, in plain words.
+pub const PANIC_PLAIN: &str = "in plain words: INIT killed every process it holds (the agent, its tools and its builds) and \
+    closed its network; a process that left its group is not killed, and an \"escapee\" line names it if there is one";
+pub const DETAILS_EARLIER: &str = "earlier activities: Ctrl-O, then j/k to move and Enter to open one";
+pub const RESUME_PLAIN: &str = "in plain words: the agent restarts on the last version that passed INIT's audit";
+
 pub const PANIC_ASK: &str = "[tui] /panic is the emergency stop: it kills every agent process and all model spend now, \
     lowers the agent's autonomy level one step (when it is above L0), and /resume later restarts it on its last \
     audited-good version (in free mode: the settled one, else the last known-good). \
@@ -355,6 +361,19 @@ impl App {
         self.t.push(Kind::Info(text.into()), Self::now_ms());
     }
 
+    /// v0.5.4 (round 8, user session v0.5.4 A): a Root notice relayed word for word, then, where its wording is the
+    /// Root's own jargon, one plain line.
+    fn root_notice_plain(&mut self, text: &str) {
+        if text.starts_with("PANIC") && text.contains("held-only build") {
+            // root panic.rs: the Root signals only the pids and process groups it holds; zone.rs reports any
+            // process outside them that still matches the sweep rule as an `escapee` alert, and never kills it
+            self.info_block(PANIC_PLAIN);
+        }
+        if text.starts_with("[root] resumed after panic") && text.contains("audited-good") {
+            self.info_block(RESUME_PLAIN);
+        }
+    }
+
     // ---------------------------------------------------------------------------------------
     // Connection
     // ---------------------------------------------------------------------------------------
@@ -452,9 +471,12 @@ impl App {
                     return;
                 }
                 let was_first = self.feed.attaches == 0;
-                // v0.5.2: what a replay brings ran while this TUI was not watching (its turn costs are unknown)
+                // v0.5.2: what a replay brings ran while this TUI was not watching (its turn costs are unknown). v0.5.4:
+                // only the first attach's replay is from before this launch; a reconnect's ran during it
                 self.info.replaying = self.feed.replaying();
                 self.t.replaying = self.info.replaying;
+                self.info.replay_reconnect = !was_first;
+                self.t.replay_reconnect = !was_first;
                 for out in self.feed.on_frame(&raw, v) {
                     self.feed_out(out, at, now);
                 }
@@ -466,7 +488,25 @@ impl App {
                 self.dirty = true;
             }
             Ev::Status(v) => {
+                // v0.5.4 (round 6): the Root's slot going down (`/root stop` or `init-root stop`, a panic, a halt) means no
+                // kernel runs, so a self-change still in flight has stopped. Only a change of slot counts: an answer
+                // that repeats a down slot never ends a change that started after it.
+                let down = |s: Option<&str>| match s {
+                    Some("stopped") => Some("when the agent stopped"),
+                    Some("panicked") => Some("by /panic"),
+                    Some("halted") => Some("by a halt"),
+                    _ => None,
+                };
+                let was = self.info.status.as_ref().and_then(|s| s["slot"].as_str().map(str::to_string));
+                let by = down(v["slot"].as_str()).filter(|_| down(was.as_deref()).is_none());
                 self.info.on_status(v, now);
+                if let Some(by) = by {
+                    let now_ms = Self::now_ms();
+                    for r in self.t.gates.stop_all(by, now_ms) {
+                        self.t.push(Kind::Gate(Box::new(r)), now_ms);
+                    }
+                    self.info.on_gate(self.t.gates.in_flight(), self.t.gates.spending(), now);
+                }
                 let queued = self.info.status.as_ref().and_then(|s| s["queued"].as_u64());
                 for id in self.echoes.sweep(now, self.info.ready_since, queued) {
                     self.t.set_owner(id, OwnerSt::Unconfirmed);
@@ -638,8 +678,29 @@ impl App {
                         self.info.on_kernel_status_line(&text);
                     } else if crate::notice::restarts_agent(&text, src, code.as_deref()) {
                         self.info.on_root_restart_notice();
+                        // v0.5.4 (user session v0.5.4 A): a panic or a halt killed the kernel that ran the checks, and a
+                        // resume starts a new kernel, which marks the job failed (`kernel_restart`) without a notice: a
+                        // self-change in flight ends here instead of counting on
+                        let by = match crate::notice::classify(&text, src, code.as_deref()) {
+                            crate::notice::Class::Panic => Some("by /panic"),
+                            crate::notice::Class::Halt => Some("by a halt"),
+                            crate::notice::Class::Resumed => Some("when the agent restarted"),
+                            // round 6: the kernel could not run (a crash loop, a failed start): the Root rolls back
+                            _ if code.as_deref() == Some("kernel_crash_loop") => Some("when the agent restarted"),
+                            _ => None,
+                        };
+                        if let Some(by) = by {
+                            let at = ts.as_deref().and_then(time::parse_rfc3339).unwrap_or(now_ms);
+                            for r in self.t.gates.stop_all(by, at) {
+                                self.t.push(Kind::Gate(Box::new(r)), now_ms);
+                            }
+                            self.info.on_gate(self.t.gates.in_flight(), self.t.gates.spending(), now);
+                        }
                     }
                     self.t.notice(&level, &text, src, code.as_deref(), now_ms);
+                    if src == Some("root") {
+                        self.root_notice_plain(&text);
+                    }
                     if src != Some("kernel") && (text.starts_with("[root]") || text.starts_with("PANIC")) {
                         let _ = self.poll.send(PollCmd::Status);
                     }
@@ -1149,8 +1210,12 @@ impl App {
 
     /// `/details`: the last tool activity printed in full (§3.6).
     fn details(&mut self) {
-        if let Err(e) = self.t.details(Self::now_ms()) {
-            self.set_hint(e, 4);
+        let earlier = self.t.blocks.iter().filter(|b| matches!(&b.kind, Kind::Activity(a) if !a.full)).count() > 1;
+        match self.t.details(Self::now_ms()) {
+            Err(e) => self.set_hint(e, 4),
+            // v0.5.4 (round 8): /details prints only the latest activity; the transcript view reaches the others
+            Ok(()) if earlier => self.info_block(DETAILS_EARLIER),
+            Ok(()) => {}
         }
     }
 

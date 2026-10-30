@@ -395,7 +395,9 @@ impl<W: Write> LineApp<W> {
                     self.exit = Some(76);
                     return;
                 }
-                // v0.5.2: a replayed turn's cost is not known here (never `$0.000`)
+                // v0.5.2: a replayed turn's cost is not known here (never `$0.000`); v0.5.4: a reconnect's replay ran
+                // during this launch
+                self.info.replay_reconnect = self.feed.attaches > 0;
                 self.info.replaying = self.feed.replaying();
                 let outs = self.feed.on_frame(&raw, v);
                 self.ever_attached |= self.feed.attaches > 0;
@@ -555,7 +557,8 @@ impl<W: Write> LineApp<W> {
                             // the run ended: the tool summary, then the turn's tokens, cache and cost
                             self.end_act();
                             if !raw && self.info.turn.requests > 0 {
-                                let (t, sc) = (self.info.turn_line(), self.info.session.cache().show());
+                                // line mode prints the replayed turns too: its session rate is of every turn it printed
+                                let (t, sc) = (self.info.turn_line(), self.info.session.plus(&self.info.replayed).cache().show());
                                 let n = crate::render::status::plural(self.info.turn.requests, "request");
                                 self.out.line(&format!("[turn] {n}: {t} (session cache {sc})"), Style::dim());
                             }
@@ -631,7 +634,7 @@ impl<W: Write> LineApp<W> {
         if let Some(b) = d.boot_seq {
             if self.last_boot.is_some_and(|p| p != b) {
                 self.end_act();
-                self.out.line(&format!("── body restarted (boot {b}) ──"), Style::dim());
+                self.out.line(&format!("── body restarted (body start {b}) ──"), Style::dim());
             }
             self.last_boot = Some(b);
         }

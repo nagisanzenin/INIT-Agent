@@ -374,7 +374,8 @@ mod tests {
         let mut e = Editor::default();
         e.insert("/ro");
         let c = e.completions();
-        assert!(c.iter().all(|(c, _)| c.starts_with("/root")));
+        // v0.5.4: `/rollback` is listed too, after the `/root` lines, so Tab on `/ro` still completes `/root status`
+        assert!(c.iter().all(|(c, _)| c.starts_with("/root") || *c == "/rollback") && c.iter().any(|(c, _)| *c == "/rollback"));
         assert!(e.complete());
         assert_eq!(e.text(), "/root status");
         e.set("/later x");

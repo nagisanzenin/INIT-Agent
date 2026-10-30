@@ -122,6 +122,9 @@ pub struct Flow {
     pickers: bool,
     /// v0.5.3: `init-agent` as the owner types it ([`crate::app::agent_cmd`]): it may not be on PATH.
     agent: String,
+    /// v0.5.4 (user session: the charter's hash changed after setup and nothing had said why): this setup's
+    /// `providers.add` wrote the provider into charter.toml (its answer's `changed`), so "Setup done." says so.
+    charter_changed: bool,
 }
 
 fn err_text(e: &ReqErr) -> String {
@@ -150,7 +153,7 @@ fn model_ids(c: &Value) -> Vec<String> {
 impl Flow {
     /// `root_home` and `home` (HOME): which `init-root` the key-setup texts name ([`crate::app::root_cmd`]).
     pub fn new(can_hide: bool, root_home: &std::path::Path, home: Option<&str>) -> Flow {
-        Flow { can_hide, root: crate::app::root_cmd(root_home, home, ""), checked: false, step: Step::Idle, inflight: None, why: Why::FirstRun, arg: None, ch: Choice::default(), key_only: None, catalog: vec![], pickers: false, agent: crate::app::DEFAULT_AGENT.into() }
+        Flow { can_hide, root: crate::app::root_cmd(root_home, home, ""), checked: false, step: Step::Idle, inflight: None, why: Why::FirstRun, arg: None, ch: Choice::default(), key_only: None, catalog: vec![], pickers: false, agent: crate::app::DEFAULT_AGENT.into(), charter_changed: false }
     }
 
     /// TTY mode: list choices are pickers ([`Out::Pick`]).
@@ -332,6 +335,7 @@ impl Flow {
 
     fn apply(&mut self) -> Vec<Out> {
         self.step = Step::Idle;
+        self.charter_changed = false;
         let args = json!({"preset": self.ch.preset, "base_url": self.ch.url, "model": self.ch.model, "price": self.ch.price});
         vec![Out::Info(format!("applying: {} · {}…", self.ch.display, self.ch.model.as_deref().unwrap_or(""))), self.send(Op::Add, self.why, args)]
     }
@@ -463,6 +467,7 @@ impl Flow {
             Op::Add => {
                 let alias = v["provider"].as_str().unwrap_or(&self.ch.alias).to_string();
                 let model = v["model"].as_str().unwrap_or("").to_string();
+                self.charter_changed = v["changed"] == true;
                 let mut o = vec![];
                 if v["unpriced"] == true {
                     // TUI-FIX2: the amount as every surface prints it (`render::usd`), not a stale `$0.00`
@@ -480,7 +485,8 @@ impl Flow {
                 };
                 let mut o = vec![Out::Info(format!("✓ model {what}: {tail}"))];
                 if why != Why::Model {
-                    o.push(Out::Info("Setup done. Type a message to start. (/model switches models, /key replaces a key, /setup runs this again)".into()));
+                    let charter = if std::mem::take(&mut self.charter_changed) { " (your charter, charter.toml, now lists this provider and model)" } else { "" };
+                    o.push(Out::Info(format!("Setup done{charter}. Type a message to start. (/model switches models, /key replaces a key, /setup runs this again)")));
                 }
                 o
             }
@@ -548,8 +554,7 @@ impl Flow {
                     let mut opts: Vec<Opt> = choices.iter().enumerate().map(|(i, (p, m, x))| {
                         let key = match x["key"].as_str() { Some("present" | "not_required") => "", _ => " · no key (/key)" };
                         let t = if x["tested"] == "live" { "" } else { " · experimental (not live-tested)" };
-                        let o = Opt::new(i, format!("{p}/{m}")).desc(format!("${} in · ${} out per 1M tokens{key}{t}",
-                            x["input_usd"].as_str().unwrap_or("?"), x["output_usd"].as_str().unwrap_or("?")));
+                        let o = Opt::new(i, format!("{p}/{m}")).desc(format!("{}{key}{t}", billed_price(x)));
                         if x["selected"] == true { o.tag("current") } else { o }
                     }).collect();
                     if let Some(c) = opts.iter().position(|o| o.tag.is_some()) {
@@ -559,18 +564,29 @@ impl Flow {
                     self.step = Step::Pick(pairs);
                     return vec![Out::Pick(Picker::new(Who::Tui, "model", "Switch model (/setup adds a provider)", opts).esc("keep the current model"))];
                 }
-                let mut o = vec![Out::Info("Models (USD per 1M tokens in/out; * = selected):".into())];
+                let mut o = vec![Out::Info("Models (* = selected):".into())];
                 for (i, (p, m, x)) in choices.iter().enumerate() {
                     let star = if x["selected"] == true { "*" } else { " " };
                     let key = match x["key"].as_str() { Some("present" | "not_required") => "", _ => " · no key (/key)" };
                     let t = if x["tested"] == "live" { "" } else { " · experimental (not live-tested)" };
-                    o.push(Out::Info(format!("{star} {}  {p}/{m}  ${}/${}{key}{t}", i + 1, x["input_usd"].as_str().unwrap_or("?"), x["output_usd"].as_str().unwrap_or("?"))));
+                    o.push(Out::Info(format!("{star} {}  {p}/{m}  {}{key}{t}", i + 1, billed_price(x))));
                 }
                 o.push(Out::Info(format!("Type a number to switch (Enter keeps {sel}); /setup adds a provider.")));
                 self.step = Step::Pick(pairs);
                 o
             }
         }
+    }
+}
+
+/// v0.5.4 (user session v0.5.3-new, finding 8: an owner who checked the bill by hand missed by the cache reads): a
+/// configured model's prices as the Root's meter bills them, `$0.30 in · $0.006 cache read · $1.20 out per 1M tokens`.
+/// The Root sends `cache_read_usd` from the charter it bills with; an older Root sends none, and none is shown.
+fn billed_price(x: &Value) -> String {
+    let (i, o) = (x["input_usd"].as_str().unwrap_or("?"), x["output_usd"].as_str().unwrap_or("?"));
+    match x["cache_read_usd"].as_str() {
+        Some(c) => format!("${i} in · ${c} cache read · ${o} out per 1M tokens"),
+        None => format!("${i} in · ${o} out per 1M tokens"),
     }
 }
 
@@ -630,7 +646,8 @@ mod tests {
     fn list(ready: bool) -> Value {
         json!({"ready": ready, "selected": {"provider": "deepseek", "model": "deepseek-flash"},
             "providers": [{"id": "deepseek", "key": if ready { "present" } else { "missing" }, "tested": "live"}],
-            "models": [{"provider": "deepseek", "model": "deepseek-flash", "selected": true, "tested": "live", "key": "present", "input_usd": "0.30", "output_usd": "1.20"},
+            "models": [{"provider": "deepseek", "model": "deepseek-flash", "selected": true, "tested": "live", "key": "present", "input_usd": "0.30",
+                        "cache_read_usd": "0.006", "output_usd": "1.20"},
                        {"provider": "deepseek", "model": "deepseek-v4-pro", "selected": false, "tested": "live", "key": "present", "input_usd": "1.32", "output_usd": "3.96"}],
             "catalog": [{"preset": "deepseek", "display": "DeepSeek", "tested": "live", "needs_url": false, "needs_key": true, "default_url": null,
                          "models": [{"id": "deepseek-flash"}, {"id": "deepseek-v4-pro"}]},
@@ -682,7 +699,19 @@ mod tests {
         assert_eq!(sent(&o), vec![(Op::Use, json!({"provider": "deepseek", "model": "deepseek-v4-pro"}))]);
         let o = f.on_answer(Op::Use, Ok(json!({"provider": "deepseek", "model": "deepseek-v4-pro", "changed": true, "restart": "now"})));
         assert!(texts(&o).contains("✓ model deepseek/deepseek-v4-pro: selected; the agent restarts with it"));
+        // v0.5.4 (user session: the charter's hash changed and nothing had said why): the add wrote the charter
+        assert!(texts(&o).contains("Setup done (your charter, charter.toml, now lists this provider and model). Type a message"), "{}", texts(&o));
         assert!(!f.holds_lines());
+        // /setup again with the same provider and model: the Root's add changes nothing, and the line says nothing of it
+        f.on_line("/setup").unwrap();
+        f.on_answer(Op::List, Ok(list(false)));
+        f.on_line("").unwrap();
+        f.on_secret(b"test-abc".to_vec());
+        f.on_answer(Op::Key, Ok(json!({"provider": "deepseek", "stored": true})));
+        f.on_line("2").unwrap();
+        f.on_answer(Op::Add, Ok(json!({"provider": "deepseek", "model": "deepseek-v4-pro", "changed": false})));
+        let o = f.on_answer(Op::Use, Ok(json!({"provider": "deepseek", "model": "deepseek-v4-pro", "changed": false})));
+        assert!(texts(&o).contains("Setup done. Type a message") && !texts(&o).contains("charter"), "{}", texts(&o));
     }
 
     /// v0.5.3: OpenAI's preset is live-tested (gpt-6.1-sol, 2026-10-29) while gpt-6-astra is not: the menu marks that
@@ -800,7 +829,15 @@ mod tests {
         let mut f = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         assert_eq!(sent(&f.on_line("/model").unwrap()), vec![(Op::List, json!({}))]);
         let o = f.on_answer(Op::List, Ok(list(true)));
-        assert!(texts(&o).contains("* 1  deepseek/deepseek-flash  $0.30/$1.20"), "{}", texts(&o));
+        // v0.5.4 (user session v0.5.3-new, finding 8): the cache-read price the Root bills with; an older Root sends none
+        assert!(texts(&o).contains("* 1  deepseek/deepseek-flash  $0.30 in · $0.006 cache read · $1.20 out per 1M tokens"), "{}", texts(&o));
+        assert!(texts(&o).contains("  2  deepseek/deepseek-v4-pro  $1.32 in · $3.96 out per 1M tokens"), "{}", texts(&o));
+        let mut p = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
+        p.pickers = true;
+        p.on_line("/model").unwrap();
+        let o = p.on_answer(Op::List, Ok(list(true)));
+        let Some(Out::Pick(k)) = o.iter().find(|x| matches!(x, Out::Pick(_))) else { panic!("a picker") };
+        assert!(format!("{k:?}").contains("$0.30 in · $0.006 cache read · $1.20 out per 1M tokens"), "{k:?}");
         assert_eq!(sent(&f.on_line("2").unwrap()), vec![(Op::Use, json!({"provider": "deepseek", "model": "deepseek-v4-pro"}))]);
         let mut g = Flow::new(true, std::path::Path::new(RH), Some("/Users/o"));
         g.on_line("/model deepseek/deepseek-v4-pro").unwrap();

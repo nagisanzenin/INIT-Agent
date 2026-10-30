@@ -31,10 +31,17 @@
 #                          refuses while the Root runs and moves nothing, then, after Ctrl-C to the Root, moves
 #                          ROOT_HOME, INIT_HOME and INIT's launchers to the test home's Trash; a fresh NEW install in the
 #                          same home answers, and init-tui is NEW's
-#              V >= 0.4.1  prints the one-time safe line `/usr/bin/curl -q … | /bin/sh -s -- --upgrade` (0.4.1, 0.5.0) or
-#                          `~/.local/bin/init-agent upgrade` (0.5.1+), with INIT_ROOT_HOME= when the home is not ~/.init-root; the upgrade with
-#                          NEW's get.sh is refused while the foreground Root runs, then, after Ctrl-C, upgrades: the
-#                          Root is NEW's, `audit verify --full` passes, the old `init` is gone, the install answers
+#              V >= 0.4.1  prints the one-time safe line `/usr/bin/curl -q … | /bin/bash -p -s -- --upgrade` (0.4.1, 0.5.0) or,
+#                          from 0.5.1 to 0.5.3, `/usr/bin/env -i HOME="$HOME" ~/.local/bin/init-agent upgrade` (v0.5.4: those
+#                          launchers read INIT_ROOT_HOME and the rest from the environment), with INIT_ROOT_HOME= when
+#                          the home is not ~/.init-root. Then the upgrade the message prints, refused while the
+#                          foreground Root runs, and after Ctrl-C it upgrades: the Root is NEW's, `audit verify --full`
+#                          passes, the old `init` is gone, the install answers. 0.4.1 and 0.5.0 run NEW's get.sh as
+#                          the pipe runs it (on bash -p's stdin) with --from NEW; from 0.5.1 the printed line itself
+#                          runs, in a shell, with `--bundle NEW --sha256 HEX` added (init-agent upgrade's local-bundle
+#                          flags): that install's own launcher and kept get.sh do the upgrade, as for the user, and only
+#                          the bundle comes from a file instead of the release page, which holds NEW only after the
+#                          publish
 # The owner's ~/.init, ~/.init-root, ~/.local/bin, ~/.local/share/init and ~/Library/LaunchAgents (t1_snap) must not
 # change, except the data the owner's own running INIT writes while it is used (counted in the verdict). Signals go only to the PIDs this script started. Verdict: build/status/install-matrix.json; one PASS/FAIL
 # line per row on stderr; exit 1 on any FAIL. Needs gh (for --old downloads), 21 GiB free on /, rustup at
@@ -184,7 +191,7 @@ row_start() { # NAME DIR
   [ -n "$PORT" ] || step "mock upstream" 0 "$(tail -3 "$T1_DIR/mock.out")"
 }
 install_with() { # GET_SH TARBALL LOG: an install as the e2e checks make it (no service, the mock upstream)
-  "${GET_ENV[@]}" /bin/sh "$1" --from "$2" --no-rust -- --no-service --disk-floor 5 --mock-upstream "127.0.0.1:$PORT" >"$3" 2>&1 </dev/null
+  "${GET_ENV[@]}" /bin/sh "$1" --from "$2" --no-rust $(grep -q -- '--no-modify-path)' "$1" && echo --no-modify-path) -- --no-service --disk-floor 5 --mock-upstream "127.0.0.1:$PORT" >"$3" 2>&1 </dev/null
 }
 start_root() { # LABEL: the Root as our child, until it says running and the body is ready
   (umask 077; printf 'test-mx-mock-key' >"$RH/keys/providers/deepseek")
@@ -209,6 +216,9 @@ hello() { # LABEL: one owner line through the installed init-agent
 }
 run_get() { # LOG ARGS...: NEW's get.sh as a user runs it; prints its exit code
   set +e; "${GET_ENV[@]}" /bin/sh "$GET_NEW" "${@:2}" >"$1" 2>&1 </dev/null; local rc=$?; set -e; echo $rc
+}
+run_pipe() { # LOG ARGS...: NEW's get.sh as the printed `curl … | /bin/bash -p -s -- ARGS` runs it; prints its exit code
+  set +e; "${GET_ENV[@]}" /bin/bash -p -s -- "${@:2}" >"$1" 2>&1 <"$GET_NEW"; local rc=$?; set -e; echo $rc
 }
 first_line() { head -n 1 "$1" | cut -c1-200; }
 # Every command line get.sh prints (indented by two spaces) names commands that exist here, and every URL it prints
@@ -256,7 +266,7 @@ row_fresh() { # DIR
   local v; v="$("${GET_ENV[@]}" "$BIN/init-agent" --version 2>&1 | head -n 1)"
   case "$v" in *"$NVN"*) step "init-agent --version names $NVN" 1 "$v" ;; *) step "init-agent --version names $NVN" 0 "$v" ;; esac
   local rc; rc=$(run_get "$T1_DIR/get-again.log")
-  [ "$rc" = 1 ] && grep -q "INIT $NVN is already installed" "$T1_DIR/get-again.log" && grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-again.log" \
+  [ "$rc" = 1 ] && grep -q "INIT $NVN is already installed" "$T1_DIR/get-again.log" && grep -qE '^  ~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-again.log" \
     && step "get.sh again: init-agent upgrade" 1 "$(first_line "$T1_DIR/get-again.log")" || step "get.sh again: init-agent upgrade" 0 "rc $rc: $(first_line "$T1_DIR/get-again.log")"
   local pc; pc="$(printed_commands_exist "$T1_DIR/get-again.log")" && step "printed commands exist" 1 "$pc" || step "printed commands exist" 0 "$pc"
 }
@@ -280,10 +290,14 @@ row_old() { # V DIR
       && step "get.sh: names $v, prints the uninstall" 1 "$(first_line "$T1_DIR/get-plain.log")" || step "get.sh: names $v, prints the uninstall" 0 "rc $rc: $(cat "$T1_DIR/get-plain.log")"
   elif ver_lt "$v" 0.5.1; then
     # 0.4.1 has no init-agent upgrade, and 0.5.0's runs 0.5.0's own get.sh: both get the one-time safe line (v0.5.1)
-    [ "$rc" = 1 ] && grep -q "INIT $v is already installed" "$T1_DIR/get-plain.log" && grep -qF '/usr/bin/curl -q -fsSL' "$T1_DIR/get-plain.log" && grep -qE '/bin/sh -s -- --upgrade$' "$T1_DIR/get-plain.log" && ! grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-plain.log" \
+    [ "$rc" = 1 ] && grep -q "INIT $v is already installed" "$T1_DIR/get-plain.log" && grep -qF '/usr/bin/curl -q -fsSL' "$T1_DIR/get-plain.log" && grep -qE '/bin/bash -p -s -- --upgrade$' "$T1_DIR/get-plain.log" && ! grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-plain.log" \
       && step "get.sh: prints the one-time safe upgrade line" 1 "$(first_line "$T1_DIR/get-plain.log")" || step "get.sh: prints the one-time safe upgrade line" 0 "rc $rc: $(cat "$T1_DIR/get-plain.log")"
+  elif ver_lt "$v" 0.5.4; then
+    # v0.5.4: these launchers' upgrade reads INIT_ROOT_HOME and the rest from the environment, so the line is under env -i
+    [ "$rc" = 1 ] && grep -qE '^  /usr/bin/env -i HOME="\$HOME" (INIT_ROOT_HOME=[^ ]+ )?~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-plain.log" \
+      && step "get.sh: env -i … init-agent upgrade" 1 "$(first_line "$T1_DIR/get-plain.log")" || step "get.sh: env -i … init-agent upgrade" 0 "rc $rc: $(cat "$T1_DIR/get-plain.log")"
   else
-    [ "$rc" = 1 ] && grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-plain.log" \
+    [ "$rc" = 1 ] && grep -qE '^  ~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-plain.log" \
       && step "get.sh: init-agent upgrade" 1 "$(first_line "$T1_DIR/get-plain.log")" || step "get.sh: init-agent upgrade" 0 "rc $rc: $(cat "$T1_DIR/get-plain.log")"
   fi
   pc="$(printed_commands_exist "$T1_DIR/get-plain.log")" && step "printed commands exist" 1 "$pc" || step "printed commands exist" 0 "$pc"
@@ -292,9 +306,9 @@ row_old() { # V DIR
     rc=$(run_get "$T1_DIR/get-upgrade.log" --upgrade)
     [ "$rc" = 1 ] && grep -q "before 0.4.1 is not supported" "$T1_DIR/get-upgrade.log" && [ ! -e "$RH/cache/upgrade" ] \
       && step "--upgrade refuses, nothing downloaded" 1 "" || step "--upgrade refuses, nothing downloaded" 0 "rc $rc: $(cat "$T1_DIR/get-upgrade.log")"
-    cmd="$(grep -E '^  f="\$\(mktemp\)"' "$T1_DIR/get-plain.log" | sed 's/^  //')"
+    cmd="$(grep -E '^  (INIT_ROOT_HOME=[^ ]+ )?/bin/bash -p -c .*uninstall\.sh -o ' "$T1_DIR/get-plain.log" | sed 's/^  //')"
     [ -n "$cmd" ] || step "the uninstall command line" 0 "not found in the message"
-    local pat="curl -fsSL $UNI_URL -o" with="cp $W/uninstall.sh"
+    local pat="/usr/bin/curl -q -fsSL $UNI_URL -o" with="cp $W/uninstall.sh"
     cmd2="${cmd//"$pat"/$with}"
     [ "$cmd2" != "$cmd" ] || step "substitute the uninstaller's download" 0 "$cmd"
     step "the printed uninstall command, its curl replaced by a copy of this tree's uninstall.sh" 1 "$cmd2"
@@ -312,21 +326,30 @@ row_old() { # V DIR
     [ "$(sha "$BIN/init-tui")" = "$NEW_TUI" ] && [ "$(sha "$RH/bin/init-root")" = "$NEW_ROOT" ] && step "init-tui and the Root are NEW's" 1 "" || step "init-tui and the Root are NEW's" 0 ""
     start_root new && step "Root ready" 1 "" || step "Root ready" 0 "$(tail -3 "$T1_DIR/root-new.out" | tr '\n' ' ')"
   else
-    rc=$(run_get "$T1_DIR/get-upgrade-fg.log" --upgrade --from "$NEW" --sha256 "$(sha "$NEW")" -- --probe-timeout 120)
+    # the upgrade as the message printed it: from 0.5.1 the printed line, in a shell, plus the local-bundle flags
+    if ver_lt "$v" 0.5.1; then up() { run_pipe "$1" --upgrade --from "$NEW" --sha256 "$(sha "$NEW")" -- --probe-timeout 120; }
+    else
+      cmd="$(sed -n 's/^  \(.*init-agent upgrade\)$/\1/p' "$T1_DIR/get-plain.log" | head -n 1)"
+      [ -n "$cmd" ] || step "the printed upgrade line" 0 "not found in the message"
+      cmd="$cmd --bundle $(printf '%q' "$NEW") --sha256 $(sha "$NEW") -- --probe-timeout 120"
+      step "the printed upgrade line, with --bundle NEW --sha256" 1 "$cmd"
+      up() { set +e; "${GET_ENV[@]}" /bin/bash -c "$cmd" >"$1" 2>&1 </dev/null; local r=$?; set -e; echo $r; }
+    fi
+    rc=$(up "$T1_DIR/get-upgrade-fg.log")
     [ "$rc" != 0 ] && [ "$(sha "$RH/bin/init-root")" != "$NEW_ROOT" ] && kill -0 "$ROOT_PID" 2>/dev/null \
       && step "upgrade refused while the foreground Root runs (not signalled)" 1 "$(grep -m1 -iE 'foreground|Ctrl-C|terminal' "$T1_DIR/get-upgrade-fg.log" | cut -c1-160)" \
       || step "upgrade refused while the foreground Root runs (not signalled)" 0 "rc $rc: $(tail -5 "$T1_DIR/get-upgrade-fg.log" | tr '\n' ' ')"
     stop_root && step "Ctrl-C stops the $v Root" 1 "" || step "Ctrl-C stops the $v Root" 0 ""
     t0=$(t1_ms)
-    rc=$(run_get "$T1_DIR/get-upgrade.log" --upgrade --from "$NEW" --sha256 "$(sha "$NEW")" -- --probe-timeout 120)
-    [ "$rc" = 0 ] && step "upgrade $v → $NVN with NEW's get.sh" 1 "$(( $(t1_ms) - t0 )) ms" || step "upgrade $v → $NVN with NEW's get.sh" 0 "rc $rc: $(tail -8 "$T1_DIR/get-upgrade.log" | tr '\n' ' ')"
+    rc=$(up "$T1_DIR/get-upgrade.log")
+    [ "$rc" = 0 ] && step "upgrade $v → $NVN as printed" 1 "$(( $(t1_ms) - t0 )) ms" || step "upgrade $v → $NVN as printed" 0 "rc $rc: $(tail -8 "$T1_DIR/get-upgrade.log" | tr '\n' ' ')"
     [ "$(sha "$RH/bin/init-root")" = "$NEW_ROOT" ] && [ ! -e "$BIN/init" ] && grep -q '= upgrade ]; then' "$BIN/init-agent" \
       && step "the Root and launcher are NEW's; the old init is gone" 1 "" || step "the Root and launcher are NEW's; the old init is gone" 0 "$(ls "$BIN" | tr '\n' ' ')"
     t1_renv "$RH/bin/init-root" audit verify --full >"$T1_DIR/verify.txt" 2>&1 && step "audit verify --full" 1 "$(tail -1 "$T1_DIR/verify.txt" | cut -c1-120)" \
       || step "audit verify --full" 0 "$(tail -3 "$T1_DIR/verify.txt" | tr '\n' ' ')"
     start_root up && step "upgraded Root ready" 1 "" || step "upgraded Root ready" 0 "$(tail -3 "$T1_DIR/root-up.out" | tr '\n' ' ')"
     rc=$(run_get "$T1_DIR/get-after.log")
-    [ "$rc" = 1 ] && grep -qE '^  (INIT_ROOT_HOME=[^ ]+ )?~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-after.log" && step "get.sh after the upgrade: init-agent upgrade" 1 "" \
+    [ "$rc" = 1 ] && grep -qE '^  ~/\.local/bin/init-agent upgrade$' "$T1_DIR/get-after.log" && step "get.sh after the upgrade: init-agent upgrade" 1 "" \
       || step "get.sh after the upgrade: init-agent upgrade" 0 "rc $rc: $(cat "$T1_DIR/get-after.log")"
     pc="$(printed_commands_exist "$T1_DIR/get-after.log")" && step "printed commands exist after the upgrade" 1 "$pc" || step "printed commands exist after the upgrade" 0 "$pc"
   fi

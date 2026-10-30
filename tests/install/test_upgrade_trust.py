@@ -16,7 +16,7 @@ them. These cases check:
   site do not), silently (no curl error for the tag that is not there); `--version 0.5.0-preview` is taken as it is; a
   version under neither tag names both; with --from, or a mirror of one release, --version is ignored and says so;
 - the command get.sh prints for a local bundle with no --sha256 fits the installed release: from 0.5.1
-  `init-agent upgrade --bundle …`, from 0.4.1 or 0.5.0 the current get.sh piped into the system's sh (0.5.0's own
+  `init-agent upgrade --bundle …`, from 0.4.1 or 0.5.0 the current get.sh piped into the system's bash -p (0.5.0's own
   `init-agent upgrade` runs 0.5.0's get.sh), and it runs as printed;
 - install.sh --upgrade whose commit or rollback fails leaves the Root stopped and says so, with this ROOT_HOME's commands.
 
@@ -39,7 +39,7 @@ import tempfile
 import unittest
 
 from test_get_download import FAKE_CURL, host_target
-from test_printed_commands import shq
+from test_printed_commands import GET_URL, shq
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 GET = os.path.join(REPO, "scripts", "get.sh")
@@ -134,7 +134,7 @@ class LocalBundleUpgrade(unittest.TestCase):
 
     def pipe(self):
         """get.sh's up_pipe for this install: the current get.sh into the system's sh, INIT_ROOT_HOME on the sh side."""
-        return "/usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/sh -s -- --upgrade" % (shq(self.dist + "/get.sh"), shq(self.rh))
+        return "/usr/bin/curl -q -fsSL %s | INIT_ROOT_HOME=%s /bin/bash -p -s -- --upgrade" % (GET_URL, shq(self.rh))
 
     dist = "https://127.0.0.1:1/rel/latest/download"  # never reached; refused at once if it were
 
@@ -170,7 +170,7 @@ class LocalBundleUpgrade(unittest.TestCase):
     def test_from_051_the_command_is_init_agent_upgrade(self):
         self.installed("0.5.1")
         e = self.get("--from", self.file).stderr
-        rh = "INIT_ROOT_HOME=%s " % shq(self.rh)
+        rh = '/usr/bin/env -i HOME="$HOME" INIT_ROOT_HOME=%s ' % shq(self.rh)  # v0.5.4: before 0.5.4, under env -i
         self.assertIn(f"\n  {rh}~/.local/bin/init-agent upgrade --bundle {shq(self.file)} --sha256 <the 64 hex digits>\n", e)
         self.assertIn(f"\n  {rh}~/.local/bin/init-agent upgrade --version 9.9.9-test\n", e)
         self.assertNotIn("/usr/bin/curl", e)
@@ -187,9 +187,9 @@ class LocalBundleUpgrade(unittest.TestCase):
         os.rename(self.file, f)
         p = self.get("--from", f)
         self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
-        line = next(l for l in p.stderr.splitlines() if "/bin/sh -s -- --upgrade --from " in l)
+        line = next(l for l in p.stderr.splitlines() if "/bin/bash -p -s -- --upgrade --from " in l)
         cmd = line.strip().replace("<the 64 hex digits>", sha(self.data))
-        head = "/usr/bin/curl -q -fsSL %s | " % shq(self.dist + "/get.sh")
+        head = "/usr/bin/curl -q -fsSL %s | " % GET_URL
         self.assertTrue(cmd.startswith(head + "INIT_ROOT_HOME="), cmd)
         self.assertIn(" --from '", cmd)
         # this get.sh in place of the download; no INIT_ROOT_HOME in the environment: the line names it
@@ -198,6 +198,35 @@ class LocalBundleUpgrade(unittest.TestCase):
                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=120)
         self.assertEqual(q.returncode, 0, cmd + "\n" + q.stdout + q.stderr)
         self.assertIn("args --upgrade --yes", self.report_lines())
+
+    def test_the_pipe_takes_no_shell_state_from_the_environment(self):
+        # v0.5.4 (review 6): the pipe ran `| /bin/sh -s`. macOS's /bin/sh is bash 3.2 as sh: it honours a planted
+        # SHELLOPTS=xtrace, whose PS4 then runs before every command of get.sh (after its checks), and imports exported
+        # functions, which win over the system PATH get.sh sets. The printed line runs bash -p, which takes neither, nor
+        # BASH_ENV. (On Linux /bin/sh is usually dash, which reads none of them either way.)
+        p = self.get("--from", self.file)
+        line = next(l for l in p.stderr.splitlines() if " -s -- --upgrade --from " in l)
+        cmd = line.strip().replace("<the 64 hex digits>", sha(self.data))
+        head = "/usr/bin/curl -q -fsSL %s | " % GET_URL
+        self.assertTrue(cmd.startswith(head + "INIT_ROOT_HOME=%s /bin/bash -p -s -- " % shq(self.rh)), cmd)
+        env_file = os.path.join(self.tmp, "env.sh")
+        with open(env_file, "w") as f:
+            f.write(f"/usr/bin/touch '{self.marker}'\n")
+        env = {"PATH": SYSTEM_PATH, "HOME": self.tmp, "LANG": "C", "SHELLOPTS": "xtrace",
+               "PS4": f"$(/usr/bin/touch '{self.marker}')", "BASH_ENV": env_file, "ENV": env_file,
+               "BASH_FUNC_tar%%": f"() {{ /usr/bin/touch '{self.marker}'; /usr/bin/tar \"$@\"; }}"}
+        # the right side of the pipe as a shell runs it, with no shell of ours in between (one would read the planted
+        # variables itself): its INIT_ROOT_HOME= into the environment, then the command, this get.sh on its stdin
+        words = shlex.split(cmd[len(head):])
+        while "=" in words[0] and not words[0].startswith("/"):
+            k, v = words.pop(0).split("=", 1)
+            env[k] = v
+        self.assertEqual(words[:4], ["/bin/bash", "-p", "-s", "--"], cmd)
+        with open(GET, "rb") as script:
+            q = subprocess.run(words, env=env, cwd=self.tmp, stdin=script, capture_output=True, text=True, timeout=120)
+        self.assertEqual(q.returncode, 0, cmd + "\n" + q.stdout + q.stderr)
+        self.assertIn("args --upgrade --yes", self.report_lines())
+        self.assertFalse(os.path.exists(self.marker), "a planted SHELLOPTS/PS4, BASH_ENV or exported function ran")
 
     def test_the_checked_and_unpacked_bytes_are_a_copy_in_root_home(self):
         p = self.get("--from", self.file, "--sha256", sha(self.data), "--", "--probe-timeout", "30")

@@ -166,7 +166,9 @@ impl TokenTotals {
             input: e["usage"]["input"].as_u64()?, output: e["usage"]["output"].as_u64()?,
             cache_read: e["usage"]["cache_read"].as_u64().unwrap_or(0),
             cache_write: e["usage"]["cache_write"].as_u64().unwrap_or(0), cache_write_1h: e["usage"]["cache_write_1h"].as_u64().unwrap_or(0),
-            unknown: e["usage"]["unknown"].as_u64().unwrap_or(0), partial: e["usage"]["partial"] == true,
+            cache_write_unsplit: e["usage"]["cache_write_unsplit"].as_u64().unwrap_or(0),
+            unknown: e["usage"]["unknown"].as_u64().unwrap_or(0), unknown_write: e["usage"]["unknown_write"].as_u64().unwrap_or(0),
+            partial: e["usage"]["partial"] == true,
         }));
         self.observe(usage);
     }

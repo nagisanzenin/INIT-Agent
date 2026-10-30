@@ -2,13 +2,14 @@
   /root status   the Root's status                                              |VVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVVV                                              
   /root help     the Root's lines                                               |................ddddddddddddddddd                                               
   /root ledger   the autonomy ledger                                            |................dddddddddddddddddddd                                            
+  /rollback      acts at once, without asking: stops the run and restarts the a…|................dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd
   /root stop     stop the agent (Root; /resume starts it again, no demotion)    |................nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn    
 ⠸ waiting for the model · 1 s                                          run 1.0 s|.......................dddddd..........................................mmmmmmmmm
 ┌──────────────────────────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
 │ › /ro                                                                        │|llmm..........................................................................ll
 └──────────────────────────────────────────────────────────────────────────────┘|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllllll
  busy 1 s · $1.23/$5.00 today · body 3f9c0a1b2c4d lkg              L0 · root ok |.........mmm.................mmmmmmmmddddddddddddmmmm................mmmaaaaaaa 
-cursor 7,6
+cursor 7,7
 == 60x24 ==
 ⠸ waiting for the model · 1 s                      run 1.0 s|.......................dddddd......................mmmmmmmmm
 ┌──────────────────────────────────────────────────────────┐|llllllllllllllllllllllllllllllllllllllllllllllllllllllllllll

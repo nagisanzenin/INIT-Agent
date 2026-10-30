@@ -119,7 +119,9 @@ fn status_rows(o: &Map<String, Value>) -> Vec<(String, String)> {
         "none running".into()
     } else {
         let ready = if k["ready"] == true { "ready" } else { "not ready" };
-        format!("{ready} · boot {} · pid {} · {}", s(&k["boot_seq"]), s(&k["pid"]), s(&k["reason"]))
+        // v0.5.4 (user session: this "boot 2" and the divider's "body restarted (boot 3)" are different counts):
+        // the kernel's starts since this Root process began
+        format!("{ready} · start {} since the Root started · pid {} · {}", s(&k["boot_seq"]), s(&k["pid"]), s(&k["reason"]))
     };
     used.push("kernel");
     rows.push(("kernel".into(), kernel));
@@ -127,8 +129,10 @@ fn status_rows(o: &Map<String, Value>) -> Vec<(String, String)> {
         let list: Vec<String> = a
             .iter()
             .map(|i| {
+                // v0.5.4 (user session: this "body 2df61b12aae7" and the status bar's "body 9f1376173322", the body's
+                // commit, read as one thing): the process first, its random per-process instance id in brackets
                 let lane = i["lane"].as_str().map(|l| format!("{l}, ")).unwrap_or_default();
-                format!("{} {} ({lane}pid {})", s(&i["kind"]), short(&i["instance"]), s(&i["pid"]))
+                format!("{} pid {} ({lane}instance {})", s(&i["kind"]), s(&i["pid"]), short(&i["instance"]))
             })
             .collect();
         rows.push(("instances".into(), if list.is_empty() { "none".into() } else { list.join(" · ") }));
@@ -226,8 +230,8 @@ mod tests {
             "  state        running · mode normal",
             "  level        L0 · cap L0 · max L4 · supported L0",
             "  tuples       current t72995ada3f8d · lkg t72995ada3f8d · audited t72995ada3f8d",
-            "  kernel       ready · boot 1 · pid 19998 · cold",
-            "  instances    body 62eedcb71882 (b0, pid 20070) · kernel 888eb55e6751 (pid 19998)",
+            "  kernel       ready · start 1 since the Root started · pid 19998 · cold",
+            "  instances    body pid 20070 (b0, instance 62eedcb71882) · kernel pid 19998 (instance 888eb55e6751)",
             "  dollar refs  $5.00 a day · $25.00 in all (charter records, not caps)",
             "  lineage      seq 13 · sha256:5e0efc71bf37…",
             "  mirror       off",

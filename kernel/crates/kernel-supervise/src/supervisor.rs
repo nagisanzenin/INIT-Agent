@@ -430,6 +430,25 @@ pub fn notice_text(kind: &str, d: &Value) -> String {
         "gate_deps" => {
             return format!("[kernel] building the dependencies for {} (not cached yet): 15–21 min on a busy M2, once", sha12("sha"));
         }
+        // v0.5.4 (lane K, user session v0.5.4 A): a gate job the kernel's cold start marked `failed`, `kernel_restart`
+        // ([`restart_event`]); before, nothing told the owner, so the TUI's panel counted on.
+        "gate_stopped" => {
+            let what = match d["gate_kind"].as_str() {
+                Some("promote") => "the checks of self-change",
+                Some("g4") => "G4 of",
+                Some("kernel") => "the kernel upgrade",
+                _ => "the gate check of",
+            };
+            let sha = sha12("sha");
+            let sha = if sha.is_empty() { String::new() } else { format!(" {sha}") };
+            let id = d["gate_id"].as_str().unwrap_or("?");
+            // round 2 (review SF1): the restart finished its handoff, so the change runs; only its job ended
+            if d["gate_kind"] == "promote" && d["live"] == true {
+                return format!("[kernel] self-change{sha} ({id}) went live while the kernel restarted; its job ended with the restart");
+            }
+            let then = if d["gate_kind"] == "promote" { "; it will not continue" } else { "" };
+            return format!("[kernel] {what}{sha} ({id}) stopped when the kernel restarted{then}");
+        }
         "rolled_back" => {
             let to = if d["to_lkg"] == true { " (LKG)" } else { "" };
             return format!("[kernel] rolled back {} → {}{to}: {}", sha12("from_sha"), sha12("to_sha"), d["reason"].as_str().unwrap_or("?"));
@@ -473,6 +492,32 @@ pub fn gate_steps(s: &kernel_gate::scope::ScopeDecision) -> Vec<&'static str> {
     steps
 }
 
+/// v0.5.4 (lane K): the owner-only `gate_stopped` event's data for a job record that the kernel's cold start marked
+/// `failed`, `kernel_restart` (kernel-serve `JobStore::open`), or None when the record is not a gate job or did not end
+/// that way. Call it after the kernel-upgrade recovery: a swap's job that `resume_kernel_swap` reattached is no longer
+/// failed, so it gets no event. `gate_kind` names the job: `promote` (a self-change), `g4` (its asynchronous G4),
+/// `kernel` (`kernel promote`) or `quick` (`gate --quick`); `stage` is the step it was on. `current`: the body sha that
+/// runs after the cold start. Round 2 (review SF1): a kernel that died inside the handoff's `commit()`, after `main`
+/// moved and before the `promoted` notice, has its cold start (§3.9 step 9) finish the handoff, so the candidate runs
+/// although its job ended `kernel_restart` (the data-only path has the same window); `live` is then true.
+pub fn restart_event(rec: &init_proto::initctl::JobRecord, current: Option<&str>) -> Option<Value> {
+    use init_proto::initctl::JobState;
+    if rec.state != JobState::Failed || rec.reason.as_deref() != Some("kernel_restart") {
+        return None;
+    }
+    let gate_kind = match rec.cmd.as_str() {
+        "promote" => "promote",
+        "g4" => "g4",
+        "kernel.promote" => "kernel",
+        "gate" => "quick",
+        _ => return None,
+    };
+    let sha = rec.sha.clone().or_else(|| rec.args["sha"].as_str().map(str::to_string)).unwrap_or_default();
+    let stage = rec.progress.as_ref().and_then(|p| p.stage.as_ref()).map(|s| s.as_str().to_string());
+    let live = !sha.is_empty() && current == Some(sha.as_str());
+    Some(json!({"gate_id": rec.id, "gate_kind": gate_kind, "live": live, "reason": "kernel_restart", "sha": sha, "stage": stage}))
+}
+
 /// TUI-OBSERVE (tui.md §3.10): the owner's copy of a kernel notice: its level, its text and its
 /// structured `data`. `d` is what the body gets; `extra` adds owner-only fields (`gate_kind`,
 /// `scope`, `handoff_ms`, …). A gate stage's data uses the record's names (`spent_musd`, `wall_ms`,
@@ -499,7 +544,7 @@ pub fn owner_notice_view(kind: &str, d: &Value, extra: &Value) -> (AlertLevel, S
     }
     let level = match kind {
         "gate" if d["pass"] == false => AlertLevel::Warn,
-        "rolled_back" => AlertLevel::Warn,
+        "rolled_back" | "gate_stopped" => AlertLevel::Warn,
         _ => AlertLevel::Info,
     };
     (level, notice_text(kind, d), Value::Object(data))
@@ -560,6 +605,47 @@ mod notice_tests {
         // An extra field never overrides the body's own.
         let (_, _, d) = owner_notice_view("gate", &stage("G1", Some(true), None, None), &json!({"stage": "G9"}));
         assert_eq!(d["stage"], "G1");
+    }
+
+    /// v0.5.4 (lane K): a gate job the cold start ended (`kernel_restart`) reaches the owner as `gate_stopped`, with the
+    /// sha the TUI's panel keys its change on; a job that did not end that way, or is not a gate job, sends nothing.
+    #[test]
+    fn restart_event_for_a_gate_job_the_cold_start_ended() {
+        use init_proto::initctl::{JobRecord, JobState, RecordProgress, Stage};
+        let rec = |cmd: &str, state: JobState, reason: Option<&str>| -> JobRecord {
+            serde_json::from_value(json!({"v": 1, "id": "j-000007", "cmd": cmd, "lane": "live", "state": state, "args": {"ref": "evo/x"},
+                "created_at": "2026-10-30T08:00:00.000Z", "finished_at": null, "progress": null, "result": null, "error": null,
+                "sha": "06be87a1234567890abc", "stages": [], "root_job": null, "reason": reason, "timed_out": null})).unwrap()
+        };
+        let mut r = rec("promote", JobState::Failed, Some("kernel_restart"));
+        r.progress = Some(RecordProgress { eta_s: None, msg: "deps+G0".into(), pct: 10, stage: Some(Stage::Build), state: JobState::Gating, ts: "x".into() });
+        let d = restart_event(&r, Some("3f9c0a1b2c4d5e6f")).unwrap();
+        assert_eq!(d, json!({"gate_id": "j-000007", "gate_kind": "promote", "live": false, "reason": "kernel_restart", "sha": "06be87a1234567890abc",
+            "stage": "build"}));
+        let (level, text, owner) = owner_notice_view("gate_stopped", &d, &Value::Null);
+        assert_eq!(level, AlertLevel::Warn);
+        assert_eq!(text, "[kernel] the checks of self-change 06be87a12345 (j-000007) stopped when the kernel restarted; it will not continue");
+        assert_eq!((owner["kind"].as_str(), owner["sha"].as_str()), (Some("gate_stopped"), Some("06be87a1234567890abc")));
+        assert!(init_proto::icj::to_line(&owner).is_ok(), "the owner frame's data is ICJ");
+        // round 2 (review SF1): the kernel died inside the handoff's commit and the cold start finished it: the
+        // candidate is what runs now, so the change went live; the text does not say it will not continue
+        r.progress.as_mut().unwrap().stage = Some(Stage::Handoff);
+        let d = restart_event(&r, Some("06be87a1234567890abc")).unwrap();
+        assert_eq!((d["live"].clone(), d["stage"].clone()), (json!(true), json!("handoff")));
+        assert_eq!(notice_text("gate_stopped", &d), "[kernel] self-change 06be87a12345 (j-000007) went live while the kernel restarted; its job ended with the restart");
+        assert_eq!(restart_event(&r, None).unwrap()["live"], false, "no current sha known: not claimed live");
+        // an asynchronous G4 job names its sha in its args
+        let mut g4 = rec("g4", JobState::Failed, Some("kernel_restart"));
+        (g4.sha, g4.args) = (None, json!({"sha": "1111222233334444", "promote_job": "j-000006"}));
+        let d = restart_event(&g4, Some("1111222233334444")).unwrap();
+        assert_eq!((d["sha"].as_str(), d["live"].as_bool()), (Some("1111222233334444"), Some(true)));
+        assert!(notice_text("gate_stopped", &d).starts_with("[kernel] G4 of 111122223333 (j-000007) stopped"));
+        // not ended by the restart (a reattached kernel swap, a failure of its own, a success), or not a gate job
+        assert_eq!(restart_event(&rec("kernel.promote", JobState::AwaitingSwap, None), None), None);
+        assert_eq!(restart_event(&rec("promote", JobState::Failed, Some("pause_timeout")), None), None);
+        assert_eq!(restart_event(&rec("promote", JobState::Succeeded, None), None), None);
+        assert_eq!(restart_event(&rec("reload", JobState::Failed, Some("kernel_restart")), None), None);
+        assert_eq!(restart_event(&rec("kernel.promote", JobState::Failed, Some("kernel_restart")), None).unwrap()["gate_kind"], "kernel");
     }
 
     #[test]

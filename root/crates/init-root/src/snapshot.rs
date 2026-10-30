@@ -17,6 +17,10 @@
 //!   `ROOT_HOME` (A5 refuses the change instead). Linux uses fd-pinned, byte-bounded reflink/copy on explicit local
 //!   filesystems; unsupported metadata and special files are refused rather than silently weakened.
 //! - The conversation (`state/sessions/`), spill files and request traces are never rolled back.
+//! - Groups (v0.5.4): every clone is made in a folder given INIT_HOME's own group, so the restored state has that
+//!   group (before, ROOT_HOME's). An entry the owner gave another group comes back in INIT_HOME's; when the owner is
+//!   not a member of INIT_HOME's group, the clones keep ROOT_HOME's and the record and the result say so
+//!   (`groups_kept`). On Linux a copy takes the Root's own group, as before.
 //!
 //! **What nothing here can undo** (§4.6): money spent with the provider; data sent to the provider (the owner's files
 //! the agent read included); executed external actions (`git-push`, `email`, non-GET `http`); writes outside the
@@ -234,12 +238,61 @@ fn logical(p: &Path) -> u64 {
     total
 }
 
+/// v0.5.4 (lane U2 round 5, class 2): give `dir`, a folder this Root just made under ROOT_HOME/snapshots/sys, the
+/// group `gid` (INIT_HOME's own), relative to its parent's descriptor and never following a link; never its owner.
+/// `clonefile(2)` without the privilege to change ownership gives a clone the group of the folder it is made in (BSD
+/// inheritance), so before this every clone R2 made (the snapshot, `pre-restore-<n>`, the restore's stage) took
+/// ROOT_HOME's group, and the agent state R2 restored came back with it when INIT_HOME's group differs (ROOT_HOME under
+/// /private/tmp: wheel). Made in a folder of INIT_HOME's group, the clones take that group, which is the group of every
+/// entry INIT creates in INIT_HOME; so the "one clonefile(2) per tree" rule stands (no walk of the live trees). Err
+/// (EPERM: the owner is not a member of INIT_HOME's group): the caller reports it ([`group_note`]), never fails.
+fn give_group(dir: &Path, gid: u32) -> std::io::Result<()> {
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name()) else {
+        return Err(std::io::Error::other("a folder with no parent"));
+    };
+    let p = crate::sys::open_dir_nofollow(None, parent)?;
+    if crate::sys::stat_at(Some(p.as_fd()), Path::new(name))?.gid == gid {
+        return Ok(());
+    }
+    crate::sys::chgrp_at(p.as_fd(), Path::new(name), gid)
+}
+
+/// The group of INIT_HOME itself (Z4 freezes it), read from its descriptor (`base`) or opened without following a link.
+fn home_gid(base: Option<BorrowedFd>, ih: &Path) -> std::io::Result<u32> {
+    let own;
+    let fd = match base {
+        Some(b) => b,
+        None => {
+            own = crate::sys::open_dir_nofollow(None, ih)?;
+            own.as_fd()
+        }
+    };
+    Ok(crate::sys::stat_at(Some(fd), Path::new("."))?.gid)
+}
+
+/// [`give_group`] for an R2 clone folder: None when it holds INIT_HOME's group, else the `groups_kept` note (and a log
+/// line): the clones made in it keep that folder's (ROOT_HOME's) group, as before v0.5.4.
+fn group_note(rh: &Path, what: &str, dir: &Path, gid: std::io::Result<u32>) -> Option<Value> {
+    let (gid, e) = match gid {
+        Ok(g) => match give_group(dir, g) {
+            Ok(()) => return None,
+            Err(e) => (Some(g), e),
+        },
+        Err(e) => (None, e),
+    };
+    let name = gid.map(|g| format!(" ({})", crate::sys::group_name(g))).unwrap_or_default();
+    util::log(rh, "warn", &format!("{what} keeps ROOT_HOME's group, not INIT_HOME's{name}, as its folder's group could not be set ({e})"));
+    Some(json!({"what": what, "gid": gid, "error": e.to_string(), "errno": e.raw_os_error()}))
+}
+
 /// Clones `S_A` into a fresh Root-owned destination. APFS uses CLONE_NOFOLLOW and removes exclusions from the clone.
 /// Linux pins ancestors, skips excluded trees without opening them and reserves each file/link's logical bytes
-/// before copying. Replaced tree roots, unpreserved metadata and concurrent file changes are refused.
-fn clone_sa(ih: &Path, dst: &Path, max: u64) -> Result<(), (&'static str, String)> {
+/// before copying. Replaced tree roots, unpreserved metadata and concurrent file changes are refused. v0.5.4: `dst`
+/// first takes INIT_HOME's group ([`give_group`]), so the clones in it do too; the result is the note when it could not.
+fn clone_sa(rh: &Path, ih: &Path, dst: &Path, max: u64) -> Result<Option<Value>, (&'static str, String)> {
     let internal = |message| ("root.internal", message);
     fs::DirBuilder::new().mode(0o700).create(dst).map_err(|e| internal(format!("{}: {e}", dst.display())))?;
+    let note = group_note(rh, "the snapshot", dst, home_gid(None, ih));
     #[cfg(target_os = "linux")]
     let mut remaining = max;
     #[cfg(not(target_os = "linux"))]
@@ -266,7 +319,7 @@ fn clone_sa(ih: &Path, dst: &Path, max: u64) -> Result<(), (&'static str, String
             remove_tree(&to.join(s)).map_err(|e| internal(format!("{tree}/{s}: {e}")))?; // in this Root's own clone
         }
     }
-    Ok(())
+    Ok(note)
 }
 
 fn snapshot_filesystem_supported(os: &str, filesystem: &str) -> bool {
@@ -299,16 +352,22 @@ pub fn take_at(rh: &Path, ih: &Path, id: &str, kind: &str, group: Option<u64>, m
         return Err(int(format!("snapshot {id} exists")));
     }
     let at = now_ms();
-    if let Err((code, message)) = clone_sa(ih, &dst, max) {
-        let _ = remove_tree(&dst); // exact path, created by clone_sa
-        return Err((code, message));
-    }
+    let note = match clone_sa(rh, ih, &dst, max) {
+        Ok(n) => n,
+        Err((code, message)) => {
+            let _ = remove_tree(&dst); // exact path, created by clone_sa
+            return Err((code, message));
+        }
+    };
     let bytes = logical(&dst);
     if bytes > max {
         let _ = remove_tree(&dst); // exact path, created above
         return Err(big(format!("agent state is {} MiB, over snap_max_gib = {} GiB", bytes >> 20, max >> 30)));
     }
-    let meta = json!({"at": rfc3339(at), "at_ms": at, "group": group, "id": id, "kind": kind, "logical_bytes": bytes, "v": 1});
+    let mut meta = json!({"at": rfc3339(at), "at_ms": at, "group": group, "id": id, "kind": kind, "logical_bytes": bytes, "v": 1});
+    if let Some(n) = note {
+        meta["groups_kept"] = n;
+    }
     if let Err(e) = write_atomic(&d.join(format!("{id}.json")), format!("{meta}\n").as_bytes(), 0o600) {
         let _ = remove_tree(&dst); // exact path, created above
         return Err(int(format!("{id}.json: {e}")));
@@ -483,10 +542,14 @@ pub fn restore_at(rh: &Path, ih: &Path, id: &str, live: &dyn Fn() -> bool) -> Re
             let _ = fs::remove_file(d.join(format!("{saved}.json")));
         }
     };
-    match swap_sa(&src, ih, &stage, live) {
-        Ok(()) => {
+    match swap_sa(rh, &src, ih, &stage, live) {
+        Ok(note) => {
             let _ = remove_tree(&stage); // exact path: the replaced entries, which `saved` holds too
-            Ok(json!({"restored": id, "saved": saved, "saved_bytes": sm["logical_bytes"]}))
+            let mut out = json!({"restored": id, "saved": saved, "saved_bytes": sm["logical_bytes"]});
+            if let Some(n) = note {
+                out["groups_kept"] = n;
+            }
+            Ok(out)
         }
         Err(Unrestored::Refused(m)) => {
             drop_save();
@@ -529,13 +592,16 @@ const ZONE_STARTED: &str = "a zone process started during the restore";
 /// the zone is stopped. So INIT_HOME is opened once, never following a link at any component, and every live entry is
 /// named under it ([`End::Under`]): a tree swapped for a link during the restore makes a move fail and every step be
 /// put back; the Root never moves entries out of, or the snapshot's into, a folder a link names.
-fn swap_sa(src: &Path, ih: &Path, stage: &Path, live: &dyn Fn() -> bool) -> Result<(), Unrestored> {
+fn swap_sa(rh: &Path, src: &Path, ih: &Path, stage: &Path, live: &dyn Fn() -> bool) -> Result<Option<Value>, Unrestored> {
     use Unrestored::{Refused, RolledBack, Stuck};
     let (new, old) = (stage.join("new"), stage.join("old"));
     let mk = |p: &Path| fs::DirBuilder::new().recursive(true).mode(0o700).create(p);
     let ihd = crate::sys::open_dir_nofollow(None, ih).map_err(|e| Refused(format!("INIT_HOME cannot be opened without following a link: {e}")))?;
     let base = ihd.as_fd();
     mk(&new).and_then(|()| mk(&old)).map_err(|e| Refused(format!("{}: {e}", stage.display())))?;
+    // v0.5.4: the clones of the snapshot's trees in `new` take INIT_HOME's group, whatever group the snapshot holds
+    // (one taken before v0.5.4 holds ROOT_HOME's), before anything in INIT_HOME moves
+    let note = group_note(rh, "the restored agent state", &new, home_gid(Some(base), ih));
     let keep = |v: Vec<std::ffi::OsString>, skip: &[&str]| {
         let mut v: Vec<_> = v.into_iter().filter(|n| !skip.iter().any(|x| n == *x)).collect();
         v.sort();
@@ -604,7 +670,7 @@ fn swap_sa(src: &Path, ih: &Path, stage: &Path, live: &dyn Fn() -> bool) -> Resu
             return Err(if left.is_empty() { RolledBack(what) } else { Stuck(format!("{what}, and putting back {} failed", left.join(", "))) });
         }
     }
-    Ok(())
+    Ok(note)
 }
 
 /// R2 (§4.2): restore snapshot `id` with the zone stopped; refused `root.busy` while any zone instance lives. The
@@ -616,10 +682,21 @@ pub fn restore(root: &Root, id: &str, reason: &str) -> Result<Value, Err3> {
     let mib = r["saved_bytes"].as_u64().unwrap_or(0).div_ceil(1 << 20);
     root.append("snapshot", json!({"group": null, "id": r["saved"], "kind": "pre_restore", "logical_mib": mib, "skipped": null}));
     root.append("restore", json!({"kept": ["sessions", "spill", "traces"], "reason": reason, "saved": r["saved"], "snapshot": id}));
-    root.notice_code("alert", "snapshot", &format!("[root] agent state restored to system snapshot {id} ({reason}); the state before it is {}",
-        r["saved"].as_str().unwrap_or("")));
+    root.notice_code("alert", "snapshot", &restored_text(id, reason, &r));
     prune_at(&root.p.rh, &crate::lineage::records(&root.p.rh).unwrap_or_default(), now_ms());
     Ok(r)
+}
+
+/// R2's alert for a restore's result `r`. Review 6, N3: with the group note ([`group_note`]) when the restored state
+/// kept ROOT_HOME's group, so the owner sees it, not only the log.
+fn restored_text(id: &str, reason: &str, r: &Value) -> String {
+    let groups = match r.get("groups_kept") {
+        Some(n) => format!("; it keeps ROOT_HOME's group, not INIT_HOME's{}, as that group could not be set ({})",
+            n["gid"].as_u64().and_then(|g| u32::try_from(g).ok()).map(|g| format!(" ({})", crate::sys::group_name(g))).unwrap_or_default(),
+            n["error"].as_str().unwrap_or("an error")),
+        None => String::new(),
+    };
+    format!("[root] agent state restored to system snapshot {id} ({reason}); the state before it is {}{groups}", r["saved"].as_str().unwrap_or(""))
 }
 
 /// `sentinel::Hooks.restore` (X3's H1 escalation, between root.md §3.7.3 steps 1 and 5).

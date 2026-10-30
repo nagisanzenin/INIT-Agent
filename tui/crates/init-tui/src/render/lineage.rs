@@ -104,7 +104,8 @@ pub fn rows(p: &Panel, width: usize) -> Vec<Line> {
         l.extend(sanitize::inline(&format!(" at seq {}: {}", e["seq"].as_u64().unwrap_or(0), s(e, "rule")), Style::fg(Role::Harm)));
     }
     if !s(v, "key").is_empty() {
-        l.extend(sanitize::inline(&format!(" · key {}", s(v, "key")), Style::fg(Role::Mute)));
+        // v0.5.4 (round 8): the Root sends the installer's fingerprint (sha256 of the public key), so it is labelled so
+        l.extend(sanitize::inline(&format!(" · key fingerprint {}", s(v, "key")), Style::fg(Role::Mute)));
     }
     out.push(l.truncate(width));
     for r in shown {

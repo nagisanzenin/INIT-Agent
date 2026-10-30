@@ -191,7 +191,7 @@ The key, the ceremony that makes it, and what to do if it is lost or leaked: rel
 ```sh
 curl -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | sh      # install the latest release
 sh get.sh --from init-v0.5.0-preview-macos-arm64.tar.gz [-- <install.sh args>]                 # a local bundle
-curl -fsSL …/get.sh | sh -s -- --upgrade                                                        # upgrade an install of 0.4.1 or later
+curl -fsSL …/get.sh | /bin/bash -p -s -- --upgrade                                                      # upgrade an install of 0.4.1 or later
 ```
 
 POSIX `sh` (checked with dash). It refuses root, and any platform except macOS 14+ on arm64 or Linux on x86_64 or aarch64 with `/usr/bin/bwrap` (install.sh then checks it is 0.13.0 or newer) and `/usr/bin/python3`. On macOS it also refuses a machine without the Command Line Tools. It downloads over HTTPS only (curl `-q`: no `~/.curlrc`), or takes `--from` a local file, which it copies into its own directory first and then checks and unpacks only that copy. It checks the archive's sha256 against `--sha256`, `latest.json`, or the `.sha256` file next to the bundle, and refuses without one. An upgrade from a local file takes `--sha256` only, because the agent can write that file's folder. It unpacks into `~/.local/share/init/<version>/` (`INIT_APP_DIR` overrides the parent), checks `SHA256SUMS`, makes the tree read-only, and installs the Rust toolchain unless `--no-rust`. Then it runs the bundle's `scripts/install.sh --yes` plus any arguments after `--`.

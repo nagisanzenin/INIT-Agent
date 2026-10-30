@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/bin/bash -p
 # Install INIT on this Mac or Linux machine with one command (root/root.md §4.3; RELEASE_PLAN.md "What v0.1.0 means" item 1).
 # Two modes: from a source checkout (builds with release.sh), or from an unpacked release bundle (scripts/bundle.sh;
 # scripts/get.sh runs it there), detected by SHA256SUMS and body/BODY.json next to scripts/. The bundle mode installs
@@ -6,7 +6,7 @@
 # wasm32-wasip2, unless --no-rust), which this script records for self-evolution T1/T2; without a toolchain
 # self-evolution is T0 only.
 #
-#   scripts/install.sh [--yes] [--no-service] [--rebuild | --reuse] [--with-tests] [--allow-dirty]
+#   scripts/install.sh [--yes] [--no-service] [--no-modify-path] [--rebuild | --reuse] [--with-tests] [--allow-dirty]
 #                      [--disk-floor GIB] [--day-usd X] [--total-usd X] [--max-level N] [--access full|workspace]
 #                      [--purpose TEXT] [--charter FILE]
 #   scripts/install.sh --upgrade [--yes] [--probe-timeout S]     upgrade the installed INIT to this release
@@ -15,6 +15,10 @@
 #   --yes          install with the settings shown, ask nothing (non-interactive)
 #   --no-service   do not write or load the service (launchd on macOS, a systemd user unit on Linux); you run
 #                  `init-root start` yourself
+#   --no-modify-path  leave your shell's startup file alone. Without it, when the init-agent command's directory is not
+#                  on PATH, the install adds a marked block that puts it there to the startup file of your shell ($SHELL:
+#                  zsh ~/.zshrc, bash ~/.bashrc on Linux or ~/.bash_profile on macOS, fish
+#                  ~/.config/fish/conf.d/init-agent.fish, any other ~/.profile); uninstall.sh removes that block
 #   --rebuild      run scripts/release.sh even when target/dist/v<version>/ is fresh
 #   --reuse        use target/dist/v<version>/ as it is (its files verified against MANIFEST.json), never rebuild
 #   --with-tests   let release.sh run its release-mode test guard (root + seed); slower
@@ -69,13 +73,14 @@
 set -euo pipefail
 umask 077
 
-YES=0; NO_SERVICE=0; REBUILD=0; REUSE=0; WITH_TESTS=0; ALLOW_DIRTY=0; FLOOR=""; CHARTER_IN=""; MOCK=""; UPGRADE=0; PROBE_S=120
+YES=0; NO_SERVICE=0; NO_MODIFY_PATH=0; REBUILD=0; REUSE=0; WITH_TESTS=0; ALLOW_DIRTY=0; FLOOR=""; CHARTER_IN=""; MOCK=""; UPGRADE=0; PROBE_S=120
 APPARMOR=0; PRINT_APPARMOR=0
 DAY=5; TOTAL=25; LEVEL=4; ACCESS=full; PURPOSE="My personal agent on this computer: it helps me with my work and improves itself, within my limits."
 while [ $# -gt 0 ]; do
   case "$1" in
     --yes|-y) YES=1; shift ;;
     --no-service) NO_SERVICE=1; shift ;;
+    --no-modify-path) NO_MODIFY_PATH=1; shift ;;
     --rebuild) REBUILD=1; shift ;;
     --reuse) REUSE=1; shift ;;
     --with-tests) WITH_TESTS=1; shift ;;
@@ -92,7 +97,7 @@ while [ $# -gt 0 ]; do
     --probe-timeout) PROBE_S="$2"; shift 2 ;;
     --apparmor) APPARMOR=1; shift ;;
     --print-apparmor) PRINT_APPARMOR=1; shift ;;
-    -h|--help) sed -n '2,65p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,69p' "$0"; exit 0 ;;
     *) echo "install.sh: unknown argument $1 (see --help)" >&2; exit 64 ;;
   esac
 done
@@ -196,10 +201,64 @@ path_add() { # <dir>: the command that puts <dir> on PATH in the owner's new ter
   esac
   printf 'echo %s >> %s' "$(shq "export PATH=\"$d:\$PATH\"")" "$rc"
 }
-# The upgrade to the latest release with its get.sh and the system's curl and sh: what an install of 0.4.1 or 0.5.0 runs
-# (0.5.0's own `init-agent upgrade` runs 0.5.0's get.sh, without 0.5.1's fixes; docs/guide.md "Upgrade"; get.sh's up_pipe)
+# v0.5.4 (the owner's call, rustup and uv style; docs/ux-v1.md §3.2.5): the install puts BIN_DIR on PATH for new
+# terminals itself, so the README's install block is the one-liner. A marked block in the startup file path_add names
+# (fish: a file of its own, conf.d/init-agent.fish), added once (a re-install or an upgrade never adds a second), only
+# when BIN_DIR is not on PATH already, never with --no-modify-path. uninstall.sh removes exactly that block.
+PATH_BEGIN="# >>> INIT: the init-agent command on PATH (scripts/uninstall.sh removes this block) >>>"
+PATH_END="# <<< INIT: the init-agent command on PATH <<<"
+path_file() { # the startup file the block goes in, by $SHELL (path_add's choice)
+  local f
+  case "${SHELL##*/}" in
+    fish) printf '%s' "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/init-agent.fish" ;;
+    zsh) printf '%s' "${ZDOTDIR:-$HOME}/.zshrc" ;;
+    bash)
+      if [ "$OS" = Darwin ]; then
+        for f in "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile"; do [ -e "$f" ] && { printf '%s' "$f"; return; }; done
+        printf '%s' "$HOME/.bash_profile"
+      else printf '%s' "$HOME/.bashrc"; fi ;;
+    sh|dash|ksh|mksh|ash|"") printf '%s' "$HOME/.profile" ;;
+    *) return 1 ;; # csh, tcsh, nu, xonsh, …: no file of theirs reads export lines; the line is printed instead
+  esac
+}
+path_line() { # the line that puts BIN_DIR first on PATH, quoted for that shell: $HOME/… under HOME (sh family)
+  local h="${HOME%/}" d="$BIN_DIR" esc
+  if [ "${SHELL##*/}" = fish ]; then # fish's single quotes: only \ and \' are escapes
+    esc="'$(printf '%s' "$d" | sed "s/[\\\\']/\\\\&/g")'"
+    printf 'contains -- %s $PATH; or set -gx PATH %s $PATH' "$esc" "$esc"; return
+  fi
+  if [ -n "$h" ] && [[ "$d" == "$h"/?* ]]; then esc="\$HOME/$(printf '%s' "${d#"$h"/}" | sed 's/[\\"$`]/\\&/g')"
+  else esc="$(printf '%s' "$d" | sed 's/[\\"$`]/\\&/g')"; fi
+  printf 'export PATH="%s:$PATH"' "$esc"
+}
+path_step() { # step 6: the block, or why not; prints one line
+  local f
+  case ":$PATH:" in *":$BIN_DIR:"*) return 0 ;; esac
+  if [ $NO_MODIFY_PATH = 1 ]; then say "  note: $BIN_DIR is not on your PATH (--no-modify-path: left as it is); add it: $(path_add "$BIN_DIR")"; return 0; fi
+  f="$(path_file)" || { say "  note: $BIN_DIR is not on your PATH, and INIT does not edit the startup files of ${SHELL##*/}: add it yourself"; return 0; }
+  # a link that leads out of HOME, or anything but a regular file: not written through (v0.5.4, the release review)
+  if [ -L "$f" ] || { [ -e "$f" ] && [ ! -f "$f" ]; }; then
+    case "$(/usr/bin/python3 -I -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$f" 2>/dev/null)/" in
+      "${HOME%/}"/?*/) [ ! -e "$f" ] || [ -f "$f" ] || f="" ;;
+      *) f="" ;;
+    esac
+    [ -n "$f" ] || { say "  note: $BIN_DIR is not on your PATH, and $(tilde "$(path_file)") is a link out of your home or not a regular file, so INIT leaves it alone: add it yourself: $(path_add "$BIN_DIR")"; return 0; }
+  fi
+  # this install's block only: another install's block names another directory (v0.5.4, the release review)
+  if [ -f "$f" ] && grep -qxF "$PATH_BEGIN" "$f" && grep -qxF "$(path_line)" "$f"; then say "  $(tilde "$f") already puts $BIN_DIR on PATH (INIT's block); open a new terminal, or run $(tilde "$BIN_DIR/init-agent") now"; return 0; fi
+  mkdir -p "$(dirname "$f")" || { say "  note: cannot create $(dirname "$f"); add $BIN_DIR to PATH yourself: $(path_add "$BIN_DIR")"; return 0; }
+  { if [ -s "$f" ] && [ -n "$(tail -c 1 "$f")" ]; then echo; fi; printf '%s\n%s\n%s\n' "$PATH_BEGIN" "$(path_line)" "$PATH_END"; } >>"$f" \
+    || { say "  note: cannot write $(tilde "$f"); add $BIN_DIR to PATH yourself: $(path_add "$BIN_DIR")"; return 0; }
+  PATH_ADDED="$f"
+  say "  added $(tilde "$BIN_DIR") to PATH in $(tilde "$f"); open a new terminal, or run $(tilde "$BIN_DIR/init-agent") now (--no-modify-path skips this)"
+}
+PATH_ADDED=""
+# The upgrade to the latest release with its get.sh and the system's curl and bash -p: what an install of 0.4.1 or 0.5.0
+# runs (0.5.0's own `init-agent upgrade` runs 0.5.0's get.sh, without 0.5.1's fixes; docs/guide.md "Upgrade"; get.sh's
+# up_pipe, which says why bash -p and not /bin/sh)
 up_pipe() {
-  printf '/usr/bin/curl -q -fsSL %s | %s/bin/sh -s -- --upgrade' "$(shq "${INIT_DIST_URL:-https://github.com/nagisanzenin/INIT-Agent/releases/latest/download}/get.sh")" "$(rh_env)"
+  # the published get.sh, never one an INIT_DIST_URL in the environment names (v0.5.4, the review of lane J)
+  printf '/usr/bin/curl -q -fsSL https://github.com/nagisanzenin/INIT-Agent/releases/latest/download/get.sh | %s/bin/bash -p -s -- --upgrade' "$(rh_env)"
 }
 if [ $BUNDLE = 1 ]; then # an unpacked release bundle: the release dir is this directory
   VERSION="$(sed -n 's/^ "version": "\(.*\)",*$/\1/p' "$REPO/MANIFEST.json" | head -1)"
@@ -307,6 +366,79 @@ GITV="$(git --version | awk '{print $3}')"
 /usr/bin/python3 -I -c 'import sys; v=tuple(int(x) for x in sys.argv[1].split(".")[:3]); sys.exit(0 if v>=(2,39,4) else 1)' "$GITV" \
   || die "git 2.39.4 or newer is needed (found $GITV)"
 RUSTUP_CMD="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.97.1 --target wasm32-wasip2 --component clippy"
+# TC and TCV for a bundle install: rustup's Rust 1.97.x (get.sh's, or the owner's with --no-rust): the toolchain rustup
+# resolves, else an installed 1.97 one (1.97.1, then the 1.97 channel, then any 1.97.N; through `rustup run … --print
+# sysroot` where rustup has no `which --toolchain`) when the default is another; each for this machine's host. v0.5.4 (review 6): each state says
+# what is missing. A rustc without rustup (Homebrew's rust, a distribution's) was "no Rust toolchain"; a default 1.98 hid
+# an installed 1.97.1; and a rustc whose -V failed stopped the install under set -e without a line, after which get.sh
+# said "fix the cause above". Every command here that can fail is now in a condition or ends in `|| …`.
+RUST_ADD="rustup toolchain install 1.97.1 --profile minimal --component clippy --target wasm32-wasip2"
+# v0.5.4 (the review of lane J): what the closing T0 lines run. Without rustup: rustup-init (RUSTUP_CMD) and a plain
+# `toolchain --set`, which records rustup's default, then 1.97.1. With rustup: never RUSTUP_CMD, whose
+# --default-toolchain would change the owner's default; the missing part only, and --set with the 1.97 toolchain's
+# folder (a plain --set records the default, which may be another version, and the Root then refuses it).
+RUST_FIX="$RUSTUP_CMD"; RUST_SET=""
+case "$OS/$(uname -m)" in # the host a toolchain must be for (an x86_64 one runs under Rosetta, and builds for x86_64)
+  Darwin/arm64) HOST_TRIPLE=aarch64-apple-darwin ;; Linux/x86_64) HOST_TRIPLE=x86_64-unknown-linux-gnu ;;
+  Linux/aarch64) HOST_TRIPLE=aarch64-unknown-linux-gnu ;; *) HOST_TRIPLE="" ;;
+esac
+rustc_info() { # <rustc>: "<rustc -V>|<host>", or "" when it does not run
+  local i; i="$("$1" -vV 2>/dev/null || true)"
+  [ -n "$i" ] && printf '%s|%s' "$(printf '%s\n' "$i" | sed -n 1p)" "$(printf '%s\n' "$i" | sed -n 's/^host: //p')"
+  return 0
+}
+bundle_toolchain() {
+  local v="" h="" def="" alt="" c r i tcs tl dir name
+  TC=none; TCV="no Rust toolchain (self-evolution T0 only)"
+  if ! RUSTUP="$(command -v rustup)"; then
+    if RUSTC="$(command -v rustc)"; then # T1 and T2 build with rustup's toolchain: its wasm32-wasip2 target and clippy
+      v="$("$RUSTC" -V 2>/dev/null || true)"
+      TCV="${v:-a rustc} at $RUSTC, but no rustup (self-evolution T0 only: T1 and T2 build with rustup's Rust 1.97.1 and its wasm32-wasip2 target; the steps to add rustup are printed at the end)"
+    fi
+    return 0
+  fi
+  RUST_FIX="$RUST_ADD"; RUST_SET='"$(rustup run 1.97.1 rustc --print sysroot)"'
+  RUSTC="$("$RUSTUP" which rustc 2>/dev/null || true)"
+  if [ -x "$RUSTC" ]; then i="$(rustc_info "$RUSTC")"; def="${i%%|*}"; v="$def"; h="${i#*|}"; fi
+  case "$v" in rustc\ 1.97.*) [ -z "$HOST_TRIPLE" ] || [ "$h" = "$HOST_TRIPLE" ] || v="" ;; esac
+  case "$v" in rustc\ 1.97.*) ;; *) # the default is another Rust (or another host's), or none: an installed 1.97 toolchain
+    # for this host: 1.97.1, then the 1.97 channel, then any 1.97.N
+    tcs="$("$RUSTUP" toolchain list 2>/dev/null | awk '{print $1}' || true)"
+    for c in $(printf '%s\n' "$tcs" | grep -E '^1\.97\.1-' || true) $(printf '%s\n' "$tcs" | grep -E '^1\.97-' || true) \
+      $(printf '%s\n' "$tcs" | grep -E '^1\.97\.[0-9]+-' || true); do
+      r="$("$RUSTUP" which --toolchain "$c" rustc 2>/dev/null || true)"
+      # a rustup without `which --toolchain`: the toolchain's sysroot through `rustup run`
+      [ -x "$r" ] || r="$("$RUSTUP" run "$c" rustc --print sysroot 2>/dev/null || true)/bin/rustc"
+      [ -x "$r" ] || continue
+      i="$(rustc_info "$r")"
+      case "${i%%|*}" in rustc\ 1.97.*) [ -z "$HOST_TRIPLE" ] || [ "${i#*|}" = "$HOST_TRIPLE" ] || continue
+        RUSTC="$r"; v="${i%%|*}"; h="${i#*|}"; alt=1; break ;; esac
+    done ;;
+  esac
+  case "$v" in
+    rustc\ 1.97.*)
+      dir="$(cd "$(dirname "$RUSTC")/.." 2>/dev/null && pwd -P)" || { TCV="the folder of $RUSTC cannot be read (self-evolution T0 only)"; return 0; }
+      name="${dir##*/}"; RUST_SET="$(shq "$dir")"
+      tl="$("$RUSTUP" target list --installed --toolchain "$name" 2>/dev/null || true)"
+      if ! [ -x "$(dirname "$RUSTC")/cargo-clippy" ]; then # the gate's G0 runs cargo clippy
+        RUST_FIX="rustup component add --toolchain $name clippy"
+        TCV="Rust without clippy (self-evolution T0 only until: $RUST_FIX, then the steps printed at the end)"
+      elif printf '%s\n' "$tl" | grep -qx wasm32-wasip2; then
+        TC="$dir"; r=""
+        if [ -n "$alt" ]; then r=", rustup's toolchain $name"; [ -z "$def" ] || r="$r (your default is $def)"; fi
+        TCV="$v$r (self-evolution T0+T1+T2)"
+      else
+        RUST_FIX="rustup target add --toolchain $name wasm32-wasip2"
+        TCV="Rust without wasm32-wasip2 (self-evolution T0 only until: $RUST_FIX, then the steps printed at the end)"
+      fi ;;
+    "")
+      if [ -n "$def" ] && [ -n "$HOST_TRIPLE" ] && [ "$h" != "$HOST_TRIPLE" ]; then
+        TCV="$def is built for ${h:-another host}, not this machine ($HOST_TRIPLE), and rustup has no 1.97 toolchain for it (self-evolution T0 only until: $RUST_ADD, then the steps printed at the end)"
+      elif [ -x "$RUSTC" ]; then TCV="rustup's rustc ($RUSTC) does not run: rustc -V failed (self-evolution T0 only)"
+      else TCV="rustup, but no Rust 1.97 toolchain (self-evolution T0 only until: $RUST_ADD, then the steps printed at the end)"; fi ;;
+    *) TCV="$v is not 1.97.x, and rustup has no 1.97 toolchain (self-evolution T0 only until: $RUST_ADD, then the steps printed at the end)" ;;
+  esac
+}
 if [ $UPGRADE = 1 ] && [ $BUNDLE = 1 ]; then
   # the upgrade keeps the toolchain install.json records (init-root toolchain --set changes it); a rustup found on
   # PATH would run as you, and the agent can write the directories it lives in
@@ -315,18 +447,7 @@ elif [ $BUNDLE = 1 ]; then
   # get.sh installs Rust 1.97.1 with wasm32-wasip2 before this runs (unless --no-rust). A rustup on PATH with 1.97.x and
   # wasm32-wasip2 is recorded for self-evolution T1/T2; anything else installs without a toolchain (T0: skills, prompts,
   # extension source).
-  TC=none; TCV="no Rust toolchain (self-evolution T0 only)"
-  if RUSTUP="$(command -v rustup)" && RUSTC="$("$RUSTUP" which rustc 2>/dev/null)" && [ -x "$RUSTC" ]; then
-    case "$("$RUSTC" -V 2>/dev/null)" in
-      rustc\ 1.97.*)
-        if ! [ -x "$(dirname "$RUSTC")/cargo-clippy" ]; then # the gate's G0 runs cargo clippy
-          TCV="Rust without clippy (self-evolution T0 only until: rustup component add clippy, then the steps printed at the end)"
-        elif "$RUSTUP" target list --installed 2>/dev/null | grep -qx wasm32-wasip2; then
-          TC="$(cd "$(dirname "$RUSTC")/.." && pwd -P)"; TCV="$("$RUSTC" -V)"
-        else TCV="Rust without wasm32-wasip2 (self-evolution T0 only until: rustup target add wasm32-wasip2, then the steps printed at the end)"; fi ;;
-      *) TCV="$("$RUSTC" -V 2>/dev/null) is not 1.97.x (self-evolution T0 only)" ;;
-    esac
-  fi
+  bundle_toolchain
 else
   command -v rustup >/dev/null || [ -x "$PW_HOME/.cargo/bin/rustup" ] || die "rustup not found: install Rust from https://rustup.rs (toolchain 1.97), or install a release bundle with scripts/get.sh, which installs Rust 1.97.1 for you"
   RUSTUP="$(command -v rustup || echo "$PW_HOME/.cargo/bin/rustup")"
@@ -335,6 +456,10 @@ else
   "$RUSTUP" target list --installed 2>/dev/null | grep -qx wasm32-wasip2 || die "missing target: rustup target add wasm32-wasip2"
   TC="$(cd "$(dirname "$RUSTC")/.." && pwd -P)"; TCV="$("$RUSTC" -V)"
 fi
+# The launcher bakes ROOT_HOME into a double-quoted bash line, and from v0.5.4 its upgrade trusts that value alone: a
+# character the shell would read there is refused, never written.
+case "$RH" in *[\"\$\`\\]*|*"
+"*) die "INIT_ROOT_HOME ($RH) contains a character INIT cannot write into its launcher (\", \$, \`, \\ or a newline): choose another directory" ;; esac
 for h in "$RH" "$IH"; do
   case "$h" in /*) ;; *) die "$h is not an absolute path" ;; esac
   [ ${#h} -le 64 ] || die "$h is ${#h} bytes; a home may be at most 64 (the Root's sockets must fit sun_path)"
@@ -346,7 +471,7 @@ ver_lt() { /usr/bin/python3 -I -c 'import sys; v = lambda s: tuple(int(x) for x 
 sys.exit(0 if v(sys.argv[1]) < v(sys.argv[2]) else 1)' "$1" "$2"; }
 too_old() { # <version>
   die "INIT $1 is installed ${ELSEWHERE:-in $RH}. An upgrade from a release before 0.4.1 is not supported: uninstall it first (it moves INIT, its record and your provider key to the Trash; nothing is deleted), then run this again:
-  $(rh_env)bash $(shq "$REPO/scripts/uninstall.sh")$SECOND"
+  $(rh_env)/bin/bash -p $(shq "$REPO/scripts/uninstall.sh")$SECOND"
 }
 # INIT installed in another ROOT_HOME (v0.5.2; get.sh checks the same, with the same two functions). An owner who
 # installed with INIT_ROOT_HOME=X and installs again without it would get a second install: step 7 rewrites the one
@@ -422,8 +547,11 @@ or, to the latest release, once from your own shell: $(up_pipe)$SECOND"
   fi
   [ -n "$HAVE" ] && ALT="" || ALT="
 (from 0.4.1 or 0.5.0, init-agent upgrade does not apply: $UP_HERE, or the latest release: $(up_pipe))"
+  # v0.5.4 (get.sh's up_agent): before 0.5.4 the launcher's upgrade took INIT_ROOT_HOME and the rest from the
+  # environment, so its line runs under env -i with the home inside; from 0.5.4 it uses its baked home only
+  if [ -n "$HAVE" ] && ! ver_lt "$HAVE" 0.5.4; then UPA="$(agent) upgrade"; else UPA="/usr/bin/env -i HOME=\"\$HOME\" $(rh_env)$(agent) upgrade"; fi
   die "INIT ${HAVE:+$HAVE }is already installed ${ELSEWHERE:-($RH/install.json exists)}. Upgrade it to v$VERSION instead, which keeps what INIT has become:
-  $(rh_env)$(agent) upgrade        (or: $UP_HERE)$ALT$SECOND"
+  $UPA        (or: $UP_HERE)$ALT$SECOND"
 fi
 if [ $UPGRADE = 1 ]; then
   [ -z "$ELSEWHERE" ] || die "INIT ${HAVE:+$HAVE }is installed $ELSEWHERE. Upgrade it to v$VERSION with its home given to install.sh:
@@ -514,7 +642,8 @@ launchers() { # [upgrade]: init-agent (ROOT_HOME baked in) and init-tui into BIN
   # platform: the launcher's name before v0.4.1, and v0.4.1's one-release macOS shim (checked by path, regular file and
   # content markers); anything else named init stays. An upgrade touches only BIN_DIR, which its snapshot covers.
   mkdir -p "$BIN_DIR"
-  sed "s|^INIT_ROOT_HOME_DEFAULT=.*|INIT_ROOT_HOME_DEFAULT=\"$RH\"|" "$REPO/scripts/init-agent" >"$WORK/init-agent"
+  # the home inside double quotes in a sed replacement: preflight refuses ", $, `, \ and newlines in it; & and | escaped
+  sed "s|^INIT_ROOT_HOME_DEFAULT=.*|INIT_ROOT_HOME_DEFAULT=\"$(printf '%s' "$RH" | sed 's/[&|]/\\&/g')\"|" "$REPO/scripts/init-agent" >"$WORK/init-agent"
   put_bin init-agent "$WORK/init-agent"
   if [ -x "$DIST/init-tui" ]; then # docs/tui.md §9 item 3: next to the launcher, a new file then a rename
     put_bin init-tui "$DIST/init-tui"
@@ -634,10 +763,14 @@ sys.exit(0)' "$RH/run/root.lock"
       || die "the commit failed (above). $(left_stopped "$(rcmd upgrade --commit)" "to go back to the old version instead: $(rcmd upgrade --rollback)")"
     keep_get
     svc_start
+    # v0.5.4 (review 6): named for what it measures, as the fresh install's line is; get.sh prints the whole run's total
+    ELAPSED=$(( $(date +%s) - T_START ))
     cat <<EOF
 
-INIT is upgraded to v$VERSION ($(( $(date +%s) - T_START )) s). Kept as they were: the body INIT evolved, its extensions,
-the sessions, the lineage, your keys and your charter. Not done by this release: offering its new seed to INIT.
+INIT is upgraded to v$VERSION (install.sh took $(( ELAPSED / 60 )) min $(( ELAPSED % 60 )) s). Kept as they were: the
+body INIT evolved, its extensions, the sessions, the lineage, your keys and your charter. INIT keeps running the body
+it evolved: this release's new starting body (its prompts, skills and tools) is not merged into it. Nothing for you
+to do; merging is planned.
 Open INIT: $(tilde "$BIN_DIR/init-agent")
 EOF
     exit 0
@@ -786,7 +919,7 @@ if [ $IRC != 0 ]; then
   die "init-root install failed (exit $IRC) after $(( $(date +%s) - T0 )) s. Fix the cause above and run install.sh again."
 fi
 sed 's/^/  /' "$LOG"
-say "  installed in $(( $(date +%s) - T0 )) s; lowest free space $LOWEST MB"
+say "  the Root's install step took $(( $(date +%s) - T0 )) s; lowest free space $LOWEST MB"
 # The build slot is a cache that the next build resets (kernel/supervise.md §3.6.2); free it now (exact path).
 if [ -e "$IH/cache/build/slot" ]; then rm -rf -- "$IH/cache/build/slot"; say "  build slot freed; free $(free_mb) MB"; fi
 
@@ -853,7 +986,7 @@ say "  $IH/kernel/config.toml: model $MODEL"
 step "6/7 the init-agent command"
 launchers
 keep_get
-case ":$PATH:" in *":$BIN_DIR:"*) ;; *) say "  note: $BIN_DIR is not on your PATH; add it: $(path_add "$BIN_DIR")" ;; esac
+path_step
 
 # ---------------------------------------------------------------- 7. the service
 step "7/7 the Root service"
@@ -884,21 +1017,26 @@ fi
 
 ELAPSED=$(( $(date +%s) - T_START ))
 PATH_HINT="" # the README's bare `init-agent` needs BIN_DIR on PATH; a default macOS PATH lacks ~/.local/bin (REL-051)
-case ":$PATH:" in *":$BIN_DIR:"*) ;; *) PATH_HINT="   ($BIN_DIR is not on your PATH; to type just init-agent, add: $(path_add "$BIN_DIR"))" ;; esac
+if [ -n "$PATH_ADDED" ]; then PATH_HINT="   (in a new terminal, init-agent alone: $(tilde "$PATH_ADDED") now puts $(tilde "$BIN_DIR") on PATH)"
+else case ":$PATH:" in *":$BIN_DIR:"*) ;; *) PATH_HINT="   ($BIN_DIR is not on your PATH; to type just init-agent, add: $(path_add "$BIN_DIR"))" ;; esac; fi
+# v0.5.4 (review 6): the README's line downloads the uninstaller for the default home; for another home it finds
+# nothing to uninstall until INIT_ROOT_HOME= is put in front, so this says so (it said "works from anywhere")
+RH_ENV="$(rh_env)"; UNI_NOTE=""; [ -z "$RH_ENV" ] || UNI_NOTE="; put ${RH_ENV% } in front of it"
 cat <<EOF
 
-INIT v$VERSION is installed ($(( ELAPSED / 60 )) min $(( ELAPSED % 60 )) s).
+INIT v$VERSION is installed (install.sh took $(( ELAPSED / 60 )) min $(( ELAPSED % 60 )) s).
 
 Next: $(tilde "$BIN_DIR/init-agent")$PATH_HINT
   The first run picks the provider and the model and asks for your key (hidden; stored 0600 in $RH/keys/, never by
   this script). Then type a task. /stop stops the agent's current body; /panic stops everything and demotes one level.
 
 Your limits: $RH/charter.toml (edit, then: $(rcmd charter check --apply)).
-             Spending is tracked, not capped: /usage in the chat, or $(rcmd egress stats);
+             Spending is tracked, not capped: /usage in the chat shows it;
              a goal's usd= budget is enforced; set a limit at your provider.
 Logs:        $RH/logs/ (the Root), $IH/state/kernel/logs/ (the kernel and the body)
-Upgrade:     $(rh_env)$(tilde "$BIN_DIR/init-agent") upgrade (keeps what INIT has become: its body, lineage, keys and charter)
-Uninstall:   $(rh_env)bash $(shq "$REPO/scripts/uninstall.sh")   (moves both homes to the Trash)
+Upgrade:     $(tilde "$BIN_DIR/init-agent") upgrade (keeps what INIT has become: its body, lineage, keys and charter)
+Uninstall:   $RH_ENV/bin/bash -p $(shq "$REPO/scripts/uninstall.sh")   (moves both homes to the Trash; the README's first
+             screen has a line that downloads it, for when this copy is gone: github.com/nagisanzenin/INIT-Agent$UNI_NOTE)
 EOF
 if [ "$ACCESS_EFF" = workspace ]; then
   cat <<EOF
@@ -925,11 +1063,11 @@ if [ "$TC" = none ]; then
   cat <<EOF
 
 Self-evolution: T0 only (skills, prompts, extension source). Rebuilding itself (T1/T2) needs Rust 1.97.1 with
-wasm32-wasip2. get.sh installs it unless you passed --no-rust (or rustup failed). To add it now:
-  $RUSTUP_CMD
+wasm32-wasip2. get.sh installs it unless you passed --no-rust (or rustup failed). To add it now$([ "$RUST_FIX" = "$RUSTUP_CMD" ] || echo " (your default toolchain stays as it is)"):
+  $RUST_FIX
 then record it with the Root stopped (/root stop stops only the agent, and the Root holds the lock):
   $RSTOP
-  $(rcmd toolchain --set)
+  $(rcmd toolchain --set)${RUST_SET:+ $RUST_SET}
   $RSTART
 EOF
 fi

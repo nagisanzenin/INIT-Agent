@@ -508,6 +508,7 @@ pub fn open_dir_at(dir: Option<BorrowedFd>, name: &std::path::Path) -> io::Resul
 pub struct Stat {
     pub mode: u32,
     pub uid: u32,
+    pub gid: u32,
     pub flags: u32,
 }
 
@@ -532,7 +533,35 @@ pub fn stat_at(dir: Option<BorrowedFd>, name: &std::path::Path) -> io::Result<St
     let flags = st.st_flags;
     #[cfg(not(target_os = "macos"))]
     let flags = 0;
-    Ok(Stat { mode: st.st_mode as u32, uid: st.st_uid, flags })
+    Ok(Stat { mode: st.st_mode as u32, uid: st.st_uid, gid: st.st_gid, flags })
+}
+
+/// v0.5.4 (lane U2): `fchownat(dir, name, -1, gid, AT_SYMLINK_NOFOLLOW)`: the group of the entry itself (a link's own,
+/// never its target's), relative to `dir`; the owner uid is never changed. A user without privilege may set only a
+/// group they are a member of (EPERM otherwise).
+pub fn chgrp_at(dir: BorrowedFd, name: &std::path::Path, gid: u32) -> io::Result<()> {
+    let n = c_path(name)?;
+    // SAFETY: `n` is NUL-terminated and outlives the call; `dir` is a live descriptor; uid -1 leaves the owner as is.
+    match unsafe { libc::fchownat(dir.as_raw_fd(), n.as_ptr(), libc::uid_t::MAX, gid, libc::AT_SYMLINK_NOFOLLOW) } {
+        0 => Ok(()),
+        _ => Err(io::Error::last_os_error()),
+    }
+}
+
+/// The name of group `gid` from the group database (`getgrgid_r`), else its number. Read-only.
+pub fn group_name(gid: u32) -> String {
+    let mut buf = vec![0 as libc::c_char; 4096];
+    let mut gr = std::mem::MaybeUninit::<libc::group>::uninit();
+    let mut out: *mut libc::group = std::ptr::null_mut();
+    // SAFETY: every pointer is to a live buffer of the size passed; on success `out` points at `gr`, whose strings
+    // are in `buf`, both alive while read below.
+    let r = unsafe { libc::getgrgid_r(gid, gr.as_mut_ptr(), buf.as_mut_ptr(), buf.len(), &mut out) };
+    if r != 0 || out.is_null() {
+        return gid.to_string();
+    }
+    // SAFETY: getgrgid_r succeeded, so `gr` is initialised and `gr_name` is a NUL-terminated string in `buf`.
+    let name = unsafe { std::ffi::CStr::from_ptr((*out).gr_name) };
+    name.to_str().map_or_else(|_| gid.to_string(), String::from)
 }
 
 /// R-UNDO (v0.5.3): a rename that never replaces: EEXIST when `to` exists (macOS `renameatx_np(RENAME_EXCL)`, Linux

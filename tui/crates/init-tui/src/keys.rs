@@ -160,7 +160,7 @@ pub const HELP: &[(&str, &str)] = &[
     ("Up / Down", "lines; history on the first line"),
     ("Ctrl-A/E · Alt-←/→ · Ctrl-W/U/K", "move and delete"),
     ("/", "owner commands (Tab completes)"),
-    ("Ctrl-O · /details", "the transcript, last tool activity expanded · print it in full"),
+    ("Ctrl-O · /details", "the transcript, last tool activity expanded · print it (a long call: its first lines)"),
     ("Ctrl-T", "show or hide thinking"),
     ("Ctrl-L", "redraw"),
     ("/stop · /root stop · /panic", "stop the run · stop the agent · emergency stop + demotion (asks first)"),
