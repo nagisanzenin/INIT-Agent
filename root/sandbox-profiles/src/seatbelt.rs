@@ -487,17 +487,27 @@ mod tests {
         }
     }
 
-    /// ADR-009 tail Z2 and Z3a: one deny line per entry, the comment only when there is one; Z3 always names
-    /// Z_WRITE; Z3b's git rule is fixed text.
+    /// ADR-009 tail Z2 and Z3a: one deny line per entry (v0.5.5: and one for the folders above it), the comment only when
+    /// there is one; Z3 always names Z_WRITE; Z3b's git rule is fixed text.
     #[test]
     fn tail_deny_lines() {
         let t0 = zone_tail(0, 0).unwrap();
         assert!(!t0.contains("Z_DENY") && !t0.contains("read deny entry") && !t0.contains("Z_WDENY") && !t0.contains("Z3a"));
         assert!(t0.contains("(subpath (param \"Z_WRITE\"))") && t0.contains("(regex #\"/\\.git/hooks(/|$)\")"));
         let t2 = zone_tail(2, 3).unwrap();
-        assert_eq!(t2.lines().count(), t0.lines().count() + 3 + 5);
+        assert_eq!(t2.lines().count(), t0.lines().count() + (3 + 2 * 3) + (3 + 3 * 3), "the groups' comments and three rules per entry");
         assert!(t2.contains("(param \"Z_DENY_0\")") && t2.contains("(param \"Z_DENY_1\")") && !t2.contains("<i>"));
         assert!(t2.contains("(param \"Z_WDENY_2\")"));
+        // v0.5.5: each entry's folders above it are pinned (file-write-unlink on its path-ancestors) and none is made a
+        // symlink, and lineage/kernel.git's are pinned (Z4); nothing else is
+        let pins: Vec<&str> = t2.lines().filter(|l| !l.starts_with(';') && l.contains("path-ancestors")).collect();
+        assert_eq!(pins.len(), 1 + 2 * (2 + 3), "{pins:?}");
+        assert!(pins.iter().all(|l| pinned(l)), "{pins:?}");
+        for p in ["Z_DENY_0", "Z_DENY_1", "Z_WDENY_0", "Z_WDENY_1", "Z_WDENY_2"] {
+            assert!(t2.contains(&format!("(deny file-write-unlink (path-ancestors (param \"{p}\")))")), "{p}");
+            assert!(t2.contains(&format!("(deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param \"{p}\"))))")), "{p}");
+        }
+        assert_eq!(t0.lines().filter(|l| l.contains("path-ancestors")).collect::<Vec<_>>(), ["(deny file-write-unlink (path-ancestors (param \"Z_KGIT\")))"]);
         let one = Counts { deny: 1, wdeny: 1, ..Counts::default() };
         assert_eq!(expand(ZONE_TAIL, one, &Grant::default(), false).replace("_0\"", "_<i>\""), ZONE_TAIL);
         assert!(zone_tail(MAX_DENY + 1, 0).is_err() && zone_tail(0, MAX_DENY + 1).is_err());
@@ -558,7 +568,7 @@ mod tests {
         }
         assert!(t0.contains("(deny network-outbound (remote unix-socket (subpath (param \"Z_ROOT_HOME\"))))"));
         let t = zone_tail_full(2, 3).unwrap();
-        assert_eq!(t.lines().count(), t0.lines().count() + 3 + 4);
+        assert_eq!(t.lines().count(), t0.lines().count() + (2 + 3 * 2) + (2 + 3 * 3), "two comment lines and three rules per entry");
         assert!(t.contains("(param \"Z_DENY_1\")") && t.contains("(param \"Z_WDENY_2\")") && !t.contains("<i>"));
         let one = Counts { deny: 1, wdeny: 1, ..Counts::default() };
         assert_eq!(expand(ZONE_TAIL_FULL, one, &Grant::default(), false).replace("_0\"", "_<i>\""), ZONE_TAIL_FULL);
@@ -581,6 +591,27 @@ mod tests {
         let b = render(ProfileId::Body, Counts { deny: 2, wdeny: 3, ..Counts::default() }, &full).unwrap();
         assert!(b.ends_with(&zone_tail_full(2, 3).unwrap()), "the full tail comes last");
         assert!(!b.contains("; ==== Z. init-root zone tail (deny-only"), "never both tails");
+    }
+
+    /// v0.5.5: a pin line is one of the two forms, and nothing wider: no folder above the path is unlinked (moved, removed,
+    /// swapped or replaced), nor made a symlink.
+    fn pinned(l: &str) -> bool {
+        let unlink = l.starts_with("(deny file-write-unlink (path-ancestors (param \"Z_") && l.ends_with("\")))");
+        let symlink = l.starts_with("(deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param \"Z_") && l.ends_with("\"))))");
+        unlink || symlink
+    }
+
+    /// v0.5.5 (REL-054 §7.5): Z8 pins the folders above every protected path of the full tail (ROOT_HOME, the service file,
+    /// INIT_HOME and each deny entry) with a file-write-unlink deny on its path-ancestors, and with nothing wider.
+    #[test]
+    fn full_tail_pins_the_ancestors() {
+        let t = zone_tail_full(2, 3).unwrap();
+        let pins: Vec<&str> = t.lines().filter(|l| !l.starts_with(';') && l.contains("path-ancestors")).collect();
+        assert_eq!(pins.len(), 1 + 1 + 2 * (2 + 3), "{pins:?}");
+        assert!(pins.iter().all(|l| pinned(l)), "{pins:?}");
+        for p in ["Z_ROOT_HOME", "Z_ROOT_SVC", "Z_INIT_HOME", "Z_KGIT", "Z_DENY_0", "Z_DENY_1", "Z_WDENY_0", "Z_WDENY_1", "Z_WDENY_2"] {
+            assert!(t.contains(&format!("(path-ancestors (param \"{p}\"))")), "{p}");
+        }
     }
 
     /// ADR-012: a full grant's parameters are exactly what its text uses: Z_FULL = "/", no Z_WRITE, no Z_EGRESS_SOCK,

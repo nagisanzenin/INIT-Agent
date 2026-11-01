@@ -324,11 +324,12 @@ class PrintedCommands(unittest.TestCase):
         text = read(INSTALL)
         m = re.search(r"^ELAPSED=.*?^EOF$", text, re.S | re.M)
         self.assertIsNotNone(m, "install.sh has no closing summary")
-        helpers = functions(INSTALL, "shq", "rh_env", "rcmd", "tilde", "path_add")
+        helpers = functions(INSTALL, "shq", "rh_env", "rcmd", "tilde", "path_add", "path_line", "uninstall_line")
         with tempfile.TemporaryDirectory(prefix="i5-rp52-", dir="/private/tmp" if os.path.isdir("/private/tmp") else None) as t:
-            repo = os.path.join(t, "re po's")  # the bundle's directory, quoted when printed
+            repo = os.path.join(t, "re po's")  # the bundle's directory
             os.makedirs(os.path.join(repo, "scripts"))
-            with open(os.path.join(repo, "scripts", "uninstall.sh"), "w") as f:
+            stand_in = os.path.join(t, "net.sh")  # v0.5.5: what the download brings (the line runs it from memory)
+            with open(stand_in, "w") as f:
                 f.write('echo "home=${INIT_ROOT_HOME-unset}|args=$*"\n')
             pw = os.path.join(t, "pw")
             for rh, want in ((os.path.join(t, "o r"), "home=%s|args=" % os.path.join(t, "o r")),
@@ -339,9 +340,13 @@ class PrintedCommands(unittest.TestCase):
                                    text=True, timeout=30)
                 self.assertEqual(p.returncode, 0, p.stderr)
                 line = next(l for l in p.stdout.splitlines() if l.startswith("Uninstall:"))
-                cmd = line[len("Uninstall:"):].split("   (moves")[0].strip()
+                cmd = line[len("Uninstall:"):].strip()
                 self.assertEqual(cmd.startswith("INIT_ROOT_HOME="), rh != os.path.join(pw, ".init-root"), line)
-                self.assertEqual(self.run_printed(cmd, pw), want, cmd)
+                self.assertNotIn(repo, cmd, "this release's own copy, which a full-access agent can change")
+                url = "https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh"
+                self.assertIn("/usr/bin/curl -q -fsSL %s)" % url, cmd)
+                run = cmd.replace("/usr/bin/curl -q -fsSL %s" % url, "/bin/cat %s" % shq(stand_in))
+                self.assertEqual(self.run_printed(run, pw), want, cmd)
 
     def stand_in(self, bin_dir):
         """A stand-in init-agent in bin_dir that prints the INIT_ROOT_HOME and the arguments it was started with."""
@@ -390,7 +395,7 @@ class PrintedCommands(unittest.TestCase):
         """install.sh's closing summary and its access lines, run alone with `env`."""
         m = re.search(r"^ELAPSED=.*?^fi$", read(INSTALL), re.S | re.M)
         self.assertIsNotNone(m, "install.sh has no closing summary")
-        helpers = functions(INSTALL, "shq", "rh_env", "rcmd", "tilde", "agent", "path_add")
+        helpers = functions(INSTALL, "shq", "rh_env", "rcmd", "tilde", "agent", "path_add", "path_line", "uninstall_line")
         base = {"PATH": "/usr/bin:/bin", "LANG": "C", "VERSION": "9.9.9", "T_START": "0", "REPO": "/r", "IH": "/ih",
                 "ACCESS_EFF": "full", "SHELL": "/bin/zsh", "OS": "Darwin"}
         base.update(env)
@@ -419,11 +424,12 @@ class PrintedCommands(unittest.TestCase):
                 self.assertIsNone(re.search(r"(^|[\s(:])init-agent (upgrade|--)", out, re.M), out)
 
     def test_the_path_hint_names_this_shells_startup_file(self):
-        rc = lambda f: "echo 'export PATH=\"$HOME/.local/bin:$PATH\"' >> " + f
+        rc = lambda f: "echo 'export PATH=\"$PATH:$HOME/.local/bin\"' >> " + f
         with tempfile.TemporaryDirectory(prefix="i5-l53b-", dir="/private/tmp" if os.path.isdir("/private/tmp") else None) as t:
             home = os.path.join(t, "home")
             bin_dir = os.path.join(home, ".local", "bin")
             os.makedirs(bin_dir)
+            fish = "echo %s >> ~/.config/fish/config.fish" % shq("contains -- '%s' $PATH; or set -gx PATH $PATH '%s'" % (bin_dir, bin_dir))
             cases = [("/bin/zsh", "Darwin", {}, [], rc("~/.zshrc")),
                      ("/usr/bin/zsh", "Linux", {"ZDOTDIR": os.path.join(home, ".config", "zsh")}, [], rc("~/.config/zsh/.zshrc")),
                      ("/bin/bash", "Linux", {}, [], rc("~/.bashrc")),
@@ -432,8 +438,9 @@ class PrintedCommands(unittest.TestCase):
                      ("/opt/homebrew/bin/bash", "Darwin", {}, [".profile"], rc("~/.profile")),      # never hide ~/.profile
                      ("/bin/bash", "Darwin", {}, [".bash_login", ".profile"], rc("~/.bash_login")),
                      ("/bin/bash", "Darwin", {}, [".bash_profile", ".profile"], rc("~/.bash_profile")),
-                     ("/usr/local/bin/fish", "Darwin", {}, [], "fish_add_path ~/.local/bin"),
-                     ("/usr/bin/fish", "Linux", {}, [], "fish_add_path ~/.local/bin"),
+                     # v0.5.5: fish_add_path put it first (fish_user_paths go before PATH); the line goes in config.fish
+                     ("/usr/local/bin/fish", "Darwin", {}, [], fish),
+                     ("/usr/bin/fish", "Linux", {}, [], fish),
                      ("/bin/sh", "Linux", {}, [], rc("~/.profile")),
                      ("/bin/dash", "Linux", {}, [], rc("~/.profile")),
                      ("/bin/ksh", "Darwin", {}, [], rc("~/.profile"))]
@@ -447,7 +454,8 @@ class PrintedCommands(unittest.TestCase):
                     self.assertIn("(%s is not on your PATH; to type just init-agent, add: %s)" % (bin_dir, want), out)
                     # the step 6 note says the same (v0.5.4: with --no-modify-path; without it, step 6 adds the block,
                     # test_path_block.py)
-                    p = subprocess.run(["/bin/bash", "-c", functions(INSTALL, "shq", "tilde", "path_add", "path_file", "path_line", "path_step")
+                    p = subprocess.run(["/bin/bash", "-c", functions(INSTALL, "shq", "tilde", "path_add", "path_file", "path_line", "path_old",
+                                                                     "path_old_note", "path_into", "path_step")
                                         + "\nsay() { printf '%s\\n' \"$*\"; }\nNO_MODIFY_PATH=1 path_step"],
                                        env=dict(env, PATH="/usr/bin:/bin"), capture_output=True, text=True, timeout=30)
                     self.assertEqual(p.stdout, "  note: %s is not on your PATH (--no-modify-path: left as it is); add it: %s\n" % (bin_dir, want), p.stderr)
@@ -465,7 +473,7 @@ class PrintedCommands(unittest.TestCase):
                     self.run_printed(hint, home)
                     p = subprocess.run([shell, "-c", start + ' && printf %s "$PATH"'], env={"PATH": "/usr/bin:/bin", "HOME": home},
                                        capture_output=True, text=True, timeout=30)
-                    self.assertEqual(p.stdout.split(":")[0], bin_dir, p.stderr)
+                    self.assertEqual(p.stdout.split(":")[-1], bin_dir, p.stderr)  # v0.5.5: last, after the system's folders
                     for f in (".zshrc", ".bashrc", ".bash_profile", ".profile"):
                         if os.path.exists(os.path.join(home, f)):
                             os.remove(os.path.join(home, f))

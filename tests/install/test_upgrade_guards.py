@@ -120,7 +120,9 @@ class UpgradeGuards(unittest.TestCase):
             self.assertEqual(p.returncode, 1, p.stdout + p.stderr)
             self.assertIn("INIT 0.3.1 is installed", p.stderr)
             self.assertIn("before 0.4.1 is not supported", p.stderr)
-            self.assertIn("\n  INIT_ROOT_HOME=%s /bin/bash -p %s\n" % (shq(self.rh), shq(os.path.join(SCRIPTS, "uninstall.sh"))), p.stderr)
+            # v0.5.5 (review B of lane J): the download line, as get.sh prints it, not this checkout's own copy
+            self.assertIn("\n  INIT_ROOT_HOME=%s /bin/bash -p -c 's=\"$(/usr/bin/curl -q -fsSL " % shq(self.rh), p.stderr)
+            self.assertNotIn(os.path.join(SCRIPTS, "uninstall.sh"), p.stderr)
             self.assertNotIn("init-agent upgrade", p.stderr)
 
     def test_install_over_041_or_050_points_to_install_sh_upgrade_and_the_safe_line(self):

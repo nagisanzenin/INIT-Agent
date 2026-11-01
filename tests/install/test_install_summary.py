@@ -28,6 +28,8 @@ def read(p):
         return f.read()
 
 
+UNINSTALL_LINE = '/bin/bash -p -c \'s="$(/usr/bin/curl -q -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh)" && /bin/bash -p -c "$s" uninstall.sh\''  # the README's line (v0.5.5)
+
 class Summary(unittest.TestCase):
     def test_get_sh_ends_with_one_total_and_its_parts(self):
         t = tempfile.mkdtemp(prefix="i5-sum-", dir="/private/tmp" if os.path.isdir("/private/tmp") else None)
@@ -84,7 +86,7 @@ class Summary(unittest.TestCase):
         self.assertIn('say "  the Root\'s install step took $(( $(date +%s) - T0 )) s; lowest free space $LOWEST MB"', text)
         self.assertNotIn('say "  installed in ', text)
         m = re.search(r"^ELAPSED=.*?^fi$", text, re.S | re.M)
-        helpers = functions(INSTALL, "shq", "rh_env", "rcmd", "tilde", "agent", "path_add")
+        helpers = functions(INSTALL, "shq", "rh_env", "rcmd", "tilde", "agent", "path_add", "path_line", "uninstall_line")
         p = subprocess.run(["/bin/bash", "-c", helpers + "\n" + m.group(0)], stdin=subprocess.DEVNULL, capture_output=True, text=True,
                            timeout=30, env={"PATH": "/usr/bin:/bin", "LANG": "C", "VERSION": "9.9.9", "T_START": "0", "REPO": "/r",
                                             "IH": "/ih", "ACCESS_EFF": "full", "SHELL": "/bin/zsh", "OS": "Darwin", "HOME": "/h",
@@ -94,9 +96,12 @@ class Summary(unittest.TestCase):
         # v0.5.4 (round 4 triage): spending is pointed at /usage, not at a command that prints raw µUSD JSON
         self.assertIn("Spending is tracked, not capped: /usage in the chat shows it", p.stdout)
         self.assertNotIn("egress stats;", p.stdout)
-        self.assertIn("Uninstall:   /bin/bash -p /r/scripts/uninstall.sh   (moves both homes to the Trash; the README's first\n"
-                      "             screen has a line that downloads it, for when this copy is gone: github.com/nagisanzenin/INIT-Agent)\n",
-                      p.stdout)
+        # v0.5.5 (review B of lane J): the download line, run from memory, never this release's own copy (/r/scripts/…),
+        # which a full-access agent can change in a fresh install's release folder
+        self.assertIn("Uninstall:   %s\n             (moves both homes to the Trash; it downloads the current uninstaller and "
+                      "runs it from memory, not the copy\n             in this release's folder, which a full-access agent can "
+                      "change)\n" % UNINSTALL_LINE, p.stdout)
+        self.assertNotIn("/r/scripts/uninstall.sh", p.stdout)
         # v0.5.4 (review 6): the README's line finds a custom ROOT_HOME only with INIT_ROOT_HOME= in front; it said
         # "works from anywhere"
         self.assertNotIn("works from anywhere", p.stdout)
@@ -105,17 +110,29 @@ class Summary(unittest.TestCase):
                                             "IH": "/ih", "ACCESS_EFF": "full", "SHELL": "/bin/zsh", "OS": "Darwin", "HOME": "/h",
                                             "PW_HOME": "/h", "RH": "/h/my init", "BIN_DIR": "/h/.local/bin"})
         self.assertEqual(p.returncode, 0, p.stderr)
-        self.assertIn("Uninstall:   INIT_ROOT_HOME='/h/my init' /bin/bash -p /r/scripts/uninstall.sh   (moves both homes to the Trash; "
-                      "the README's first\n             screen has a line that downloads it, for when this copy is gone: "
-                      "github.com/nagisanzenin/INIT-Agent; put INIT_ROOT_HOME='/h/my init' in front of it)\n", p.stdout)
+        self.assertIn("Uninstall:   INIT_ROOT_HOME='/h/my init' %s\n" % UNINSTALL_LINE, p.stdout)
 
     def test_the_uninstall_line_runs_under_bash_p(self):
         # v0.5.4 (review 6): macOS /bin/sh is bash 3.2 as sh, which honours SHELLOPTS=xtrace with a PS4 that runs commands;
         # one swapped "$f" between the download and its run. bash -p ignores SHELLOPTS (and BASH_ENV, exported functions)
         line = re.search(r"^To uninstall \(everything goes to the Trash\): `([^`]*)`", read(README), re.M).group(1)
-        self.assertTrue(line.startswith("/bin/bash -p -c 'f=\"$(/usr/bin/mktemp)\" && /usr/bin/curl -q -fsSL "), line)
+        self.assertTrue(line.startswith("/bin/bash -p -c 's=\"$(/usr/bin/curl -q -fsSL "), line)
         self.assertRegex(line, r"^/bin/bash -p -c '[^'\\]*'$")  # one single-quoted word: fish reads it the same
-        self.assertTrue(line.endswith(' && /bin/bash -p "$f"\''), line)
+        self.assertTrue(line.endswith(')" && /bin/bash -p -c "$s" uninstall.sh\''), line)
+
+    def test_install_sh_prints_the_line_get_sh_prints(self):
+        # v0.5.5 (review B of lane J): install.sh's uninstall_line is get.sh's UNINSTALL, for the default home and another
+        get = functions(GET, "shq", "rh_env") + "\n" + next(l for l in read(GET).splitlines() if l.startswith("UNINSTALL=")) + \
+            '\nprintf "%s" "$UNINSTALL"'
+        inst = functions(INSTALL, "shq", "rh_env", "uninstall_line") + "\nuninstall_line"
+        pw = subprocess.run(["/usr/bin/python3", "-I", "-c", "import os,pwd;print(pwd.getpwuid(os.getuid()).pw_dir)"],
+                            capture_output=True, text=True).stdout.strip()
+        for rh in (pw + "/.init-root", "/x/my init's"):
+            env = {"PATH": "/usr/bin:/bin", "HOME": pw, "RH": rh, "PW_HOME": pw}
+            a, b = (subprocess.run(["/bin/sh" if src is get else "/bin/bash", "-c", src], env=env, stdin=subprocess.DEVNULL,
+                                   capture_output=True, text=True, timeout=30).stdout for src in (get, inst))
+            self.assertEqual(a, b)
+            self.assertTrue(a.endswith(UNINSTALL_LINE), a)
 
     def test_the_readme_uninstall_line_is_the_one_get_sh_prints(self):
         line = re.search(r"^To uninstall \(everything goes to the Trash\): `([^`]*)`", read(README), re.M)

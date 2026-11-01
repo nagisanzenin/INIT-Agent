@@ -103,12 +103,15 @@ else
   FALLBACK="$WHICH"
 fi
 [ "$FALLBACK" = "$RH/bin/init-root attach" ] || die "init-agent --which without a TUI: $FALLBACK"
-# T-4 (docs/tui.md): an INIT_TUI inside INIT_HOME is refused (exit 77), so the zone cannot substitute the client
+# T-4 (docs/tui.md): the zone cannot substitute the client. From v0.5.5 the installed launcher ignores INIT_TUI (and
+# says so), so one inside INIT_HOME opens the installed TUI, as one anywhere else does; the repository's own copy still
+# refuses it with exit 77 (tests/install)
 printf '#!/bin/bash\necho zone-written\n' >"$IH/work/init-tui"; chmod 755 "$IH/work/init-tui"
-set +e; env HOME="$H" INIT_TUI="$IH/work/init-tui" "$BIN/init-agent" --which >/dev/null 2>&1; T4=$?; set -e
+set +e; T4OUT="$(env HOME="$H" INIT_TUI="$IH/work/init-tui" "$BIN/init-agent" --which 2>"$D/t4.err")"; T4=$?; set -e
 rm -f -- "$IH/work/init-tui"
-[ $T4 = 77 ] || die "init-agent ran with INIT_TUI inside INIT_HOME (exit $T4, want 77)"
-log "launcher: init-agent opens $WHICH; without a TUI it falls back to init-root attach; INIT_TUI inside INIT_HOME refused (77); the foreign init kept"
+[ $T4 = 0 ] && [ "$T4OUT" = "$WHICH" ] || die "init-agent with INIT_TUI inside INIT_HOME: exit $T4, $T4OUT (want 0, $WHICH)"
+grep -qF "INIT_TUI=$IH/work/init-tui in this shell's environment is ignored" "$D/t4.err" || die "init-agent did not say it ignored INIT_TUI"
+log "launcher: init-agent opens $WHICH; without a TUI it falls back to init-root attach; INIT_TUI ignored (said once); the foreign init kept"
 
 # ---------------------------------------------------------------- 3. key (harness only) and start
 (umask 077; printf 'test-rel-e2e-mock-key' >"$RH/keys/providers/deepseek")

@@ -296,6 +296,26 @@ pub fn full_write_deny(home: &Path, bin_dir: Option<&Path>) -> Vec<PathBuf> {
     resolved(FULL_WRITE_DENY.iter().map(|r| home.join(r)).chain(LAUNCHERS.iter().map(|n| bin.join(n))))
 }
 
+/// ADR-012, the Linux full plan (`linux.rs`): the folders it pins as mount points, outer first. For each canonical
+/// `entries` path (the existing deny entries), every folder above it, from just below `home` (just below `/` for an entry
+/// outside the home) down to its parent, except a folder that is or lies in one of `homes` (ROOT_HOME, INIT_HOME: each
+/// has its own plan). A folder *above* a home is pinned: v0.5.5 (REL-055 review S1) fixed a filter that also dropped it,
+/// so with `INIT_ROOT_HOME=~/.config/init-root` the folder `~/.config` was left free to rename, carrying the read-only
+/// bind of `~/.config/systemd/user` away. Platform-neutral, so its tests run on macOS too.
+pub fn pinned_ancestors(home: &Path, homes: [&Path; 2], entries: &[PathBuf]) -> Vec<PathBuf> {
+    let mut out: Vec<PathBuf> = Vec::new();
+    for q in entries {
+        let base = if q.starts_with(home) && q != home { home } else { Path::new("/") };
+        for a in q.ancestors().skip(1).take_while(|a| *a != base && a.starts_with(base)) {
+            if !out.iter().any(|o| o == a) && !homes.iter().any(|h| a.starts_with(h)) {
+                out.push(a.to_path_buf());
+            }
+        }
+    }
+    out.sort_by_key(|a| a.components().count()); // outer to inner
+    out
+}
+
 fn resolved(all: impl Iterator<Item = PathBuf>) -> Vec<PathBuf> {
     let mut out: Vec<PathBuf> = Vec::new();
     for p in all {
@@ -504,6 +524,25 @@ mod tests {
         let up = other_installs(&h, &own_rh, &own_ih);
         assert!(!up.iter().any(|p| h.starts_with(p)), "{up:?}");
         std::fs::remove_dir_all(&base).unwrap(); // exact path, made above
+    }
+
+    /// v0.5.5 (REL-055 review S1): the Linux pins keep a folder above ROOT_HOME or INIT_HOME and drop only folders inside
+    /// them. With ROOT_HOME at `~/.config/init-root`, `~/.config` (above `~/.config/systemd/user`) is pinned; the home, `/`
+    /// and the insides of both homes never are; outer first; an entry outside the home is pinned below `/`.
+    #[test]
+    fn linux_pins_keep_folders_above_the_homes() {
+        let h = Path::new("/nonexistent-pins/home");
+        let (rh, ih) = (h.join(".config/init-root"), h.join("work/ih"));
+        let entries = [h.join(".config/systemd/user"), h.join(".local/bin/init-agent"), h.join("work/ih/deep/x"), rh.join("keys/k"),
+            PathBuf::from("/nonexistent-pins/elsewhere/bin/init")];
+        let got = pinned_ancestors(h, [&ih, &rh], &entries);
+        let want = ["/nonexistent-pins", "/nonexistent-pins/elsewhere", "~/.config", "~/.local", "~/work", "/nonexistent-pins/elsewhere/bin",
+            "~/.config/systemd", "~/.local/bin"];
+        let want: Vec<PathBuf> = want.iter().map(|w| w.strip_prefix("~/").map_or_else(|| PathBuf::from(w), |r| h.join(r))).collect();
+        assert_eq!(got, want);
+        for never in [h.to_path_buf(), PathBuf::from("/"), ih.clone(), ih.join("deep"), rh.clone(), rh.join("keys")] {
+            assert!(!got.contains(&never), "{never:?}");
+        }
     }
 
     /// ADR-012: the full lists keep the key directory, the charter's entries, the service directories and INIT's

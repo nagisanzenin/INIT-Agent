@@ -1454,7 +1454,9 @@ impl<'a> Runner<'a> {
             let last = vec![
                 ("S-A17", "full: rename the fake ~/.ssh away (ADR-012)", ops(&["rename", &hm(".ssh"), &hm("ssh2")]), Expect::Allow),
                 ("S-A17b", "full: rename the Root's service directory (Z2)", ops(&["rename", &hm("svc"), &hm("svc2")]), Expect::Deny),
-                ("S-A26", "full: rename ~/.local/bin away (ADR-012: the launchers are file denies)", ops(&["rename", &hm(".local/bin"), &hm(".local/bin2")]), Expect::Allow),
+                ("S-A26", "full: rename ~/.local/bin away (Z8, v0.5.5: the launchers' folder)", ops(&["rename", &hm(".local/bin"), &hm(".local/bin2")]), Expect::Deny),
+                ("S-A26c", "full: rename ~/.config away (Z8: the key directory's parent)", ops(&["rename", &hm(".config"), &hm(".config2")]), Expect::Deny),
+                ("S-A26d", "full: rename ~/Library away (Z8: the parent of ~/Library/LaunchAgents)", ops(&["rename", &hm("Library"), &hm("Library2")]), Expect::Deny),
                 ("S-A26b", "full: rename the workspace's .git/hooks away (ADR-012)", ops(&["rename", &hm("ws/.git/hooks"), &hm("ws/.git/h2")]), Expect::Allow),
             ];
             for (id, what, op, expect) in last {
@@ -1827,6 +1829,7 @@ impl<'a> Runner<'a> {
         let rows = vec![
             ("S-Z3b", "kernel: rename kernel/", ops(&["rename", &s(&h.i("kernel")), &s(&h.i("kernel2"))])),
             ("S-Z3c", "kernel: rename INIT_HOME", ops(&["rename", &s(&h.i), &s(&h.run.join("i2"))])),
+            ("S-Z3h", "kernel: rename lineage/ (Z4, v0.5.5: lineage/kernel.git's parent)", ops(&["rename", &s(&h.i("lineage")), &s(&h.i("lineage2"))])),
         ];
         for (id, what, op) in rows {
             self.check(id, k, what, &op, Expect::Deny);

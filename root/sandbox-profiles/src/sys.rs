@@ -188,3 +188,13 @@ pub fn darwin_user_temp_dir() -> Option<std::path::PathBuf> {
     buf.truncate(n - 1); // n counts the terminating NUL
     Some(std::ffi::OsString::from_vec(buf).into())
 }
+
+/// `renamex_np(a, b, RENAME_SWAP)`: exchange two existing paths in one step (the probe's `swap`; v0.5.5, the full tail's Z8).
+#[cfg(target_os = "macos")]
+pub fn rename_swap(a: &std::path::Path, b: &std::path::Path) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    let (a, b) = (std::ffi::CString::new(a.as_os_str().as_bytes())?, std::ffi::CString::new(b.as_os_str().as_bytes())?);
+    // SAFETY: both pointers are NUL-terminated strings that live until the call returns.
+    let rc = unsafe { libc::renamex_np(a.as_ptr(), b.as_ptr(), libc::RENAME_SWAP) };
+    if rc == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}

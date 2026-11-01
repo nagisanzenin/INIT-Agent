@@ -1,7 +1,7 @@
 {
- "body_sha256": "0e443af7748a8e70ba3921c362b9c61581c02d6b76c6eac049f6a58b71b67b03",
- "bundle": "init-v0.5.4-preview-macos-arm64.tar.gz",
- "bundle_bytes": 55397290,
+ "body_sha256": "65f6053f3e956e8488fe08d0545083befd8292bd69f4a99dda8698f2639a5d01",
+ "bundle": "init-v0.5.5-preview-macos-arm64.tar.gz",
+ "bundle_bytes": 55408497,
  "checks": {
   "genesis_body_is_prebuilt": true,
   "install_with_rust_plus_first_reply_le_390s": true,
@@ -16,10 +16,10 @@
  "reply": "hello from the mock",
  "rust": "installed by get.sh into the test home",
  "times_ms": {
-  "drive_wall": 9277,
-  "get_sh_install": 145598,
-  "get_sh_to_first_reply": 163883,
-  "start_to_ready": 6738
+  "drive_wall": 612,
+  "get_sh_install": 69318,
+  "get_sh_to_first_reply": 72106,
+  "start_to_ready": 1972
  },
  "toolchain": "/Users/quanduong/Documents/INIT Agent/target/test-homes/ube/home/.rustup/toolchains/1.97.1-aarch64-apple-darwin",
  "v": 1

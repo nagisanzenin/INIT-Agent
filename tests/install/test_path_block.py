@@ -41,8 +41,10 @@ class PathBlock(unittest.TestCase):
         bin_dir = bin_dir or os.path.join(self.home, ".local", "bin")
         grab = lambda n: next(l for l in read(INSTALL).splitlines() if l.startswith(n + "="))
         src = "\n".join([grab("PATH_BEGIN"), grab("PATH_END"), 'PATH_ADDED=""', 'say() { printf "%s\\n" "$*"; }',
-                         functions(INSTALL, "shq", "tilde", "path_add", "path_file", "path_line", "path_step"), "path_step"])
+                         functions(INSTALL, "shq", "tilde", "path_add", "path_file", "path_line", "path_old", "path_old_note", "path_into",
+                                   "path_step"), "path_step"])
         env = {"PATH": path, "HOME": self.home, "SHELL": "/bin/" + shell, "OS": os_name, "BIN_DIR": bin_dir,
+               "RH": os.path.join(self.home, ".init-root"), "IH": os.path.join(self.home, ".init"), "PW_HOME": self.home,
                "NO_MODIFY_PATH": str(no_modify), "LANG": "C"}
         # stdin from /dev/null: bash reads ~/.bashrc even under -c when its stdin is a socket (its remote-shell check),
         # which the test runner's stdin can be; a block sourced that way put BIN_DIR on PATH, so path_step wrote nothing
@@ -67,10 +69,11 @@ class PathBlock(unittest.TestCase):
                 f.write("alias ll='ls -l'")  # the owner's line, without a final newline
             out = self.step(shell, os_name=os_name)
             self.assertIn("added ~/.local/bin to PATH in ~/%s; open a new terminal, or run ~/.local/bin/init-agent now" % rel, out)
-            self.assertEqual(read(rc), "alias ll='ls -l'\n%s\nexport PATH=\"$HOME/.local/bin:$PATH\"\n%s\n" % (BEGIN, END))
+            self.assertEqual(read(rc), "alias ll='ls -l'\n%s\nexport PATH=\"$PATH:$HOME/.local/bin\"\n%s\n" % (BEGIN, END))
             sh = "/bin/zsh" if shell == "zsh" else "/bin/bash" if shell == "bash" else "/bin/sh"
             if os.path.exists(sh):
-                self.assertEqual(self.path_in(sh, rc), b + ":/usr/bin:/bin", (shell, os_name, read(rc)))
+                # v0.5.5: last on PATH, after the system's folders
+                self.assertEqual(self.path_in(sh, rc), "/usr/bin:/bin:" + b, (shell, os_name, read(rc)))
             self.assertIn("already puts", self.step(shell, os_name=os_name))  # a re-install or an upgrade: no second block
             self.assertEqual(read(rc).count(BEGIN), 1)
             os.remove(rc)
@@ -80,15 +83,15 @@ class PathBlock(unittest.TestCase):
         f = os.path.join(self.home, ".config", "fish", "conf.d", "init-agent.fish")
         self.assertIn("in ~/.config/fish/conf.d/init-agent.fish;", out)
         q = "'%s'" % os.path.join(self.home, ".local", "bin")
-        self.assertEqual(read(f), "%s\ncontains -- %s $PATH; or set -gx PATH %s $PATH\n%s\n" % (BEGIN, q, q, END))
+        self.assertEqual(read(f), "%s\ncontains -- %s $PATH; or set -gx PATH $PATH %s\n%s\n" % (BEGIN, q, q, END))
 
     def test_a_custom_bin_dir_is_quoted_for_each_shell(self):
         b = os.path.join(self.t, "my $bin's \"dir\"")  # outside HOME: the absolute path
         self.step("zsh", bin_dir=b)
         self.assertEqual(self.path_in("/bin/zsh" if os.path.exists("/bin/zsh") else "/bin/sh", os.path.join(self.home, ".zshrc")),
-                         b + ":/usr/bin:/bin")
+                         "/usr/bin:/bin:" + b)
         self.step("fish", bin_dir=b)
-        self.assertIn("set -gx PATH '%s' $PATH" % b.replace("'", "\\'"),
+        self.assertIn("set -gx PATH $PATH '%s'" % b.replace("'", "\\'"),
                       read(os.path.join(self.home, ".config", "fish", "conf.d", "init-agent.fish")))
 
     def test_on_path_already_or_no_modify_path_writes_nothing(self):
@@ -124,6 +127,60 @@ class PathBlock(unittest.TestCase):
         self.assertIn("removed INIT's PATH block from %s\n" % zshrc, p.stdout)
         self.assertIn("It also takes INIT's PATH block", p.stdout)
 
+    def test_the_block_puts_the_system_first(self):
+        # v0.5.5 (the coordinator's review of lane J): the block appends BIN_DIR. With it first, a bare command the owner
+        # types (sudo, git, bash) could be a file a full-access agent dropped into ~/.local/bin; last, the system's wins,
+        # and init-agent, which is nowhere else, still resolves. The case: the block step 6 writes, read by a new
+        # terminal of that shell, with a planted sudo and the launcher in ~/.local/bin
+        b = os.path.join(self.home, ".local", "bin")
+        os.makedirs(b)
+        for n in ("sudo", "init-agent"):
+            with open(os.path.join(b, n), "w") as f:
+                f.write("#!/bin/sh\necho planted\n")
+            os.chmod(os.path.join(b, n), 0o755)
+        for shell, rel, sh in (("zsh", ".zshrc", "/bin/zsh"), ("bash", ".bashrc", "/bin/bash"), ("dash", ".profile", "/bin/sh")):
+            with self.subTest(shell=shell):
+                self.step(shell)
+                if not os.path.exists(sh):
+                    continue
+                p = subprocess.run([sh, "-c", '. "$1"; command -v sudo; command -v init-agent', "sh", os.path.join(self.home, rel)],
+                                   stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30,
+                                   env={"PATH": "/usr/bin:/bin", "HOME": self.home})
+                self.assertEqual(p.stdout.split(), ["/usr/bin/sudo", os.path.join(b, "init-agent")], p.stderr)
+
+    def test_a_v054_block_is_noted_never_doubled_and_the_uninstaller_takes_it(self):
+        # v0.5.5: v0.5.4's block put BIN_DIR first. Neither a re-install nor the upgrade edits a startup file, so each
+        # says which file has it and what its middle line is now (per shell), and adds no second block; the uninstaller
+        # removes the old block as it removes the new one
+        old_sh = 'export PATH="$HOME/.local/bin:$PATH"'
+        q = "'%s'" % os.path.join(self.home, ".local", "bin")
+        old_fish = "contains -- %s $PATH; or set -gx PATH %s $PATH" % (q, q)
+        zshrc = os.path.join(self.home, ".zshrc")
+        fishf = os.path.join(self.home, ".config", "fish", "conf.d", "init-agent.fish")
+        os.makedirs(os.path.dirname(fishf))
+        for f, line in ((zshrc, old_sh), (fishf, old_fish)):
+            with open(f, "w") as h:
+                h.write("%s\n%s\n%s\n" % (BEGIN, line, END))
+        before = (read(zshrc), read(fishf))
+        out = self.step("zsh")
+        self.assertIn("  note: ~/.zshrc puts ~/.local/bin first on PATH (INIT's block from v0.5.4); INIT now adds it last, so a "
+                      "command you type is the system's, not a file an agent dropped there. To change it, make the block's "
+                      "middle line: export PATH=\"$PATH:$HOME/.local/bin\"\n", out)
+        self.assertIn("  note: ~/.config/fish/conf.d/init-agent.fish puts ~/.local/bin first on PATH (INIT's block from v0.5.4); "
+                      "INIT now adds it last, so a command you type is the system's, not a file an agent dropped there. To "
+                      "change it, make the block's middle line: contains -- %s $PATH; or set -gx PATH $PATH %s\n" % (q, q), out)
+        self.assertNotIn("added", out)
+        self.assertEqual((read(zshrc), read(fishf)), before, "a startup file was changed")
+        # the upgrade says the same, after its commit (it calls the same function there)
+        text = read(INSTALL)
+        commit = text[text.index('step "upgrade 5/5 commit"'):text.index("INIT is upgraded to v$VERSION")]
+        self.assertIn("path_old_note || true", commit)
+        self.install_json(os.path.join(self.home, ".local", "bin"))
+        p = self.uninstall()
+        self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
+        self.assertEqual(read(zshrc), "")
+        self.assertFalse(os.path.exists(fishf))
+
     def install_json(self, b):
         rh, ih = os.path.join(self.home, ".init-root"), os.path.join(self.home, ".init")
         os.makedirs(os.path.join(rh, "keys"), exist_ok=True)
@@ -146,7 +203,7 @@ class PathBlock(unittest.TestCase):
         self.install_json(b)
         p = self.uninstall()
         self.assertEqual(p.returncode, 0, p.stdout + p.stderr)
-        self.assertEqual(read(zshrc), "%s\nexport PATH=\"$HOME/.local/bin2:$PATH\"\n%s\n" % (BEGIN, END))
+        self.assertEqual(read(zshrc), "%s\nexport PATH=\"$PATH:$HOME/.local/bin2\"\n%s\n" % (BEGIN, END))
 
     def test_a_startup_file_that_is_not_utf8_or_not_writable_never_stops_the_uninstall(self):
         # v0.5.4 (the release review): a non-UTF-8 file crashed the uninstaller after the service was unloaded, and a
@@ -174,6 +231,102 @@ class PathBlock(unittest.TestCase):
         self.assertIn("is a link out of your home or not a regular file", self.step("zsh"))
         self.assertEqual(read(outside), "# mine\n")
         self.assertIn("INIT does not edit the startup files of tcsh", self.step("tcsh"))
+
+    def test_a_link_into_inits_folders_or_to_nothing_is_not_written(self):
+        # v0.5.5 (the post-release review of v0.5.4): a startup file that is a link into INIT's own folders (one an
+        # earlier agent left) had the block appended to its target, say the new charter.toml or lineage.jsonl, and a
+        # dangling link created its target. Now neither is written, the note says why, and it prints the line itself
+        # (`echo … >> ~/.zshrc` would write through the same link).
+        rh, ih = os.path.join(self.home, ".init-root"), os.path.join(self.home, ".init")
+        demo = os.path.join(self.home, ".init-root-demo")  # another install's ROOT_HOME, and the INIT_HOME it names
+        demo_ih = os.path.join(self.home, "demo world")
+        for d in (rh, ih, os.path.join(demo, "keys"), demo_ih, os.path.join(self.home, ".config", "init-agent")):
+            os.makedirs(d)
+        with open(os.path.join(demo, "install.json"), "w") as f:
+            json.dump({"init_home": demo_ih, "root_home": demo, "v": 1}, f)
+        line = 'export PATH="$PATH:$HOME/.local/bin"'
+        cases = [  # (shell, OS, startup file, its link's target, the folder named)
+            ("zsh", "Darwin", ".zshrc", os.path.join(rh, "charter.toml"), rh),
+            ("bash", "Linux", ".bashrc", os.path.join(ih, "lineage.jsonl"), ih),
+            ("dash", "Linux", ".profile", os.path.join(demo, "notes"), demo),
+            ("bash", "Darwin", ".bash_profile", os.path.join(demo_ih, "x"), demo_ih),
+            ("zsh", "Linux", ".zshrc", os.path.join(self.home, ".config", "init-agent", "deepseek"), os.path.join(self.home, ".config", "init-agent")),
+        ]
+        for shell, os_name, rel, target, folder in cases:
+            with self.subTest(rel=rel, target=target):
+                with open(target, "w") as f:
+                    f.write("# INIT's file\n")
+                rc = os.path.join(self.home, rel)
+                os.symlink(target, rc)
+                out = self.step(shell, os_name=os_name)
+                self.assertIn("and ~/%s leads into %s, one of INIT's own folders, so INIT does not write to it. Check it, then"
+                              " add this line to your shell's startup file yourself: %s\n" % (rel, folder, line), out)
+                self.assertEqual(read(target), "# INIT's file\n")
+                os.remove(rc)
+        # fish's file through a folder that is a link into INIT_HOME
+        os.makedirs(os.path.join(ih, "fish", "conf.d"))
+        os.symlink(os.path.join(ih, "fish"), os.path.join(self.home, ".config", "fish"))
+        out = self.step("fish")
+        self.assertIn("~/.config/fish/conf.d/init-agent.fish leads into %s, one of INIT's own folders" % ih, out)
+        self.assertEqual(os.listdir(os.path.join(ih, "fish", "conf.d")), [])
+        os.remove(os.path.join(self.home, ".config", "fish"))
+        # a dangling link: into ROOT_HOME, and to a folder of the home that does not exist
+        for target in (os.path.join(rh, "new.toml"), os.path.join(self.home, "dotfiles", "zshrc")):
+            with self.subTest(dangling=target):
+                os.symlink(target, os.path.join(self.home, ".zshrc"))
+                out = self.step("zsh")
+                self.assertIn("and ~/.zshrc is a link to %s, which does not exist, so INIT does not write to it. Check it,"
+                              " then add this line to your shell's startup file yourself: %s\n" % (target, line), out)
+                self.assertFalse(os.path.lexists(target), "the link's target was created")
+                os.remove(os.path.join(self.home, ".zshrc"))
+        # v0.5.5 (review B of lane J): compared by file identity, not as text. macOS's file systems ignore case and
+        # Unicode normalization, so ~/.INIT-ROOT/charter.toml is the Root's charter; and the service files count too
+        with open(os.path.join(rh, "charter.toml"), "w") as f:
+            f.write("# the charter\n")
+        world = os.path.join(self.home, "w\u00f6rld")  # an INIT_HOME whose name is NFC; the link spells it NFD
+        os.makedirs(world)
+        with open(os.path.join(demo, "install.json"), "w") as f:
+            json.dump({"init_home": world, "root_home": demo, "v": 1}, f)
+        with open(os.path.join(world, "state.json"), "w") as f:
+            f.write("{}\n")
+        plist = os.path.join(self.home, "Library", "LaunchAgents", "dev.init.root.plist")
+        unit = os.path.join(self.home, ".config", "systemd", "user", "init-root.service")
+        for p_ in (plist, unit):
+            os.makedirs(os.path.dirname(p_))
+            with open(p_, "w") as f:
+                f.write("<service/>\n")
+        variants = [(os.path.join(self.home, ".INIT-ROOT", "charter.toml"), os.path.join(rh, "charter.toml"), "leads into %s, one of INIT's own folders" % rh),
+                    (os.path.join(self.home, "wo\u0308rld", "state.json"), os.path.join(world, "state.json"), "leads into %s, one of INIT's own folders" % world),
+                    (plist, plist, "leads to %s, INIT's service file" % plist), (unit, unit, "leads to %s, INIT's service file" % unit)]
+        for spelled, target, why in variants:
+            with self.subTest(spelled=spelled):
+                if not os.path.exists(spelled):
+                    continue  # a file system that tells these names apart (Linux): that link leads nowhere, refused above
+                with open(target) as f:
+                    before = f.read()
+                os.symlink(spelled, os.path.join(self.home, ".zshrc"))
+                try:
+                    out = self.step("zsh")
+                    with open(target) as f:
+                        after = f.read()
+                    with open(target, "w") as f:
+                        f.write(before)
+                finally:
+                    os.remove(os.path.join(self.home, ".zshrc"))
+                self.assertIn("and ~/.zshrc %s, so INIT does not write to it." % why, out)
+                self.assertEqual(after, before)
+        os.link(os.path.join(rh, "charter.toml"), os.path.join(self.home, ".zshrc"))  # a hard link: no folder on its path
+        self.assertIn("and ~/.zshrc has another hard link", self.step("zsh"))
+        self.assertEqual(read(os.path.join(rh, "charter.toml")), "# the charter\n")
+        os.remove(os.path.join(self.home, ".zshrc"))
+        # still written: a link to a file of the owner's in the home (a dotfiles folder)
+        os.makedirs(os.path.join(self.home, "dotfiles"))
+        mine = os.path.join(self.home, "dotfiles", "zshrc")
+        with open(mine, "w") as f:
+            f.write("# mine\n")
+        os.symlink(mine, os.path.join(self.home, ".zshrc"))
+        self.assertIn("added ~/.local/bin to PATH in ~/.zshrc", self.step("zsh"))
+        self.assertEqual(read(mine), "# mine\n%s\n%s\n%s\n" % (BEGIN, line, END))
 
 
 class GetPassesIt(unittest.TestCase):

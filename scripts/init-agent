@@ -24,11 +24,13 @@
 #
 # The TUI `init-tui` is looked up, in order: $INIT_TUI, `init-tui` next to this launcher, ROOT_HOME/bin/init-tui.
 # An $INIT_TUI inside INIT_HOME is refused (exit 77) and any other candidate there is skipped (docs/tui.md T-4: the
-# zone can write INIT_HOME, and the agent must never be able to substitute the owner's client). Without a TUI,
+# zone can write INIT_HOME, and the agent must never be able to substitute the owner's client). From v0.5.5 an installed
+# launcher (one with a home baked in) ignores $INIT_TUI, and says so: only the repository's own copy takes it. Without a TUI,
 # `init-root attach` is the plain owner terminal (root/root.md §3.15): type a line and press Enter; Ctrl-C
 # interrupts the current turn, Ctrl-D detaches.
-# ROOT_HOME is $INIT_ROOT_HOME, else the value install.sh wrote below, else ~/.init-root; for `upgrade`, only the value
-# install.sh wrote (v0.5.4). INIT_HOME is the one ROOT_HOME/install.json names, else $INIT_HOME, else ~/.init.
+# ROOT_HOME is the value install.sh wrote below (v0.5.4 for `upgrade`, v0.5.5 for every command); only a copy with none
+# (the repository's own) takes $INIT_ROOT_HOME, else ~/.init-root. INIT_HOME is the one ROOT_HOME/install.json names,
+# else $INIT_HOME, else ~/.init.
 # bash -p (v0.5.4, the release review): without it bash runs code from the environment before the first line of this
 # file: the file BASH_ENV names, SHELLOPTS=xtrace with a PS4 that runs a command, and exported functions (one named
 # `exec` replaced the hand-over below). Privileged mode ignores all three; macOS bash 3.2 and bash 5 alike.
@@ -36,7 +38,23 @@
 # bash builtins: with full access the agent can write the owner's PATH directories (ADR-012), and this runs as the owner.
 set -euo pipefail
 INIT_ROOT_HOME_DEFAULT=""
-RH="${INIT_ROOT_HOME:-${INIT_ROOT_HOME_DEFAULT:-$HOME/.init-root}}"
+# v0.5.5 (the post-release review of v0.5.4): the home install.sh baked in, for the TUI and `init-root attach` too, as for
+# the upgrade since v0.5.4. Until 0.5.4 an INIT_ROOT_HOME in the environment won here, and with full access the agent
+# can set one through the owner's shell startup files (docs/release-signing.md A3): the launcher then ran, as the owner,
+# the init-tui or init-root of a home the agent wrote. An INIT_ROOT_HOME that names another home is ignored, and said
+# once. (A copy with no home baked in, the repository's own scripts/init-agent, is never installed as it is; it keeps
+# $INIT_ROOT_HOME, else ~/.init-root.)
+if [ -n "$INIT_ROOT_HOME_DEFAULT" ]; then
+  if [ -n "${INIT_ROOT_HOME:-}" ] && [ "$INIT_ROOT_HOME" != "$INIT_ROOT_HOME_DEFAULT" ]; then
+    if [ "${1:-}" = upgrade ]; then W="init-agent upgrade: note:"; V=upgrades; else W="init-agent: note:"; V=opens; fi
+    echo "$W INIT_ROOT_HOME=$INIT_ROOT_HOME in this shell's environment is ignored; this $V the INIT in" >&2
+    echo "  $INIT_ROOT_HOME_DEFAULT, the home this launcher was installed for. (If you did not set it, something else did:" >&2
+    echo "  look at your shell's startup files.)" >&2
+  fi
+  RH="$INIT_ROOT_HOME_DEFAULT"
+else
+  RH="${INIT_ROOT_HOME:-$HOME/.init-root}"
+fi
 export INIT_ROOT_HOME="$RH"
 ROOT_BIN="$RH/bin/init-root"
 dir_of() { case "$1" in */*) local d="${1%/*}"; printf '%s\n' "${d:-/}" ;; *) echo . ;; esac; } # dirname, as a builtin
@@ -69,6 +87,17 @@ inside_init_home() { # <file>: true when its real directory is INIT_HOME or belo
   d="$(cd "$(dir_of "$1")" 2>/dev/null && pwd -P)" || return 1
   case "$d/" in "$IH_REAL/"*) return 0 ;; *) return 1 ;; esac
 }
+# v0.5.5 (review B of lane J): INIT_TUI chose the program this runs as the owner, and with full access the agent can set
+# it through the owner's shell startup files (A3), to a file of its own anywhere outside INIT_HOME. So an installed
+# launcher ignores it and says so once, as it does for INIT_ROOT_HOME. The repository's own copy, run from a checkout or
+# by the tests with a stand-in TUI, still takes it, with the T-4 refusal below.
+if [ -n "${INIT_TUI:-}" ] && [ -n "$INIT_ROOT_HOME_DEFAULT" ]; then
+  if [ "${1:-}" != upgrade ]; then
+    echo "init-agent: note: INIT_TUI=$INIT_TUI in this shell's environment is ignored; this opens the init-tui installed" >&2
+    echo "  with this launcher. (If you did not set it, something else did: look at your shell's startup files.)" >&2
+  fi
+  unset INIT_TUI
+fi
 if [ -n "${INIT_TUI:-}" ] && inside_init_home "$INIT_TUI"; then
   echo "init-agent: refusing INIT_TUI=$INIT_TUI: it lies inside INIT_HOME ($IH), which the agent can write" >&2
   exit 77
@@ -89,14 +118,7 @@ if [ "${1:-}" = upgrade ]; then
   # upgrade uses the baked home only, and get.sh runs under env -i with HOME, that home and the system PATH.
   # INIT_DIST_URL goes too: the installed Root's key decides what installs, but a server of the agent's choosing could
   # still offer a validly signed older release that is newer than this one, or nothing newer, inside its validity (A5).
-  # (A copy with no home baked in, the repository's own scripts/init-agent, is never installed as it is; it keeps
-  # $INIT_ROOT_HOME, else ~/.init-root.)
-  if [ -n "$INIT_ROOT_HOME_DEFAULT" ] && [ "$RH" != "$INIT_ROOT_HOME_DEFAULT" ]; then
-    echo "init-agent upgrade: note: INIT_ROOT_HOME=$RH in this shell's environment is ignored; this upgrades the INIT in" >&2
-    echo "  $INIT_ROOT_HOME_DEFAULT, the home this launcher was installed for. (If you did not set it, something else did:" >&2
-    echo "  look at your shell's startup files.)" >&2
-  fi
-  RH="${INIT_ROOT_HOME_DEFAULT:-$RH}"
+  # (RH is the baked home, chosen at the top, which says so when the environment names another.)
   PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH # the upgrade replaces the Root: system tools only (get.sh sets it too)
   GET="$RH/cache/get.sh"
   if [ ! -f "$GET" ] && [ ! -f "$RH/install.json" ]; then

@@ -337,11 +337,11 @@ these commands (also `scripts/install.sh --print-apparmor`; `<gid>` is your grou
 asks `Run these commands now with sudo? [Y/n]` and runs them. INIT never runs sudo otherwise.
 
 ```
-sudo install -d -o root -g root -m 0755 /usr/local/lib/init-agent
-sudo install -o root -g <gid> -m 0750 /usr/bin/unshare /usr/local/lib/init-agent/unshare
-sudo install -o root -g <gid> -m 0750 /usr/bin/bwrap /usr/local/lib/init-agent/bwrap
-printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile init-agent-unshare /usr/local/lib/init-agent/unshare flags=(unconfined) {' '  userns,' '}' 'profile init-agent-bwrap /usr/local/lib/init-agent/bwrap flags=(unconfined) {' '  userns,' '}' | sudo tee /etc/apparmor.d/init-agent >/dev/null
-sudo apparmor_parser -r /etc/apparmor.d/init-agent
+/usr/bin/sudo install -d -o root -g root -m 0755 /usr/local/lib/init-agent
+/usr/bin/sudo install -o root -g <gid> -m 0750 /usr/bin/unshare /usr/local/lib/init-agent/unshare
+/usr/bin/sudo install -o root -g <gid> -m 0750 /usr/bin/bwrap /usr/local/lib/init-agent/bwrap
+printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile init-agent-unshare /usr/local/lib/init-agent/unshare flags=(unconfined) {' '  userns,' '}' 'profile init-agent-bwrap /usr/local/lib/init-agent/bwrap flags=(unconfined) {' '  userns,' '}' | /usr/bin/sudo tee /etc/apparmor.d/init-agent >/dev/null
+/usr/bin/sudo apparmor_parser -r /etc/apparmor.d/init-agent
 ```
 
 - **What it grants.** The profile `/etc/apparmor.d/init-agent` attaches to the two root-owned copies only and grants

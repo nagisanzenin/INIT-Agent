@@ -3,7 +3,7 @@
     "crate": "init-body",
     "edition": "2024",
     "rust_version": null,
-    "version": "0.5.4"
+    "version": "0.5.5"
   },
   "body_tokens": 434049,
   "budget": {
@@ -2204,14 +2204,14 @@
       "bytes": 49136,
       "counted": false,
       "path": "Cargo.lock",
-      "sha256": "cc02cf8cece2ba731772dbf7d28964c83a090b17961c738b6a03d5672779282b",
+      "sha256": "b2a8faa72c9278e1b1dd05a971d0b5f4fe9c7b437d1fe5b5b66168c82b2f7f87",
       "tokens": 18415
     },
     {
       "bytes": 1840,
       "counted": true,
       "path": "Cargo.toml",
-      "sha256": "567bf12babbd163786a430be85a6c6c3c9ad4f1c62cbecd894fb74a3b71c4401",
+      "sha256": "c9fe39d924b7eb97d03072e534ebad55d5c1560dc0b4b8841b7b64acbb0b079a",
       "tokens": 524
     },
     {
@@ -3202,7 +3202,7 @@
   },
   "hooks": [],
   "manifest": {
-    "body_version": "0.5.4",
+    "body_version": "0.5.5",
     "control_channel": "stdio-jsonl/1",
     "env": [
       "HOME",
@@ -17930,7 +17930,7 @@
       "tokens": 974
     }
   ],
-  "source_digest": "sha256:f7e63c484b3a57340b7f0165e00d25e1df1d416bfe86bb718f3945d8ff3b0394",
+  "source_digest": "sha256:de517f809034b2260a89d371d586e71c1c20800a736bb4c0d84428e00604dba5",
   "tools": {
     "list": [
       {

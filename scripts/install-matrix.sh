@@ -246,7 +246,7 @@ for l in lines:
         ok = os.access(c, os.X_OK) if "/" in c else any(os.access(os.path.join(d, c), os.X_OK) for d in path)
         if not ok:
             bad.append(f"{c!r} (in: {l})")
-for u in sorted(set(re.findall(r"https://[^\s\"']+", text))):
+for u in sorted(set(re.findall(r"https://[^\s\"')]+", text))):  # v0.5.5: the uninstall line ends its URL with `)`
     r = subprocess.run(["/usr/bin/curl", "-fsSIL", "-o", "/dev/null", "-w", "%{http_code}", u], capture_output=True, text=True)
     if r.stdout.strip() != "200":
         bad.append(f"{u} answers {r.stdout.strip() or r.returncode}")
@@ -306,9 +306,10 @@ row_old() { # V DIR
     rc=$(run_get "$T1_DIR/get-upgrade.log" --upgrade)
     [ "$rc" = 1 ] && grep -q "before 0.4.1 is not supported" "$T1_DIR/get-upgrade.log" && [ ! -e "$RH/cache/upgrade" ] \
       && step "--upgrade refuses, nothing downloaded" 1 "" || step "--upgrade refuses, nothing downloaded" 0 "rc $rc: $(cat "$T1_DIR/get-upgrade.log")"
-    cmd="$(grep -E '^  (INIT_ROOT_HOME=[^ ]+ )?/bin/bash -p -c .*uninstall\.sh -o ' "$T1_DIR/get-plain.log" | sed 's/^  //')"
+    # v0.5.5: the line keeps the download in memory, `s="$(/usr/bin/curl -q -fsSL <URL>)" && /bin/bash -p -c "$s" …`
+    cmd="$(grep -E '^  (INIT_ROOT_HOME=[^ ]+ )?/bin/bash -p -c .*/usr/bin/curl -q -fsSL [^ ]*uninstall\.sh\)' "$T1_DIR/get-plain.log" | sed 's/^  //')"
     [ -n "$cmd" ] || step "the uninstall command line" 0 "not found in the message"
-    local pat="/usr/bin/curl -q -fsSL $UNI_URL -o" with="cp $W/uninstall.sh"
+    local pat="/usr/bin/curl -q -fsSL $UNI_URL" with="/bin/cat $W/uninstall.sh"
     cmd2="${cmd//"$pat"/$with}"
     [ "$cmd2" != "$cmd" ] || step "substitute the uninstaller's download" 0 "$cmd"
     step "the printed uninstall command, its curl replaced by a copy of this tree's uninstall.sh" 1 "$cmd2"

@@ -85,7 +85,13 @@ launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/dev.init.root.plist   # 
 
 `init-root stop` (and `/root stop`) stops only the agent, so `toolchain --set` would be refused while the Root holds
 its lock (v0.5.1 fix; the Root's own hint and install.sh print the same steps). A Root started by hand stops with
-Ctrl-C in its terminal and starts again with `~/.init-root/bin/init-root start --foreground`.
+Ctrl-C in its terminal and starts again with `~/.init-root/bin/init-root start --foreground`. From v0.5.5 the Root's
+hint (`init-root status`, `init-root toolchain`, status.json) names the toolchain's folder by its path, as install.sh
+does: `toolchain --set <RUSTUP_HOME, else ~/.rustup>/toolchains/1.97.1-<host>`, with no `"$(…)"`, which fish before 3.4
+cannot read. With rustup it installs that toolchain by its full name, `rustup toolchain install 1.97.1-<host> …`, and
+records it once `rustup toolchain list` shows it: a bare `1.97.1` installs it for rustup's default host, which an x86_64
+rustup on Apple silicon sets to x86_64-apple-darwin. It names every command by its path (`/usr/bin/curl`, `/bin/sh`, `~/.cargo/bin/rustup`, `/bin/launchctl`,
+`/usr/bin/systemctl`), because the owner's PATH may start with `~/.local/bin`, which the agent can write.
 
 `init-root toolchain --set [DIR]` (Root stopped) checks `rustc 1.97.x` and the Wasm target and records the toolchain in `install.json` and the kernel config's `[sandbox]` together, which the broker compares. A rustup on PATH with 1.97.x and the target at install time is recorded directly.
 

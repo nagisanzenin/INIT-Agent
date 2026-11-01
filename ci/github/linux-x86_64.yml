@@ -231,9 +231,9 @@ jobs:
           set -e
           cat /tmp/o/install.log
           test "$rc" = 1
-          grep -qx 'sudo apparmor_parser -r /etc/apparmor.d/init-agent' /tmp/o/install.log
+          grep -qx '/usr/bin/sudo apparmor_parser -r /etc/apparmor.d/init-agent' /tmp/o/install.log
           bash /tmp/o/app/*/scripts/install.sh --print-apparmor > /tmp/apparmor-commands.sh
-          diff <(grep '^sudo \|^printf ' /tmp/o/install.log) /tmp/apparmor-commands.sh
+          diff <(grep '^/usr/bin/sudo \|^printf ' /tmp/o/install.log) /tmp/apparmor-commands.sh
           echo "installer-refusal=prints-the-commands" | tee -a apparmor.txt
           chmod -R u+w /tmp/o && rm -rf /tmp/o  # get.sh leaves the unpacked release read-only
 

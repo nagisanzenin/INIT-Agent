@@ -6,19 +6,37 @@
 ; Z2. the Root's paths outside ROOT_HOME: its service file, no writes in its directory
 (deny file-read* file-write* (literal (param "Z_ROOT_SVC")))
 (deny file-write* (literal (param "Z_ROOT_SVC_DIR")) (subpath (param "Z_ROOT_SVC_DIR")))
-; one line per full read deny entry i: INIT's provider key directory, then the charter's sandbox.read_deny:
+; three lines per full read deny entry i (INIT's provider key directory, then the charter's sandbox.read_deny): the entry,
+; and the folders above it (Z8):
 (deny file-read* file-write* (literal (param "Z_DENY_<i>")) (subpath (param "Z_DENY_<i>")))
-; Z3a. never the Root's service directories or INIT's launchers (<bin_dir>/init-agent, <bin_dir>/init, <bin_dir>/init-tui); one line per entry i:
+(deny file-write-unlink (path-ancestors (param "Z_DENY_<i>")))
+(deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_DENY_<i>"))))
+; Z3a. never the Root's service directories or INIT's launchers (<bin_dir>/init-agent, <bin_dir>/init, <bin_dir>/init-tui);
+;      three lines per entry i: the entry, and the folders above it (Z8):
 (deny file-write* (literal (param "Z_WDENY_<i>")) (subpath (param "Z_WDENY_<i>")))
-; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced
+(deny file-write-unlink (path-ancestors (param "Z_WDENY_<i>")))
+(deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_WDENY_<i>"))))
+; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced, nor (v0.5.5) the
+;     folders above lineage/kernel.git (lineage/ itself: the kernel profile writes INIT_HOME, and a renamed lineage/ would
+;     carry kernel.git out of this rule); the other paths' parents are INIT_HOME and run/, denied here as literals
 (deny file-write* (literal (param "Z_INIT_HOME")) (literal (param "Z_RUN")) (literal (param "Z_ZONE_MARK"))
   (literal (param "Z_KERNEL")) (subpath (param "Z_KERNEL"))
   (literal (param "Z_PUB")) (subpath (param "Z_PUB"))
   (literal (param "Z_MARKS")) (subpath (param "Z_MARKS"))
   (literal (param "Z_KGIT")) (subpath (param "Z_KGIT")))
+(deny file-write-unlink (path-ancestors (param "Z_KGIT")))
 ; Z5. an instance reads only its own mark (other marks and the decoy are denied)
 (deny file-read* (require-all (subpath (param "Z_MARKS")) (require-not (literal (param "Z_MARK")))))
 ; Z7. no XPC services; no signals or inspection outside the instance's own sandbox
 (deny mach-lookup (xpc-service-name-prefix ""))
 (deny signal (require-not (target same-sandbox)))
 (deny process-info* (require-not (target same-sandbox)))
+; Z8. no folder above a protected path is moved, removed or replaced (v0.5.5). A deny matches the path a file has when it is
+;     checked, so renaming a parent away (mv ~/.config ~/.cfg) would carry the protected path out of its rule, and a folder
+;     put in the parent's place would be free to fill. Every way to move or replace an existing folder (a rename from it or
+;     onto it, rmdir, RENAME_SWAP) needs file-write-unlink on it; a missing folder can still be made (mkdir -p), but for a
+;     deny entry not as a symlink (its third line: a key or a launcher the owner adds later would land wherever the link
+;     points), and what lies inside these folders stays writable. path-ancestors is every folder above the path, up to /.
+;     ROOT_HOME, the service file and INIT_HOME here (they exist, and the service directory has its own deny); each deny
+;     entry's lines are in its group above, lineage/kernel.git's in Z4:
+(deny file-write-unlink (path-ancestors (param "Z_ROOT_HOME")) (path-ancestors (param "Z_ROOT_SVC")) (path-ancestors (param "Z_INIT_HOME")))

@@ -2,6 +2,66 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.5.5-preview (2026-11-01)
+
+A security patch: the code findings of v0.5.4's post-release review (REL-054 §7.5), and what two independent reviews
+of the patch found before the release. E2, L5 and M #1 move to v0.5.6. The full record is build/status/REL-055.md.
+
+### The sandbox: the folders above each protected path (lane S; REL-054 §7.5 should-fix 1)
+- On macOS a deny covered a protected path and what lies under it, not the folders above it, so a full-access agent
+  could rename one: replace INIT's launchers (`mv ~/.local/bin …`, or one `RENAME_SWAP`), replace the Root's
+  LaunchAgent by renaming `~/Library`, and read the key files or a `read_deny` entry under a new name. In workspace
+  mode the same worked for an entry two or more folders inside the workspace (Chrome's cookies with a workspace of
+  `~/Library/Application Support`). Both tails now deny `file-write-unlink` on every folder above each Z2 and Z3a
+  entry, and a symlink made in a missing one's place; the full tail also pins the folders above ROOT_HOME, the
+  service file and INIT_HOME (Z8). What lies inside those folders stays writable.
+- Found by the review, older than v0.5.5: the kernel profile could rename `lineage/`, write refs into `kernel.git`
+  and rename it back, where the Root reads them and runs git unsandboxed. Z4 pins `kernel.git`'s folders now.
+- Linux: `pinned_ancestors` keeps the folders above the homes (with `INIT_ROOT_HOME=~/.config/init-root`, `~/.config`
+  was free to rename). Unit-tested on macOS; linux.rs was first built on the x86_64 CI runner, where the
+  bundle's hello, pause and T2 pass with it (no Linux test renames a folder above a home).
+- New `root/sandbox-profiles/tests/ancestors.rs` runs the composed profiles (full, workspace, kernel) under
+  `sandbox-exec`, with the firmlink path, case and Unicode variants and atomic saves; self-test S-A26 now expects a
+  deny, and S-A26c, S-A26d and S-Z3h are new.
+- Residual, older than v0.5.5 and documented (root.md Z3b, the guide, ADR-012; a Known limit): in workspace mode a
+  folder with its own `.git` made in `INIT_HOME/work` can be renamed into the workspace. v0.5.6 moves the kernel's
+  work trees out of WORK; `z3b_residual_git_dir_moved_in_from_work` records today's behaviour.
+
+### The installer and the uninstaller (lane J; REL-054 §7.5 and the review of the patch)
+- The uninstall line keeps the download in memory
+  (`s="$(/usr/bin/curl -q -fsSL …)" && /bin/bash -p -c "$s" uninstall.sh`; v0.5.4's temporary file could be swapped
+  before bash read it), and uninstall.sh is one function called on its last line, so bash reads it whole first.
+  install.sh's closing line prints the download line, not the unpacked release's agent-writable copy.
+- uninstall.sh sets `PATH=/usr/bin:/bin:/usr/sbin:/sbin` before anything else (v0.5.4's ran `env`, `sed`, `mv` and
+  others from the owner's `PATH`); the AppArmor step's child shell is `/bin/bash -p -e`; every `sudo` install.sh and
+  uninstall.sh print is `/usr/bin/sudo`.
+- The `PATH` block appends `~/.local/bin` (`export PATH="$PATH:$HOME/.local/bin"`), so the system's `sudo`, `bash`
+  and `launchctl` come first. A v0.5.4 block is never edited or doubled: the upgrade and a re-install print the line
+  to change, and the uninstaller removes both forms.
+- The block is never written through a startup file that leads into INIT's folders (compared by device and inode,
+  so `~/.INIT-ROOT` and NFD names are caught), to the LaunchAgent or systemd unit, through a dangling link, or into a
+  file with another hard link; the note prints the line instead.
+- get.sh's and install.sh's second-install hints pass `--no-modify-path`.
+- The toolchain steps print `rustup toolchain install 1.97.1-<host> …`, a `rustup toolchain list` check, and
+  `--set` with that toolchain's folder by its path: no `$(…)`, which fish < 3.4 cannot read.
+- An installed launcher uses its baked home for the TUI and `init-root attach` too, and ignores `INIT_TUI`; each
+  ignored variable is said once.
+
+### The Root's notices (lane U)
+- `/undo`'s notices name every command by its path (`/usr/bin/sudo`, `/usr/bin/chgrp`, `/usr/bin/chflags`,
+  `/bin/chmod`, `/bin/ls`). The unlock hint follows the flag found (`-h nouchg`, `-h nouappnd`, or both; `schg` and
+  `sappnd` are left to an administrator), and the record's `"locked"` entries keep `"flags"`.
+- The Root's T0 hint installs `1.97.1-<host>`, names its folder by path (`RUSTUP_HOME`, else `~/.rustup`) with no
+  `$(…)`, and names its commands by path, the shared stop and start hints included (`/bin/launchctl`,
+  `/usr/bin/systemctl`).
+
+### Tests and harnesses
+- wp20's fake clock started at 2026-11-01T00:00Z, which became the past on release day: the install writes its
+  records at the real time and the lineage never goes back, so the test failed at v0.5.4's code too. It now starts two
+  days after the real clock.
+- The install matrix reads the new uninstall line: a URL ends at the `)` of its `$(…)`, and the pre-0.4.1 rows run
+  the line with its download replaced by this tree's uninstall.sh.
+
 ## v0.5.4-preview (2026-10-30)
 
 A patch: the v0.5.3 post-release review's installer and upgrade findings, the v0.5.3 user sessions' notes, and an

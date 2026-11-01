@@ -22,6 +22,18 @@
 #   5. Linux, when install.sh's AppArmor step was run (Ubuntu 24.04 and later; docs/platforms.md §3.4.6): the root-owned
 #      copies in /usr/local/lib/init-agent/ and the profile /etc/apparmor.d/init-agent need root to remove, so this
 #      prints the commands. With --apparmor it asks, then runs them with sudo. It never runs sudo otherwise.
+# v0.5.5 (the post-release review of v0.5.4): the whole script is the function main, called on the last line together
+# with `exit`. Bash reads a script file as it runs it, and this one waits for the owner to type `uninstall`; v0.5.4's
+# line downloaded it to a file in $TMPDIR, which a full-access agent can write. Now bash has read every line before the
+# first command runs, so a change to a file it runs from (an append, or a rewrite of the rest) runs nothing, and a
+# truncated download defines nothing and runs nothing. From v0.5.5 the line get.sh prints keeps the download in memory
+# (`bash -p -c "$s" uninstall.sh`, so $0 is that word and no file): --help prints its text, never "$0".
+# (The body is not indented, to keep it as it was.)
+main() {
+# v0.5.5: the system tools only, set before any command. This runs as the owner, outside the sandbox, and with full
+# access the agent can write the owner's PATH directories (ADR-012); v0.5.4's PATH block puts ~/.local/bin first, so a
+# planted ~/.local/bin/env ran here. get.sh, install.sh and the launcher do the same.
+PATH=/usr/bin:/bin:/usr/sbin:/sbin; export PATH
 set -euo pipefail
 umask 077
 
@@ -31,7 +43,15 @@ APPARMOR=0
 for a in "$@"; do
   case "$a" in
     --apparmor) APPARMOR=1 ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    -h|--help) cat <<'EOF'
+uninstall.sh [--apparmor]: stop INIT, unload its service, and move its homes and its commands to the Trash
+(nothing is deleted: you empty the Trash yourself, or put things back from it). It lists what it moves and asks first.
+It also takes INIT's PATH block out of your shell's startup file.
+  --apparmor   Linux: also remove the AppArmor step's root-owned files, with /usr/bin/sudo (it asks first)
+Paths (environment, as for install.sh): INIT_ROOT_HOME (default ~/.init-root); INIT_HOME and INIT_BIN_DIR (default: as
+the install recorded them). More: docs/guide.md, "Uninstall".
+EOF
+      exit 0 ;;
     *) die "unknown argument $a (scripts/uninstall.sh [--apparmor])" ;;
   esac
 done
@@ -152,9 +172,11 @@ mode, begin, end, bindir, home, fish, *rest = sys.argv[1:]
 sh = lambda d: re.sub(r'([\\"$`])', r"\\\1", d)      # install.sh path_line: inside double quotes
 fq = lambda d: "'" + re.sub(r"([\\'])", r"\\\1", d) + "'"  # fish single quotes
 h = home.rstrip("/")
-lines = {'export PATH="%s:$PATH"' % sh(bindir), "contains -- %s $PATH; or set -gx PATH %s $PATH" % (fq(bindir), fq(bindir))}
-if h and bindir.startswith(h + "/") and len(bindir) > len(h) + 1:
-    lines.add('export PATH="$HOME/%s:$PATH"' % sh(bindir[len(h) + 1:]))
+# v0.5.4's block put BIN_DIR first, v0.5.5's puts it last: both are INIT's
+lines = set()
+for d in [sh(bindir)] + (['$HOME/' + sh(bindir[len(h) + 1:])] if h and bindir.startswith(h + "/") and len(bindir) > len(h) + 1 else []):
+    lines |= {'export PATH="%s:$PATH"' % d, 'export PATH="$PATH:%s"' % d}
+lines |= {"contains -- %s $PATH; or set -gx PATH %s $PATH" % (fq(bindir), fq(bindir)), "contains -- %s $PATH; or set -gx PATH $PATH %s" % (fq(bindir), fq(bindir))}
 blocks = [("%s\n%s\n%s\n" % (begin, l, end)).encode("utf-8", "surrogateescape") for l in lines]
 for f in dict.fromkeys([fish] + rest):
     try:
@@ -231,8 +253,8 @@ say "INIT is uninstalled. To undo: move the items back from the Trash. To free t
 HELPERS=/usr/local/lib/init-agent; AA_PROFILE=/etc/apparmor.d/init-agent
 if [ "$OS" != Darwin ] && { [ -e "$AA_PROFILE" ] || [ -e "$HELPERS" ]; }; then
   aa_remove() {
-    [ -e "$AA_PROFILE" ] && printf 'sudo apparmor_parser -R %s\nsudo rm -f %s\n' "$AA_PROFILE" "$AA_PROFILE"
-    [ -e "$HELPERS" ] && printf 'sudo rm -f %s/unshare %s/bwrap\nsudo rmdir %s\n' "$HELPERS" "$HELPERS" "$HELPERS"
+    [ -e "$AA_PROFILE" ] && printf '/usr/bin/sudo apparmor_parser -R %s\n/usr/bin/sudo rm -f %s\n' "$AA_PROFILE" "$AA_PROFILE"
+    [ -e "$HELPERS" ] && printf '/usr/bin/sudo rm -f %s/unshare %s/bwrap\n/usr/bin/sudo rmdir %s\n' "$HELPERS" "$HELPERS" "$HELPERS"
     return 0
   }
   say ""
@@ -245,9 +267,13 @@ if [ "$OS" != Darwin ] && { [ -e "$AA_PROFILE" ] || [ -e "$HELPERS" ]; }; then
     if [ -r /dev/tty ] && [ -w /dev/tty ]; then
       printf 'Run these commands now with sudo? [Y/n] ' >/dev/tty
       IFS= read -r aa </dev/tty || aa=n
-      case "$aa" in ""|y|Y|yes|Yes|YES) aa_remove | /bin/bash -e && say "removed" || say "the commands failed; run them yourself" ;; *) say "left in place" ;; esac
+      # bash -p (v0.5.5, review B of lane J): a child bash without it runs the file BASH_ENV names and imports exported
+      # functions, so the environment could put code before or in place of the commands it runs with sudo
+      case "$aa" in ""|y|Y|yes|Yes|YES) aa_remove | /bin/bash -p -e && say "removed" || say "the commands failed; run them yourself" ;; *) say "left in place" ;; esac
     else
       say "(--apparmor asks before it runs sudo, and there is no terminal to ask on: run the commands above yourself)"
     fi
   fi
 fi
+}
+main "$@"; exit

@@ -5,8 +5,12 @@
 ;     (the ADR-009 read deny list, also in full mode); every other read is the inner profile's (D9)
 (deny file-read* file-write* (literal (param "Z_ROOT_SVC")))
 (deny file-write* (literal (param "Z_ROOT_SVC_DIR")) (subpath (param "Z_ROOT_SVC_DIR")))
-; one line per read deny entry i: the built-in list, then the charter's sandbox.read_deny:
+; three lines per read deny entry i (the built-in list, then the charter's sandbox.read_deny): the entry; the folders
+; above it, which no rename, rmdir or swap may move or replace; and no symlink made in place of a missing one (v0.5.5; why:
+; the full tail's Z8):
 (deny file-read* file-write* (literal (param "Z_DENY_<i>")) (subpath (param "Z_DENY_<i>")))
+(deny file-write-unlink (path-ancestors (param "Z_DENY_<i>")))
+(deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_DENY_<i>"))))
 ; Z3. writes only inside INIT_HOME and the instance's write grant Z_WRITE (ADR-009: the live body's workspace, or the
 ;     home in full mode; INIT_HOME for every other instance), plus the devices every profile needs
 (deny file-write*
@@ -14,8 +18,11 @@
     (subpath (param "Z_INIT_HOME")) (subpath (param "Z_WRITE")) (literal "/dev/null") (literal "/dev/zero")
     (literal "/dev/dtracehelper") (literal "/dev/ptmx") (regex #"^/dev/ttys[0-9]+") (subpath "/dev/fd"))))
 ; Z3a. never what the owner's own tools run or load unsandboxed (ADR-009 §9.3 Q5), in every mode: shell startup
-;     files, git's user config, INIT's launchers and PATH directories, login items; one line per write deny entry i:
+;     files, git's user config, INIT's launchers and PATH directories, login items; three lines per write deny entry i,
+;     the entry and the folders above it (as in Z2):
 (deny file-write* (literal (param "Z_WDENY_<i>")) (subpath (param "Z_WDENY_<i>")))
+(deny file-write-unlink (path-ancestors (param "Z_WDENY_<i>")))
+(deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_WDENY_<i>"))))
 ; Z3b. nor the ".git" entry itself, nor git's config, hooks and command sources inside any git directory (.git/,
 ;      .git/modules/<m>/, .git/worktrees/<w>/) of a repository outside INIT_HOME, so the config and hooks git runs
 ;      unsandboxed on the owner's next git command cannot be redirected: a renamed .git, a ".git" gitdir: file, a
@@ -42,12 +49,15 @@
   (require-any
     (regex #"/\.git/(.+/)?(modules|worktrees)$")
     (regex #"/\.git/(.+/)?(modules|worktrees)/[^/]+$"))))
-; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced
+; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced, nor (v0.5.5) the
+;     folders above lineage/kernel.git (lineage/ itself: the kernel profile writes INIT_HOME, and a renamed lineage/ would
+;     carry kernel.git out of this rule); the other paths' parents are INIT_HOME and run/, denied here as literals
 (deny file-write* (literal (param "Z_INIT_HOME")) (literal (param "Z_RUN")) (literal (param "Z_ZONE_MARK"))
   (literal (param "Z_KERNEL")) (subpath (param "Z_KERNEL"))
   (literal (param "Z_PUB")) (subpath (param "Z_PUB"))
   (literal (param "Z_MARKS")) (subpath (param "Z_MARKS"))
   (literal (param "Z_KGIT")) (subpath (param "Z_KGIT")))
+(deny file-write-unlink (path-ancestors (param "Z_KGIT")))
 ; Z5. an instance reads only its own mark (other marks and the decoy are denied)
 (deny file-read* (require-all (subpath (param "Z_MARKS")) (require-not (literal (param "Z_MARK")))))
 ; Z6. no IP at all; Unix sockets only inside INIT_HOME, plus the Root egress socket

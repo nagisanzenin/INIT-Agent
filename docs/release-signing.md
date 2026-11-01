@@ -384,9 +384,10 @@ prints, with `--bundle NEW --sha256 HEX` added before the publish (the bundle co
 - Until 0.5.3, `init-agent upgrade` preferred an environment `INIT_ROOT_HOME` over its baked home, so a planted one
   bypassed the signature check (A3). From 0.5.4 the launcher uses its baked home only and a clean environment; an
   upgrade from 0.5.1, 0.5.2 or 0.5.3 still runs the old launcher, so it needs
-  `/usr/bin/env -i HOME="$HOME" ~/.local/bin/init-agent upgrade` (get.sh prints it). The other commands of the launcher (the TUI,
-  `init-root attach`) still read `INIT_ROOT_HOME` and `INIT_TUI` from the environment; with full access a planted one
-  is within the documented limit of the owner's shell (A3, "Variables only").
+  `/usr/bin/env -i HOME="$HOME" ~/.local/bin/init-agent upgrade` (get.sh prints it). From 0.5.5 the launcher's other commands (the TUI,
+  `init-root attach`) take the baked home too, and say so when the environment names another, and an installed
+  launcher ignores `INIT_TUI` (and says so); only the repository's own copy, which is never installed as it is, still
+  takes it.
 - The rotation statement (§6) is designed, not built. FIDO keys are not accepted (§8.6).
 - A local bundle is checked by sha256 only, even with signed files beside it.
 - A fresh install trusts the get.sh it downloads (A1, A2); §4.4 is the way around it.

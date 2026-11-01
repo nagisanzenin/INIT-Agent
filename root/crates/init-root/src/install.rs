@@ -286,8 +286,31 @@ fn check_prebuilt_tuple(p: &Paths, id: &str, b: &Prebuilt) -> Result<(), String>
     Ok(())
 }
 
-/// The command that installs Rust 1.97.1 with the Wasm target for this user (rustup's own installer, no sudo).
-pub const RUSTUP_CMD: &str = "curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.97.1 --target wasm32-wasip2";
+/// The command that installs Rust 1.97.1 with the Wasm target for this user (rustup's own installer, no sudo). v0.5.5:
+/// every command a hint names is by its path, as the owner's PATH may start with the agent-writable ~/.local/bin; and
+/// clippy, as install.sh's RUSTUP_CMD.
+pub const RUSTUP_CMD: &str = "/usr/bin/curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | /bin/sh -s -- -y --default-toolchain 1.97.1 \
+    --target wasm32-wasip2 --component clippy";
+
+/// v0.5.5: the host a toolchain must be for, as install.sh's HOST_TRIPLE (None: a host it names none for).
+const HOST_TRIPLE: Option<&str> = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
+    Some("aarch64-apple-darwin")
+} else if cfg!(all(target_os = "linux", target_arch = "x86_64")) {
+    Some("x86_64-unknown-linux-gnu")
+} else if cfg!(all(target_os = "linux", target_arch = "aarch64")) {
+    Some("aarch64-unknown-linux-gnu")
+} else {
+    None
+};
+
+/// v0.5.5 (the post-release review of v0.5.4): the folder `rustup toolchain install 1.97.1-<host>` makes, by its path, as
+/// install.sh prints it: `rustup_home` (`RUSTUP_HOME`, when absolute), else `home/.rustup`, then
+/// `toolchains/1.97.1-<host>`. The hint said `"$(rustup run 1.97.1 rustc --print sysroot)"`, which fish before 3.4
+/// cannot read (Ubuntu 22.04 ships fish 3.3.1).
+fn rust_folder(home: &Path, rustup_home: Option<std::ffi::OsString>) -> Option<PathBuf> {
+    let rh = rustup_home.map(PathBuf::from).filter(|d| d.is_absolute()).unwrap_or_else(|| home.join(".rustup"));
+    Some(rh.join(format!("toolchains/1.97.1-{}", HOST_TRIPLE?)))
+}
 
 /// What the agent can do to itself with this install's toolchain (docs/ux-v1.md §3.4.9): T0 (skills, prompts,
 /// extension source) always; T1/T2 (rebuilding the body or the kernel) need `install.json` `toolchain` with
@@ -299,12 +322,23 @@ pub fn evolution(p: &Paths) -> Value {
     if ok {
         return json!({"tiers": ["T0", "T1", "T2"], "toolchain": tc, "hint": null});
     }
+    // v0.5.5 (install.sh, lane J round 2): this host's toolchain by its full name. A bare `1.97.1` installs it for
+    // rustup's default host, which an x86_64 rustup on Apple silicon sets to x86_64-apple-darwin, so the folder --set
+    // names did not exist; the hint says what `rustup toolchain list` shows once it worked
+    let rustup = "~/.cargo/bin/rustup";
+    let name = HOST_TRIPLE.map_or_else(|| "1.97.1".to_string(), |h| format!("1.97.1-{h}"));
+    let (listed, set) = match rust_folder(&p.home, std::env::var_os("RUSTUP_HOME")) {
+        Some(d) => {
+            (format!(", once {rustup} toolchain list shows {name},"), p.cmd(&format!("toolchain --set {}", util::sh_word(&d.to_string_lossy()))))
+        }
+        None => (String::new(), format!("{} <folder> (the folder {rustup} run 1.97.1 rustc --print sysroot prints)", p.cmd("toolchain --set"))),
+    };
     json!({"tiers": ["T0"], "toolchain": tc,
         "hint": format!("Self-evolution is limited to T0 (skills, prompts, extension source): no Rust toolchain is configured. \
             T1/T2 (rebuilding itself) need Rust 1.97.1. The owner runs: {RUSTUP_CMD} (with rustup already installed, \
-            instead: rustup toolchain install 1.97.1 --profile minimal --component clippy --target wasm32-wasip2, which \
-            leaves the default toolchain alone); then stops the Root ({}), runs {} and starts the Root again ({})",
-            stop_hint(p), p.cmd("toolchain --set \"$(~/.cargo/bin/rustup run 1.97.1 rustc --print sysroot)\""), start_hint(p))})
+            instead: {rustup} toolchain install {name} --profile minimal --component clippy --target wasm32-wasip2, which \
+            leaves the default toolchain alone); then{listed} stops the Root ({}), runs {set} and starts the Root again ({})",
+            stop_hint(p), start_hint(p))})
 }
 
 /// `init-root toolchain [--set [DIR]]`: show the toolchain, or record one (default: `~/.cargo/bin/rustup which rustc`,
@@ -705,9 +739,10 @@ pub fn start_hint(p: &Paths) -> String {
     }
     if cfg!(target_os = "macos") {
         let (u, plist) = (sys::euid(), service_shown(p));
-        format!("launchctl bootstrap gui/{u} {plist} (if launchd says the job is already loaded: launchctl kickstart gui/{u}/dev.init.root)")
+        format!("/bin/launchctl bootstrap gui/{u} {plist} (if launchd says the job is already loaded: /bin/launchctl kickstart \
+            gui/{u}/dev.init.root)")
     } else {
-        "systemctl --user start init-root.service".into()
+        "/usr/bin/systemctl --user start init-root.service".into()
     }
 }
 
@@ -716,9 +751,9 @@ pub fn stop_hint(p: &Paths) -> String {
     if !service_path(p).is_file() {
         "Ctrl-C in the terminal where it runs".into()
     } else if cfg!(target_os = "macos") {
-        format!("launchctl bootout gui/{}/dev.init.root", sys::euid())
+        format!("/bin/launchctl bootout gui/{}/dev.init.root", sys::euid())
     } else {
-        "systemctl --user stop init-root.service".into()
+        "/usr/bin/systemctl --user stop init-root.service".into()
     }
 }
 
@@ -886,8 +921,18 @@ mod tests {
         let hint = v["hint"].as_str().unwrap();
         assert!(hint.contains(RUSTUP_CMD) && hint.contains(&p.cmd("toolchain --set")), "{hint}");
         // v0.5.4 (review of lane J): an existing rustup's default is left alone, and --set names 1.97.1's folder (a bare
-        // --set records the default toolchain, which may be another version)
-        assert!(hint.contains("rustup toolchain install 1.97.1 ") && hint.contains(&p.cmd("toolchain --set \"$(~/.cargo/bin/rustup run 1.97.1 rustc --print sysroot)\"")), "{hint}");
+        // --set records the default toolchain, which may be another version). v0.5.5: by its path, as install.sh prints
+        // it, never `"$(…)"`, which fish before 3.4 cannot read; and every command by its path
+        let rustup_home = std::env::var_os("RUSTUP_HOME").map(PathBuf::from).filter(|d| d.is_absolute()).unwrap_or_else(|| top.join(".rustup"));
+        let folder = rustup_home.join(format!("toolchains/1.97.1-{}", HOST_TRIPLE.unwrap()));
+        // v0.5.5 (install.sh, lane J round 2): 1.97.1 for this host by its full name, then what `toolchain list` shows
+        let host = HOST_TRIPLE.unwrap();
+        assert!(hint.contains(&format!("instead: ~/.cargo/bin/rustup toolchain install 1.97.1-{host} --profile minimal --component clippy \
+            --target wasm32-wasip2, which leaves the default toolchain alone); then, once ~/.cargo/bin/rustup toolchain list shows \
+            1.97.1-{host}, stops the Root (")), "{hint}");
+        assert!(hint.contains(&format!(" runs {} and ", p.cmd(&format!("toolchain --set {}", util::sh_word(&folder.to_string_lossy()))))), "{hint}");
+        assert!(!hint.contains("$(") && hint.contains("runs: /usr/bin/curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | /bin/sh -s -- -y \
+            --default-toolchain 1.97.1 --target wasm32-wasip2 --component clippy (with rustup"), "{hint}");
         // ROOT-MSG: `init-root stop` stops only the agent, so `toolchain --set` (it needs the Root's lock) would be refused
         assert!(hint.contains("stops the Root (Ctrl-C in the terminal where it runs)") && !hint.contains(" stop && "), "{hint}");
         // with the service: the Root is stopped by unloading it, so it starts again by loading it (install.sh's sequence;
@@ -897,13 +942,14 @@ mod tests {
         fs::write(&svc, "service\n").unwrap(); // the test's own fake home
         let hint = evolution(&p)["hint"].as_str().unwrap().to_string();
         let (stop, start) = if cfg!(target_os = "macos") {
-            (format!("launchctl bootout gui/{}/dev.init.root", sys::euid()), format!("launchctl bootstrap gui/{} {}", sys::euid(), service_shown(&p)))
+            (format!("(/bin/launchctl bootout gui/{}/dev.init.root)", sys::euid()), format!("(/bin/launchctl bootstrap gui/{} {}", sys::euid(), service_shown(&p)))
         } else {
-            ("systemctl --user stop init-root.service".to_string(), "systemctl --user start init-root.service".to_string())
+            ("(/usr/bin/systemctl --user stop init-root.service)".to_string(), "(/usr/bin/systemctl --user start init-root.service)".to_string())
         };
         let (i, k) = (hint.find(&stop).expect(&hint), hint.find(&start).expect(&hint));
         assert!(i < k, "stop, then start: {hint}");
         assert!(hint[i..].find("kickstart").is_none_or(|x| i + x > k), "after the stop the start loads the job again: {hint}");
+        assert!(!cfg!(target_os = "macos") || hint.contains(&format!("loaded: /bin/launchctl kickstart gui/{}/dev.init.root)", sys::euid())), "{hint}");
         fs::remove_file(&svc).unwrap(); // exact path, written above
         let tc = top.join("tc");
         fs::create_dir_all(tc.join("bin")).unwrap();
@@ -914,6 +960,20 @@ mod tests {
         assert_eq!(evolution(&p)["tiers"], json!(["T0", "T1", "T2"]));
         assert!(evolution(&p)["hint"].is_null());
         fs::remove_dir_all(&top).unwrap(); // exact path, this test's own
+    }
+
+    /// v0.5.5: the folder `toolchain --set` names: an absolute RUSTUP_HOME, else `~/.rustup` (rustup reads a relative
+    /// RUSTUP_HOME from its working directory, which the owner's shell does not share), then this host's 1.97.1.
+    #[test]
+    fn the_toolchain_folder_is_rustups_for_this_host() {
+        let (home, host) = (Path::new("/Users/o"), HOST_TRIPLE.unwrap());
+        let want = |d: &str| Some(PathBuf::from(format!("{d}/toolchains/1.97.1-{host}")));
+        assert_eq!(rust_folder(home, None), want("/Users/o/.rustup"));
+        assert_eq!(rust_folder(home, Some("/opt/rust up".into())), want("/opt/rust up"));
+        assert_eq!(rust_folder(home, Some("rel".into())), want("/Users/o/.rustup"), "a relative RUSTUP_HOME");
+        assert_eq!(rust_folder(home, Some("".into())), want("/Users/o/.rustup"), "an empty one");
+        assert_eq!(HOST_TRIPLE, Some(if cfg!(target_os = "macos") { "aarch64-apple-darwin" } else if cfg!(target_arch = "aarch64") {
+            "aarch64-unknown-linux-gnu" } else { "x86_64-unknown-linux-gnu" }), "install.sh's HOST_TRIPLE for this machine");
     }
 
     #[test]

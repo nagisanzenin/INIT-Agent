@@ -45,11 +45,13 @@ class NoRust(unittest.TestCase):
         os.chmod(p, 0o755)
 
     def rust_on_path(self, clippy=True, wasm=True, version="1.97.1", default="1.97.1-" + HOST, others=(), runs=True,
-                     host=HOST, old_rustup=False):
+                     host=HOST, old_rustup=False, default_host=HOST):
         """A stand-in rustup (in its own bin dir, returned) with toolchain `default` (None: no default) of rustc `version`
         for `host`, with cargo-clippy and wasm32-wasip2 or not, and other installed toolchains `others`: (name, version)
         with both, or (name, version, clippy, wasm, host). `runs=False`: the default's rustc fails. `old_rustup`: a
-        rustup without `which --toolchain` (only `run <toolchain> rustc --print sysroot`)."""
+        rustup without `which --toolchain` (only `run <toolchain> rustc --print sysroot`). `toolchain install NAME`
+        makes NAME (a 1.97.1 with clippy and wasm32-wasip2); a NAME without a host gets `default_host`, as rustup's own
+        default host does (an x86_64 rustup on Apple silicon has x86_64-apple-darwin)."""
         d = tempfile.mkdtemp(dir=self.t)  # each its own: a cargo-clippy left from another call must not count
         tcs = os.path.join(d, "toolchains")
         os.makedirs(tcs)
@@ -63,7 +65,12 @@ class NoRust(unittest.TestCase):
             if wa:
                 self.write(os.path.join(tcs, name, "wasm"), "")
         self.write(os.path.join(d, "cargo-bin", "rustup"), """#!/bin/sh
-D='%s'; DEF='%s'; OLD='%s'
+D='%s'; DEF='%s'; OLD='%s'; DH='%s'
+case "$1 ${2:-}" in
+  "toolchain install") n="$3"; case "$n" in *-*-*) ;; *) n="$n-$DH" ;; esac; mkdir -p "$D/$n/bin"; : >"$D/$n/wasm"
+         printf '#!/bin/sh\nprintf "rustc 1.97.1 (stand-in 2026-01-01)\\nhost: %%s\\n" "%%s"\n' "${n#1.97.1-}" >"$D/$n/bin/rustc"
+         printf '#!/bin/sh\n' >"$D/$n/bin/cargo-clippy"; chmod 755 "$D/$n/bin/rustc" "$D/$n/bin/cargo-clippy"; exit 0 ;;
+esac
 case "$1" in
   which) t="$DEF"; if [ "$2" = --toolchain ]; then [ -z "$OLD" ] || { echo "error: unexpected argument '--toolchain'" >&2; exit 1; }; t="$3"; fi
          [ -n "$t" ] && [ -e "$D/$t/bin/rustc" ] || { echo "error: no toolchain" >&2; exit 1; }; echo "$D/$t/bin/rustc" ;;
@@ -71,7 +78,7 @@ case "$1" in
   toolchain) for t in $(ls "$D"); do if [ "$t" = "$DEF" ]; then echo "$t (active, default)"; else echo "$t"; fi; done ;;
   target) t="$DEF"; [ "${4:-}" != --toolchain ] || t="$5"; echo %s; [ ! -e "$D/$t/wasm" ] || echo wasm32-wasip2 ;;
 esac
-""" % (tcs, default or "", "1" if old_rustup else "", HOST))
+""" % (tcs, default or "", "1" if old_rustup else "", default_host, HOST))
         return os.path.join(d, "cargo-bin")
 
     def tc(self, bindir, name):
@@ -83,7 +90,7 @@ esac
         self.write(os.path.join(d, "rustc"), '#!/bin/sh\necho "rustc %s (Homebrew)"\n' % version)
         return d
 
-    def probe(self, path, closing=False):
+    def probe(self, path, closing=False, rustup_home=None):
         """bundle_toolchain as install.sh runs it: under set -euo pipefail, with its globals (RUST_ADD, the host, …);
         `closing`: also the closing T0 lines with that result (Root without the service). TC, TCV and that output."""
         with open(INSTALL) as f:
@@ -92,8 +99,10 @@ esac
         tail = re.search(r'^if \[ "\$TC" = none \]; then$.*?^fi$', text, re.S | re.M).group(0) if closing else ""
         src = "set -euo pipefail\n" + functions(INSTALL, "shq", "rh_env", "rcmd") + "\n" + pre + functions(INSTALL, "bundle_toolchain") \
             + '\nbundle_toolchain; printf "%s|%s|" "$TC" "$TCV"\n' + tail
+        # RUSTUP_HOME: install.sh always exports it (the passwd home's ~/.rustup unless set)
         p = subprocess.run(["/bin/bash", "-p", "-c", src], env={"PATH": path, "HOME": self.t, "OS": platform.system(), "NO_SERVICE": "1",
-                           "RH": os.path.join(self.t, ".init-root"), "PW_HOME": self.t}, capture_output=True, text=True, timeout=30)
+                           "RH": os.path.join(self.t, ".init-root"), "PW_HOME": self.t, "RUSTUP_HOME": rustup_home or os.path.join(self.t, ".rustup")},
+                           capture_output=True, text=True, timeout=30)
         self.assertEqual(p.returncode, 0, "bundle_toolchain stopped the install: " + p.stdout + p.stderr)
         tc, tcv, out = p.stdout.split("|", 2)
         return (tc, tcv, out) if closing else [tc, tcv]
@@ -113,9 +122,9 @@ esac
              "--toolchain %s wasm32-wasip2" % name),
             ("not 1.97", self.rust_on_path(version="1.98.0", default="stable-" + HOST),
              "rustc 1.98.0 (stand-in 2026-01-01) is not 1.97.x, and rustup has no 1.97 toolchain (self-evolution T0 only until: "
-             "rustup toolchain install 1.97.1 --profile minimal --component clippy --target wasm32-wasip2, then the steps printed"),
+             "rustup toolchain install 1.97.1-%s --profile minimal --component clippy --target wasm32-wasip2, then the steps printed" % HOST),
             ("no default", self.rust_on_path(default=None),
-             "rustup, but no Rust 1.97 toolchain (self-evolution T0 only until: rustup toolchain install 1.97.1 "),
+             "rustup, but no Rust 1.97 toolchain (self-evolution T0 only until: rustup toolchain install 1.97.1-%s " % HOST),
             ("rustc fails", self.rust_on_path(runs=False), "does not run: rustc -V failed (self-evolution T0 only)"),
             ("another host", self.rust_on_path(default="1.97.1-" + OTHER, host=OTHER),
              "rustc 1.97.1 (stand-in 2026-01-01) is built for %s, not this machine (%s)" % (OTHER, HOST)),
@@ -176,10 +185,32 @@ esac
         self.assertNotIn("sh.rustup.rs", out)
         self.assertNotIn("--default-toolchain", out)
         b = self.rust_on_path(version="1.98.0", default="stable-" + HOST)
-        _, _, out = self.probe(b + ":/usr/bin:/bin", closing=True)
-        self.assertIn("\n  rustup toolchain install 1.97.1 --profile minimal --component clippy --target wasm32-wasip2\n", out)
-        self.assertIn(' toolchain --set "$(rustup run 1.97.1 rustc --print sysroot)"\n', out)
+        home = os.path.dirname(b)  # the stand-in rustup's RUSTUP_HOME: its toolchains/ folder
+        _, _, out = self.probe(b + ":/usr/bin:/bin", closing=True, rustup_home=home)
+        # v0.5.5 (review B of lane J): this host's toolchain by its full name, so the install and the folder agree
+        self.assertIn("\n  rustup toolchain install 1.97.1-%s --profile minimal --component clippy --target wasm32-wasip2\n"
+                      "then, once rustup toolchain list shows 1.97.1-%s, record it with the Root stopped" % (HOST, HOST), out)
+        # v0.5.5 (the post-release review of v0.5.4): the folder that install will make, by its path. It was
+        # "$(rustup run 1.97.1 rustc --print sysroot)", which fish before 3.4 cannot read (Ubuntu 22.04 has fish 3.3.1);
+        # no closing line has a $(…) now
+        want = os.path.join(home, "toolchains", "1.97.1-" + HOST)
+        self.assertIn(" toolchain --set %s\n" % shq(want), out)
+        self.assertNotIn("$(", out)
         self.assertNotIn("sh.rustup.rs", out)
+        # once the owner has run the printed install line (with the stand-in rustup, whose default host is another, as an
+        # x86_64 rustup's is on Apple silicon), the folder printed is the one it made, and the one install.sh takes
+        for default_host in (HOST, OTHER):
+            with self.subTest(rustup_default_host=default_host):
+                b = self.rust_on_path(version="1.98.0", default="stable-" + HOST, default_host=default_host)
+                home = os.path.dirname(b)
+                want = os.path.join(home, "toolchains", "1.97.1-" + HOST)
+                _, _, out = self.probe(b + ":/usr/bin:/bin", closing=True, rustup_home=home)
+                line = next(l.strip() for l in out.splitlines() if l.strip().startswith("rustup toolchain install"))
+                q = subprocess.run(["/bin/sh", "-c", line], env={"PATH": b + ":/usr/bin:/bin"}, capture_output=True, text=True, timeout=30)
+                self.assertEqual(q.returncode, 0, q.stderr)
+                self.assertTrue(os.path.isdir(want), "the printed install made no %s: %s" % (want, os.listdir(os.path.join(home, "toolchains"))))
+                self.assertIn(" toolchain --set %s\n" % shq(want), out)
+                self.assertEqual(self.probe(b + ":/usr/bin:/bin", rustup_home=home)[0], os.path.realpath(want))
         _, _, out = self.probe("/usr/bin:/bin", closing=True)  # no rustup: rustup-init, then the plain --set (its default)
         self.assertIn("To add it now:\n  curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --default-toolchain 1.97.1", out)
         self.assertRegex(out, r"\n  \S*/bin/init-root toolchain --set\n")

@@ -98,6 +98,20 @@ fn wait(secs: u64, mut f: impl FnMut() -> bool) {
     }
 }
 
+/// `s` seconds since the epoch as the Root prints a time: RFC 3339 UTC with milliseconds (civil-from-days, H. Hinnant,
+/// as util.rs `rfc3339`).
+fn rfc3339(s: i64) -> String {
+    let (days, r) = (s.div_euclid(86_400), s.rem_euclid(86_400));
+    let z = days + 719_468;
+    let (era, doe) = (z.div_euclid(146_097), z.rem_euclid(146_097));
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let (d, m) = (doy - (153 * mp + 2) / 5 + 1, if mp < 10 { mp + 3 } else { mp - 9 });
+    let y = yoe + era * 400 + i64::from(m <= 2);
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}.000Z", r / 3600, r / 60 % 60, r % 60)
+}
+
 fn mode(p: &Path) -> u32 {
     fs::symlink_metadata(p).unwrap().permissions().mode() & 0o777
 }
@@ -407,12 +421,18 @@ fn test_ledger_fake_clock_cap_and_panic_demotion() {
     let o = h.run(&["install"]);
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
     assert_eq!(h.kinds().last().map(String::as_str), Some("charter"));
-    let d = h.daemon(&[("INIT_ROOT_TEST_NOW", "2026-11-01T00:00:00Z")]);
+    // The fake clock starts two days after the real one, on the hour. `install` above wrote its charter record at the real
+    // time, and a record's `at` never goes back (lineage `seal`), so a start before today would stamp every later record
+    // with the install's real time: the constant 2026-11-01T00:00:00Z did, from that day on (REL-055).
+    let real = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs() as i64;
+    let start = (real / 3600 + 48) * 3600;
+    let (t0, t1) = (rfc3339(start), rfc3339(start + 3600));
+    let d = h.daemon(&[("INIT_ROOT_TEST_NOW", &t0)]);
     let st = h.status();
-    assert_eq!((st["root"]["now"].as_str(), st["level"].as_i64(), st["slot"].as_str()), (Some("2026-11-01T00:00:00.000Z"), Some(2), Some("stopped")));
+    assert_eq!((st["root"]["now"].as_str(), st["level"].as_i64(), st["slot"].as_str()), (Some(t0.as_str()), Some(2), Some("stopped")));
     let o = h.run(&["test", "clock", "--advance", "3600"]);
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
-    assert_eq!(h.status()["root"]["now"], "2026-11-01T01:00:00.000Z");
+    assert_eq!(h.status()["root"]["now"], t1.as_str());
     assert_eq!(h.run(&["test", "clock", "--set", "2026-10-01T00:00:00Z"]).status.code(), Some(2), "never backwards");
     // lowering max_level below the level caps it (RT-L5), with no rollback
     fs::write(h.rh.join("charter.toml"), charter("[root]\ntest_mode = true\n").replace("max_level = 4", "max_level = 1")).unwrap();
@@ -420,7 +440,7 @@ fn test_ledger_fake_clock_cap_and_panic_demotion() {
     assert_eq!(o.status.code(), Some(0), "{}", String::from_utf8_lossy(&o.stderr));
     let last = h.records().pop().unwrap();
     assert_eq!((last["kind"].as_str(), last["data"]["direction"].as_str(), last["data"]["to"].as_i64()), (Some("ladder"), Some("cap"), Some(1)));
-    assert_eq!(last["at"], "2026-11-01T01:00:00.000Z", "records follow the fake clock");
+    assert_eq!(last["at"], t1.as_str(), "records follow the fake clock");
     assert_eq!((h.status()["level"].as_i64(), h.status()["cap"].as_i64()), (Some(1), Some(1)));
     // a panic demotes one level (CH-2)
     assert_eq!(h.run(&["panic"]).status.code(), Some(0));

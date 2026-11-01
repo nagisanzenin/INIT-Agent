@@ -1089,7 +1089,7 @@ fn restore(src: &Path, ws: &Path, stage: &Path, fault: &mut dyn FnMut(&str) -> s
     let mode = fs::File::from(wsd.try_clone().map_err(|e| Refused(e.to_string()))?).metadata().map_err(|e| Refused(e.to_string()))?.mode() & 0o7777;
     let shown = util::sh_word(&ws.to_string_lossy());
     if !crate::sys::may_write_at(base) {
-        return Err(Refused(format!("{} itself is read-only (mode {mode:o}), so what is in it cannot be replaced; make it writable (chmod u+w \
+        return Err(Refused(format!("{} itself is read-only (mode {mode:o}), so what is in it cannot be replaced; make it writable (/bin/chmod u+w \
             {shown}) and /undo again", ws.display())));
     }
     let (new, old) = (stage.join("new"), stage.join("old"));
@@ -1110,8 +1110,11 @@ fn restore(src: &Path, ws: &Path, stage: &Path, fault: &mut dyn FnMut(&str) -> s
         let p = ws.join(n);
         let q = util::sh_word(&p.to_string_lossy());
         match unmovable(Some(base), Path::new(n)) {
-            Some(Stop::Locked) => return Err(Refused(format!("{} is locked (an immutable or append-only flag; ls -lO shows it), so it cannot \
-                be moved; unlock it (chflags nouchg {q}) and /undo again", p.display()))),
+            Some(Stop::Locked(f)) => {
+                let (what, unlock) = unlock_text(f, &q);
+                return Err(Refused(format!("{} is locked ({what}; /bin/ls -lO shows it), so it cannot be moved; unlock it ({unlock}) and /undo \
+                    again", p.display())));
+            }
             Some(Stop::Foreign) => return Err(Refused(format!("{} is a read-only folder of another user, so it cannot be moved aside; make it \
                 writable for you, or move it out of {}, and /undo again", p.display(), ws.display()))),
             None => {}
@@ -1154,8 +1157,9 @@ fn predates(target: &Value, ours: Option<u32>) -> String {
 enum Why {
     /// EPERM, no lock flag: the owner is not a member of the group (the only other EPERM of a chown by the owner)
     NotMember,
-    /// EPERM on an entry with a lock flag (`uchg`, `uappnd`): even its owner cannot change it
-    Locked,
+    /// EPERM on an entry with a lock flag (`uchg`, `uappnd`, `schg`, `sappnd`): even its owner cannot change it. Its
+    /// BSD flags (v0.5.5), so the notice names the right one; 0 from a record of v0.5.4, which kept none
+    Locked(u32),
     /// any other errno
     Errno(i32),
 }
@@ -1163,7 +1167,7 @@ enum Why {
 impl Why {
     fn of(e: &std::io::Error, flags: u32) -> Why {
         match e.raw_os_error() {
-            Some(libc::EPERM) if crate::sys::locked_flags(flags) => Why::Locked,
+            Some(libc::EPERM) if crate::sys::locked_flags(flags) => Why::Locked(flags),
             Some(libc::EPERM) => Why::NotMember,
             Some(n) => Why::Errno(n),
             None => Why::Errno(0),
@@ -1233,7 +1237,7 @@ impl Kept {
         // `to_string_lossy`: json! of a Path that is not UTF-8 would panic (APFS names are UTF-8, but never panic here)
         let why = |w: &Why| match w {
             Why::NotMember => json!({"why": "not_member"}),
-            Why::Locked => json!({"why": "locked"}),
+            Why::Locked(f) => json!({"why": "locked", "flags": f}),
             Why::Errno(n) => json!({"why": "errno", "errno": n}),
         };
         json!({"n": self.n, "some": self.some.iter().map(|(p, g, w)| {
@@ -1250,7 +1254,7 @@ impl Kept {
         let some = v["some"].as_array().into_iter().flatten().take(Self::SHOWN)
             .filter_map(|e| {
                 let why = match e["why"].as_str() {
-                    Some("locked") => Why::Locked,
+                    Some("locked") => Why::Locked(e["flags"].as_u64().and_then(|n| u32::try_from(n).ok()).unwrap_or(0)),
                     Some("errno") => Why::Errno(e["errno"].as_i64().and_then(|n| i32::try_from(n).ok()).unwrap_or(0)),
                     _ => Why::NotMember, // "not_member", or a record from before N1
                 };
@@ -1284,13 +1288,16 @@ impl Kept {
         let members: Vec<&(PathBuf, u32, Why)> = self.some.iter().filter(|e| e.2 == Why::NotMember).collect();
         if let Some((p, g, _)) = members.first() {
             let list: Vec<String> = members.iter().map(|(p, g, _)| item(p, *g)).collect();
-            parts.push(format!("{}: you are not a member of that group (an administrator can set one back: sudo chgrp -h {} {})", list.join(", "),
-                gq(*g), pq(p)));
+            parts.push(format!("{}: you are not a member of that group (an administrator can set one back: /usr/bin/sudo /usr/bin/chgrp -h {} \
+                {})", list.join(", "), gq(*g), pq(p)));
         }
         for (p, g, w) in &self.some {
             match w {
-                Why::Locked => parts.push(format!("{}: it is locked (an immutable or append-only flag), so chflags nouchg {} comes first, then \
-                    chgrp -h {} {}", item(p, *g), pq(p), gq(*g), pq(p))),
+                Why::Locked(f) => {
+                    let (what, unlock) = unlock_text(*f, &pq(p));
+                    parts.push(format!("{}: it is locked ({what}), so {unlock} comes first, then /usr/bin/chgrp -h {} {}", item(p, *g), gq(*g),
+                        pq(p)));
+                }
                 Why::Errno(n) => parts.push(format!("{}: could not be set (errno {n})", item(p, *g))),
                 Why::NotMember => {}
             }
@@ -1351,10 +1358,29 @@ fn copy_groups(src: &Path, dst: &Path) -> Kept {
     kept
 }
 
+/// v0.5.5 (lane U, REL-054 §7.5): what a notice says of entry `q` (shell-quoted) locked by `flags`: what kind of flag,
+/// and the command that clears it, worded by the flags found. v0.5.4 said `chflags nouchg` for every lock flag, which
+/// leaves `uappnd` (so the `chgrp` after it still failed), cannot clear `schg` or `sappnd` (root only), and without `-h`
+/// follows a link. A record from v0.5.4 kept no flags (0): both of the owner's, which clears either. Every command a
+/// notice tells the owner to type is by its absolute path: their PATH may start with the agent-writable ~/.local/bin,
+/// where a planted `sudo` would capture their password.
+fn unlock_text(flags: u32, q: &str) -> (&'static str, String) {
+    let mut names = crate::sys::lock_names(flags);
+    if names.is_empty() {
+        names = vec!["uchg", "uappnd"];
+    }
+    let off = names.iter().map(|n| format!("no{n}")).collect::<Vec<_>>().join(",");
+    if names.iter().any(|n| matches!(*n, "schg" | "sappnd")) {
+        return ("a system flag, which only an administrator can clear, and which may need Recovery mode if the system's securelevel \
+            forbids it", format!("/usr/bin/sudo /usr/bin/chflags -h {off} {q}"));
+    }
+    ("an immutable or append-only flag", format!("/usr/bin/chflags -h {off} {q}"))
+}
+
 /// What stops an entry from moving ([`restore`]'s check before any move).
 enum Stop {
-    /// An immutable or append-only flag: a rename is refused even to the owner.
-    Locked,
+    /// An immutable or append-only flag: a rename is refused even to the owner. The entry's BSD flags.
+    Locked(u32),
     /// A read-only folder of another user: a move to another parent needs write permission on the folder itself.
     Foreign,
 }
@@ -1363,7 +1389,7 @@ enum Stop {
 fn unmovable(dir: Option<std::os::fd::BorrowedFd>, name: &Path) -> Option<Stop> {
     let st = crate::sys::stat_at(dir, name).ok()?; // gone meanwhile: its move fails, and every move is put back
     if crate::sys::locked_flags(st.flags) {
-        return Some(Stop::Locked);
+        return Some(Stop::Locked(st.flags));
     }
     (st.is_dir() && st.mode & 0o200 == 0 && st.uid != crate::sys::euid()).then_some(Stop::Foreign)
 }
@@ -1544,35 +1570,77 @@ mod msg_tests {
         assert_eq!(one().for_restore(&json!({})).skipped, 1, "a record from before v0.5.4 has none: the restore's walk counts");
     }
 
-    /// v0.5.4 (review 5, N1): a copy whose file is locked (`uchg`) keeps its group, and the notice says it is locked and
-    /// that `chflags nouchg` comes first, not that the owner is not a member of the group.
+    /// v0.5.4 (review 5, N1): a copy whose file is locked keeps its group, and the notice says it is locked, not that
+    /// the owner is not a member of the group. v0.5.5 (REL-054 §7.5): its commands are worded by the flag found, by
+    /// their absolute paths, and run as printed they clear it and set the group. v0.5.4 printed `chflags nouchg` for
+    /// `uappnd` too, which left that flag, so the `chgrp` after it failed.
     #[cfg(target_os = "macos")]
     #[test]
     fn a_locked_entry_is_named_as_locked() {
         use std::os::unix::fs::{MetadataExt, lchown};
+        use std::process::Command;
         let top = swap_fixture("lock");
         let (src, dst) = (top.join("w/ws"), top.join("snap"));
         let mine = fs::metadata(dst.join("README")).unwrap().gid();
         // a group this user can set, other than the copy's
-        let out = std::process::Command::new("/usr/bin/id").arg("-G").output().unwrap();
-        let set = String::from_utf8_lossy(&out.stdout).split_whitespace().filter_map(|g| g.parse::<u32>().ok())
-            .any(|g| g != mine && lchown(src.join("README"), None, Some(g)).is_ok());
-        if !set {
+        let out = Command::new("/usr/bin/id").arg("-G").output().unwrap();
+        let theirs = String::from_utf8_lossy(&out.stdout).split_whitespace().filter_map(|g| g.parse::<u32>().ok())
+            .find(|&g| g != mine && lchown(src.join("README"), None, Some(g)).is_ok());
+        let Some(theirs) = theirs else {
             eprintln!("SKIP a_locked_entry_is_named_as_locked: no second group this user can set (id -G)");
             fs::remove_dir_all(&top).unwrap(); // exact path, created above
             return;
+        };
+        let sh = |c: &str| Command::new("/bin/sh").arg("-c").arg(c).status().is_ok_and(|s| s.success());
+        for (set, off) in [("uchg", "nouchg"), ("uappnd", "nouappnd"), ("uchg,uappnd", "nouchg,nouappnd")] {
+            let (s, d) = (src.join(set), dst.join(set));
+            fs::write(&s, "").unwrap();
+            fs::write(&d, "").unwrap();
+            lchown(&s, None, Some(theirs)).unwrap();
+            assert!(Command::new("/usr/bin/chflags").arg(set).arg(&d).status().unwrap().success());
+            let k = copy_groups(&src, &dst);
+            let t = k.text(&dst, None);
+            // the notice's two commands, run as printed
+            let (unlock, chgrp) = t.split_once(", so ").and_then(|(_, r)| r.split_once(" comes first, then ")).unwrap_or_default();
+            let ran = sh(unlock) && sh(chgrp);
+            let _ = Command::new("/usr/bin/chflags").args(["-h", "nouchg,nouappnd"]).arg(&d).status(); // whatever ran
+            assert_eq!(k.n, 1, "{set}: {:?}", k.some);
+            assert!(matches!(k.some[0].2, Why::Locked(f) if crate::sys::lock_names(f) == set.split(',').collect::<Vec<_>>()), "{set}: {:?}", k.some);
+            let q = util::sh_word(&d.to_string_lossy());
+            assert_eq!(unlock, format!("/usr/bin/chflags -h {off} {q}"), "{t}");
+            assert_eq!(chgrp, format!("/usr/bin/chgrp -h {} {q}", util::sh_word(&crate::sys::group_name(theirs))), "{t}");
+            assert!(t.contains("it is locked (an immutable or append-only flag)") && !t.contains("not a member"), "{t}");
+            assert!(ran, "{set}: the printed commands clear the flag and set the group: {t}");
+            assert_eq!(fs::symlink_metadata(&d).unwrap().gid(), theirs, "{set}");
+            assert_eq!(Kept::from_json(&k.json()).some[0].2, k.some[0].2, "the record keeps the cause and the flags");
         }
-        let flag = |f: &str| assert!(std::process::Command::new("/usr/bin/chflags").arg(f).arg(dst.join("README")).status().unwrap().success());
-        flag("uchg");
-        let k = copy_groups(&src, &dst);
-        flag("nouchg");
-        assert_eq!(fs::metadata(dst.join("README")).unwrap().gid(), mine, "a locked entry keeps the copy's group");
-        assert_eq!(k.n, 1);
-        assert_eq!(k.some[0].2, Why::Locked, "{:?}", k.some);
-        let t = k.text(&src, None);
-        assert!(t.contains("it is locked") && t.contains("chflags nouchg") && !t.contains("not a member"), "{t}");
-        assert_eq!(Kept::from_json(&k.json()).some[0].2, Why::Locked, "the record keeps the cause");
         fs::remove_dir_all(&top).unwrap(); // exact path, created above
+    }
+
+    /// v0.5.5 (REL-054 §7.5): a system flag (`schg`, `sappnd`: only root may set one, so here from its bits) is named as
+    /// one only an administrator can clear, with `sudo` and `chflags -h` by their absolute paths; the owner's own
+    /// flag by its name; and an entry of a record from v0.5.4, which kept no flags, gets both of the owner's.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_system_flag_is_left_to_an_administrator() {
+        let q = "'/w/a b'";
+        for (f, off) in [(libc::SF_IMMUTABLE, "noschg"), (libc::SF_APPEND, "nosappnd"), (libc::SF_IMMUTABLE | libc::SF_APPEND, "noschg,nosappnd"),
+            (libc::UF_IMMUTABLE | libc::SF_APPEND, "nouchg,nosappnd")] {
+            let (what, unlock) = unlock_text(f, q);
+            assert!(what.starts_with("a system flag, which only an administrator can clear") && what.contains("Recovery mode"), "{what}");
+            assert_eq!(unlock, format!("/usr/bin/sudo /usr/bin/chflags -h {off} {q}"));
+        }
+        assert_eq!(unlock_text(libc::UF_APPEND, q), ("an immutable or append-only flag", format!("/usr/bin/chflags -h nouappnd {q}")));
+        let mut k = Kept::default();
+        k.add(PathBuf::from("a b"), 0, Why::Locked(libc::SF_IMMUTABLE));
+        let t = k.text(Path::new("/w"), None);
+        assert!(t.contains(&format!("a b (wheel): it is locked (a system flag, which only an administrator can clear, and which may need \
+            Recovery mode if the system's securelevel forbids it), so /usr/bin/sudo /usr/bin/chflags -h noschg {q} comes first, then \
+            /usr/bin/chgrp -h wheel {q}")), "{t}");
+        let old = Kept::from_json(&json!({"n": 1, "some": [{"path": "a b", "gid": 0, "why": "locked"}]}));
+        assert_eq!(old.some[0].2, Why::Locked(0), "a record from v0.5.4");
+        let t = old.text(Path::new("/w"), None);
+        assert!(t.contains(&format!("so /usr/bin/chflags -h nouchg,nouappnd {q} comes first")), "{t}");
     }
 
     /// Lane U: a link at the workspace's path, or at a folder above it, when the restore starts refuses it before

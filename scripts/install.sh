@@ -142,11 +142,11 @@ AA_PROFILE=/etc/apparmor.d/init-agent
 apparmor_commands() { # the one-time commands, printed verbatim (one per line); run only with --apparmor and a yes
   local g; g="$(id -g)"
   cat <<EOF
-sudo install -d -o root -g root -m 0755 $HELPERS
-sudo install -o root -g $g -m 0750 /usr/bin/unshare $HELPERS/unshare
-sudo install -o root -g $g -m 0750 /usr/bin/bwrap $HELPERS/bwrap
-printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile init-agent-unshare $HELPERS/unshare flags=(unconfined) {' '  userns,' '}' 'profile init-agent-bwrap $HELPERS/bwrap flags=(unconfined) {' '  userns,' '}' | sudo tee $AA_PROFILE >/dev/null
-sudo apparmor_parser -r $AA_PROFILE
+/usr/bin/sudo install -d -o root -g root -m 0755 $HELPERS
+/usr/bin/sudo install -o root -g $g -m 0750 /usr/bin/unshare $HELPERS/unshare
+/usr/bin/sudo install -o root -g $g -m 0750 /usr/bin/bwrap $HELPERS/bwrap
+printf '%s\n' 'abi <abi/4.0>,' 'include <tunables/global>' 'profile init-agent-unshare $HELPERS/unshare flags=(unconfined) {' '  userns,' '}' 'profile init-agent-bwrap $HELPERS/bwrap flags=(unconfined) {' '  userns,' '}' | /usr/bin/sudo tee $AA_PROFILE >/dev/null
+/usr/bin/sudo apparmor_parser -r $AA_PROFILE
 EOF
 }
 if [ $PRINT_APPARMOR = 1 ]; then apparmor_commands; exit 0; fi
@@ -166,6 +166,11 @@ BIN_DIR="${INIT_BIN_DIR:-$HOME/.local/bin}"
 shq() { case "$1" in ''|*[!A-Za-z0-9/._+,:@%=-]*) printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")" ;; *) printf '%s' "$1" ;; esac; }
 # rh_env: "INIT_ROOT_HOME=<ROOT_HOME> " when a new terminal would not find this ROOT_HOME (not ~/.init-root), else ""
 rh_env() { [ -n "$PW_HOME" ] && [ "$RH" = "$PW_HOME/.init-root" ] || printf 'INIT_ROOT_HOME=%s ' "$(shq "$RH")"; }
+# The uninstaller, as get.sh prints it (its UNINSTALL; tests/install checks they are the same): the current
+# uninstall.sh, downloaded and run from memory. v0.5.5 (review B of lane J): never this release's own copy, which
+# install.sh printed until v0.5.4: a fresh install's release folder (~/.local/share/init/<version>/) is the owner's, and
+# a full-access agent can change it. (An upgrade's copy, under ROOT_HOME/cache/upgrade/, is out of its reach.)
+uninstall_line() { printf '%s' "$(rh_env)"'/bin/bash -p -c '"'"'s="$(/usr/bin/curl -q -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh)" && /bin/bash -p -c "$s" uninstall.sh'"'"; }
 rcmd() { printf '%s%s' "$(rh_env)" "$(shq "$RH/bin/init-root")"; [ $# = 0 ] || printf ' %s' "$*"; }
 # v0.5.3 (the post-release review of v0.5.2): `init-agent` is printed with its path too (get.sh's tilde and agent). A
 # bare `init-agent …` is "command not found" on a fresh Mac, whose PATH lacks ~/.local/bin. Under HOME the path is
@@ -182,12 +187,16 @@ except Exception: pass' "$RH/install.json" 2>/dev/null || true)"
 # v0.5.3: the PATH hint names the startup file of the owner's shell ($SHELL); it always said ~/.zshrc, which a Linux
 # bash user never reads. zsh: ~/.zshrc (in ZDOTDIR when set). bash: ~/.bashrc on Linux; on macOS, whose terminals open
 # login shells, the file a login bash reads (~/.bash_profile, else ~/.bash_login, else ~/.profile; a new
-# ~/.bash_profile would hide an existing ~/.profile). fish: fish_add_path. Any other shell: ~/.profile.
-path_add() { # <dir>: the command that puts <dir> on PATH in the owner's new terminals
+# ~/.bash_profile would hide an existing ~/.profile). fish: ~/.config/fish/config.fish. Any other shell: ~/.profile.
+# v0.5.5 (the coordinator's review of lane J): <dir> goes LAST on PATH, never first. With it first, every bare command
+# the owner types (sudo, bash, git, launchctl) can be shadowed by a file a full-access agent drops into ~/.local/bin; at
+# the end the system's own tools win, and init-agent, which exists nowhere else, still resolves. (fish_add_path, the
+# v0.5.4 fish hint, puts it first even with --append: fish_user_paths go before PATH.)
+path_add() { # <dir>: the command that puts <dir> on PATH in the owner's new terminals, after the system's folders
   local d="$1" h="${HOME%/}" rc f
   [ -n "$h" ] && [[ "$d" == "$h"/?* ]] && d="\$HOME/${d#"$h"/}"
   case "${SHELL##*/}" in
-    fish) printf 'fish_add_path %s' "$(tilde "$1")"; return ;;
+    fish) printf 'echo %s >> %s' "$(shq "$(BIN_DIR="$1" path_line)")" "$(tilde "${XDG_CONFIG_HOME:-$HOME/.config}/fish/config.fish")"; return ;;
     zsh) rc="$(tilde "${ZDOTDIR:-$HOME}/.zshrc")" ;;
     bash)
       if [ "$OS" = Darwin ]; then
@@ -199,7 +208,7 @@ path_add() { # <dir>: the command that puts <dir> on PATH in the owner's new ter
       fi ;;
     *) rc="$(tilde "$HOME/.profile")" ;;
   esac
-  printf 'echo %s >> %s' "$(shq "export PATH=\"$d:\$PATH\"")" "$rc"
+  printf 'echo %s >> %s' "$(shq "export PATH=\"\$PATH:$d\"")" "$rc"
 }
 # v0.5.4 (the owner's call, rustup and uv style; docs/ux-v1.md §3.2.5): the install puts BIN_DIR on PATH for new
 # terminals itself, so the README's install block is the one-liner. A marked block in the startup file path_add names
@@ -221,29 +230,137 @@ path_file() { # the startup file the block goes in, by $SHELL (path_add's choice
     *) return 1 ;; # csh, tcsh, nu, xonsh, …: no file of theirs reads export lines; the line is printed instead
   esac
 }
-path_line() { # the line that puts BIN_DIR first on PATH, quoted for that shell: $HOME/… under HOME (sh family)
+path_line() { # the line that puts BIN_DIR LAST on PATH (v0.5.5; path_add says why), quoted for that shell: $HOME/… under
+  # HOME (sh family). v0.5.4's put it first: path_old says how that one read.
   local h="${HOME%/}" d="$BIN_DIR" esc
   if [ "${SHELL##*/}" = fish ]; then # fish's single quotes: only \ and \' are escapes
     esc="'$(printf '%s' "$d" | sed "s/[\\\\']/\\\\&/g")'"
-    printf 'contains -- %s $PATH; or set -gx PATH %s $PATH' "$esc" "$esc"; return
+    printf 'contains -- %s $PATH; or set -gx PATH $PATH %s' "$esc" "$esc"; return
   fi
   if [ -n "$h" ] && [[ "$d" == "$h"/?* ]]; then esc="\$HOME/$(printf '%s' "${d#"$h"/}" | sed 's/[\\"$`]/\\&/g')"
   else esc="$(printf '%s' "$d" | sed 's/[\\"$`]/\\&/g')"; fi
-  printf 'export PATH="%s:$PATH"' "$esc"
+  printf 'export PATH="$PATH:%s"' "$esc"
+}
+path_old() { # the startup files whose INIT block is v0.5.4's for this BIN_DIR (BIN_DIR first on PATH), one per line
+  /usr/bin/python3 -I - "$PATH_BEGIN" "$BIN_DIR" "$HOME" "${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d/init-agent.fish" \
+    "${ZDOTDIR:-$HOME}/.zshrc" "$HOME/.bashrc" "$HOME/.bash_profile" "$HOME/.bash_login" "$HOME/.profile" <<'PY' 2>/dev/null || true
+import re, sys
+begin, bindir, home, *files = sys.argv[1:]
+sh = lambda d: re.sub(r'([\\"$`])', r"\\\1", d)
+fq = lambda d: "'" + re.sub(r"([\\'])", r"\\\1", d) + "'"
+h = home.rstrip("/")
+old = {'export PATH="%s:$PATH"' % sh(bindir), "contains -- %s $PATH; or set -gx PATH %s $PATH" % (fq(bindir), fq(bindir))}
+if h and bindir.startswith(h + "/") and len(bindir) > len(h) + 1:
+    old.add('export PATH="$HOME/%s:$PATH"' % sh(bindir[len(h) + 1:]))
+for f in dict.fromkeys(files):
+    try:
+        with open(f, "rb") as fh:
+            lines = fh.read().decode("utf-8", "surrogateescape").split("\n")
+    except Exception:
+        continue
+    if any(a == begin and b in old for a, b in zip(lines, lines[1:])):
+        print(f)
+PY
+}
+path_old_note() { # a note for each v0.5.4 block (the upgrade never edits startup files, nor does a re-install); 1 if none
+  local f n=0 f_shell
+  while IFS= read -r f; do
+    [ -n "$f" ] || continue
+    n=1
+    case "$f" in *.fish) f_shell=fish ;; *) f_shell=sh ;; esac
+    say "  note: $(tilde "$f") puts $(tilde "$BIN_DIR") first on PATH (INIT's block from v0.5.4); INIT now adds it last, so a command you type is the system's, not a file an agent dropped there. To change it, make the block's middle line: $(SHELL="$f_shell" path_line)"
+  done <<EOF
+$(path_old)
+EOF
+  [ $n = 1 ]
+}
+path_into() { # <file>: nothing when the block may go in it; `out` for a link out of HOME or not a regular file; else why
+  # not, as words after the file's name. INIT's folders: ROOT_HOME, INIT_HOME, BIN_DIR, the defaults ~/.init-root and
+  # ~/.init, ~/.config/init-agent (the key files), ~/.init-release, the releases get.sh unpacks, every ~/.init-root* and
+  # top-level folder of HOME with keys/ and an install.json (another install, as the Root finds them), and each one's
+  # INIT_HOME; and the service files (the LaunchAgent and the systemd user unit).
+  # v0.5.5 (review B of lane J): compared by file identity (device and inode), never as text. macOS's file systems
+  # ignore case and Unicode normalization, so ~/.zshrc linked to ~/.INIT-ROOT/charter.toml resolved to a path that no
+  # string matched, and the block went into the Root's charter. Each existing folder on the resolved path is compared,
+  # and a regular file with another hard link is refused too (it may be a name of a file in those folders).
+  /usr/bin/python3 -I - "$1" "$HOME" "$PW_HOME/Library/LaunchAgents/dev.init.root.plist" "$PW_HOME/.config/systemd/user/init-root.service" \
+    "$RH" "$IH" "$BIN_DIR" "${INIT_APP_DIR:-$HOME/.local/share/init}" <<'PY' 2>/dev/null || echo "cannot be checked"
+import json, os, sys
+f, home, *rest = sys.argv[1:]
+services, own = rest[:2], rest[2:]
+def ident(p):  # (device, inode), or None when p does not exist
+    try:
+        st = os.stat(p)
+        return (st.st_dev, st.st_ino)
+    except (OSError, ValueError):
+        return None
+def chain(p):  # the identities of p and each folder above it that exists
+    out = []
+    while True:
+        i = ident(p)
+        if i:
+            out.append(i)
+        if p in ("/", ""):
+            return out
+        p = os.path.dirname(p)
+dirs = [d for d in own if d] + [os.path.join(home, n) for n in (".init-root", ".init", ".config/init-agent", ".init-release")]
+try:
+    dirs += [os.path.join(home, n) for n in sorted(os.listdir(home))
+             if n.lower().startswith(".init-root") or os.path.isdir(os.path.join(home, n, "keys")) and os.path.isfile(os.path.join(home, n, "install.json"))]
+except OSError:
+    pass
+for d in list(dirs):
+    try:
+        with open(os.path.join(d, "install.json")) as j:
+            ih = json.load(j).get("init_home")
+        if isinstance(ih, str) and ih:
+            dirs.append(ih)
+    except Exception:
+        pass
+holds_home = set(chain(os.path.realpath(home or "/")))  # never a folder that holds HOME itself
+inits = {}
+for d in dirs:
+    i = ident(d)
+    if i and i not in holds_home and os.path.isdir(d):
+        inits.setdefault(i, d)
+real, link = os.path.realpath(f), os.path.islink(f)
+if link and not os.path.exists(f):
+    print("is a link to %s, which does not exist" % real)
+    sys.exit(0)
+for s in services:
+    if ident(s) and ident(s) == ident(real):
+        print("leads to %s, INIT's service file" % s)
+        sys.exit(0)
+for i in chain(real):
+    if i in inits:
+        print("leads into %s, one of INIT's own folders" % inits[i])
+        sys.exit(0)
+if os.path.isfile(real) and os.stat(real).st_nlink > 1:
+    print("has another hard link (another name for the same file, which may be in INIT's folders)")
+    sys.exit(0)
+h = ident(os.path.realpath(home or "/"))
+if (link and h not in chain(os.path.dirname(real))) or (os.path.exists(f) and not os.path.isfile(f)):
+    print("out")
+PY
 }
 path_step() { # step 6: the block, or why not; prints one line
   local f
+  path_old_note && return 0 # v0.5.5: a v0.5.4 block is there already: say so, and add no second one
   case ":$PATH:" in *":$BIN_DIR:"*) return 0 ;; esac
   if [ $NO_MODIFY_PATH = 1 ]; then say "  note: $BIN_DIR is not on your PATH (--no-modify-path: left as it is); add it: $(path_add "$BIN_DIR")"; return 0; fi
   f="$(path_file)" || { say "  note: $BIN_DIR is not on your PATH, and INIT does not edit the startup files of ${SHELL##*/}: add it yourself"; return 0; }
-  # a link that leads out of HOME, or anything but a regular file: not written through (v0.5.4, the release review)
-  if [ -L "$f" ] || { [ -e "$f" ] && [ ! -f "$f" ]; }; then
-    case "$(/usr/bin/python3 -I -c 'import os,sys; print(os.path.realpath(sys.argv[1]))' "$f" 2>/dev/null)/" in
-      "${HOME%/}"/?*/) [ ! -e "$f" ] || [ -f "$f" ] || f="" ;;
-      *) f="" ;;
-    esac
-    [ -n "$f" ] || { say "  note: $BIN_DIR is not on your PATH, and $(tilde "$(path_file)") is a link out of your home or not a regular file, so INIT leaves it alone: add it yourself: $(path_add "$BIN_DIR")"; return 0; }
-  fi
+  # a link that leads out of HOME, or anything but a regular file: not written through (v0.5.4, the release review).
+  # v0.5.5 (the post-release review of v0.5.4): nor a link that leads nowhere, nor a path that leads into INIT's own
+  # folders. A link an earlier agent left (~/.zshrc to ~/.init-root/charter.toml) had a fresh install append the block
+  # to that file, and a dangling link created its target. For those the note prints the line itself: path_add's
+  # `echo … >> <file>` would write through the same link.
+  local why
+  why="$(path_into "$f")"
+  case "$why" in
+    "") ;;
+    out) say "  note: $BIN_DIR is not on your PATH, and $(tilde "$f") is a link out of your home or not a regular file, so INIT leaves it alone: add it yourself: $(path_add "$BIN_DIR")"; return 0 ;;
+    *) say "  note: $BIN_DIR is not on your PATH, and $(tilde "$f") $why, so INIT does not write to it. Check it, then add this line to your shell's startup file yourself: $(path_line)"; return 0 ;;
+  esac
   # this install's block only: another install's block names another directory (v0.5.4, the release review)
   if [ -f "$f" ] && grep -qxF "$PATH_BEGIN" "$f" && grep -qxF "$(path_line)" "$f"; then say "  $(tilde "$f") already puts $BIN_DIR on PATH (INIT's block); open a new terminal, or run $(tilde "$BIN_DIR/init-agent") now"; return 0; fi
   mkdir -p "$(dirname "$f")" || { say "  note: cannot create $(dirname "$f"); add $BIN_DIR to PATH yourself: $(path_add "$BIN_DIR")"; return 0; }
@@ -330,7 +447,7 @@ case "$OS" in
     if ! { ns_bwrap && ns_unshare && ns_nested; } \
       && [ "$(cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns 2>/dev/null)" = 1 ]; then
       if [ "$BWRAP" = "$HELPERS/bwrap" ] && [ "$UNSHARE" = "$HELPERS/unshare" ]; then
-        die "INIT's copies in $HELPERS are there, but they still cannot create user namespaces: is the AppArmor profile loaded? Run: sudo apparmor_parser -r $AA_PROFILE (the commands of install.sh --print-apparmor; docs/platforms.md, Linux install)"
+        die "INIT's copies in $HELPERS are there, but they still cannot create user namespaces: is the AppArmor profile loaded? Run: /usr/bin/sudo apparmor_parser -r $AA_PROFILE (the commands of install.sh --print-apparmor; docs/platforms.md, Linux install)"
       fi
       say ""
       say "This Linux restricts unprivileged user namespaces through AppArmor (kernel.apparmor_restrict_unprivileged_userns = 1),"
@@ -345,7 +462,8 @@ case "$OS" in
       printf 'Run these commands now with sudo? [Y/n] ' >/dev/tty
       IFS= read -r AA_ANSWER </dev/tty || AA_ANSWER=n
       case "$AA_ANSWER" in ""|y|Y|yes|Yes|YES) ;; *) die "nothing was changed; run the commands above yourself, then the installer again" ;; esac
-      apparmor_commands | /bin/bash -e || die "the commands failed (see above)"
+      # bash -p (v0.5.5, review B of lane J): without it the child bash runs BASH_ENV's file and imports exported functions
+      apparmor_commands | /bin/bash -p -e || die "the commands failed (see above)"
       entries
     fi
     ns_bwrap \
@@ -382,6 +500,13 @@ case "$OS/$(uname -m)" in # the host a toolchain must be for (an x86_64 one runs
   Darwin/arm64) HOST_TRIPLE=aarch64-apple-darwin ;; Linux/x86_64) HOST_TRIPLE=x86_64-unknown-linux-gnu ;;
   Linux/aarch64) HOST_TRIPLE=aarch64-unknown-linux-gnu ;; *) HOST_TRIPLE="" ;;
 esac
+# v0.5.5 (review B of lane J): this host's toolchain, by its full name. `rustup toolchain install 1.97.1` installs it for
+# rustup's default host, which an x86_64 rustup on Apple silicon (Rosetta) sets to x86_64-apple-darwin; the folder the
+# closing steps name (RUST_SET, 1.97.1-<this host>) then did not exist. Checked with rustup 1.29.0 (an arm64 binary) in a
+# scratch RUSTUP_HOME whose default host is x86_64-apple-darwin: `1.97.1` resolves to 1.97.1-x86_64-apple-darwin, and
+# `1.97.1-aarch64-apple-darwin` is taken without --force-non-host (it went on to the download). An x86_64 rustup binary
+# was not at hand to check, so the closing steps also say what `rustup toolchain list` shows once it worked.
+[ -z "$HOST_TRIPLE" ] || RUST_ADD="rustup toolchain install 1.97.1-$HOST_TRIPLE --profile minimal --component clippy --target wasm32-wasip2"
 rustc_info() { # <rustc>: "<rustc -V>|<host>", or "" when it does not run
   local i; i="$("$1" -vV 2>/dev/null || true)"
   [ -n "$i" ] && printf '%s|%s' "$(printf '%s\n' "$i" | sed -n 1p)" "$(printf '%s\n' "$i" | sed -n 's/^host: //p')"
@@ -397,7 +522,11 @@ bundle_toolchain() {
     fi
     return 0
   fi
+  # v0.5.5 (the post-release review of v0.5.4): the toolchain RUST_ADD installs, by its folder, which is
+  # RUSTUP_HOME/toolchains/1.97.1-<host> (and only this host's is taken, below). It was
+  # "$(rustup run 1.97.1 rustc --print sysroot)", which fish before 3.4 cannot read (Ubuntu 22.04 ships fish 3.3.1).
   RUST_FIX="$RUST_ADD"; RUST_SET='"$(rustup run 1.97.1 rustc --print sysroot)"'
+  [ -z "$HOST_TRIPLE" ] || RUST_SET="$(shq "${RUSTUP_HOME:-$HOME/.rustup}/toolchains/1.97.1-$HOST_TRIPLE")"
   RUSTC="$("$RUSTUP" which rustc 2>/dev/null || true)"
   if [ -x "$RUSTC" ]; then i="$(rustc_info "$RUSTC")"; def="${i%%|*}"; v="$def"; h="${i#*|}"; fi
   case "$v" in rustc\ 1.97.*) [ -z "$HOST_TRIPLE" ] || [ "$h" = "$HOST_TRIPLE" ] || v="" ;; esac
@@ -471,7 +600,7 @@ ver_lt() { /usr/bin/python3 -I -c 'import sys; v = lambda s: tuple(int(x) for x 
 sys.exit(0 if v(sys.argv[1]) < v(sys.argv[2]) else 1)' "$1" "$2"; }
 too_old() { # <version>
   die "INIT $1 is installed ${ELSEWHERE:-in $RH}. An upgrade from a release before 0.4.1 is not supported: uninstall it first (it moves INIT, its record and your provider key to the Trash; nothing is deleted), then run this again:
-  $(rh_env)/bin/bash -p $(shq "$REPO/scripts/uninstall.sh")$SECOND"
+  $(uninstall_line)$SECOND"
 }
 # INIT installed in another ROOT_HOME (v0.5.2; get.sh checks the same, with the same two functions). An owner who
 # installed with INIT_ROOT_HOME=X and installs again without it would get a second install: step 7 rewrites the one
@@ -529,7 +658,7 @@ if [ ! -e "$RH/install.json" ]; then
     else
       ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). A second install, in $NEW, would take that over and leave this one behind"
       SECOND="
-(For a separate, second INIT instead: give it its own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, and pass --no-service.)"
+(For a separate, second INIT instead: give it its own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, and pass --no-service --no-modify-path.)"
     fi
   fi
 fi
@@ -763,6 +892,7 @@ sys.exit(0)' "$RH/run/root.lock"
       || die "the commit failed (above). $(left_stopped "$(rcmd upgrade --commit)" "to go back to the old version instead: $(rcmd upgrade --rollback)")"
     keep_get
     svc_start
+    path_old_note || true # v0.5.5: a v0.5.4 PATH block puts BIN_DIR first; the upgrade says so and edits nothing
     # v0.5.4 (review 6): named for what it measures, as the fresh install's line is; get.sh prints the whole run's total
     ELAPSED=$(( $(date +%s) - T_START ))
     cat <<EOF
@@ -1019,9 +1149,6 @@ ELAPSED=$(( $(date +%s) - T_START ))
 PATH_HINT="" # the README's bare `init-agent` needs BIN_DIR on PATH; a default macOS PATH lacks ~/.local/bin (REL-051)
 if [ -n "$PATH_ADDED" ]; then PATH_HINT="   (in a new terminal, init-agent alone: $(tilde "$PATH_ADDED") now puts $(tilde "$BIN_DIR") on PATH)"
 else case ":$PATH:" in *":$BIN_DIR:"*) ;; *) PATH_HINT="   ($BIN_DIR is not on your PATH; to type just init-agent, add: $(path_add "$BIN_DIR"))" ;; esac; fi
-# v0.5.4 (review 6): the README's line downloads the uninstaller for the default home; for another home it finds
-# nothing to uninstall until INIT_ROOT_HOME= is put in front, so this says so (it said "works from anywhere")
-RH_ENV="$(rh_env)"; UNI_NOTE=""; [ -z "$RH_ENV" ] || UNI_NOTE="; put ${RH_ENV% } in front of it"
 cat <<EOF
 
 INIT v$VERSION is installed (install.sh took $(( ELAPSED / 60 )) min $(( ELAPSED % 60 )) s).
@@ -1035,8 +1162,9 @@ Your limits: $RH/charter.toml (edit, then: $(rcmd charter check --apply)).
              a goal's usd= budget is enforced; set a limit at your provider.
 Logs:        $RH/logs/ (the Root), $IH/state/kernel/logs/ (the kernel and the body)
 Upgrade:     $(tilde "$BIN_DIR/init-agent") upgrade (keeps what INIT has become: its body, lineage, keys and charter)
-Uninstall:   $RH_ENV/bin/bash -p $(shq "$REPO/scripts/uninstall.sh")   (moves both homes to the Trash; the README's first
-             screen has a line that downloads it, for when this copy is gone: github.com/nagisanzenin/INIT-Agent$UNI_NOTE)
+Uninstall:   $(uninstall_line)
+             (moves both homes to the Trash; it downloads the current uninstaller and runs it from memory, not the copy
+             in this release's folder, which a full-access agent can change)
 EOF
 if [ "$ACCESS_EFF" = workspace ]; then
   cat <<EOF
@@ -1065,7 +1193,7 @@ if [ "$TC" = none ]; then
 Self-evolution: T0 only (skills, prompts, extension source). Rebuilding itself (T1/T2) needs Rust 1.97.1 with
 wasm32-wasip2. get.sh installs it unless you passed --no-rust (or rustup failed). To add it now$([ "$RUST_FIX" = "$RUSTUP_CMD" ] || echo " (your default toolchain stays as it is)"):
   $RUST_FIX
-then record it with the Root stopped (/root stop stops only the agent, and the Root holds the lock):
+then$([ "$RUST_FIX" != "$RUST_ADD" ] || [ -z "$HOST_TRIPLE" ] || echo ", once rustup toolchain list shows 1.97.1-$HOST_TRIPLE,") record it with the Root stopped (/root stop stops only the agent, and the Root holds the lock):
   $RSTOP
   $(rcmd toolchain --set)${RUST_SET:+ $RUST_SET}
   $RSTART

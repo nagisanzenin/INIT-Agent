@@ -248,19 +248,11 @@ fn existing(l: &Layout, list: &[PathBuf]) -> Vec<(PathBuf, bool)> {
 /// the read-only bind with it and leave the original path free to recreate. Every ancestor of every existing deny entry,
 /// from just below the owner's home (just below `/` for an entry outside the home) down to its parent, is bound onto
 /// itself read-write, outer first: a mount point cannot be renamed or removed (`EBUSY`), and its contents stay writable.
-/// Measured by lane fa-linux (bwrap 0.13.0, Linux 6.10).
+/// Measured by lane fa-linux (bwrap 0.13.0, Linux 6.10). Which folders: [`crate::access::pinned_ancestors`] (v0.5.5: a
+/// folder above ROOT_HOME or INIT_HOME is pinned too; only folders inside them are left to their own plans).
 fn pinned_ancestors(l: &Layout) -> Vec<PathBuf> {
-    let mut out: Vec<PathBuf> = Vec::new();
-    for (q, _) in existing(l, &l.read_deny).into_iter().chain(existing(l, &l.write_deny)) {
-        let base = if q.starts_with(&l.home) && q != l.home { l.home.as_path() } else { Path::new("/") };
-        for a in q.ancestors().skip(1).take_while(|a| *a != base && a.starts_with(base)) {
-            if !out.iter().any(|o| o == a) && !overlap(a, &l.init_home) && !overlap(a, &l.root_home) {
-                out.push(a.to_path_buf());
-            }
-        }
-    }
-    out.sort_by_key(|a| a.components().count()); // outer to inner
-    out
+    let entries: Vec<PathBuf> = existing(l, &l.read_deny).into_iter().chain(existing(l, &l.write_deny)).map(|(q, _)| q).collect();
+    crate::access::pinned_ancestors(&l.home, [l.init_home.as_path(), l.root_home.as_path()], &entries)
 }
 
 /// ADR-012: the Root-protected set over the host root. ROOT_HOME is an empty read-only tmpfs (no keys, no owner.sock,

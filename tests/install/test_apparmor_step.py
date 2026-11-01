@@ -47,11 +47,11 @@ class AppArmorStep(unittest.TestCase):
         self.assertEqual(tree(self.tmp), before, "it writes nothing")
         lines = r.stdout.splitlines()
         gid = os.getgid()
-        self.assertEqual(lines[0], f"sudo install -d -o root -g root -m 0755 {HELPERS}")
-        self.assertEqual(lines[1], f"sudo install -o root -g {gid} -m 0750 /usr/bin/unshare {HELPERS}/unshare")
-        self.assertEqual(lines[2], f"sudo install -o root -g {gid} -m 0750 /usr/bin/bwrap {HELPERS}/bwrap")
-        self.assertTrue(lines[3].endswith("| sudo tee /etc/apparmor.d/init-agent >/dev/null"), lines[3])
-        self.assertEqual(lines[4], "sudo apparmor_parser -r /etc/apparmor.d/init-agent")
+        self.assertEqual(lines[0], f"/usr/bin/sudo install -d -o root -g root -m 0755 {HELPERS}")
+        self.assertEqual(lines[1], f"/usr/bin/sudo install -o root -g {gid} -m 0750 /usr/bin/unshare {HELPERS}/unshare")
+        self.assertEqual(lines[2], f"/usr/bin/sudo install -o root -g {gid} -m 0750 /usr/bin/bwrap {HELPERS}/bwrap")
+        self.assertTrue(lines[3].endswith("| /usr/bin/sudo tee /etc/apparmor.d/init-agent >/dev/null"), lines[3])
+        self.assertEqual(lines[4], "/usr/bin/sudo apparmor_parser -r /etc/apparmor.d/init-agent")
         self.assertEqual(len(lines), 5)
         # the profile text, as the printf writes it: two unconfined-mode profiles, each attached to one root-owned copy
         # and granting `userns` alone
@@ -84,6 +84,59 @@ class AppArmorStep(unittest.TestCase):
         self.assertEqual(r.returncode, 1)
         self.assertIn("unknown argument --bogus", r.stderr)
         self.assertEqual(tree(self.tmp), before)
+
+    def test_every_sudo_line_names_it_by_its_path(self):
+        # v0.5.5 (review B of lane J): a bare `sudo` in a line the owner types is found on PATH, and a full-access agent
+        # can write a PATH directory (~/.local/bin is on it): a planted sudo would get the owner's password. The
+        # uninstaller's removal commands, printed for a profile and copies that exist (here: in a scratch folder), and
+        # every line of install.sh and uninstall.sh that prints a command run with sudo
+        import test_printed_commands as pc
+        t = tempfile.mkdtemp(prefix="iaa-su-", dir="/tmp")
+        self.addCleanup(lambda: shutil.rmtree(t, ignore_errors=True))
+        prof, helpers = os.path.join(t, "init-agent"), os.path.join(t, "lib")
+        open(prof, "w").close()
+        os.makedirs(helpers)
+        src = pc.functions(os.path.join(SCRIPTS, "uninstall.sh"), "aa_remove") + "\naa_remove"
+        r = subprocess.run(["/bin/bash", "-p", "-c", src], env={"PATH": "/usr/bin:/bin", "AA_PROFILE": prof, "HELPERS": helpers},
+                           capture_output=True, text=True, timeout=30)
+        self.assertEqual(r.stdout.splitlines(), ["/usr/bin/sudo apparmor_parser -R " + prof, "/usr/bin/sudo rm -f " + prof,
+                                                 "/usr/bin/sudo rm -f %s/unshare %s/bwrap" % (helpers, helpers),
+                                                 "/usr/bin/sudo rmdir " + helpers], r.stderr)
+        bare = []
+        for name in ("install.sh", "uninstall.sh"):
+            with open(os.path.join(SCRIPTS, name)) as f:
+                for n, line in enumerate(f, 1):
+                    if not line.lstrip().startswith("#") and re.search(r"(?<![/\w.-])sudo [a-z_]", line):
+                        bare.append("%s:%d: %s" % (name, n, line.strip()))
+        self.assertEqual(bare, [], "a bare sudo in a printed command")
+
+
+class ChildBash(unittest.TestCase):
+    """v0.5.5 (review B of lane J): the commands the AppArmor step runs with sudo go to a child bash, which is started
+    as `/bin/bash -p -e`. Without -p that bash ran the file BASH_ENV names and imported exported functions, so the
+    environment, which a full-access agent can set through the owner's startup files, could run code first or in place
+    of a command. The case: each script's own pipeline, as written, fed `true` and `echo ok` in place of the commands
+    (no sudo runs), with a planted BASH_ENV and an exported function `true` that write a marker."""
+
+    def test_the_child_bash_takes_nothing_from_the_environment(self):
+        t = tempfile.mkdtemp(prefix="iaa-cb-", dir="/tmp")
+        self.addCleanup(lambda: shutil.rmtree(t, ignore_errors=True))
+        marker, evil = os.path.join(t, "ran"), os.path.join(t, "evil.sh")
+        with open(evil, "w") as f:
+            f.write("echo BASH_ENV >>'%s'\n" % marker)
+        fn = "() { echo function >>'%s'; }" % marker
+        env = {"PATH": "/usr/bin:/bin", "HOME": t, "BASH_ENV": evil, "BASH_FUNC_true%%": fn, "BASH_FUNC_true()": fn}
+        for name, producer in (("uninstall.sh", "aa_remove"), ("install.sh", "apparmor_commands")):
+            with self.subTest(script=name):
+                if os.path.exists(marker):
+                    os.remove(marker)
+                with open(os.path.join(SCRIPTS, name)) as f:
+                    m = re.search(r"%s \| (/bin/bash[^|&;]*?) (?:&&|\|\|)" % producer, f.read())
+                self.assertTrue(m, "no `%s | /bin/bash …` in %s" % (producer, name))
+                p = subprocess.run(["/bin/bash", "-p", "-c", "printf 'true\\necho ok\\n' | " + m.group(1)], env=env,
+                                   stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+                self.assertEqual((p.returncode, p.stdout), (0, "ok\n"), p.stderr)
+                self.assertFalse(os.path.exists(marker), "the environment ran code in %s's child bash" % name)
 
 
 if __name__ == "__main__":

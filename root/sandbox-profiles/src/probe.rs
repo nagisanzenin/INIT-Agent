@@ -120,6 +120,10 @@ fn run(op: &str, a: &[&str]) -> Option<Value> {
         ("stat", 1) => io_result(op, std::fs::metadata(p(0))),
         ("mkdir", 1) => io_result(op, std::fs::create_dir(p(0))),
         ("rename", 2) => io_result(op, std::fs::rename(p(0), p(1))),
+        #[cfg(target_os = "macos")]
+        ("swap", 2) => io_result(op, sys::rename_swap(p(0), p(1))),
+        // symlink LINK TARGET: create LINK -> TARGET (v0.5.5: no symlink in place of a missing folder above a deny entry).
+        ("symlink", 2) => io_result(op, std::os::unix::fs::symlink(p(1), p(0))),
         ("unlink", 1) => io_result(op, std::fs::remove_file(p(0))),
         ("rmdir", 1) => io_result(op, std::fs::remove_dir(p(0))),
         ("hardlink", 2) => io_result(op, std::fs::hard_link(p(0), p(1))),

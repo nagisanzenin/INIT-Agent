@@ -47,7 +47,7 @@ impl Drop for Home {
 /// `dir` only (a test home this file made).
 fn unlock(dir: &Path) {
     if cfg!(target_os = "macos") {
-        let _ = Command::new("/usr/bin/chflags").args(["-R", "nouchg"]).arg(dir).stderr(Stdio::null()).status();
+        let _ = Command::new("/usr/bin/chflags").args(["-R", "nouchg,nouappnd"]).arg(dir).stderr(Stdio::null()).status();
         let _ = Command::new("/bin/chmod").args(["-R", "-N"]).arg(dir).stderr(Stdio::null()).status(); // and every ACL
     }
     let _ = Command::new("/bin/chmod").args(["-R", "u+rwX"]).arg(dir).stderr(Stdio::null()).status();
@@ -900,7 +900,8 @@ fn a_line_typed_during_an_undo_waits_for_the_restore() {
 }
 
 /// v0.5.3 (finding 1): a restore that cannot complete leaves the folder exactly as it was and says why and what the
-/// owner can do. Refused before anything moves: a locked file (`chflags uchg`), and a read-only workspace folder itself.
+/// owner can do. Refused before anything moves: a locked file (`chflags uchg`, then `uappnd`: v0.5.5 words the command
+/// by the flag, and it works as printed), and a read-only workspace folder itself.
 /// Rolled back: a move that fails midway (the fault points `root.undo.out`, while the folder's entries move aside, and
 /// `root.undo.in`, while the snapshot's move in; each after one entry has moved). Each time the folder is unchanged,
 /// the save of it is dropped and nothing but snapshots is left; then a restore completes.
@@ -929,17 +930,26 @@ fn an_undo_that_cannot_finish_changes_nothing() {
     let e = h.refused("undo", json!({"confirm": "confirm"}));
     assert_eq!((e["code"].as_str(), e["data"]["reason"].as_str()), (Some("root.mode"), Some("restore_refused")), "{e}");
     let m = e["message"].as_str().unwrap();
-    assert!(m.starts_with(&format!("/undo did not restore {p}: {p}/locked.txt is locked")) && m.contains("chflags nouchg")
-        && m.ends_with("Nothing changed."), "{m}");
+    let locked = shown::sh_word(&format!("{p}/locked.txt"));
+    assert!(m.starts_with(&format!("/undo did not restore {p}: {p}/locked.txt is locked")) && m.ends_with("Nothing changed."), "{m}");
+    assert!(m.contains(&format!("unlock it (/usr/bin/chflags -h nouchg {locked}) and /undo again")), "{m}");
     unchanged("a locked file");
-    assert!(Command::new("/usr/bin/chflags").args(["nouchg"]).arg(proj.join("locked.txt")).status().unwrap().success());
+    // append-only: v0.5.4 said `chflags nouchg` here too, which leaves the flag
+    assert!(Command::new("/usr/bin/chflags").args(["nouchg,uappnd"]).arg(proj.join("locked.txt")).status().unwrap().success());
+    let e = h.refused("undo", json!({"confirm": "confirm"}));
+    assert_eq!(e["data"]["reason"].as_str(), Some("restore_refused"), "{e}");
+    let m = e["message"].as_str().unwrap();
+    let unlock = m.split_once("unlock it (").and_then(|(_, r)| r.split_once(") and /undo again")).map_or("", |(c, _)| c);
+    assert_eq!(unlock, format!("/usr/bin/chflags -h nouappnd {locked}"), "{m}");
+    unchanged("an append-only file");
+    assert!(Command::new("/bin/sh").arg("-c").arg(unlock).status().unwrap().success(), "the command as printed");
     // the workspace folder itself read-only
     chmod(&proj, 0o555);
     let e = h.refused("undo", json!({"confirm": "confirm"}));
     chmod(&proj, 0o755);
     assert_eq!(e["data"]["reason"].as_str(), Some("restore_refused"), "{e}");
     let m = e["message"].as_str().unwrap();
-    assert!(m.contains(&format!("{p} itself is read-only (mode 555)")) && m.contains(&format!("chmod u+w {}", shown::sh_word(&p))), "{m}");
+    assert!(m.contains(&format!("{p} itself is read-only (mode 555)")) && m.contains(&format!("(/bin/chmod u+w {})", shown::sh_word(&p))), "{m}");
     unchanged("a read-only workspace");
     // a move that fails after one entry moved aside, then one that fails after one entry moved in: all put back
     for (point, why) in [("out", "moving the folder's entries aside"), ("in", "moving the snapshot's entries in")] {
@@ -1237,7 +1247,8 @@ fn undo_says_which_entries_kept_inits_group() {
     let done = a.notice(&format!("[root] /undo restored {} to snapshot {first},", proj.display()));
     assert!(done.contains(&format!("2 restored entries kept the group of INIT's folder ({}), not their own", group_of(&h.rh))), "{done}");
     assert!(done.contains(&format!("theirs/w.txt ({theirs_name})")), "{done}");
-    assert!(done.contains(&format!("sudo chgrp -h {theirs_name} {}", shown::sh_word(&proj.join("theirs").to_string_lossy()))), "{done}");
+    let (sudo, theirs_q) = ("set one back: /usr/bin/sudo /usr/bin/chgrp -h", shown::sh_word(&proj.join("theirs").to_string_lossy()));
+    assert!(done.contains(&format!("{sudo} {theirs_name} {theirs_q})")), "{done}");
     only_snapshots(&h);
 }
 

@@ -133,14 +133,14 @@ class InstalledRelease(unittest.TestCase):
                                capture_output=True, text=True, timeout=30)
             self.assertEqual(q.stdout.strip(), "home=%s|args=upgrade" % self.rh, line + q.stderr)
         p = self.run_get("0.3.1", rh_name=name)
-        self.assertIn("\n  INIT_ROOT_HOME=%s /bin/bash -p -c 'f=" % shq(self.rh), p.stderr, "the uninstaller finds this ROOT_HOME")
+        self.assertIn("\n  INIT_ROOT_HOME=%s /bin/bash -p -c 's=" % shq(self.rh), p.stderr, "the uninstaller finds this ROOT_HOME")
 
     def test_the_uninstall_line_reads_the_same_in_sh_bash_zsh_and_fish(self):
         # v0.5.4 (the post-release review of v0.5.3): `f="$(mktemp)" && …` is not fish. The line is /bin/sh -c with one
         # single-quoted word that holds no ' or \ (fish 3.1 or newer also reads the INIT_ROOT_HOME= prefix), so every one
         # of these shells hands sh the same text; it parses in sh, bash and zsh, and runs as printed
         p = self.run_get("0.3.1")
-        line = next(l.strip() for l in p.stderr.splitlines() if "uninstall.sh -o" in l)
+        line = next(l.strip() for l in p.stderr.splitlines() if "scripts/uninstall.sh)" in l)
         m = re.fullmatch(r"(INIT_ROOT_HOME=[^\s'\\]+ )?/bin/bash -p -c '([^'\\]*)'", line)
         self.assertIsNotNone(m, line)
         for sh in ("/bin/sh", "/bin/bash", "/bin/zsh", "/bin/dash"):
@@ -152,13 +152,15 @@ class InstalledRelease(unittest.TestCase):
         # v0.5.4 (the release review): system paths for mktemp and curl (-q: no ~/.curlrc), bash -p (no BASH_ENV,
         # SHELLOPTS or exported functions); no tool is found on PATH, where a directory may be the agent's
         body = m.group(2)
-        for want in ('f="$(/usr/bin/mktemp)"', "/usr/bin/curl -q -fsSL %s -o" % UNINSTALL, '/bin/bash -p "$f"'):
+        # v0.5.5 (review B of lane J): the download stays in memory (no mktemp file to replace)
+        for want in ('s="$(/usr/bin/curl -q -fsSL %s)"' % UNINSTALL, '/bin/bash -p -c "$s" uninstall.sh'):
             self.assertIn(want, body)
+        self.assertNotIn("mktemp", body)
         with tempfile.TemporaryDirectory() as d:  # the download replaced by a copy of a stand-in uninstaller
             stand_in = os.path.join(d, "u.sh")
             with open(stand_in, "w") as f:
                 f.write('echo "home=$INIT_ROOT_HOME"\n')
-            run = line.replace("/usr/bin/curl -q -fsSL %s -o" % UNINSTALL, "/bin/cp %s" % stand_in)
+            run = line.replace("/usr/bin/curl -q -fsSL %s" % UNINSTALL, "/bin/cat %s" % stand_in)
             q = subprocess.run(["/bin/zsh" if os.path.exists("/bin/zsh") else "/bin/sh", "-c", run],
                                env={"PATH": "/usr/bin:/bin", "HOME": self.home}, capture_output=True, text=True, timeout=30)
             self.assertEqual(q.stdout.strip(), "home=%s" % self.rh, run + q.stderr)

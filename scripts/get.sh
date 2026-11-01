@@ -290,8 +290,10 @@ if [ $UNPACK_ONLY = 0 ] && [ ! -f "$RH/install.json" ]; then
       ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). It is not in $NEW, the home this upgrade looked in (INIT_ROOT_HOME was not set)"
     else
       ELSEWHERE="in $RH: $(printf '%s\n' "$OTHER" | sed -n 2p). A second install, in $NEW, would take that over and leave this one behind"
+      # v0.5.5 (the post-release review of v0.5.4): with --no-modify-path too. Without it, the second install's PATH
+      # block put its command directory first, and a bare init-agent in a new terminal opened the second INIT.
       SECOND="
-(For a separate, second INIT instead: give it its own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, without the service: sh -s -- -- --no-service.)"
+(For a separate, second INIT instead: give it its own INIT_ROOT_HOME, INIT_HOME and INIT_BIN_DIR, without the service and without a PATH block: sh -s -- --no-modify-path -- --no-service.)"
     fi
   fi
 fi
@@ -314,7 +316,11 @@ latest_without_target() { # the latest release's version when its latest.json li
 # INIT_ROOT_HOME= in front (fish 3.1 or newer reads that form too) reaches uninstall.sh through bash.
 # The tools by their system paths (a PATH directory may be the agent's) and bash -p (no BASH_ENV, SHELLOPTS or exported
 # functions), still one single-quoted word.
-UNINSTALL="$(rh_env)"'/bin/bash -p -c '"'"'f="$(/usr/bin/mktemp)" && /usr/bin/curl -q -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh -o "$f" && /bin/bash -p "$f"'"'"
+# v0.5.5 (review B of lane J): the download stays in memory. v0.5.4 wrote it to a mktemp file and ran that, and a
+# watcher replaced the file between curl and bash in 3 of 8 runs. Now curl's output is a shell variable and
+# `bash -p -c "$s" uninstall.sh` runs it: no file to replace, a failed or cut-off download (curl -f exits non-zero)
+# runs nothing, and uninstall.sh (one function, called on its last line) runs nothing unless it arrived whole.
+UNINSTALL="$(rh_env)"'/bin/bash -p -c '"'"'s="$(/usr/bin/curl -q -fsSL https://raw.githubusercontent.com/nagisanzenin/INIT-Agent/main/scripts/uninstall.sh)" && /bin/bash -p -c "$s" uninstall.sh'"'"
 too_old() { # <version>: the upgrade starts at 0.4.1, the oldest release it was tested from
   die "INIT $1 is installed ${ELSEWHERE:-in $RH}. An upgrade from a release before 0.4.1 is not supported: uninstall it first, then run this again. The uninstaller moves INIT, its record and your provider key to the Trash (nothing is deleted):
   $UNINSTALL$SECOND"
@@ -731,4 +737,4 @@ Start it:
 The first run asks for the provider, your key (hidden) and the model, then opens the chat.
 From a shell instead: $(rcmd keys set deepseek)   (the key is never echoed or logged)
 EOF
-case ":$PATH:" in *":$BIN:"*) ;; *) say "($BIN is not on your PATH; for this terminal: export PATH=\"$BIN:\$PATH\")" ;; esac
+case ":$PATH:" in *":$BIN:"*) ;; *) say "($BIN is not on your PATH; for this terminal: export PATH=\"\$PATH:$BIN\")" ;; esac

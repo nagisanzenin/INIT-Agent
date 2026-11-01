@@ -673,6 +673,19 @@ pub fn locked_flags(flags: u32) -> bool {
     }
 }
 
+/// v0.5.5 (lane U): the chflags(1) names of the lock flags [`locked_flags`] finds in `flags`: the owner's `uchg` and
+/// `uappnd`, the system's `schg` and `sappnd` (only root may clear those). macOS only, as [`locked_flags`].
+pub fn lock_names(flags: u32) -> Vec<&'static str> {
+    #[cfg(target_os = "macos")]
+    return [(libc::UF_IMMUTABLE, "uchg"), (libc::UF_APPEND, "uappnd"), (libc::SF_IMMUTABLE, "schg"), (libc::SF_APPEND, "sappnd")]
+        .into_iter().filter(|&(f, _)| flags & f != 0).map(|(_, n)| n).collect();
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = flags;
+        Vec::new()
+    }
+}
+
 /// R-UNDO (v0.5.3, lane U): sets the BSD flags of entry `name` in `dir` itself, never following a link, as [`unlock`]
 /// does by path (macOS `setattrlistat(ATTR_CMN_FLAGS, FSOPT_NOFOLLOW)`; macOS has no `lchflagsat`). `unlock`: `flags`
 /// without the owner's lock flags (`uchg`, `uappnd`; a system flag stays, only root may clear it); else `flags`
