@@ -5,11 +5,15 @@
 ;     (the ADR-009 read deny list, also in full mode); every other read is the inner profile's (D9)
 (deny file-read* file-write* (literal (param "Z_ROOT_SVC")))
 (deny file-write* (literal (param "Z_ROOT_SVC_DIR")) (subpath (param "Z_ROOT_SVC_DIR")))
+; v0.5.6: no folder above ROOT_HOME, the service file or INIT_HOME is cloned (Seatbelt checks clonefile(2) against its
+; source path only, so a clone into the workspace copied what lies under it to a new, readable name). The full tail's Z8
+; line, verbatim; its unlink part changes nothing here, as Z3 already keeps those folders, which never lie in a workspace:
+(deny file-write-unlink file-clone (path-ancestors (param "Z_ROOT_HOME")) (path-ancestors (param "Z_ROOT_SVC")) (path-ancestors (param "Z_INIT_HOME")))
 ; three lines per read deny entry i (the built-in list, then the charter's sandbox.read_deny): the entry; the folders
-; above it, which no rename, rmdir or swap may move or replace; and no symlink made in place of a missing one (v0.5.5; why:
-; the full tail's Z8):
+; above it, which no rename, rmdir or swap may move or replace and (v0.5.6) no clone may copy; and no symlink made in place
+; of a missing one (v0.5.5; why: the full tail's Z8):
 (deny file-read* file-write* (literal (param "Z_DENY_<i>")) (subpath (param "Z_DENY_<i>")))
-(deny file-write-unlink (path-ancestors (param "Z_DENY_<i>")))
+(deny file-write-unlink file-clone (path-ancestors (param "Z_DENY_<i>")))
 (deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_DENY_<i>"))))
 ; Z3. writes only inside INIT_HOME and the instance's write grant Z_WRITE (ADR-009: the live body's workspace, or the
 ;     home in full mode; INIT_HOME for every other instance), plus the devices every profile needs
@@ -21,7 +25,7 @@
 ;     files, git's user config, INIT's launchers and PATH directories, login items; three lines per write deny entry i,
 ;     the entry and the folders above it (as in Z2):
 (deny file-write* (literal (param "Z_WDENY_<i>")) (subpath (param "Z_WDENY_<i>")))
-(deny file-write-unlink (path-ancestors (param "Z_WDENY_<i>")))
+(deny file-write-unlink file-clone (path-ancestors (param "Z_WDENY_<i>")))
 (deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_WDENY_<i>"))))
 ; Z3b. nor the ".git" entry itself, nor git's config, hooks and command sources inside any git directory (.git/,
 ;      .git/modules/<m>/, .git/worktrees/<w>/) of a repository outside INIT_HOME, so the config and hooks git runs
@@ -51,13 +55,15 @@
     (regex #"/\.git/(.+/)?(modules|worktrees)/[^/]+$"))))
 ; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced, nor (v0.5.5) the
 ;     folders above lineage/kernel.git (lineage/ itself: the kernel profile writes INIT_HOME, and a renamed lineage/ would
-;     carry kernel.git out of this rule); the other paths' parents are INIT_HOME and run/, denied here as literals
+;     carry kernel.git out of this rule); the other paths' parents are INIT_HOME and run/, denied here as literals. Nor
+;     (v0.5.6) is a folder above lineage/kernel.git or run/mark cloned: a clone of run/ held the other marks (Z5) at a new,
+;     readable name
 (deny file-write* (literal (param "Z_INIT_HOME")) (literal (param "Z_RUN")) (literal (param "Z_ZONE_MARK"))
   (literal (param "Z_KERNEL")) (subpath (param "Z_KERNEL"))
   (literal (param "Z_PUB")) (subpath (param "Z_PUB"))
   (literal (param "Z_MARKS")) (subpath (param "Z_MARKS"))
   (literal (param "Z_KGIT")) (subpath (param "Z_KGIT")))
-(deny file-write-unlink (path-ancestors (param "Z_KGIT")))
+(deny file-write-unlink file-clone (path-ancestors (param "Z_KGIT")) (path-ancestors (param "Z_MARKS")))
 ; Z5. an instance reads only its own mark (other marks and the decoy are denied)
 (deny file-read* (require-all (subpath (param "Z_MARKS")) (require-not (literal (param "Z_MARK")))))
 ; Z6. no IP at all; Unix sockets only inside INIT_HOME, plus the Root egress socket

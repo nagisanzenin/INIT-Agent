@@ -28,4 +28,6 @@
 (deny file-read* file-write* (literal (param "VAULT")) (subpath (param "VAULT")))
 (deny file-read* file-write* (literal (param "CACHE")) (subpath (param "CACHE")))
 (deny file-read* file-write* (subpath "/opt/homebrew/var") (subpath "/opt/homebrew/etc"))
+; v0.5.6: nor the folders above them cloned (Seatbelt checks clonefile(2) against its source only) or moved
+(deny file-write-unlink file-clone (path-ancestors "/opt/homebrew/var") (path-ancestors "/opt/homebrew/etc"))
 (deny mach-lookup (xpc-service-name-prefix ""))

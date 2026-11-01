@@ -1,32 +1,32 @@
 {
  "audit_verify_full": "0 before, after the upgrade, after the sandbox check, after the rollback",
  "broken_bundle": "probe failed, rolled back to the old binaries and tuple; the old install answered",
- "bundle": "init-v0.5.5-preview-macos-arm64.tar.gz",
- "commit": "82350924f5bc2dbe1e233ab0dd737d3e27b0d2a6",
+ "bundle": "init-v0.5.6-preview-macos-arm64.tar.gz",
+ "commit": "930e35438a60a562a8196e174e1d6db94312b9d9",
  "drives": {
   "full": {
    "idle": true,
    "rc": 0,
    "reply": "sandbox check done",
-   "wall_ms": 1004
+   "wall_ms": 1541
   },
   "hello1": {
    "idle": true,
    "rc": 0,
    "reply": "hello from the mock",
-   "wall_ms": 480
+   "wall_ms": 716
   },
   "hello2": {
    "idle": true,
    "rc": 0,
    "reply": "hello from the mock",
-   "wall_ms": 494
+   "wall_ms": 1104
   },
   "ws": {
    "idle": true,
    "rc": 0,
    "reply": "sandbox check done",
-   "wall_ms": 946
+   "wall_ms": 2022
   }
  },
  "incompatible_body": "refused (stdio-jsonl/1 vs stdio-jsonl/2); lineage, journal, binaries unchanged",
@@ -71,12 +71,40 @@
  },
  "test_bundle": null,
  "times_ms": {
-  "broken_upgrade_and_rollback": 13216,
-  "total": 60300,
-  "upgrade": 10110
+  "broken_upgrade_and_rollback": 19064,
+  "total": 113516,
+  "upgrade": 15681
  },
  "tuples": {
   "after_broken": {
+   "body": "b55ff06596c5d5fec1d220c1f3cfdfca068e0dbb1b1f892f231f06681aa6d560",
+   "current": "t223033285850",
+   "ext": {
+    "components": [
+     {
+      "name": "count-lines",
+      "sha256": "434626009ce5585af740fab72c7d924b9b5c41617b64d75216bf0807332327ed"
+     },
+     {
+      "name": "upgrade-probe",
+      "sha256": "47f158a3890743cf61ade4d63192efb1a36164fab3701911c87db1c844a17218"
+     }
+    ],
+    "set": "c6f0f0d4a745"
+   },
+   "kernel": "8cc6e353420f01d6edb806aef6e51fcd83eb8c110533aa3fcd763741bdf2e8fc",
+   "kinds_tail": [
+    "zone_exit",
+    "crash_loop",
+    "rollback",
+    "kernel_start",
+    "zone_exit",
+    "stop"
+   ],
+   "lkg": "t223033285850",
+   "seq": 90
+  },
+  "before": {
    "body": "b55ff06596c5d5fec1d220c1f3cfdfca068e0dbb1b1f892f231f06681aa6d560",
    "current": "t6c69b53d8209",
    "ext": {
@@ -94,47 +122,19 @@
    },
    "kernel": "758ff9fa192a8185f66d1bcacfe36004c037476385055b50b21dcdfbd7fd1381",
    "kinds_tail": [
-    "zone_exit",
-    "zone_exit",
-    "zone_exit",
-    "crash_loop",
     "rollback",
-    "kernel_start"
-   ],
-   "lkg": "t6c69b53d8209",
-   "seq": 63
-  },
-  "before": {
-   "body": "b55ff06596c5d5fec1d220c1f3cfdfca068e0dbb1b1f892f231f06681aa6d560",
-   "current": "td6d05202d0e3",
-   "ext": {
-    "components": [
-     {
-      "name": "count-lines",
-      "sha256": "434626009ce5585af740fab72c7d924b9b5c41617b64d75216bf0807332327ed"
-     },
-     {
-      "name": "upgrade-probe",
-      "sha256": "47f158a3890743cf61ade4d63192efb1a36164fab3701911c87db1c844a17218"
-     }
-    ],
-    "set": "c6f0f0d4a745"
-   },
-   "kernel": "2eeccfc2188e162c1b2ea64b292170a3822f02de0bfd2d11cd36b2bfa547b554",
-   "kinds_tail": [
-    "zone_exit",
-    "stop",
+    "kernel_start",
     "root_start",
     "kernel_start",
     "zone_start",
     "access"
    ],
-   "lkg": "td6d05202d0e3",
-   "seq": 41
+   "lkg": "t6c69b53d8209",
+   "seq": 67
   },
   "upgraded": {
    "body": "b55ff06596c5d5fec1d220c1f3cfdfca068e0dbb1b1f892f231f06681aa6d560",
-   "current": "t6c69b53d8209",
+   "current": "t223033285850",
    "ext": {
     "components": [
      {
@@ -148,7 +148,7 @@
     ],
     "set": "c6f0f0d4a745"
    },
-   "kernel": "758ff9fa192a8185f66d1bcacfe36004c037476385055b50b21dcdfbd7fd1381",
+   "kernel": "8cc6e353420f01d6edb806aef6e51fcd83eb8c110533aa3fcd763741bdf2e8fc",
    "kinds_tail": [
     "kernel_start",
     "zone_start",
@@ -157,9 +157,9 @@
     "lkg",
     "audited"
    ],
-   "lkg": "t6c69b53d8209",
-   "seq": 49
+   "lkg": "t223033285850",
+   "seq": 75
   }
  },
- "version": "0.5.5-preview"
+ "version": "0.5.6-preview"
 }

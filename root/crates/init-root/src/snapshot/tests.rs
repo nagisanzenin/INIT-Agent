@@ -732,3 +732,43 @@ fn r2_with_a_group_it_cannot_set_completes_and_says_so() {
     unlock_home(&bd);
     fs::remove_dir_all(&bd).unwrap(); // exact path, created by base()
 }
+
+/// N1 (v0.5.6, §4.3 review): the twin arms' T0 comes from `INIT_HOME/lineage/trees/<sha12>/`, which the zone writes, so
+/// `place_t0` follows no link there: a tree folder that is a link (to a real T0 elsewhere) is refused, linked T0 files and
+/// a linked skills/ are not copied, and a link inside a real skills/ stays a link. No file placed holds the key's bytes.
+#[test]
+fn place_t0_follows_no_planted_link() {
+    let b = base("t0link");
+    let (ih, rh, run) = (b.join("ih"), b.join("rh"), b.join("run"));
+    let sha = "0123456789abcdef0123456789abcdef01234567";
+    let tree = ih.join("lineage/trees/0123456789ab");
+    let arm = Arm { binary: "x".into(), sha: sha.into(), t0: None, ext: vec![] };
+    let key = rh.join("keys/lineage.key");
+    w(&key, "ROOT-KEY");
+    w(&rh.join("keys/t0/GENESIS.md"), "ROOT-KEY");
+    w(&rh.join("keys/t0/SELF.md"), "ROOT-KEY");
+    w(&rh.join("keys/t0/skills/x"), "ROOT-KEY");
+    fs::create_dir_all(&run).unwrap();
+    fs::create_dir_all(tree.parent().unwrap()).unwrap();
+    symlink(rh.join("keys/t0"), &tree).unwrap();
+    let e = place_t0(&ih, &rh, &run, &arm).unwrap_err();
+    assert!(e.contains("no T0"), "{e}");
+    for f in ["GENESIS.md", "SELF.md", "skills"] {
+        assert!(fs::symlink_metadata(run.join("body").join(f)).is_err(), "body/{f} was copied through the linked tree");
+    }
+    fs::remove_file(&tree).unwrap();
+    w(&tree.join("GENESIS.md"), "g");
+    symlink(&key, tree.join("SELF.md")).unwrap();
+    symlink(rh.join("keys/t0/skills"), tree.join("skills")).unwrap();
+    assert!(place_t0(&ih, &rh, &run, &arm).unwrap_err().contains("no T0"), "a linked SELF.md is not a T0");
+    assert!(fs::symlink_metadata(run.join("body/SELF.md")).is_err() && fs::symlink_metadata(run.join("body/skills")).is_err());
+    fs::remove_file(tree.join("SELF.md")).unwrap();
+    fs::remove_file(tree.join("skills")).unwrap();
+    w(&tree.join("SELF.md"), "s");
+    fs::create_dir(tree.join("skills")).unwrap();
+    symlink(&key, tree.join("skills/k")).unwrap();
+    place_t0(&ih, &rh, &run, &arm).unwrap();
+    assert_eq!((r(&run.join("body/GENESIS.md")).as_str(), r(&run.join("body/SELF.md")).as_str()), ("g", "s"));
+    assert!(is_link(&run.join("body/skills/k")), "cp -P keeps the link");
+    let _ = fs::remove_dir_all(&b); // exact path
+}

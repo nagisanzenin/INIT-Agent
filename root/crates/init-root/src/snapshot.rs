@@ -750,13 +750,16 @@ pub(crate) fn place_t0(ih: &Path, rh: &Path, r: &Path, a: &Arm) -> Result<(), St
         None => {
             let tree = ih.join("lineage/trees").join(&a.sha[..12]);
             fs::DirBuilder::new().mode(0o700).create(&body).map_err(ioe)?;
+            // N1 (v0.5.6): the zone writes lineage/, so the tree must be a real folder (O_NOFOLLOW guards the last
+            // component only), and no file is copied through a link, even one swapped in
+            let real_dir = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
             for f in ["GENESIS.md", "SELF.md", "self.json"] {
-                if fs::symlink_metadata(tree.join(f)).is_ok_and(|m| m.is_file()) {
-                    fs::copy(tree.join(f), body.join(f)).map_err(ioe)?;
+                if real_dir(&tree) {
+                    crate::util::copy_regular(&tree.join(f), &body.join(f)).map_err(ioe)?;
                 }
             }
-            if fs::symlink_metadata(tree.join("skills")).is_ok_and(|m| m.is_dir()) {
-                let ok = Command::new("/bin/cp").arg("-R").arg(tree.join("skills")).arg(body.join("skills")).status().is_ok_and(|s| s.success());
+            if real_dir(&tree) && real_dir(&tree.join("skills")) {
+                let ok = Command::new("/bin/cp").arg("-RP").arg(tree.join("skills")).arg(body.join("skills")).status().is_ok_and(|s| s.success());
                 ok.then_some(()).ok_or(format!("copy {}/skills failed", tree.display()))?;
             }
         }

@@ -501,13 +501,19 @@ mod tests {
         // v0.5.5: each entry's folders above it are pinned (file-write-unlink on its path-ancestors) and none is made a
         // symlink, and lineage/kernel.git's are pinned (Z4); nothing else is
         let pins: Vec<&str> = t2.lines().filter(|l| !l.starts_with(';') && l.contains("path-ancestors")).collect();
-        assert_eq!(pins.len(), 1 + 2 * (2 + 3), "{pins:?}");
+        assert_eq!(pins.len(), 2 + 2 * (2 + 3), "{pins:?}");
         assert!(pins.iter().all(|l| pinned(l)), "{pins:?}");
         for p in ["Z_DENY_0", "Z_DENY_1", "Z_WDENY_0", "Z_WDENY_1", "Z_WDENY_2"] {
-            assert!(t2.contains(&format!("(deny file-write-unlink (path-ancestors (param \"{p}\")))")), "{p}");
+            assert!(t2.contains(&format!("(deny file-write-unlink file-clone (path-ancestors (param \"{p}\")))")), "{p}");
             assert!(t2.contains(&format!("(deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param \"{p}\"))))")), "{p}");
         }
-        assert_eq!(t0.lines().filter(|l| l.contains("path-ancestors")).collect::<Vec<_>>(), ["(deny file-write-unlink (path-ancestors (param \"Z_KGIT\")))"]);
+        // v0.5.6: and none of the folders above ROOT_HOME, the service file, INIT_HOME, lineage/kernel.git or run/mark is cloned
+        let fixed: Vec<&str> = t0.lines().filter(|l| !l.starts_with(';') && l.contains("path-ancestors")).collect();
+        assert_eq!(fixed.len(), 2, "{fixed:?}");
+        assert!(fixed.iter().all(|l| pinned(l)), "{fixed:?}");
+        for p in ["Z_ROOT_HOME", "Z_ROOT_SVC", "Z_INIT_HOME", "Z_KGIT", "Z_MARKS"] {
+            assert!(t0.contains(&format!("(path-ancestors (param \"{p}\"))")), "{p}");
+        }
         let one = Counts { deny: 1, wdeny: 1, ..Counts::default() };
         assert_eq!(expand(ZONE_TAIL, one, &Grant::default(), false).replace("_0\"", "_<i>\""), ZONE_TAIL);
         assert!(zone_tail(MAX_DENY + 1, 0).is_err() && zone_tail(0, MAX_DENY + 1).is_err());
@@ -594,22 +600,23 @@ mod tests {
     }
 
     /// v0.5.5: a pin line is one of the two forms, and nothing wider: no folder above the path is unlinked (moved, removed,
-    /// swapped or replaced), nor made a symlink.
+    /// swapped or replaced) or (v0.5.6) cloned, nor made a symlink.
     fn pinned(l: &str) -> bool {
-        let unlink = l.starts_with("(deny file-write-unlink (path-ancestors (param \"Z_") && l.ends_with("\")))");
+        let unlink = l.starts_with("(deny file-write-unlink file-clone (path-ancestors (param \"Z_") && l.ends_with("\")))");
         let symlink = l.starts_with("(deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param \"Z_") && l.ends_with("\"))))");
         unlink || symlink
     }
 
     /// v0.5.5 (REL-054 §7.5): Z8 pins the folders above every protected path of the full tail (ROOT_HOME, the service file,
-    /// INIT_HOME and each deny entry) with a file-write-unlink deny on its path-ancestors, and with nothing wider.
+    /// INIT_HOME and each deny entry) with a file-write-unlink deny on its path-ancestors (v0.5.6: and file-clone), and with
+    /// nothing wider.
     #[test]
     fn full_tail_pins_the_ancestors() {
         let t = zone_tail_full(2, 3).unwrap();
         let pins: Vec<&str> = t.lines().filter(|l| !l.starts_with(';') && l.contains("path-ancestors")).collect();
         assert_eq!(pins.len(), 1 + 1 + 2 * (2 + 3), "{pins:?}");
         assert!(pins.iter().all(|l| pinned(l)), "{pins:?}");
-        for p in ["Z_ROOT_HOME", "Z_ROOT_SVC", "Z_INIT_HOME", "Z_KGIT", "Z_DENY_0", "Z_DENY_1", "Z_WDENY_0", "Z_WDENY_1", "Z_WDENY_2"] {
+        for p in ["Z_ROOT_HOME", "Z_ROOT_SVC", "Z_INIT_HOME", "Z_KGIT", "Z_MARKS", "Z_DENY_0", "Z_DENY_1", "Z_WDENY_0", "Z_WDENY_1", "Z_WDENY_2"] {
             assert!(t.contains(&format!("(path-ancestors (param \"{p}\"))")), "{p}");
         }
     }

@@ -1,9 +1,9 @@
 {
  "v": 1,
- "at": "2026-11-01T11:53:29Z",
- "bundle": "init-v0.5.5-preview-macos-arm64.tar.gz",
- "version": "0.5.5-preview",
- "bundle_sha256": "a785bf57766dffebe600af57a7f393eb23a78a08ff8b6e832a6448e66abc747d",
+ "at": "2026-11-01T16:11:42Z",
+ "bundle": "init-v0.5.6-preview-macos-arm64.tar.gz",
+ "version": "0.5.6-preview",
+ "bundle_sha256": "ad8b4a7b4d3349eb7a1e0449ff75790ad3aa2a2f45bc7915410126b7a325f7c0",
  "get_sh_sha256": "f20f75731d6f54519b5eaef8f7db94b384b7d003d5ae59b1fe494faba93e2705",
  "owner_state_unchanged": true,
  "owner_state_note": "0 change(s) in the owner's INIT data while it ran (not ours)",
@@ -12,13 +12,13 @@
   {
    "row": "fresh",
    "pass": true,
-   "ms": 15033,
-   "get_sh_message": "get.sh: INIT 0.5.5 is already installed in /private/tmp/i5-mx/run/f/r. Upgrade it instead, which keeps what INIT has become:",
+   "ms": 23603,
+   "get_sh_message": "get.sh: INIT 0.5.6 is already installed in /private/tmp/i5-mx/run/f/r. Upgrade it instead, which keeps what INIT has become:",
    "steps": [
     {
      "step": "fresh install with NEW's get.sh",
      "pass": true,
-     "note": "10104 ms"
+     "note": "17401 ms"
     },
     {
      "step": "Root and TUI are NEW's",
@@ -33,17 +33,17 @@
     {
      "step": "first reply",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 574}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 554}"
     },
     {
-     "step": "init-agent --version names 0.5.5",
+     "step": "init-agent --version names 0.5.6",
      "pass": true,
-     "note": "init-tui (INIT Agent TUI) 0.5.5"
+     "note": "init-tui (INIT Agent TUI) 0.5.6"
     },
     {
      "step": "get.sh again: init-agent upgrade",
      "pass": true,
-     "note": "get.sh: INIT 0.5.5 is already installed in /private/tmp/i5-mx/run/f/r. Upgrade it instead, which keeps what INIT has become:"
+     "note": "get.sh: INIT 0.5.6 is already installed in /private/tmp/i5-mx/run/f/r. Upgrade it instead, which keeps what INIT has become:"
     },
     {
      "step": "printed commands exist",
@@ -55,13 +55,13 @@
   {
    "row": "old-0.3.1",
    "pass": true,
-   "ms": 31059,
+   "ms": 41990,
    "get_sh_message": "get.sh: INIT 0.3.1 is installed in /private/tmp/i5-mx/run/o031/r. An upgrade from a release before 0.4.1 is not supported: uninstall it first, then run this again. The uninstaller moves INIT, its reco",
    "steps": [
     {
      "step": "install 0.3.1 with its own get.sh",
      "pass": true,
-     "note": "11230 ms"
+     "note": "14900 ms"
     },
     {
      "step": "init-root --version is 0.3.1",
@@ -106,12 +106,12 @@
     {
      "step": "uninstall moves 0.3.1 to the Trash",
      "pass": true,
-     "note": "bin before: init init-tui ; Trash: i 2026-11-01 18.46.58,init 2026-11-01 18.46.58,init-0.3.1-preview 2026-11-01 18.46.58,init-tui 2026-11-01 18.46.58,r 2026-11-01 18.46.58,"
+     "note": "bin before: init init-tui ; Trash: i 2026-11-01 23.02.57,init 2026-11-01 23.02.57,init-0.3.1-preview 2026-11-01 23.02.57,init-tui 2026-11-01 23.02.57,r 2026-11-01 23.02.57,"
     },
     {
-     "step": "fresh 0.5.5 install in the same home",
+     "step": "fresh 0.5.6 install in the same home",
      "pass": true,
-     "note": "11456 ms"
+     "note": "16877 ms"
     },
     {
      "step": "init-tui and the Root are NEW's",
@@ -126,20 +126,20 @@
     {
      "step": "the install answers",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 535}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 562}"
     }
    ]
   },
   {
    "row": "old-0.3.2",
    "pass": true,
-   "ms": 28835,
+   "ms": 41272,
    "get_sh_message": "get.sh: INIT 0.3.2 is installed in /private/tmp/i5-mx/run/o032/r. An upgrade from a release before 0.4.1 is not supported: uninstall it first, then run this again. The uninstaller moves INIT, its reco",
    "steps": [
     {
      "step": "install 0.3.2 with its own get.sh",
      "pass": true,
-     "note": "10755 ms"
+     "note": "14970 ms"
     },
     {
      "step": "init-root --version is 0.3.2",
@@ -184,12 +184,12 @@
     {
      "step": "uninstall moves 0.3.2 to the Trash",
      "pass": true,
-     "note": "bin before: init init-tui ; Trash: i 2026-11-01 18.47.28,init 2026-11-01 18.47.28,init-0.3.2-preview 2026-11-01 18.47.28,init-tui 2026-11-01 18.47.28,r 2026-11-01 18.47.28,"
+     "note": "bin before: init init-tui ; Trash: i 2026-11-01 23.03.39,init 2026-11-01 23.03.39,init-0.3.2-preview 2026-11-01 23.03.39,init-tui 2026-11-01 23.03.39,r 2026-11-01 23.03.39,"
     },
     {
-     "step": "fresh 0.5.5 install in the same home",
+     "step": "fresh 0.5.6 install in the same home",
      "pass": true,
-     "note": "10475 ms"
+     "note": "15868 ms"
     },
     {
      "step": "init-tui and the Root are NEW's",
@@ -204,20 +204,20 @@
     {
      "step": "the install answers",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 509}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 704}"
     }
    ]
   },
   {
    "row": "old-0.3.3",
    "pass": true,
-   "ms": 28982,
+   "ms": 51304,
    "get_sh_message": "get.sh: INIT 0.3.3 is installed in /private/tmp/i5-mx/run/o033/r. An upgrade from a release before 0.4.1 is not supported: uninstall it first, then run this again. The uninstaller moves INIT, its reco",
    "steps": [
     {
      "step": "install 0.3.3 with its own get.sh",
      "pass": true,
-     "note": "10846 ms"
+     "note": "19362 ms"
     },
     {
      "step": "init-root --version is 0.3.3",
@@ -262,12 +262,12 @@
     {
      "step": "uninstall moves 0.3.3 to the Trash",
      "pass": true,
-     "note": "bin before: init init-tui ; Trash: i 2026-11-01 18.47.57,init 2026-11-01 18.47.57,init-0.3.3-preview 2026-11-01 18.47.57,init-tui 2026-11-01 18.47.57,r 2026-11-01 18.47.57,"
+     "note": "bin before: init init-tui ; Trash: i 2026-11-01 23.04.28,init 2026-11-01 23.04.28,init-0.3.3-preview 2026-11-01 23.04.28,init-tui 2026-11-01 23.04.28,r 2026-11-01 23.04.28,"
     },
     {
-     "step": "fresh 0.5.5 install in the same home",
+     "step": "fresh 0.5.6 install in the same home",
      "pass": true,
-     "note": "10387 ms"
+     "note": "18508 ms"
     },
     {
      "step": "init-tui and the Root are NEW's",
@@ -282,20 +282,20 @@
     {
      "step": "the install answers",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 511}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 583}"
     }
    ]
   },
   {
    "row": "old-0.4.0",
    "pass": true,
-   "ms": 27423,
+   "ms": 51006,
    "get_sh_message": "get.sh: INIT 0.4.0 is installed in /private/tmp/i5-mx/run/o040/r. An upgrade from a release before 0.4.1 is not supported: uninstall it first, then run this again. The uninstaller moves INIT, its reco",
    "steps": [
     {
      "step": "install 0.4.0 with its own get.sh",
      "pass": true,
-     "note": "9700 ms"
+     "note": "18972 ms"
     },
     {
      "step": "init-root --version is 0.4.0",
@@ -340,12 +340,12 @@
     {
      "step": "uninstall moves 0.4.0 to the Trash",
      "pass": true,
-     "note": "bin before: init init-tui ; Trash: i 2026-11-01 18.48.25,init 2026-11-01 18.48.25,init-0.4.0-preview 2026-11-01 18.48.25,init-tui 2026-11-01 18.48.25,r 2026-11-01 18.48.25,"
+     "note": "bin before: init init-tui ; Trash: i 2026-11-01 23.05.17,init 2026-11-01 23.05.17,init-0.4.0-preview 2026-11-01 23.05.17,init-tui 2026-11-01 23.05.17,r 2026-11-01 23.05.17,"
     },
     {
-     "step": "fresh 0.5.5 install in the same home",
+     "step": "fresh 0.5.6 install in the same home",
      "pass": true,
-     "note": "10352 ms"
+     "note": "18596 ms"
     },
     {
      "step": "init-tui and the Root are NEW's",
@@ -360,20 +360,20 @@
     {
      "step": "the install answers",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 489}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 627}"
     }
    ]
   },
   {
    "row": "old-0.4.1",
    "pass": true,
-   "ms": 38749,
+   "ms": 61178,
    "get_sh_message": "get.sh: INIT 0.4.1 is already installed in /private/tmp/i5-mx/run/o041/r. Upgrade it instead, which keeps what INIT has become. Run this once, from your own shell (0.4.1 has no init-agent upgrade):",
    "steps": [
     {
      "step": "install 0.4.1 with its own get.sh",
      "pass": true,
-     "note": "9823 ms"
+     "note": "25309 ms"
     },
     {
      "step": "init-root --version is 0.4.1",
@@ -398,7 +398,7 @@
     {
      "step": "upgrade refused while the foreground Root runs (not signalled)",
      "pass": true,
-     "note": "install.sh: the Root (pid 16136) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
+     "note": "install.sh: the Root (pid 89904) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
     },
     {
      "step": "Ctrl-C stops the 0.4.1 Root",
@@ -406,9 +406,9 @@
      "note": ""
     },
     {
-     "step": "upgrade 0.4.1 \u2192 0.5.5 as printed",
+     "step": "upgrade 0.4.1 \u2192 0.5.6 as printed",
      "pass": true,
-     "note": "15823 ms"
+     "note": "16870 ms"
     },
     {
      "step": "the Root and launcher are NEW's; the old init is gone",
@@ -418,7 +418,7 @@
     {
      "step": "audit verify --full",
      "pass": true,
-     "note": "lineage ok: 16 records, head seq 15 sha256:e205a1550b409721bacae9cc8663b501a2e005d7fcb533ea0269d2942119dcda (full, 1 ms)"
+     "note": "lineage ok: 16 records, head seq 15 sha256:b9b6bb7783324a521deb86dfe78087c9996bbbab385e5cdbb668bf01c5129dc8 (full, 2 ms)"
     },
     {
      "step": "upgraded Root ready",
@@ -438,20 +438,20 @@
     {
      "step": "the install answers",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 793}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 612}"
     }
    ]
   },
   {
    "row": "old-0.5.0",
    "pass": true,
-   "ms": 72829,
+   "ms": 50728,
    "get_sh_message": "get.sh: INIT 0.5.0 is already installed in /private/tmp/i5-mx/run/o050/r. Upgrade it instead, which keeps what INIT has become. Run this once, from your own shell (0.5.0's own init-agent upgrade runs ",
    "steps": [
     {
      "step": "install 0.5.0 with its own get.sh",
      "pass": true,
-     "note": "23434 ms"
+     "note": "17437 ms"
     },
     {
      "step": "init-root --version is 0.5.0",
@@ -476,7 +476,7 @@
     {
      "step": "upgrade refused while the foreground Root runs (not signalled)",
      "pass": true,
-     "note": "install.sh: the Root (pid 17244) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
+     "note": "install.sh: the Root (pid 90835) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
     },
     {
      "step": "Ctrl-C stops the 0.5.0 Root",
@@ -484,9 +484,9 @@
      "note": ""
     },
     {
-     "step": "upgrade 0.5.0 \u2192 0.5.5 as printed",
+     "step": "upgrade 0.5.0 \u2192 0.5.6 as printed",
      "pass": true,
-     "note": "25154 ms"
+     "note": "15784 ms"
     },
     {
      "step": "the Root and launcher are NEW's; the old init is gone",
@@ -496,7 +496,7 @@
     {
      "step": "audit verify --full",
      "pass": true,
-     "note": "lineage ok: 16 records, head seq 15 sha256:d713b13ca47ceec87e9491ed2ca82cc2c15f73d1c478f97a066cee7d3f1425af (full, 3 ms)"
+     "note": "lineage ok: 16 records, head seq 15 sha256:96b7c8e3643023cf2ca93d2da0f9861d0deb118c4413b0fd9b83ffd8b6130e61 (full, 1 ms)"
     },
     {
      "step": "upgraded Root ready",
@@ -516,20 +516,20 @@
     {
      "step": "the install answers",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 717}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 559}"
     }
    ]
   },
   {
    "row": "old-0.5.1",
    "pass": true,
-   "ms": 44740,
+   "ms": 46149,
    "get_sh_message": "get.sh: INIT 0.5.1 is already installed in /private/tmp/i5-mx/run/o051/r. Upgrade it instead, which keeps what INIT has become:",
    "steps": [
     {
      "step": "install 0.5.1 with its own get.sh",
      "pass": true,
-     "note": "16475 ms"
+     "note": "12691 ms"
     },
     {
      "step": "init-root --version is 0.5.1",
@@ -554,12 +554,12 @@
     {
      "step": "the printed upgrade line, with --bundle NEW --sha256",
      "pass": true,
-     "note": "/usr/bin/env -i HOME=\"$HOME\" INIT_ROOT_HOME=/private/tmp/i5-mx/run/o051/r ~/.local/bin/init-agent upgrade --bundle target/dist/v0.5.5-preview/init-v0.5.5-preview-macos-arm64.tar.gz --sha256 a785bf57766dffebe600af57a7f393eb23a78a08ff8b6e832a6448e66abc747d -- --probe-timeout 120"
+     "note": "/usr/bin/env -i HOME=\"$HOME\" INIT_ROOT_HOME=/private/tmp/i5-mx/run/o051/r ~/.local/bin/init-agent upgrade --bundle target/dist/v0.5.6-preview/init-v0.5.6-preview-macos-arm64.tar.gz --sha256 ad8b4a7b4d3349eb7a1e0449ff75790ad3aa2a2f45bc7915410126b7a325f7c0 -- --probe-timeout 120"
     },
     {
      "step": "upgrade refused while the foreground Root runs (not signalled)",
      "pass": true,
-     "note": "install.sh: the Root (pid 18349) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
+     "note": "install.sh: the Root (pid 91870) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
     },
     {
      "step": "Ctrl-C stops the 0.5.1 Root",
@@ -567,9 +567,9 @@
      "note": ""
     },
     {
-     "step": "upgrade 0.5.1 \u2192 0.5.5 as printed",
+     "step": "upgrade 0.5.1 \u2192 0.5.6 as printed",
      "pass": true,
-     "note": "13532 ms"
+     "note": "17034 ms"
     },
     {
      "step": "the Root and launcher are NEW's; the old init is gone",
@@ -579,7 +579,7 @@
     {
      "step": "audit verify --full",
      "pass": true,
-     "note": "lineage ok: 16 records, head seq 15 sha256:e41ce53aee4c732b2e9d93953110211a93e38063463ee43af93401dc9a1d7224 (full, 1 ms)"
+     "note": "lineage ok: 16 records, head seq 15 sha256:488ebf44cb3b8d861658f4589c877fbe25b226b683b4652fc2dd03702d9cff1f (full, 1 ms)"
     },
     {
      "step": "upgraded Root ready",
@@ -599,20 +599,20 @@
     {
      "step": "the install answers",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 353}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 438}"
     }
    ]
   },
   {
    "row": "old-0.5.2",
    "pass": true,
-   "ms": 43090,
+   "ms": 49515,
    "get_sh_message": "get.sh: INIT 0.5.2 is already installed in /private/tmp/i5-mx/run/o052/r. Upgrade it instead, which keeps what INIT has become:",
    "steps": [
     {
      "step": "install 0.5.2 with its own get.sh",
      "pass": true,
-     "note": "16069 ms"
+     "note": "20160 ms"
     },
     {
      "step": "init-root --version is 0.5.2",
@@ -637,12 +637,12 @@
     {
      "step": "the printed upgrade line, with --bundle NEW --sha256",
      "pass": true,
-     "note": "/usr/bin/env -i HOME=\"$HOME\" INIT_ROOT_HOME=/private/tmp/i5-mx/run/o052/r ~/.local/bin/init-agent upgrade --bundle target/dist/v0.5.5-preview/init-v0.5.5-preview-macos-arm64.tar.gz --sha256 a785bf57766dffebe600af57a7f393eb23a78a08ff8b6e832a6448e66abc747d -- --probe-timeout 120"
+     "note": "/usr/bin/env -i HOME=\"$HOME\" INIT_ROOT_HOME=/private/tmp/i5-mx/run/o052/r ~/.local/bin/init-agent upgrade --bundle target/dist/v0.5.6-preview/init-v0.5.6-preview-macos-arm64.tar.gz --sha256 ad8b4a7b4d3349eb7a1e0449ff75790ad3aa2a2f45bc7915410126b7a325f7c0 -- --probe-timeout 120"
     },
     {
      "step": "upgrade refused while the foreground Root runs (not signalled)",
      "pass": true,
-     "note": "install.sh: the Root (pid 19320) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
+     "note": "install.sh: the Root (pid 92906) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
     },
     {
      "step": "Ctrl-C stops the 0.5.2 Root",
@@ -650,9 +650,9 @@
      "note": ""
     },
     {
-     "step": "upgrade 0.5.2 \u2192 0.5.5 as printed",
+     "step": "upgrade 0.5.2 \u2192 0.5.6 as printed",
      "pass": true,
-     "note": "12887 ms"
+     "note": "13415 ms"
     },
     {
      "step": "the Root and launcher are NEW's; the old init is gone",
@@ -662,7 +662,7 @@
     {
      "step": "audit verify --full",
      "pass": true,
-     "note": "lineage ok: 16 records, head seq 15 sha256:c7c12e46a9189b8bb1701f9423699a7b143693b48a5b205be07c433223ecfe8e (full, 1 ms)"
+     "note": "lineage ok: 16 records, head seq 15 sha256:580597ca670b2e728657b6d424851f9787ded14782f2743d4ec3d25e59694a96 (full, 1 ms)"
     },
     {
      "step": "upgraded Root ready",
@@ -682,20 +682,20 @@
     {
      "step": "the install answers",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 335}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 333}"
     }
    ]
   },
   {
    "row": "old-0.5.3",
    "pass": true,
-   "ms": 43651,
+   "ms": 43381,
    "get_sh_message": "get.sh: INIT 0.5.3 is already installed in /private/tmp/i5-mx/run/o053/r. Upgrade it instead, which keeps what INIT has become:",
    "steps": [
     {
      "step": "install 0.5.3 with its own get.sh",
      "pass": true,
-     "note": "15803 ms"
+     "note": "15688 ms"
     },
     {
      "step": "init-root --version is 0.5.3",
@@ -720,12 +720,12 @@
     {
      "step": "the printed upgrade line, with --bundle NEW --sha256",
      "pass": true,
-     "note": "/usr/bin/env -i HOME=\"$HOME\" INIT_ROOT_HOME=/private/tmp/i5-mx/run/o053/r ~/.local/bin/init-agent upgrade --bundle target/dist/v0.5.5-preview/init-v0.5.5-preview-macos-arm64.tar.gz --sha256 a785bf57766dffebe600af57a7f393eb23a78a08ff8b6e832a6448e66abc747d -- --probe-timeout 120"
+     "note": "/usr/bin/env -i HOME=\"$HOME\" INIT_ROOT_HOME=/private/tmp/i5-mx/run/o053/r ~/.local/bin/init-agent upgrade --bundle target/dist/v0.5.6-preview/init-v0.5.6-preview-macos-arm64.tar.gz --sha256 ad8b4a7b4d3349eb7a1e0449ff75790ad3aa2a2f45bc7915410126b7a325f7c0 -- --probe-timeout 120"
     },
     {
      "step": "upgrade refused while the foreground Root runs (not signalled)",
      "pass": true,
-     "note": "install.sh: the Root (pid 20360) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
+     "note": "install.sh: the Root (pid 93934) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
     },
     {
      "step": "Ctrl-C stops the 0.5.3 Root",
@@ -733,9 +733,9 @@
      "note": ""
     },
     {
-     "step": "upgrade 0.5.3 \u2192 0.5.5 as printed",
+     "step": "upgrade 0.5.3 \u2192 0.5.6 as printed",
      "pass": true,
-     "note": "13597 ms"
+     "note": "12922 ms"
     },
     {
      "step": "the Root and launcher are NEW's; the old init is gone",
@@ -745,7 +745,7 @@
     {
      "step": "audit verify --full",
      "pass": true,
-     "note": "lineage ok: 17 records, head seq 16 sha256:f075e289ec5da7e111e9307f30314bb51abb4f881dd2b6e651b51a1c93a59483 (full, 1 ms)"
+     "note": "lineage ok: 17 records, head seq 16 sha256:89a2aaa610b03a572c792758832ae1a1fe909c1f23e1ad55a9b0908de6d09b7c (full, 1 ms)"
     },
     {
      "step": "upgraded Root ready",
@@ -765,20 +765,20 @@
     {
      "step": "the install answers",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 357}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 340}"
     }
    ]
   },
   {
    "row": "old-0.5.4",
    "pass": true,
-   "ms": 44466,
+   "ms": 55261,
    "get_sh_message": "get.sh: INIT 0.5.4 is already installed in /private/tmp/i5-mx/run/o054/r. Upgrade it instead, which keeps what INIT has become:",
    "steps": [
     {
      "step": "install 0.5.4 with its own get.sh",
      "pass": true,
-     "note": "16084 ms"
+     "note": "29577 ms"
     },
     {
      "step": "init-root --version is 0.5.4",
@@ -803,12 +803,12 @@
     {
      "step": "the printed upgrade line, with --bundle NEW --sha256",
      "pass": true,
-     "note": "~/.local/bin/init-agent upgrade --bundle target/dist/v0.5.5-preview/init-v0.5.5-preview-macos-arm64.tar.gz --sha256 a785bf57766dffebe600af57a7f393eb23a78a08ff8b6e832a6448e66abc747d -- --probe-timeout 120"
+     "note": "~/.local/bin/init-agent upgrade --bundle target/dist/v0.5.6-preview/init-v0.5.6-preview-macos-arm64.tar.gz --sha256 ad8b4a7b4d3349eb7a1e0449ff75790ad3aa2a2f45bc7915410126b7a325f7c0 -- --probe-timeout 120"
     },
     {
      "step": "upgrade refused while the foreground Root runs (not signalled)",
      "pass": true,
-     "note": "install.sh: the Root (pid 21377) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
+     "note": "install.sh: the Root (pid 96328) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
     },
     {
      "step": "Ctrl-C stops the 0.5.4 Root",
@@ -816,9 +816,9 @@
      "note": ""
     },
     {
-     "step": "upgrade 0.5.4 \u2192 0.5.5 as printed",
+     "step": "upgrade 0.5.4 \u2192 0.5.6 as printed",
      "pass": true,
-     "note": "13573 ms"
+     "note": "12352 ms"
     },
     {
      "step": "the Root and launcher are NEW's; the old init is gone",
@@ -828,7 +828,7 @@
     {
      "step": "audit verify --full",
      "pass": true,
-     "note": "lineage ok: 17 records, head seq 16 sha256:d3bdfbbe2fed8c2aa88e0e92fffc64815ab34269aae6a4669dca1d57c7173aef (full, 1 ms)"
+     "note": "lineage ok: 17 records, head seq 16 sha256:dffd293c2dac415c792d7cf0f3c78d8bf92a836cda7425c384ec40465ac24916 (full, 1 ms)"
     },
     {
      "step": "upgraded Root ready",
@@ -848,7 +848,90 @@
     {
      "step": "the install answers",
      "pass": true,
-     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 343}"
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 331}"
+    }
+   ]
+  },
+  {
+   "row": "old-0.5.5",
+   "pass": true,
+   "ms": 50466,
+   "get_sh_message": "get.sh: INIT 0.5.5 is already installed in /private/tmp/i5-mx/run/o055/r. Upgrade it instead, which keeps what INIT has become:",
+   "steps": [
+    {
+     "step": "install 0.5.5 with its own get.sh",
+     "pass": true,
+     "note": "12942 ms"
+    },
+    {
+     "step": "init-root --version is 0.5.5",
+     "pass": true,
+     "note": ""
+    },
+    {
+     "step": "0.5.5 Root ready",
+     "pass": true,
+     "note": ""
+    },
+    {
+     "step": "get.sh: init-agent upgrade",
+     "pass": true,
+     "note": "get.sh: INIT 0.5.5 is already installed in /private/tmp/i5-mx/run/o055/r. Upgrade it instead, which keeps what INIT has become:"
+    },
+    {
+     "step": "printed commands exist",
+     "pass": true,
+     "note": "1 command line(s), every command and URL exists"
+    },
+    {
+     "step": "the printed upgrade line, with --bundle NEW --sha256",
+     "pass": true,
+     "note": "~/.local/bin/init-agent upgrade --bundle target/dist/v0.5.6-preview/init-v0.5.6-preview-macos-arm64.tar.gz --sha256 ad8b4a7b4d3349eb7a1e0449ff75790ad3aa2a2f45bc7915410126b7a325f7c0 -- --probe-timeout 120"
+    },
+    {
+     "step": "upgrade refused while the foreground Root runs (not signalled)",
+     "pass": true,
+     "note": "install.sh: the Root (pid 97955) runs without the service. Stop it in its terminal (Ctrl-C), then run the upgrade again. Nothing was changed."
+    },
+    {
+     "step": "Ctrl-C stops the 0.5.5 Root",
+     "pass": true,
+     "note": ""
+    },
+    {
+     "step": "upgrade 0.5.5 \u2192 0.5.6 as printed",
+     "pass": true,
+     "note": "11166 ms"
+    },
+    {
+     "step": "the Root and launcher are NEW's; the old init is gone",
+     "pass": true,
+     "note": ""
+    },
+    {
+     "step": "audit verify --full",
+     "pass": true,
+     "note": "lineage ok: 17 records, head seq 16 sha256:266e1030147a4edafaa733255d1bde28bd4defb8991effa3916f4715cccca8df (full, 1 ms)"
+    },
+    {
+     "step": "upgraded Root ready",
+     "pass": true,
+     "note": ""
+    },
+    {
+     "step": "get.sh after the upgrade: init-agent upgrade",
+     "pass": true,
+     "note": ""
+    },
+    {
+     "step": "printed commands exist after the upgrade",
+     "pass": true,
+     "note": "1 command line(s), every command and URL exists"
+    },
+    {
+     "step": "the install answers",
+     "pass": true,
+     "note": "{\"rc\": 0, \"idle\": true, \"reply\": \"hello from the mock\", \"wall_ms\": 338}"
     }
    ]
   }

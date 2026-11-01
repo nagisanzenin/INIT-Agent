@@ -122,6 +122,16 @@ fn run(op: &str, a: &[&str]) -> Option<Value> {
         ("rename", 2) => io_result(op, std::fs::rename(p(0), p(1))),
         #[cfg(target_os = "macos")]
         ("swap", 2) => io_result(op, sys::rename_swap(p(0), p(1))),
+        // clone SRC DST: clonefile(2) SRC (a file or a folder tree) to the new path DST (v0.5.6: no clone of a folder above a
+        // protected path).
+        #[cfg(target_os = "macos")]
+        ("clone", 2) => io_result(op, sys::clonefile(p(0), p(1))),
+        // fclone SRC DST: fclonefileat on a descriptor opened on SRC; cloneat DIR NAME DST: clonefileat of NAME relative
+        // to a descriptor opened on DIR (v0.5.6, the §4.3 review: the descriptor forms are checked as clonefile is).
+        #[cfg(target_os = "macos")]
+        ("fclone", 2) => io_result(op, sys::fclonefileat(p(0), p(1))),
+        #[cfg(target_os = "macos")]
+        ("cloneat", 3) => io_result(op, sys::clonefileat(p(0), a[1], p(2))),
         // symlink LINK TARGET: create LINK -> TARGET (v0.5.5: no symlink in place of a missing folder above a deny entry).
         ("symlink", 2) => io_result(op, std::os::unix::fs::symlink(p(1), p(0))),
         ("unlink", 1) => io_result(op, std::fs::remove_file(p(0))),
@@ -236,6 +246,17 @@ fn run(op: &str, a: &[&str]) -> Option<Value> {
             let sandboxed = sys::sbcheck::sandboxed(pid);
             let paths: Vec<Option<i32>> = a[1..].iter().map(|x| sys::sbcheck::path(pid, "file-read-data", Path::new(x))).collect();
             with_data(io_result(op, Ok(())), json!({"sandboxed": sandboxed, "paths": paths}))
+        }
+        #[cfg(target_os = "macos")]
+        ("policy", 2) => {
+            // policy OP PATH: a pure policy query, nothing is done: ok when this process's policy allows OP on PATH, else
+            // errno 1 (v0.5.6: `file-clone` on a folder too big to clone in a test). PATH must exist.
+            let rc = sys::sbcheck::path(std::process::id() as i32, a[0], p(1));
+            match rc {
+                Some(0) => io_result(op, Ok(())),
+                Some(_) => io_result(op, Err::<(), _>(io::Error::from_raw_os_error(libc::EPERM))),
+                None => setup_error(op, "sandbox_check", io::Error::other("unavailable")),
+            }
         }
         #[cfg(target_os = "macos")]
         ("policy-write", 1) => {

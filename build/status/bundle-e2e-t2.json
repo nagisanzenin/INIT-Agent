@@ -1,7 +1,7 @@
 {
- "body_sha256": "65f6053f3e956e8488fe08d0545083befd8292bd69f4a99dda8698f2639a5d01",
- "bundle": "init-v0.5.5-preview-macos-arm64.tar.gz",
- "bundle_bytes": 55408497,
+ "body_sha256": "08a883939e60c5a2ac9ac2c6a6a6721ec6f745ba06568baa43f166b630c8ff3a",
+ "bundle": "init-v0.5.6-preview-macos-arm64.tar.gz",
+ "bundle_bytes": 55407325,
  "checks": {
   "gate_g0_to_g3_pass": true,
   "genesis_body_is_prebuilt": true,
@@ -18,32 +18,32 @@
  "promote": {
   "error": null,
   "job": "j-000001",
-  "sha": "105ef19f7b2c69d66e5420f4f27c42152fb466e7",
+  "sha": "05befe0ba4e5edc785ad9d0a9a615be13e5632ce",
   "stages": [
    {
     "pass": true,
     "stage": "G0",
-    "wall_ms": 540627
+    "wall_ms": 1284445
    },
    {
     "pass": true,
     "stage": "G1",
-    "wall_ms": 1125
+    "wall_ms": 3330
    },
    {
     "pass": true,
     "stage": "G2",
-    "wall_ms": 19738
+    "wall_ms": 26911
    },
    {
     "pass": true,
     "stage": "G3",
-    "wall_ms": 428913
+    "wall_ms": 822352
    },
    {
     "pass": true,
     "stage": "handoff",
-    "wall_ms": 4169
+    "wall_ms": 5582
    }
   ],
   "state": "succeeded"
@@ -51,11 +51,11 @@
  "reply": "hello from the mock",
  "rust": "installed by get.sh into the test home",
  "times_ms": {
-  "drive_wall": 475,
-  "get_sh_install": 64352,
-  "get_sh_to_first_reply": 66879,
-  "promote_wait": 997742,
-  "start_to_ready": 1851
+  "drive_wall": 824,
+  "get_sh_install": 106666,
+  "get_sh_to_first_reply": 111855,
+  "promote_wait": 2145910,
+  "start_to_ready": 3502
  },
  "toolchain": "/Users/quanduong/Documents/INIT Agent/target/test-homes/ub2/home/.rustup/toolchains/1.97.1-aarch64-apple-darwin",
  "v": 1

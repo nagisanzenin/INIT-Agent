@@ -14,4 +14,6 @@
 (allow network-outbound (remote unix-socket (subpath (param "SLOT_OUT"))))
 ; ---- 8. hard denies (the tail follows) ----
 (deny file-read* file-write* (subpath "/opt/homebrew/var") (subpath "/opt/homebrew/etc"))
+; v0.5.6: nor the folders above them cloned (Seatbelt checks clonefile(2) against its source only) or moved
+(deny file-write-unlink file-clone (path-ancestors "/opt/homebrew/var") (path-ancestors "/opt/homebrew/etc"))
 (deny mach-lookup (xpc-service-name-prefix ""))

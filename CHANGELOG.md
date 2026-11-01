@@ -2,6 +2,38 @@
 
 All notable changes to INIT Agent. Versions follow [semver](https://semver.org). The design is `INIT Agent spec.md`; each line below points at the build status file that records it (`build/status/`).
 
+## v0.5.6-preview (2026-11-01)
+
+A hotfix for v0.5.5's post-release review (REL-055 §7.5; the full record is build/status/REL-056.md). E2, L5 and M #1
+move to v0.5.7.
+
+### The sandbox: a cloned folder (lane C)
+- Older than v0.5.5, and v0.5.5's notes called it closed: on macOS `clonefile(2)` on a folder above a protected path
+  copied it, and Seatbelt checks a clone by its source only. A full-access agent could clone `~/.config`, `~/Library`,
+  `~/Documents` or the home and read the provider key files, the Root's LaunchAgent, a `read_deny` entry,
+  `~/.init-root` and `~/.init-release` in the copy; workspace mode the same for a protected path in the start folder;
+  the kernel profile `INIT_HOME/run`'s other marks.
+- `file-clone` is now a word on every ancestor line of both tails (each Z2 read deny, each Z3a write deny, Z4's
+  `kernel.git` and the folders above Z5's marks, Z8's ROOT_HOME, service file and INIT_HOME). The workspace tail
+  gets Z8's line too: without it a workspace could take a clone of `~/Library/LaunchAgents` or of a ROOT_HOME's parent.
+  body.sb and kernel.sb pin the folders above their `/opt/homebrew/{var,etc}` read deny the same way.
+- Tests with the real profiles (root/sandbox-profiles/tests/ancestors.rs): the 25 clone cases that leaked before
+  are refused, by path (`clonefile`) and by descriptor (`fclonefileat`, `clonefileat`); clones beside a protected
+  path still work; and a general check fails when any read-denied path lacks a clone rule on its ancestors. Self-test
+  rows S-A26e/f/g and S-Z3i/j; new probe ops `clone`, `fclone`, `cloneat`, `policy`. Spawn time unchanged (workspace
+  172 → 178 ms).
+
+### The Root: the sealed run's starting files (lane C; the review's N1)
+- `sealed/run.rs` `body_home` and `snapshot.rs` `place_t0` copied GENESIS.md, SELF.md and self.json from the
+  kernel-writable `lineage/trees/<sha12>` with copies that follow links. New `util::copy_regular` (O_NOFOLLOW, a
+  regular file, copied from the descriptor); both refuse a linked tree or `skills/` folder, and `skills/` is copied
+  with `cp -RP`. Older than v0.5.5. Tests `body_home_follows_no_planted_link`, `place_t0_follows_no_planted_link`.
+
+### Docs
+- v0.5.5's notes get a "Corrections after the release" section: the clone above; the `PATH` block puts the system's
+  commands first only when INIT writes it; the uninstall line's download from `main` is not signature-checked (a
+  Known limit, older than v0.5.5).
+
 ## v0.5.5-preview (2026-11-01)
 
 A security patch: the code findings of v0.5.4's post-release review (REL-054 §7.5), and what two independent reviews

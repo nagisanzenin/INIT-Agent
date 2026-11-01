@@ -294,6 +294,8 @@ Z2 changed in the v0.3 reconciliation (D9): it now denies only the Root's own pa
 
 **v0.5.5 (REL-054 §7.5, should-fix 1): the folders above each deny entry are pinned, in both tails.** A Seatbelt deny matches the path a file has when it is checked, so a deny on a path did not stop the agent renaming a folder above it: the entry then lay under a new path that no rule named. Each Z2 and Z3a entry now has two more lines over every folder above the entry, up to `/`: `(deny file-write-unlink (path-ancestors (param "Z_DENY_<i>")))` and `(deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_DENY_<i>"))))` (and the same for `Z_WDENY_<i>`). Measured on macOS 14.6 with the composed profiles: a rename needs `file-write-unlink` on its source and `file-write-create` on its target, and a rename onto an existing folder, `rmdir` and `renamex_np(RENAME_SWAP)` need `file-write-unlink` on that folder too, so this one operation stops every way to move, remove or replace an existing folder above an entry. `file-write-create` is denied there for symlinks only: a missing folder above an entry (`~/.local/share` above `~/.local/share/systemd/user`; `~/.config`, which a fresh Mac does not have) can still be made with `mkdir -p`, and is pinned once it exists, but it cannot be made a symlink, by `symlink` or by renaming a symlink onto its name (REL-055 review, note 3, measured): otherwise a key or launcher the owner adds later would land wherever the link points, readable until the next spawn resolves the paths again (`resolve`). `mkdir` of a folder that exists still answers `EEXIST`, and what lies inside these folders is as writable as before. In workspace mode Z3 already confines writes to the workspace, so the lines matter where the workspace holds a deny entry two or more folders down (`~/Library/Application Support` holds the browser profiles; a charter entry deep in a project). The same review (B1) found the gap inside `INIT_HOME`: the `kernel` profile writes all of it, and Z4 denied `lineage/kernel.git` but not `lineage/`, so the kernel or a G0 command could `mv lineage lin.x`, write refs into `lin.x/kernel.git` and `mv lin.x lineage`, putting its own refs where the Root reads them (`main`, `lkg`, `upstream`) and runs git unsandboxed (R-F1). Z4 now has `(deny file-write-unlink (path-ancestors (param "Z_KGIT")))` in both tails; Z4's other paths sit directly in `INIT_HOME` or `run/`, which Z4 already denies as literals. The kernel's other writes in `lineage/` are unchanged, and the promote test under Seatbelt passes. Gate profiles write only their `OUT`. The full tail has the same lines and pins `ROOT_HOME`'s, the service file's and `INIT_HOME`'s folders too (Z8, §3.3.2a). Tests: `root/sandbox-profiles/tests/ancestors.rs` runs the composed profiles under `sandbox-exec` (full, workspace and `kernel`; also the firmlink path `/System/Volumes/Data/…`, a case variant, a decomposed-Unicode name, an editor's atomic save inside a pinned folder and a rename onto an empty pinned folder); the self-test has S-A26, S-A26c, S-A26d and S-Z3h.
 
+**v0.5.6 (v0.5.5's post-release review): nor are those folders cloned.** `clonefile(2)` copies a whole folder tree, copy-on-write, to a new name, and Seatbelt checks a clone against its source path only (the new name needs `file-write-create`, as any new file does). No tail rule named `file-clone`, so a clone of a folder above a protected path put everything under it at a new path no rule named: in full mode a clone of `~/.config` held the provider key files, and a clone of the home held `~/.init-release`, every `read_deny` entry, the service file and `ROOT_HOME`; in workspace mode a clone of the folder above Chrome's profile, or of `~/Library/LaunchAgents` into the workspace, did the same; in the `kernel` profile a clone of `run/` held the other instances' marks, which Z5 denies. Each `file-write-unlink` line on `path-ancestors` now names `file-clone` too (each Z2 and Z3a entry's second line, Z4's and the full tail's Z8), Z4's line also covers the folders above `run/mark` (Z5), and the zone tail gets the full tail's Z8 line verbatim for `ROOT_HOME`, the service file and `INIT_HOME` (its unlink part changes nothing there: Z3 already denies writes to those folders, which never lie in a workspace, §3.17.1). Measured on macOS 14.6: a clone of the protected path itself, or of anything inside it, was already refused by its read deny; a file's clone is unchanged (a file is never a folder above a path), so `cp -c`, Rust's `fs::copy` (which clones a file) and an editor's save through a cloned temp file still work, and so do clones of folders above nothing protected and the kernel's own clones (a probe root's `kernel/`, the build cache). Each change is a token on an existing line except the zone tail's Z8 line, and the median spawn time of `sandbox-exec … /usr/bin/true` (32 runs each, interleaved) went from 172 to 178 ms with the workspace profile, 30.4 to 31.7 ms with the full one and 236 to 236 ms with the `kernel` one. The descriptor forms, `fclonefileat` on a descriptor opened on such a folder and `clonefileat` of it by name relative to its parent's descriptor, are checked against their source the same way and are refused too (§4.3 review). The `body` and `kernel` SECTIONs' own read deny of `/opt/homebrew/var` and `/opt/homebrew/etc` got the same rule, `(deny file-write-unlink file-clone (path-ancestors …))`, so a clone of `/opt/homebrew` is refused by the sandbox (before, only the file system's EACCES on a file inside stopped it). Tests: `tests/ancestors.rs` `clone_above_protected_paths_is_refused`, `fd_clones_above_protected_paths_are_refused`, `clone_beside_protected_paths_still_works`, and `every_read_deny_has_its_ancestors_pinned_against_clones`, which fails when any `(deny file-read* …)` path in the composed `body` (full, workspace, no grant), `kernel`, `build`, `check` or `git-read` profile lacks a `file-clone` rule on the folders above it; the self-test has S-A26e–g, S-Z3i and S-Z3j.
+
 The block is `root/sandbox-profiles/profiles/zone-tail.sb` (SBX-009's cc16577 with v0.5.5's ancestor lines), copied verbatim; `tests/doc_drift.rs` compares it byte for byte, so change the file and this block together.
 
 ```scheme
@@ -304,11 +306,15 @@ The block is `root/sandbox-profiles/profiles/zone-tail.sb` (SBX-009's cc16577 wi
 ;     (the ADR-009 read deny list, also in full mode); every other read is the inner profile's (D9)
 (deny file-read* file-write* (literal (param "Z_ROOT_SVC")))
 (deny file-write* (literal (param "Z_ROOT_SVC_DIR")) (subpath (param "Z_ROOT_SVC_DIR")))
+; v0.5.6: no folder above ROOT_HOME, the service file or INIT_HOME is cloned (Seatbelt checks clonefile(2) against its
+; source path only, so a clone into the workspace copied what lies under it to a new, readable name). The full tail's Z8
+; line, verbatim; its unlink part changes nothing here, as Z3 already keeps those folders, which never lie in a workspace:
+(deny file-write-unlink file-clone (path-ancestors (param "Z_ROOT_HOME")) (path-ancestors (param "Z_ROOT_SVC")) (path-ancestors (param "Z_INIT_HOME")))
 ; three lines per read deny entry i (the built-in list, then the charter's sandbox.read_deny): the entry; the folders
-; above it, which no rename, rmdir or swap may move or replace; and no symlink made in place of a missing one (v0.5.5; why:
-; the full tail's Z8):
+; above it, which no rename, rmdir or swap may move or replace and (v0.5.6) no clone may copy; and no symlink made in place
+; of a missing one (v0.5.5; why: the full tail's Z8):
 (deny file-read* file-write* (literal (param "Z_DENY_<i>")) (subpath (param "Z_DENY_<i>")))
-(deny file-write-unlink (path-ancestors (param "Z_DENY_<i>")))
+(deny file-write-unlink file-clone (path-ancestors (param "Z_DENY_<i>")))
 (deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_DENY_<i>"))))
 ; Z3. writes only inside INIT_HOME and the instance's write grant Z_WRITE (ADR-009: the live body's workspace, or the
 ;     home in full mode; INIT_HOME for every other instance), plus the devices every profile needs
@@ -320,7 +326,7 @@ The block is `root/sandbox-profiles/profiles/zone-tail.sb` (SBX-009's cc16577 wi
 ;     files, git's user config, INIT's launchers and PATH directories, login items; three lines per write deny entry i,
 ;     the entry and the folders above it (as in Z2):
 (deny file-write* (literal (param "Z_WDENY_<i>")) (subpath (param "Z_WDENY_<i>")))
-(deny file-write-unlink (path-ancestors (param "Z_WDENY_<i>")))
+(deny file-write-unlink file-clone (path-ancestors (param "Z_WDENY_<i>")))
 (deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_WDENY_<i>"))))
 ; Z3b. nor the ".git" entry itself, nor git's config, hooks and command sources inside any git directory (.git/,
 ;      .git/modules/<m>/, .git/worktrees/<w>/) of a repository outside INIT_HOME, so the config and hooks git runs
@@ -350,13 +356,15 @@ The block is `root/sandbox-profiles/profiles/zone-tail.sb` (SBX-009's cc16577 wi
     (regex #"/\.git/(.+/)?(modules|worktrees)/[^/]+$"))))
 ; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced, nor (v0.5.5) the
 ;     folders above lineage/kernel.git (lineage/ itself: the kernel profile writes INIT_HOME, and a renamed lineage/ would
-;     carry kernel.git out of this rule); the other paths' parents are INIT_HOME and run/, denied here as literals
+;     carry kernel.git out of this rule); the other paths' parents are INIT_HOME and run/, denied here as literals. Nor
+;     (v0.5.6) is a folder above lineage/kernel.git or run/mark cloned: a clone of run/ held the other marks (Z5) at a new,
+;     readable name
 (deny file-write* (literal (param "Z_INIT_HOME")) (literal (param "Z_RUN")) (literal (param "Z_ZONE_MARK"))
   (literal (param "Z_KERNEL")) (subpath (param "Z_KERNEL"))
   (literal (param "Z_PUB")) (subpath (param "Z_PUB"))
   (literal (param "Z_MARKS")) (subpath (param "Z_MARKS"))
   (literal (param "Z_KGIT")) (subpath (param "Z_KGIT")))
-(deny file-write-unlink (path-ancestors (param "Z_KGIT")))
+(deny file-write-unlink file-clone (path-ancestors (param "Z_KGIT")) (path-ancestors (param "Z_MARKS")))
 ; Z5. an instance reads only its own mark (other marks and the decoy are denied)
 (deny file-read* (require-all (subpath (param "Z_MARKS")) (require-not (literal (param "Z_MARK")))))
 ; Z6. no IP at all; Unix sockets only inside INIT_HOME, plus the Root egress socket
@@ -413,24 +421,26 @@ The block is `root/sandbox-profiles/profiles/zone-tail-full.sb`, copied verbatim
 (deny file-read* file-write* (literal (param "Z_ROOT_SVC")))
 (deny file-write* (literal (param "Z_ROOT_SVC_DIR")) (subpath (param "Z_ROOT_SVC_DIR")))
 ; three lines per full read deny entry i (INIT's provider key directory, then the charter's sandbox.read_deny): the entry,
-; and the folders above it (Z8):
+; and the folders above it, never moved, replaced or cloned (Z8):
 (deny file-read* file-write* (literal (param "Z_DENY_<i>")) (subpath (param "Z_DENY_<i>")))
-(deny file-write-unlink (path-ancestors (param "Z_DENY_<i>")))
+(deny file-write-unlink file-clone (path-ancestors (param "Z_DENY_<i>")))
 (deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_DENY_<i>"))))
 ; Z3a. never the Root's service directories or INIT's launchers (<bin_dir>/init-agent, <bin_dir>/init, <bin_dir>/init-tui);
 ;      three lines per entry i: the entry, and the folders above it (Z8):
 (deny file-write* (literal (param "Z_WDENY_<i>")) (subpath (param "Z_WDENY_<i>")))
-(deny file-write-unlink (path-ancestors (param "Z_WDENY_<i>")))
+(deny file-write-unlink file-clone (path-ancestors (param "Z_WDENY_<i>")))
 (deny file-write-create (require-all (vnode-type SYMLINK) (path-ancestors (param "Z_WDENY_<i>"))))
 ; Z4. never into the Root-written parts of INIT_HOME; INIT_HOME and run/ cannot be renamed or replaced, nor (v0.5.5) the
 ;     folders above lineage/kernel.git (lineage/ itself: the kernel profile writes INIT_HOME, and a renamed lineage/ would
-;     carry kernel.git out of this rule); the other paths' parents are INIT_HOME and run/, denied here as literals
+;     carry kernel.git out of this rule); the other paths' parents are INIT_HOME and run/, denied here as literals. Nor
+;     (v0.5.6) is a folder above lineage/kernel.git or run/mark cloned: a clone of run/ held the other marks (Z5) at a new,
+;     readable name
 (deny file-write* (literal (param "Z_INIT_HOME")) (literal (param "Z_RUN")) (literal (param "Z_ZONE_MARK"))
   (literal (param "Z_KERNEL")) (subpath (param "Z_KERNEL"))
   (literal (param "Z_PUB")) (subpath (param "Z_PUB"))
   (literal (param "Z_MARKS")) (subpath (param "Z_MARKS"))
   (literal (param "Z_KGIT")) (subpath (param "Z_KGIT")))
-(deny file-write-unlink (path-ancestors (param "Z_KGIT")))
+(deny file-write-unlink file-clone (path-ancestors (param "Z_KGIT")) (path-ancestors (param "Z_MARKS")))
 ; Z5. an instance reads only its own mark (other marks and the decoy are denied)
 (deny file-read* (require-all (subpath (param "Z_MARKS")) (require-not (literal (param "Z_MARK")))))
 ; Z7. no XPC services; no signals or inspection outside the instance's own sandbox
@@ -443,14 +453,17 @@ The block is `root/sandbox-profiles/profiles/zone-tail-full.sb`, copied verbatim
 ;     onto it, rmdir, RENAME_SWAP) needs file-write-unlink on it; a missing folder can still be made (mkdir -p), but for a
 ;     deny entry not as a symlink (its third line: a key or a launcher the owner adds later would land wherever the link
 ;     points), and what lies inside these folders stays writable. path-ancestors is every folder above the path, up to /.
-;     ROOT_HOME, the service file and INIT_HOME here (they exist, and the service directory has its own deny); each deny
-;     entry's lines are in its group above, lineage/kernel.git's in Z4:
-(deny file-write-unlink (path-ancestors (param "Z_ROOT_HOME")) (path-ancestors (param "Z_ROOT_SVC")) (path-ancestors (param "Z_INIT_HOME")))
+;     v0.5.6: nor are these folders cloned. Seatbelt checks clonefile(2) against its source path only, so a clone of a
+;     folder above a protected path (~/.config, the home) copied everything under it to a new, readable name; a file's
+;     clone is unchanged (a file is never a folder above a path). ROOT_HOME, the service file and INIT_HOME here (they
+;     exist, and the service directory has its own deny); each deny entry's lines are in its group above, lineage/kernel.git's
+;     and run/mark's in Z4:
+(deny file-write-unlink file-clone (path-ancestors (param "Z_ROOT_HOME")) (path-ancestors (param "Z_ROOT_SVC")) (path-ancestors (param "Z_INIT_HOME")))
 ```
 
 Residuals (ADR-012): files the owner's own tools run later (shell startup files, PATH directories, editor configs, git hooks) run unsandboxed, so full mode is trusted like the owner's own shell; writes outside the workspace have no `/undo`; and, as in every mode, legacy `launchctl remove dev.init.root` works from inside any Seatbelt sandbox, which ends the Root (it handles the resulting SIGTERM by stopping the zone): the agent can end INIT, not escape it.
 
-**Z8 (v0.5.5, REL-054 §7.5 should-fix 1).** Up to v0.5.4 renaming a folder above a protected path got past its deny on macOS: `mv ~/.local/bin ~/.local/bin.old` and a folder of the agent's own in its place replaced INIT's launchers (one `renamex_np(RENAME_SWAP)` did it in a single step), `mv ~/.config ~/.cfg` exposed the provider key files, `mv ~/Library ~/Lib2` and a prepared `~/Library` replaced the Root's service file, and the same held for every `read_deny` entry and for a `ROOT_HOME` or `INIT_HOME` one folder below the home (a test install's). Z8, Z4's `lineage/kernel.git` line and the ancestor lines of each Z2 and Z3a entry deny `file-write-unlink` on every folder above `ROOT_HOME`, the service file, `INIT_HOME`, `lineage/kernel.git` and each deny entry (§3.3.2 gives the measured operations), so none of those folders can be moved, removed or swapped; their contents stay writable. A missing folder above a deny entry can be made, but not as a symlink. Residual: such a missing folder can still be created by renaming a prepared real folder onto its name, which puts files at the protected path below it; that path was missing too, so nothing of INIT's is replaced, and the files are the agent's own, not a place where the owner's later key would leak (`~/Library` always exists, and the service directory has its own deny).
+**Z8 (v0.5.5, REL-054 §7.5 should-fix 1).** Up to v0.5.4 renaming a folder above a protected path got past its deny on macOS: `mv ~/.local/bin ~/.local/bin.old` and a folder of the agent's own in its place replaced INIT's launchers (one `renamex_np(RENAME_SWAP)` did it in a single step), `mv ~/.config ~/.cfg` exposed the provider key files, `mv ~/Library ~/Lib2` and a prepared `~/Library` replaced the Root's service file, and the same held for every `read_deny` entry and for a `ROOT_HOME` or `INIT_HOME` one folder below the home (a test install's). Z8, Z4's `lineage/kernel.git` line and the ancestor lines of each Z2 and Z3a entry deny `file-write-unlink` on every folder above `ROOT_HOME`, the service file, `INIT_HOME`, `lineage/kernel.git` and each deny entry (§3.3.2 gives the measured operations), so none of those folders can be moved, removed or swapped; their contents stay writable. A missing folder above a deny entry can be made, but not as a symlink. From v0.5.6 none of those folders can be cloned either: a `clonefile(2)` of one copied what lies under it to a new, readable name (§3.3.2). Residual: such a missing folder can still be created by renaming a prepared real folder onto its name, which puts files at the protected path below it; that path was missing too, so nothing of INIT's is replaced, and the files are the agent's own, not a place where the owner's later key would leak (`~/Library` always exists, and the service directory has its own deny).
 
 On Linux the same set is enforced by the bwrap plan of `init_sandbox_profiles::linux` for a full grant (§3.4.1).
 
@@ -473,6 +486,8 @@ On Linux the same set is enforced by the bwrap plan of `init_sandbox_profiles::l
 (allow network-outbound (remote unix-socket (subpath (param "SLOT_OUT"))))
 ; ---- 8. hard denies (the tail follows) ----
 (deny file-read* file-write* (subpath "/opt/homebrew/var") (subpath "/opt/homebrew/etc"))
+; v0.5.6: nor the folders above them cloned (Seatbelt checks clonefile(2) against its source only) or moved
+(deny file-write-unlink file-clone (path-ancestors "/opt/homebrew/var") (path-ancestors "/opt/homebrew/etc"))
 (deny mach-lookup (xpc-service-name-prefix ""))
 ```
 
@@ -621,7 +636,7 @@ Failing any one → `Halted{tooling}`.
 A full grant (the live body only; any other profile or a full grant with another grant is refused) changes the plan of `init_sandbox_profiles::linux::compose`:
 - `/usr/bin/unshare --user --map-root-user --` without `--net`: the body shares the host network. bwrap keeps `--die-with-parent --new-session --unshare-user --unshare-pid --unshare-ipc --unshare-uts --disable-userns --cap-drop ALL --add-seccomp-fd 5`.
 - `--bind / /` first, then a fresh `--proc /proc` and `--dev /dev`; the host `/tmp` stays (no private tmpfs), and no final `--remount-ro /`.
-- every ancestor of every existing deny entry, from just below the owner's home (just below `/` for an entry outside it) down to its parent, bound onto itself read-write, outer first, before `INIT_HOME` is hidden and before `ROOT_HOME`'s overlay (folders inside `INIT_HOME` or `ROOT_HOME` excluded; from v0.5.5 a folder *above* one of them is kept: the filter before dropped it too, so with `INIT_ROOT_HOME=~/.config/init-root` the folder `~/.config` was free to rename, carrying the read-only bind of `~/.config/systemd/user` away; `init_sandbox_profiles::access::pinned_ancestors`, unit-tested on macOS; no Linux host ran it in v0.5.5's lane, and the x86_64 CI's T2 e2e under bwrap runs the plan). A bind mount follows its dentry, so without this `mv ~/.local/bin x && mkdir ~/.local/bin` would leave the launcher path free (measured by lane fa-linux, bwrap 0.13.0, Linux 6.10); a mount point cannot be renamed (`EBUSY`) and its contents stay writable. On macOS, where Seatbelt matches paths, the tails deny `file-write-unlink` on those folders instead (v0.5.5: Z8 and the ancestor lines of Z2 and Z3a, §3.3.2a). `ROOT_HOME`'s and `INIT_HOME`'s own ancestors are pinned only when a deny entry lies below them too; at their defaults (`~/.init-root`, `~/.init`) their parent is the home, which the user cannot rename. Inside the zone the kernel profile's `lineage/` is itself a bind mount (the per-subtree binds above), so renaming it fails with `EBUSY`, and `INIT_HOME`'s own entries there are the zone's tmpfs, not the host's: B1 needs no Linux change.
+- every ancestor of every existing deny entry, from just below the owner's home (just below `/` for an entry outside it) down to its parent, bound onto itself read-write, outer first, before `INIT_HOME` is hidden and before `ROOT_HOME`'s overlay (folders inside `INIT_HOME` or `ROOT_HOME` excluded; from v0.5.5 a folder *above* one of them is kept: the filter before dropped it too, so with `INIT_ROOT_HOME=~/.config/init-root` the folder `~/.config` was free to rename, carrying the read-only bind of `~/.config/systemd/user` away; `init_sandbox_profiles::access::pinned_ancestors`, unit-tested on macOS; no Linux host ran it in v0.5.5's lane, and the x86_64 CI's T2 e2e under bwrap runs the plan). A bind mount follows its dentry, so without this `mv ~/.local/bin x && mkdir ~/.local/bin` would leave the launcher path free (measured by lane fa-linux, bwrap 0.13.0, Linux 6.10); a mount point cannot be renamed (`EBUSY`) and its contents stay writable. On macOS, where Seatbelt matches paths, the tails deny `file-write-unlink` on those folders instead (v0.5.5: Z8 and the ancestor lines of Z2 and Z3a, §3.3.2a), and `file-clone` (v0.5.6). Linux needs no clone rule: a reflink copy (`cp --reflink`, `FICLONE`) reads each file it copies, and a hidden file cannot be read. `ROOT_HOME`'s and `INIT_HOME`'s own ancestors are pinned only when a deny entry lies below them too; at their defaults (`~/.init-root`, `~/.init`) their parent is the home, which the user cannot rename. Inside the zone the kernel profile's `lineage/` is itself a bind mount (the per-subtree binds above), so renaming it fails with `EBUSY`, and `INIT_HOME`'s own entries there are the zone's tmpfs, not the host's: B1 needs no Linux change.
 - before the spawn the Root creates the user unit directories (`~/.config/systemd/user`, `user.control`, `~/.local/share/systemd/user`) when they are missing, so they are bound read-only rather than left free to create.
 - `--tmpfs INIT_HOME`, then the `body` binds of the workspace plan (`BODY`, `WORK`, `STATE` read-write, the rest read-only, the `LINK_*` symlinks, the mark), so `INIT_HOME` keeps the body's own rules.
 - `--tmpfs ROOT_HOME --remount-ro ROOT_HOME`: no key, no `owner.sock`, no `egress.sock` exists inside.
@@ -875,7 +890,7 @@ A **tuple** is one runnable system state:
 - `kernel.source` ∈ `maintainer` | `agent`.
 - `kernel.built_from` is the kernel source commit in `lineage/kernel.git`: for a maintainer release, the commit of its source bundle (`refs/upstream/<version>`); for an agent kernel, the candidate commit the Root fetched at install (§3.8.1). As built, the Root reads it from `lineage/kernel.git` `refs/heads/main` when it forms the kernel half of a tuple, the genesis tuple included (`""` if `main` does not exist).
 - `ext.set` uses the set-id rule of kernel/supervise.md §3.6.5.
-- **Tuple v2 (M7; m7-design.md §3.2.3).** `body` gains `t0`: the sha256 of a `t0` blob, a pax tar of the body's `GENESIS.md`, `SELF.md` and `skills/**` (relative paths, ≤ 8 MiB), stored with `store.put kind:"t0"` (§4.1.3). Sealed runs, slices and audits alike, extract it into the run root's `body/`, so they see the candidate's real head. This also closes the gap that audits had no defined T0 source.
+- **Tuple v2 (M7; m7-design.md §3.2.3).** `body` gains `t0`: the sha256 of a `t0` blob, a pax tar of the body's `GENESIS.md`, `SELF.md` and `skills/**` (relative paths, ≤ 8 MiB), stored with `store.put kind:"t0"` (§4.1.3). Sealed runs, slices and audits alike, extract it into the run root's `body/`, so they see the candidate's real head. This also closes the gap that audits had no defined T0 source. A tuple without `t0` falls back to the kernel-exported tree `INIT_HOME/lineage/trees/<sha12>/`, which the zone can write. From v0.5.6 (review note N1) the Root, which runs unsandboxed, follows no link there: the tree and its `skills/` must be real folders (in the twin arms' `place_t0` too, from the §4.3 review: `O_NOFOLLOW` guards the last component only), each of `GENESIS.md`, `SELF.md` and `self.json` is copied only as a regular file opened with `O_NOFOLLOW` (so not even a link swapped in after a check), and `cp -RP` copies a link inside `skills/` as a link. Before, a planted `SELF.md -> ~/.init-root/keys/…` would have had the Root copy a key into the sealed run (`sealed/run.rs` `body_home`; the twin arms' `place_t0` the same).
 
 **Store.**
 - Blobs are `store/blobs/<sha256>`, mode 0444, each at most 512 MiB. Kinds: `init-kernel`, `initctl`, `init-body`, `ext`, and `kstate`, a snapshot of the old kernel's `state/kernel/` taken at a kernel swap (§3.8). A `kstate` blob is kept only until that swap's probation ends. They are written as a temp file, fsynced, then renamed (R-F3). The same bytes are never stored twice.
@@ -2046,7 +2061,7 @@ Expected recovery after each, checked by RR-35 and testing.md F-kill-root (in a 
 
 **Measured (build, 2026-10-20).** WP24's earlier ≈ 6,450 used a different count. This method gave 7,053 for `init-root` at dd5c358. At cdb49e8, after R-DEC's money-meter commit, it gave 7,085, the column above. Both counts include WP21b's install path, FIX5's `proposal.file` and the later fixes. R-SAFE and R-DEC are still adding Root code for v0.1.0, so the table is re-measured at release.
 
-**Measured since.** The table above was not re-measured per module after v0.1.0, and the ≈ 7,500 budget no longer holds. By this method `init-root` was 20,334 lines at 04dbabf (v0.5.0; REL-050), 21,498 at 67d5172 (the v0.5.3 candidate after lane E1), 22,623 at the tag v0.5.3-preview (a7f483c, whose code is the shipped bb5dc0e's), 22,967 at the tag v0.5.4-preview (code 2fc78f5), and is **23,018** at the tag v0.5.5-preview (code 8235092); `root/sandbox-profiles/src` is 3,404 more (3,298 at 67d5172, 3,387 at v0.5.3 and v0.5.4). The script below gives 20,335 at 04dbabf, and exactly 7,085, 821 and 1,454 at cdb49e8. REL-050's 3,474 for the sandbox profiles at 04dbabf does not reproduce: the script gives 3,244.
+**Measured since.** The table above was not re-measured per module after v0.1.0, and the ≈ 7,500 budget no longer holds. By this method `init-root` was 20,334 lines at 04dbabf (v0.5.0; REL-050), 21,498 at 67d5172 (the v0.5.3 candidate after lane E1), 22,623 at the tag v0.5.3-preview (a7f483c, whose code is the shipped bb5dc0e's), 22,967 at the tag v0.5.4-preview (code 2fc78f5), 23,018 at the tag v0.5.5-preview (code 8235092), and is **23,031** at the tag v0.5.6-preview (code 930e354); `root/sandbox-profiles/src` is 3,450 more (3,298 at 67d5172, 3,387 at v0.5.3 and v0.5.4, 3,404 at v0.5.5). The script below gives 20,335 at 04dbabf, and exactly 7,085, 821 and 1,454 at cdb49e8. REL-050's 3,474 for the sandbox profiles at 04dbabf does not reproduce: the script gives 3,244.
 
 **The trusted computing base (TCB), counted separately.** docs/foundations.md §10 names the parts of the Root that FG-1 and FG-2 rest on. The table splits the Root by those parts, by this section's method, at the tag v0.5.3-preview; the totals at v0.5.4 (code 2fc78f5) follow it. It is a file-level split: a file is in a part when that part is the file's job. Eight files hold a TCB part beside other code. They are listed with their whole size, so the TCB lies between the two bold totals. Lane L2's typed pointer core is the planned way to narrow it.
 
@@ -2069,6 +2084,8 @@ Expected recovery after each, checked by RR-35 and testing.md F-kill-root (in a 
 **At v0.5.4-preview (code 2fc78f5), the same file split:** TCB whole files **8,318** (`sys.rs` 831, `snapshot.rs` 741: the `/undo` and R2 group restore); TCB upper bound **12,562** (also `access.rs` 1,045, `install.rs` 622); `init-root` 22,967; the whole Root **26,354** (REL-054).
 
 **At v0.5.5-preview (code 8235092), the same file split:** TCB whole files **8,332** (`sys.rs` 841; sandbox profiles `access.rs` 290 and `linux.rs` 235: the folders above each protected path); TCB upper bound **12,617** (also `access.rs` 1,063, `install.rs` 645); `init-root` 23,018; the whole Root **26,422** (REL-055).
+
+**At v0.5.6-preview (code 930e354), the same file split:** TCB whole files **8,344** (`snapshot.rs` 742 and `util.rs` 197: the T0 copy that follows no link); TCB upper bound **12,630** (also `sealed/run.rs` 455); `init-root` 23,031; the whole Root **26,481**, with the sandbox profiles' clone probe (REL-056).
 
 What is counted and what is not:
 - **Not counted:** `tests/` in both crates; `#[cfg(test)]` and `#[cfg(all(test, …))]` items and the files they declare (`*/tests.rs`, `extend/select_tests.rs`, `sealed/exact/tests.rs`); `testfix.rs` (feature `test-fixtures`); the nine profile texts in `root/sandbox-profiles/profiles/` (SBPL data that `seatbelt.rs` embeds with `include_str!`, 192 non-blank, non-comment lines); the embedded assets (`CONSTITUTION.md`, the charter template); the vendored dependencies (serde, serde_json, toml, sha2, ed25519-dalek, libc, seccompiler, ureq, httparse), which the TCB trusts but this count does not cover. Neither crate has a `build.rs` or generated Rust.

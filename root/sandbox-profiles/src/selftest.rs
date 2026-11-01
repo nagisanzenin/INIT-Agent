@@ -1457,6 +1457,10 @@ impl<'a> Runner<'a> {
                 ("S-A26", "full: rename ~/.local/bin away (Z8, v0.5.5: the launchers' folder)", ops(&["rename", &hm(".local/bin"), &hm(".local/bin2")]), Expect::Deny),
                 ("S-A26c", "full: rename ~/.config away (Z8: the key directory's parent)", ops(&["rename", &hm(".config"), &hm(".config2")]), Expect::Deny),
                 ("S-A26d", "full: rename ~/Library away (Z8: the parent of ~/Library/LaunchAgents)", ops(&["rename", &hm("Library"), &hm("Library2")]), Expect::Deny),
+                // v0.5.6: nor cloned (clonefile(2) is checked against its source only; a clone copied the key files out)
+                ("S-A26e", "full: clone ~/.config (Z8, v0.5.6: the key directory's parent)", ops(&["clone", &hm(".config"), &hm(".config3")]), Expect::Deny),
+                ("S-A26f", "full: clone the Root's service directory (Z8, v0.5.6: the service file's parent)", ops(&["clone", &hm("svc"), &hm("svc3")]), Expect::Deny),
+                ("S-A26g", "full: clone ~/other (v0.5.6: above no protected path)", ops(&["clone", &hm("other"), &hm("other3")]), Expect::Allow),
                 ("S-A26b", "full: rename the workspace's .git/hooks away (ADR-012)", ops(&["rename", &hm("ws/.git/hooks"), &hm("ws/.git/h2")]), Expect::Allow),
             ];
             for (id, what, op, expect) in last {
@@ -1753,6 +1757,7 @@ impl<'a> Runner<'a> {
             ("S-Z3e", "kernel: write run/mark/ (Z4)", ops(&["write", &i("run/mark/zk")]), Expect::Deny),
             ("S-Z3f", "kernel: write lineage/kernel.git/ (Z4)", ops(&["write", &i("lineage/kernel.git/zk")]), Expect::Deny),
             ("S-Z3g", "kernel: overwrite run/zone-mark (Z4)", ops(&["write", &i("run/zone-mark")]), Expect::Deny),
+            ("S-Z3j", "kernel: clone kernel/ into probe/ (a probe root's copy; v0.5.6 leaves it)", ops(&["clone", &i("kernel"), &i("probe/kc")]), Expect::Allow),
             ("S-Z4a", "kernel: read ROOT_HOME (Z1)", ops(&["read", &r("secret")]), Expect::Deny),
             ("S-Z4b", "kernel: list ROOT_HOME (Z1)", ops(&["list", &s(&h.r)]), Expect::Deny),
             ("S-Z4c", "kernel: read the Root's service file (Z2)", ops(&["read", &s(&h.svc)]), Expect::Deny),
@@ -1830,6 +1835,7 @@ impl<'a> Runner<'a> {
             ("S-Z3b", "kernel: rename kernel/", ops(&["rename", &s(&h.i("kernel")), &s(&h.i("kernel2"))])),
             ("S-Z3c", "kernel: rename INIT_HOME", ops(&["rename", &s(&h.i), &s(&h.run.join("i2"))])),
             ("S-Z3h", "kernel: rename lineage/ (Z4, v0.5.5: lineage/kernel.git's parent)", ops(&["rename", &s(&h.i("lineage")), &s(&h.i("lineage2"))])),
+            ("S-Z3i", "kernel: clone run/ (Z4, v0.5.6: run/mark's parent; the copy would hold the other marks)", ops(&["clone", &s(&h.i("run")), &s(&h.i("cache/run3"))])),
         ];
         for (id, what, op) in rows {
             self.check(id, k, what, &op, Expect::Deny);

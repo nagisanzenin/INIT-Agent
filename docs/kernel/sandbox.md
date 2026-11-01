@@ -267,6 +267,8 @@ ADR-009 (v0.1.1) does not change this text: the home read and the workspace writ
 (deny file-read* file-write* (literal (param "VAULT")) (subpath (param "VAULT")))
 (deny file-read* file-write* (literal (param "CACHE")) (subpath (param "CACHE")))
 (deny file-read* file-write* (subpath "/opt/homebrew/var") (subpath "/opt/homebrew/etc"))
+; v0.5.6: nor the folders above them cloned (Seatbelt checks clonefile(2) against its source only) or moved
+(deny file-write-unlink file-clone (path-ancestors "/opt/homebrew/var") (path-ancestors "/opt/homebrew/etc"))
 (deny mach-lookup (xpc-service-name-prefix ""))
 ```
 
@@ -760,7 +762,7 @@ Since v0.3 the **only security boundary is the Root versus everything else** (sp
 | honest measuring stick | §3.9 for the body-facing layer; the Root's sealed evaluator (R6) for the agent-proof layer |
 | no keys anywhere in the zone | v0.3: keys live only in the Root (R2, root/egress.md). Nothing under `INIT_HOME` holds a key, and every environment is rebuilt without one (S-X1) |
 | v0.1.1, workspace mode: the owner's secrets stay unreadable, and writes stay in scope | tail Z2 denies ADR-009's deny list and the service directory (S-A2, S-A14, S-A17b); tail Z3 confines writes to `INIT_HOME` plus the Root-validated workspace (S-A3, S-A7–S-A9); the grants exclude `INIT_HOME`; probes get no grant (S-A19); tails Z3a and Z3b keep shell startup files, git config and hooks, PATH launchers and login items unwritable (S-A20). All use Root-set parameters only |
-| v0.3.1, full mode (ADR-012): the Root-protected set holds | the full tail denies `ROOT_HOME` and its sockets (S-A11, S-A15, S-A15c), the service file and directory (S-A14, S-A17b, S-A24), INIT's launchers (S-A23, S-A23a, S-A23b), the folders above them, the key directory and the service directory (S-A26, S-A26c, S-A26d, v0.5.5), `INIT_HOME`'s protected parts (S-A13), INIT's key directory and the charter's `read_deny` (S-A12c–f), another INIT install's homes (S-A12g–j, v0.5.3), the release signing key directory `~/.init-release` (S-A12l–n, v0.5.3), and signals outside the sandbox (S-A28); members and probes are never full (S-A18–S-A19d) |
+| v0.3.1, full mode (ADR-012): the Root-protected set holds | the full tail denies `ROOT_HOME` and its sockets (S-A11, S-A15, S-A15c), the service file and directory (S-A14, S-A17b, S-A24), INIT's launchers (S-A23, S-A23a, S-A23b), the folders above them, the key directory and the service directory, which cannot be moved (S-A26, S-A26c, S-A26d, v0.5.5) or cloned (S-A26e, S-A26f, v0.5.6), `INIT_HOME`'s protected parts (S-A13), INIT's key directory and the charter's `read_deny` (S-A12c–f), another INIT install's homes (S-A12g–j, v0.5.3), the release signing key directory `~/.init-release` (S-A12l–n, v0.5.3), and signals outside the sandbox (S-A28); members and probes are never full (S-A18–S-A19d) |
 
 Bodies cannot signal, ptrace or inspect the kernel: Seatbelt `same-sandbox` targets (on macOS the kernel is in a different sandbox instance); Linux pid namespace, seccomp `ptrace` deny and Landlock `Scope::Signal`. The zone, in turn, can signal only its own sandbox. S-Z11 tested this against a body instance, and the same `(target same-sandbox)` rule covers the Root and every other process of the owner.
 
@@ -898,6 +900,8 @@ The later S-M47 runs that day listed members first and killed only the escapee t
 | S-A25–S-A25d | `full` | another repository's hook and `.git/config`; a hook and a git object in the workspace (ADR-012) | allow |
 | S-A26, S-A26c, S-A26d | `full` | rename `~/.local/bin`, `~/.config` or `~/Library` away (v0.5.5, Z8: a folder above INIT's launchers, its key directory or the service directory) | deny |
 | S-A26b | `full` | rename the workspace's `.git/hooks` away (ADR-012; renamed back) | allow |
+| S-A26e, S-A26f | `full` | `clonefile` `~/.config` or the service directory to a new name (v0.5.6, Z8: a clone of a folder above a protected path copied it to a readable name) | deny |
+| S-A26g | `full` | `clonefile` a folder above no protected path (v0.5.6) | allow |
 | S-A27 | `full` | write a new directory the suite created in the per-user temp directory (`/var/folders/…`, outside the home and `/tmp`; removed by its exact path) | allow |
 | S-A28 | `full` | `kill -0` an unsandboxed `sleep` the suite spawned (the Root stand-in; Z7) | deny |
 
@@ -914,6 +918,8 @@ Last run (SBX-009, cc16577): the whole self-test, 330 pass, 0 fail, 13 skipped (
 | S-Z1, S-Z2a–c | write `state/kernel/`, `bin/`, `lineage/`, `cache/`, `vault/`, `probe/`, `fleet/`, `run/` | allow |
 | S-Z3a–e | write `kernel/`; rename `kernel/`; rename `INIT_HOME`; write `root/`; write `run/mark/` | deny |
 | S-Z3h | rename `lineage/` (v0.5.5, Z4: `lineage/kernel.git`'s parent) | deny |
+| S-Z3i | `clonefile` `run/` into `cache/` (v0.5.6, Z4: `run/mark`'s parent; the copy would hold the other marks Z5 denies) | deny |
+| S-Z3j | `clonefile` `kernel/` into `probe/` (a probe root's copy; v0.5.6 leaves it) | allow |
 | S-Z4 | read `ROOT_HOME` | deny |
 | S-Z5 | connect the Root owner socket | deny |
 | S-Z6 | connect the Root egress socket | allow |

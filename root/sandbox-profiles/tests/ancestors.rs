@@ -38,10 +38,15 @@ impl Drop for Fx {
 /// A test home with an owner's layout. `nested`: ROOT_HOME and INIT_HOME one folder down (`~/inst/`), as a test install
 /// puts them, instead of the defaults `~/.init-root` and `~/.init`.
 fn fixture(tag: &str, nested: bool) -> Fx {
+    if nested { fixture_at(tag, "inst/rh", "inst/ih") } else { fixture_at(tag, ".init-root", ".init") }
+}
+
+/// As [`fixture`], with ROOT_HOME and INIT_HOME at `rh` and `ih` (relative to the home).
+fn fixture_at(tag: &str, rh: &str, ih: &str) -> Fx {
     let top = PathBuf::from(format!("/private/tmp/init-anc-{}-{tag}", std::process::id()));
     let _ = fs::remove_dir_all(&top);
     let home = top.join("home");
-    let (rh, ih) = if nested { (home.join("inst/rh"), home.join("inst/ih")) } else { (home.join(".init-root"), home.join(".init")) };
+    let (rh, ih) = (home.join(rh), home.join(ih));
     for d in ["body", "work", "state/kernel", "kernel", "bin", "lineage", "run/mark", "root", "vault", "cache"] {
         fs::create_dir_all(ih.join(d)).unwrap();
     }
@@ -98,6 +103,7 @@ fn fixture(tag: &str, nested: bool) -> Fx {
     fs::write(ih.join("lineage/kernel.git/refs/heads/main"), KGIT_MAIN).unwrap();
     create_mark(&ih.join("run/zone-mark")).unwrap();
     create_mark(&ih.join("run/mark/abc")).unwrap();
+    create_mark(&ih.join("run/mark/other")).unwrap();
     Fx { top, home, rh, ih }
 }
 
@@ -115,7 +121,11 @@ impl Fx {
     /// As [`Fx::profile`], with the charter's `sandbox.read_deny` = `charter` (relative to the home). A workspace grant's
     /// workspace must pass the Root's validation (`validate_workspace`, against both deny lists, as access.rs `ws_deny`).
     fn profile_with(&self, grant: &Grant, charter: &[&str]) -> Rendered {
-        let layout = self.layout(grant, charter);
+        self.section_profile(ProfileId::Body, &self.layout(grant, charter), grant)
+    }
+
+    /// Profile `id` (a SECTION the kernel spawns) with directory parameters laid out in INIT_HOME, as a probe root is.
+    fn section_profile(&self, id: ProfileId, layout: &ZoneLayout, grant: &Grant) -> Rendered {
         let (i, home) = (&self.ih, &self.home);
         let dir = |k: &str| -> PathBuf {
             match k {
@@ -132,8 +142,8 @@ impl Fx {
                 k => i.join(k.to_lowercase()),
             }
         };
-        let given: BTreeMap<String, String> = kernel_params(ProfileId::Body).into_iter().map(|k| (k.to_owned(), dir(k).display().to_string())).collect();
-        seatbelt::compose(ProfileId::Body, &given, &layout, &i.join("run/mark/abc"), grant).unwrap()
+        let given: BTreeMap<String, String> = kernel_params(id).into_iter().map(|k| (k.to_owned(), dir(k).display().to_string())).collect();
+        seatbelt::compose(id, &given, layout, &i.join("run/mark/abc"), grant).unwrap()
     }
 
     /// The kernel's profile (`kernel` SECTION + the zone tail), with the Root's parameters (`kernel_profile_params`).
@@ -430,6 +440,243 @@ fn missing_ancestor_is_never_a_symlink() {
         Err(EPERM),
     );
     t.row("workspace ~/proj: mkdir ~/proj/missing", fx.run(&r, &["mkdir", &fx.h("proj/missing")]), Ok(()));
+    t.done();
+}
+
+/// v0.5.6 (v0.5.5's post-release review): `clonefile(2)` of a folder above a protected path copied everything under it to a
+/// new, readable name, because Seatbelt checks a clone against its source path only and no tail rule named `file-clone`. Now
+/// the folders above each read deny entry, ROOT_HOME, the service file, INIT_HOME's marks and lineage/kernel.git cannot be
+/// cloned, in full mode, workspace mode and the kernel profile; a clone inside a protected path was refused already (its
+/// read deny), and so was every read of the copy's path once the clone is refused.
+#[test]
+fn clone_above_protected_paths_is_refused() {
+    let mut t = Table::default();
+    let fx = fixture("clone", false);
+    let r = fx.profile(&full());
+    let copy = |rel: &str| fx.top.join(rel).display().to_string();
+    for (rel, to, inside) in [
+        (".config", "cfg", "init-agent/deepseek.key"),
+        ("Library", "lib", "LaunchAgents/dev.init.root.plist"),
+        ("Library/LaunchAgents", "la", "dev.init.root.plist"),
+        ("Documents", "docs", "tax/2025.txt"),
+        ("", "home2", ".init-root/keys/providers/fake"),
+    ] {
+        let src = if rel.is_empty() { fx.home.display().to_string() } else { fx.h(rel) };
+        t.row(&format!("full: clone ~/{rel}"), fx.run(&r, &["clone", &src, &copy(to)]), Err(EPERM));
+        t.row(&format!("full: cat <the clone>/{inside}"), fx.run(&r, &["read", &copy(&format!("{to}/{inside}"))]), Err(2));
+    }
+    t.row("full: clone ~/.config/init-agent (the entry itself: its read deny, unchanged)", fx.run(&r, &["clone", &fx.h(".config/init-agent"), &copy("ia")]), Err(EPERM));
+    t.row(
+        "full: clone INIT_HOME/run (the marks' parent)",
+        fx.run(&r, &["clone", &fx.ih.join("run").display().to_string(), &copy("run2")]),
+        Err(EPERM),
+    );
+    let fx = fixture("clone-nested", true);
+    let r = fx.profile(&full());
+    t.row("full: clone ~/inst (a nested ROOT_HOME's parent)", fx.run(&r, &["clone", &fx.h("inst"), &fx.h("inst2")]), Err(EPERM));
+    t.row("full: cat ~/inst2/rh/keys/providers/fake", fx.run(&r, &["read", &fx.h("inst2/rh/keys/providers/fake")]), Err(2));
+
+    let fx = fixture("clone-ws", false);
+    let support = fx.home.join("Library/Application Support");
+    let r = fx.profile(&Grant { read_home: true, write: Some(support.clone()), full: false });
+    let a = |rel: &str| support.join(rel).display().to_string();
+    t.row("workspace ~/Library/Application Support: clone Google G2 (above Chrome's profile)", fx.run(&r, &["clone", &a("Google"), &a("G2")]), Err(EPERM));
+    t.row("workspace ~/Library/Application Support: cat G2/Chrome/Default/Cookies", fx.run(&r, &["read", &a("G2/Chrome/Default/Cookies")]), Err(2));
+    let r = fx.profile(&Grant { read_home: true, write: Some(fx.home.join("ws")), full: false });
+    for (rel, to, inside) in [(".config", "cfg", "init-agent/deepseek.key"), ("Library/LaunchAgents", "la", "dev.init.root.plist")] {
+        t.row(&format!("workspace ~/ws: clone ~/{rel} into ~/ws"), fx.run(&r, &["clone", &fx.h(rel), &fx.h(&format!("ws/{to}"))]), Err(EPERM));
+        t.row(&format!("workspace ~/ws: cat ~/ws/{to}/{inside}"), fx.run(&r, &["read", &fx.h(&format!("ws/{to}/{inside}"))]), Err(2));
+    }
+    // ROOT_HOME in a folder of its own, above no deny entry and not above INIT_HOME
+    let fx = fixture_at("clone-ws-rh", "rhp/rh", ".init");
+    let r = fx.profile(&Grant { read_home: true, write: Some(fx.home.join("ws")), full: false });
+    t.row("workspace ~/ws: clone ~/rhp (ROOT_HOME's parent) into ~/ws", fx.run(&r, &["clone", &fx.h("rhp"), &fx.h("ws/rhp")]), Err(EPERM));
+    t.row("workspace ~/ws: cat ~/ws/rhp/rh/keys/providers/fake", fx.run(&r, &["read", &fx.h("ws/rhp/rh/keys/providers/fake")]), Err(2));
+    let fx = fixture("clone-proj", false);
+    let r = fx.profile_with(&Grant { read_home: true, write: Some(fx.home.join("proj")), full: false }, &["proj/secrets/prod.env"]);
+    t.row("workspace ~/proj, read_deny ~/proj/secrets/prod.env: clone ~/proj/secrets s2", fx.run(&r, &["clone", &fx.h("proj/secrets"), &fx.h("proj/s2")]), Err(EPERM));
+    t.row("workspace ~/proj: cat ~/proj/s2/prod.env", fx.run(&r, &["read", &fx.h("proj/s2/prod.env")]), Err(2));
+
+    let fx = fixture("clone-kernel", false);
+    let r = fx.kernel_profile();
+    let i = |rel: &str| fx.ih.join(rel).display().to_string();
+    t.row("kernel: read run/mark/other (Z5, unchanged)", fx.run(&r, &["read", &i("run/mark/other")]), Err(EPERM));
+    t.row("kernel: clone run/ cache/run2 (Z5: the marks' parent)", fx.run(&r, &["clone", &i("run"), &i("cache/run2")]), Err(EPERM));
+    t.row("kernel: cat cache/run2/mark/other", fx.run(&r, &["read", &i("cache/run2/mark/other")]), Err(2));
+    t.row("kernel: clone run/mark (Z5's read deny, unchanged)", fx.run(&r, &["clone", &i("run/mark"), &i("cache/m2")]), Err(EPERM));
+    t.row("kernel: clone lineage/ (lineage/kernel.git's parent)", fx.run(&r, &["clone", &i("lineage"), &i("cache/l2")]), Err(EPERM));
+    t.done();
+}
+
+/// v0.5.6 (§4.3 review): the descriptor forms of a clone are checked against their source as `clonefile` is, so
+/// `fclonefileat` on a descriptor opened on a folder above a protected path, and `clonefileat` of such a folder by name
+/// relative to its parent's descriptor, are refused in each mode; on a folder above nothing protected they still work.
+#[test]
+fn fd_clones_above_protected_paths_are_refused() {
+    let mut t = Table::default();
+    let fx = fixture("fclone", false);
+    let r = fx.profile(&full());
+    let home = fx.home.display().to_string();
+    let copy = |rel: &str| fx.top.join(rel).display().to_string();
+    t.row("full: fclonefileat(open(~/.config))", fx.run(&r, &["fclone", &fx.h(".config"), &copy("f1")]), Err(EPERM));
+    t.row("full: cat <the fclone>/init-agent/deepseek.key", fx.run(&r, &["read", &copy("f1/init-agent/deepseek.key")]), Err(2));
+    t.row("full: clonefileat(open(~), \".config\")", fx.run(&r, &["cloneat", &home, ".config", &copy("f2")]), Err(EPERM));
+    t.row("full: cat <the clonefileat copy>/init-agent/deepseek.key", fx.run(&r, &["read", &copy("f2/init-agent/deepseek.key")]), Err(2));
+    t.row("full: fclonefileat(open(~)) (ROOT_HOME's parent)", fx.run(&r, &["fclone", &home, &copy("f3")]), Err(EPERM));
+    t.row("full: fclonefileat(open(~/ws)) (above nothing protected)", fx.run(&r, &["fclone", &fx.h("ws"), &copy("f4")]), Ok(()));
+    t.row("full: clonefileat(open(~/.config), \"other\")", fx.run(&r, &["cloneat", &fx.h(".config"), "other", &fx.h(".config/other-f")]), Ok(()));
+    let r = fx.profile(&Grant { read_home: true, write: Some(fx.home.join("ws")), full: false });
+    t.row("workspace ~/ws: fclonefileat(open(~/.config)) into ~/ws", fx.run(&r, &["fclone", &fx.h(".config"), &fx.h("ws/f1")]), Err(EPERM));
+    t.row("workspace ~/ws: clonefileat(open(~), \".config\") into ~/ws", fx.run(&r, &["cloneat", &home, ".config", &fx.h("ws/f2")]), Err(EPERM));
+    t.row(
+        "workspace ~/ws: clonefileat(open(~/Library), \"LaunchAgents\") into ~/ws",
+        fx.run(&r, &["cloneat", &fx.h("Library"), "LaunchAgents", &fx.h("ws/f3")]),
+        Err(EPERM),
+    );
+    t.row("workspace ~/ws: cat ~/ws/f1/init-agent/deepseek.key", fx.run(&r, &["read", &fx.h("ws/f1/init-agent/deepseek.key")]), Err(2));
+    t.row("workspace ~/ws: fclonefileat(open(~/ws/a.txt)) (a file)", fx.run(&r, &["fclone", &fx.h("ws/a.txt"), &fx.h("ws/a2.txt")]), Ok(()));
+    let r = fx.kernel_profile();
+    let i = |rel: &str| fx.ih.join(rel).display().to_string();
+    t.row("kernel: fclonefileat(open(run/))", fx.run(&r, &["fclone", &i("run"), &i("cache/f1")]), Err(EPERM));
+    t.row("kernel: clonefileat(open(INIT_HOME), \"run\")", fx.run(&r, &["cloneat", &i(""), "run", &i("cache/f2")]), Err(EPERM));
+    t.row("kernel: cat cache/f1/mark/other", fx.run(&r, &["read", &i("cache/f1/mark/other")]), Err(2));
+    t.row("kernel: fclonefileat(open(kernel/)) into probe/", fx.run(&r, &["fclone", &i("kernel"), &i("probe/f3")]), Ok(()));
+    t.done();
+}
+
+/// v0.5.6 (§4.3 review): every read deny in the composed profiles has its folders pinned against a clone. For each path
+/// P that a `(deny file-read* …)` rule names (outside a `require-not`), some `file-clone` deny on `path-ancestors` names
+/// a path strictly inside P's parent, so every folder above P is covered. Checked over the live body (full, workspace,
+/// no grant), the kernel, build, check and git-read profiles. Before, body.sb's and kernel.sb's `/opt/homebrew/var` and
+/// `/opt/homebrew/etc` had no such rule; a policy query for `file-clone` on `/opt/homebrew` shows the rule holds.
+#[test]
+fn every_read_deny_has_its_ancestors_pinned_against_clones() {
+    let fx = fixture("rules", false);
+    let mut t = Table::default();
+    let ws = Grant { read_home: true, write: Some(fx.home.join("ws")), full: false };
+    let mut profiles = vec![("body/full", fx.profile(&full())), ("body/workspace", fx.profile(&ws)), ("body/none", fx.profile(&Grant::default()))];
+    profiles.push(("kernel", fx.kernel_profile()));
+    for (name, id) in [("build", ProfileId::Build), ("check", ProfileId::Check), ("git-read", ProfileId::GitRead)] {
+        profiles.push((name, fx.section_profile(id, &fx.layout(&Grant::default(), &["Documents/tax"]), &Grant::default())));
+    }
+    for (name, r) in &profiles {
+        let (denied, pinned) = rule_paths(r);
+        t.holds(&format!("{name}: names read denies ({})", denied.len()), denied.len() >= 3);
+        for p in &denied {
+            let parent = Path::new(p).parent().unwrap_or(Path::new("/"));
+            let ok = pinned.iter().any(|x| Path::new(x).starts_with(parent) && Path::new(x) != parent);
+            t.holds(&format!("{name}: the folders above {p} cannot be cloned"), ok);
+        }
+    }
+    if Path::new("/opt/homebrew/var").is_dir() {
+        let r = fx.profile(&ws);
+        let q = |path: &str| fx.run(&r, &["policy", "file-clone", path]);
+        t.row("workspace: policy query file-clone /opt/homebrew (denied)", q("/opt/homebrew"), Err(1));
+        t.row("workspace: policy query file-clone /opt/homebrew/bin (allowed)", q("/opt/homebrew/bin"), Ok(()));
+    }
+    t.done();
+}
+
+/// The paths `(deny file-read* …)` rules of `r` name (not inside a `require-not`), and the paths named by
+/// `(path-ancestors …)` in `file-clone` deny rules, with their parameters resolved.
+fn rule_paths(r: &Rendered) -> (Vec<String>, Vec<String>) {
+    let (mut denied, mut pinned) = (Vec::new(), Vec::new());
+    let mut rule = String::new();
+    for line in r.text.lines() {
+        let code = line.split(';').next().unwrap_or("");
+        if rule.is_empty() && !code.trim_start().starts_with('(') {
+            continue;
+        }
+        rule.push_str(code);
+        rule.push(' ');
+        if rule.matches('(').count() > rule.matches(')').count() {
+            continue;
+        }
+        let ops = rule.split(" (").next().unwrap_or("").to_string();
+        if ops.starts_with("(deny file-read*") {
+            denied.extend(args(&rule, &["(subpath ", "(literal "], r));
+        }
+        if ops.starts_with("(deny") && ops.split_whitespace().any(|o| o == "file-clone") {
+            pinned.extend(args(&rule, &["(path-ancestors "], r));
+        }
+        rule.clear();
+    }
+    (denied, pinned)
+}
+
+/// The resolved argument of each `form` in `rule` that is not inside a `(require-not …)`.
+fn args(rule: &str, forms: &[&str], r: &Rendered) -> Vec<String> {
+    let b = rule.as_bytes();
+    let mut skip_until = Vec::new(); // end offsets of the require-not spans
+    let mut depth_at = Vec::new();
+    for (i, c) in b.iter().enumerate() {
+        match c {
+            b'(' => depth_at.push((i, rule[i..].starts_with("(require-not"))),
+            b')' => {
+                if let Some((s, true)) = depth_at.pop() {
+                    skip_until.push((s, i));
+                }
+            }
+            _ => {}
+        }
+    }
+    let mut out = Vec::new();
+    for f in forms {
+        for (i, _) in rule.match_indices(f) {
+            if skip_until.iter().any(|(s, e)| *s < i && i < *e) {
+                continue;
+            }
+            let rest = &rule[i + f.len()..];
+            let v = if let Some(p) = rest.strip_prefix("(param \"") {
+                let n = &p[..p.find('"').unwrap()];
+                r.params.get(n).unwrap_or_else(|| panic!("no parameter {n}")).clone()
+            } else if let Some(q) = rest.strip_prefix('"') {
+                q[..q.find('"').unwrap()].to_string()
+            } else {
+                continue; // a regex or another form
+            };
+            out.push(v);
+        }
+    }
+    out
+}
+
+/// What v0.5.6's clone rule leaves alone: a clone of a folder above no protected path, a single file cloned next to a
+/// protected path (a file is never a folder above one), an editor's atomic save made from a clone, and the kernel's own
+/// clones (a probe root's `kernel/`, a build cache entry, `lineage/body.git`).
+#[test]
+fn clone_beside_protected_paths_still_works() {
+    let mut t = Table::default();
+    let fx = fixture("clone-ok", false);
+    fs::write(fx.home.join(".config/settings.json"), "{}\n").unwrap();
+    let r = fx.profile(&full());
+    for (what, op) in [
+        ("full: clone ~/ws ~/ws2 (above no protected path)", vec!["clone", &fx.h("ws"), &fx.h("ws2")]),
+        ("full: clone ~/.config/other ~/.config/other2", vec!["clone", &fx.h(".config/other"), &fx.h(".config/other2")]),
+        ("full: clone ~/.config/settings.json ~/.config/settings.json.bak", vec!["clone", &fx.h(".config/settings.json"), &fx.h(".config/settings.json.bak")]),
+        ("full: clone ~/.config/other/x ~/.config/x (a file into ~/.config)", vec!["clone", &fx.h(".config/other/x"), &fx.h(".config/x")]),
+        ("full: atomic save of ~/.config/settings.json: clone it to a temp file", vec!["clone", &fx.h(".config/settings.json"), &fx.h(".config/.settings.json.tmp")]),
+        ("full: atomic save of ~/.config/settings.json: write the temp file", vec!["write", &fx.h(".config/.settings.json.tmp")]),
+        ("full: atomic save of ~/.config/settings.json: rename it into place", vec!["rename", &fx.h(".config/.settings.json.tmp"), &fx.h(".config/settings.json")]),
+        ("full: clone ~/Library/Caches ~/Caches2 (beside the service directory)", vec!["clone", &fx.h("Library/Caches"), &fx.h("Caches2")]),
+    ] {
+        t.row(what, fx.run(&r, &op), Ok(()));
+    }
+    t.holds("full: the clone of ~/ws holds a.txt", fs::read_to_string(fx.home.join("ws2/a.txt")).is_ok_and(|s| s == "workspace file\n"));
+    t.holds("full: the atomic save replaced settings.json", fs::read_to_string(fx.home.join(".config/settings.json")).is_ok_and(|s| s == "wp6a\n"));
+    let support = fx.home.join("Library/Application Support");
+    let r = fx.profile(&Grant { read_home: true, write: Some(support.clone()), full: false });
+    let a = |rel: &str| support.join(rel).display().to_string();
+    t.row("workspace ~/Library/Application Support: clone SomeApp SomeApp2", fx.run(&r, &["clone", &a("SomeApp"), &a("SomeApp2")]), Ok(()));
+    let r = fx.kernel_profile();
+    let i = |rel: &str| fx.ih.join(rel).display().to_string();
+    for (what, op) in [
+        ("kernel: clone kernel/ probe/k (a probe root's copy)", vec!["clone", &i("kernel"), &i("probe/k")]),
+        ("kernel: clone cache/build/slot/out cache/deps-x (the deps cache)", vec!["clone", &i("cache/build/slot/out"), &i("cache/deps-x")]),
+        ("kernel: clone lineage/body.git cache/b2", vec!["clone", &i("lineage/body.git"), &i("cache/b2")]),
+    ] {
+        t.row(what, fx.run(&r, &op), Ok(()));
+    }
     t.done();
 }
 

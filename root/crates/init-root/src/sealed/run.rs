@@ -268,13 +268,17 @@ pub fn body_home(ih: &Path, rh: &Path, t0_sha: Option<&str>, run: &RunRoot) -> R
     }
     let sha = t0_sha.ok_or("no lkg tuple: a sealed body run has no T0 source")?;
     let tree = ih.join("lineage/trees").join(sha.get(..12).unwrap_or(sha));
+    // N1 (v0.5.6): the zone writes lineage/, so nothing here follows a link it planted (a SELF.md naming a key in
+    // ROOT_HOME would have been copied into the run): the tree and skills/ must be real folders, each file is copied only
+    // as a regular file opened with O_NOFOLLOW, and cp -P copies a link inside skills/ as a link
+    let real_dir = |p: &Path| fs::symlink_metadata(p).is_ok_and(|m| m.is_dir());
     for f in ["GENESIS.md", "SELF.md", "self.json"] {
-        if tree.join(f).is_file() {
-            fs::copy(tree.join(f), r.join("body").join(f)).map_err(io)?;
+        if real_dir(&tree) {
+            util::copy_regular(&tree.join(f), &r.join("body").join(f)).map_err(io)?;
         }
     }
-    if tree.join("skills").is_dir() {
-        let ok = Command::new("/bin/cp").arg("-R").arg(tree.join("skills")).arg(r.join("body/skills")).status().is_ok_and(|s| s.success());
+    if real_dir(&tree) && real_dir(&tree.join("skills")) {
+        let ok = Command::new("/bin/cp").arg("-RP").arg(tree.join("skills")).arg(r.join("body/skills")).status().is_ok_and(|s| s.success());
         if !ok {
             return Err(format!("copy {}/skills failed", tree.display()));
         }
@@ -609,6 +613,74 @@ mod tests {
                    (Some(env["INIT_BOOT_ID"].as_str()), Some(env["INIT_SESSION"].as_str()), Some("normal"), Some("sealed"), Some("cold")));
         assert_eq!((b["env"]["init_home"].clone(), b["model"]["model"].clone(), b["provisional"].clone()),
                    (json!(run.dir), json!("deepseek-flash"), Value::Null));
+        drop(run);
+        let _ = fs::remove_dir_all(&base); // exact path
+    }
+
+    /// N1 (v0.5.6): the zone writes lineage/trees, so a link planted there is never followed by the unsandboxed Root. A
+    /// SELF.md or self.json naming a key in ROOT_HOME is not copied (so the run has no T0 and is refused), a skills/ that is
+    /// a link is skipped, a linked tree is refused, and a link inside a real skills/ is copied as a link; no file in the
+    /// run ever holds the key's bytes.
+    #[test]
+    fn body_home_follows_no_planted_link() {
+        use std::os::unix::fs::symlink;
+        let base = fs::canonicalize(PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../target")).unwrap()
+            .join(format!("test-homes/m7-unit/bl-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&base); // exact path, created by this test
+        let (ih, rh) = (base.join("ih"), base.join("rh"));
+        let tree = ih.join("lineage/trees/0123456789ab");
+        for d in [tree.clone(), rh.join("keys/skills"), rh.join("run"), ih.join("lineage/other")] {
+            fs::create_dir_all(d).unwrap();
+        }
+        let key = rh.join("keys/lineage.key");
+        fs::write(&key, "ROOT-KEY").unwrap();
+        fs::write(rh.join("keys/skills/SKILL.md"), "ROOT-KEY").unwrap();
+        fs::write(tree.join("GENESIS.md"), "g").unwrap();
+        symlink(&key, tree.join("SELF.md")).unwrap();
+        symlink(&key, tree.join("self.json")).unwrap();
+        symlink(rh.join("keys/skills"), tree.join("skills")).unwrap();
+        let sha = Some("0123456789abcdef0123456789abcdef01234567");
+        let leaks = |dir: &Path| -> Vec<PathBuf> {
+            let mut out = Vec::new();
+            let mut stack = vec![dir.to_path_buf()];
+            while let Some(d) = stack.pop() {
+                for e in fs::read_dir(&d).unwrap().flatten() {
+                    let m = fs::symlink_metadata(e.path()).unwrap();
+                    if m.is_dir() {
+                        stack.push(e.path());
+                    } else if m.is_file() && fs::read(e.path()).unwrap() == b"ROOT-KEY" {
+                        out.push(e.path());
+                    }
+                }
+            }
+            out
+        };
+        let run = RunRoot::new(&rh).unwrap();
+        let e = body_home(&ih, &rh, sha, &run).unwrap_err();
+        assert!(e.contains("no T0"), "{e}");
+        for f in ["body/SELF.md", "body/self.json", "body/skills"] {
+            assert!(fs::symlink_metadata(run.dir.join(f)).is_err(), "{f} was copied through a link");
+        }
+        assert_eq!(leaks(&run.dir), Vec::<PathBuf>::new());
+        drop(run);
+        // a real SELF.md, and a real skills/ holding a link to the key: the T0 is placed, the link stays a link
+        fs::remove_file(tree.join("SELF.md")).unwrap();
+        fs::write(tree.join("SELF.md"), "s").unwrap();
+        fs::remove_file(tree.join("skills")).unwrap();
+        fs::create_dir(tree.join("skills")).unwrap();
+        symlink(&key, tree.join("skills/k")).unwrap();
+        let run = RunRoot::new(&rh).unwrap();
+        body_home(&ih, &rh, sha, &run).unwrap();
+        assert_eq!(fs::read_to_string(run.dir.join("body/SELF.md")).unwrap(), "s");
+        assert!(fs::symlink_metadata(run.dir.join("body/self.json")).is_err(), "a linked self.json is skipped");
+        assert!(fs::symlink_metadata(run.dir.join("body/skills/k")).unwrap().file_type().is_symlink(), "cp -P keeps the link");
+        assert_eq!(leaks(&run.dir), Vec::<PathBuf>::new());
+        drop(run);
+        // the tree itself a link (to a real T0 elsewhere): refused
+        fs::rename(&tree, ih.join("lineage/other/t")).unwrap();
+        symlink(ih.join("lineage/other/t"), &tree).unwrap();
+        let run = RunRoot::new(&rh).unwrap();
+        assert!(body_home(&ih, &rh, sha, &run).unwrap_err().contains("no T0"), "a linked tree is refused");
         drop(run);
         let _ = fs::remove_dir_all(&base); // exact path
     }

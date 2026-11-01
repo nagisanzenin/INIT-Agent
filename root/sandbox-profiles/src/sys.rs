@@ -198,3 +198,41 @@ pub fn rename_swap(a: &std::path::Path, b: &std::path::Path) -> io::Result<()> {
     let rc = unsafe { libc::renamex_np(a.as_ptr(), b.as_ptr(), libc::RENAME_SWAP) };
     if rc == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
 }
+
+/// `clonefile(a, b, CLONE_NOFOLLOW)`: a copy-on-write clone of a file or a whole folder tree at the new path `b` (the probe's
+/// `clone`; v0.5.6: Seatbelt checks a clone against its source, so the tails deny `file-clone` on the folders above a protected
+/// path).
+#[cfg(target_os = "macos")]
+pub fn clonefile(a: &std::path::Path, b: &std::path::Path) -> io::Result<()> {
+    use std::os::unix::ffi::OsStrExt;
+    const CLONE_NOFOLLOW: u32 = 0x0001; // <sys/clonefile.h>
+    let (a, b) = (std::ffi::CString::new(a.as_os_str().as_bytes())?, std::ffi::CString::new(b.as_os_str().as_bytes())?);
+    // SAFETY: both pointers are NUL-terminated strings that live until the call returns.
+    let rc = unsafe { libc::clonefile(a.as_ptr(), b.as_ptr(), CLONE_NOFOLLOW) };
+    if rc == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+/// `fclonefileat(open(a), AT_FDCWD, b, CLONE_NOFOLLOW)`: a clone of what a descriptor names (the probe's `fclone`; v0.5.6).
+#[cfg(target_os = "macos")]
+pub fn fclonefileat(a: &std::path::Path, b: &std::path::Path) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+    let f = std::fs::File::open(a)?;
+    let b = std::ffi::CString::new(b.as_os_str().as_bytes())?;
+    // SAFETY: `f` is an open descriptor and `b` a NUL-terminated string, both live until the call returns.
+    let rc = unsafe { libc::fclonefileat(f.as_raw_fd(), libc::AT_FDCWD, b.as_ptr(), 0x0001) };
+    if rc == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}
+
+/// `clonefileat(open(dir), name, AT_FDCWD, b, CLONE_NOFOLLOW)`: a clone of `name` relative to a folder's descriptor (the
+/// probe's `cloneat`; v0.5.6).
+#[cfg(target_os = "macos")]
+pub fn clonefileat(dir: &std::path::Path, name: &str, b: &std::path::Path) -> io::Result<()> {
+    use std::os::fd::AsRawFd;
+    use std::os::unix::ffi::OsStrExt;
+    let d = std::fs::File::open(dir)?;
+    let (n, b) = (std::ffi::CString::new(name)?, std::ffi::CString::new(b.as_os_str().as_bytes())?);
+    // SAFETY: `d` is an open descriptor and both strings are NUL-terminated, all live until the call returns.
+    let rc = unsafe { libc::clonefileat(d.as_raw_fd(), n.as_ptr(), libc::AT_FDCWD, b.as_ptr(), 0x0001) };
+    if rc == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+}

@@ -173,6 +173,21 @@ pub fn read_secret(path: &Path) -> io::Result<Vec<u8>> {
     Ok(v)
 }
 
+/// N1 (v0.5.6): copy `from` to `to` only if `from` is a regular file, opened with `O_NOFOLLOW` so a link at its name is
+/// never followed, not even one swapped in after a check (the zone writes the trees T0 is copied from). `Ok(false)`:
+/// a link, a folder or anything else that is not a regular file, or nothing there; nothing is copied.
+pub fn copy_regular(from: &Path, to: &Path) -> io::Result<bool> {
+    let mut f = match OpenOptions::new().read(true).custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK | libc::O_CLOEXEC).open(from) {
+        Ok(f) => f,
+        Err(e) if e.raw_os_error() == Some(libc::ELOOP) || e.kind() == io::ErrorKind::NotFound => return Ok(false),
+        Err(e) => return Err(e),
+    };
+    if !f.metadata()?.is_file() {
+        return Ok(false);
+    }
+    io::copy(&mut f, &mut File::create(to)?).map(|_| true)
+}
+
 /// One ICJ line appended to a 0600 JSONL file (logs, alerts, queues), synced.
 pub fn append_line(path: &Path, v: &Value) -> io::Result<()> {
     let mut o = OpenOptions::new();
